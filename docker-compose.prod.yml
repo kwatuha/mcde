@@ -39,14 +39,17 @@ services:
       - /app/node_modules
       - ./uploads:/app/uploads
     depends_on:
-      mysql_db:
+      postgres_db:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      DB_HOST: mysql_db
-      DB_USER: impesUser
-      DB_PASSWORD: Admin2010impes
-      DB_NAME: gov_imbesdb
+      # PostgreSQL connection (primary)
+      DB_TYPE: postgresql
+      DB_HOST: postgres_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: government_projects
+      DB_PORT: 5432
     command: npm run dev
     restart: unless-stopped
 
@@ -61,28 +64,27 @@ services:
     ports:
       - "5177:80"
 
-  mysql_db:
-    image: mysql:8.0
-    container_name: gov_db
+  # PostgreSQL database (primary)
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: gov_postgres
     restart: always
-    command: --default-authentication-plugin=mysql_native_password
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: gov_imbesdb
-      MYSQL_USER: impesUser
-      MYSQL_PASSWORD: Admin2010impes
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: government_projects
     volumes:
-      - ./api/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - gov_db_data:/var/lib/mysql
+      - gov_postgres_data:/var/lib/postgresql/data
+      - ./scripts/migration/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql
     ports:
-      - "3308:3306"
+      - "5433:5432"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 10s
 
 volumes:
-  gov_db_data:
+  gov_postgres_data:
   nginx_cache:

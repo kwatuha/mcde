@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ============================================
-# Production Deployment Script
+# Production Deployment Script (Auto-confirm)
 # ============================================
-# This script deploys the application to production
-# Usage: ./deploy-to-production.sh
+# This script deploys the application to production without prompts
+# Usage: ./deploy-to-production-auto.sh
 
 set -e  # Exit on any error
 
@@ -21,21 +21,17 @@ echo ""
 # Step 1: Check if we're in the correct directory
 if [ ! -f "docker-compose.prod.yml" ]; then
     echo "❌ Error: docker-compose.prod.yml not found!"
-    echo "Please run this script from the /imes directory"
+    echo "Please run this script from the project root directory"
     exit 1
 fi
 
-# Step 2: Confirm deployment
+# Step 2: Show deployment details
 echo "📋 Deployment Details:"
 echo "   Source: $(pwd)"
 echo "   Target: $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"
 echo ""
-read -p "Continue with deployment? (y/n) " -n 1 -r
+echo "⏩ Auto-confirming deployment..."
 echo ""
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "❌ Deployment cancelled"
-    exit 1
-fi
 
 # Step 3: Remove any local .env.local files that shouldn't be deployed
 echo "🧹 Cleaning up local environment files (.env.local)..."
@@ -73,11 +69,11 @@ ssh -i $SSH_KEY $REMOTE_USER@$REMOTE_HOST << 'ENDSSH'
     
     # Stop all services
     echo "⏸️  Stopping services..."
-    docker-compose -f docker-compose.prod.yml down
+    docker-compose -f docker-compose.prod.yml down || true
     
     # Remove old containers
     echo "🗑️  Removing old containers..."
-    docker-compose -f docker-compose.prod.yml rm -f
+    docker-compose -f docker-compose.prod.yml rm -f || true
     
     # Build with no cache for fresh build
     echo "🔨 Building services..."
@@ -88,12 +84,17 @@ ssh -i $SSH_KEY $REMOTE_USER@$REMOTE_HOST << 'ENDSSH'
     docker-compose -f docker-compose.prod.yml up -d
     
     # Wait a moment for services to start
-    sleep 5
+    sleep 10
     
     # Show running containers
     echo ""
     echo "📊 Running containers:"
     docker-compose -f docker-compose.prod.yml ps
+    
+    # Show logs for troubleshooting
+    echo ""
+    echo "📋 Recent logs (last 20 lines):"
+    docker-compose -f docker-compose.prod.yml logs --tail=20
 ENDSSH
 
 echo ""
@@ -108,4 +109,3 @@ echo "📝 Next steps:"
 echo "   1. Test the application in your browser"
 echo "   2. Check logs: ssh -i $SSH_KEY $REMOTE_USER@$REMOTE_HOST 'cd $REMOTE_DIR && docker-compose -f docker-compose.prod.yml logs -f'"
 echo ""
-
