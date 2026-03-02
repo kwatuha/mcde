@@ -9,6 +9,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     directorate: '', costOfProject: '', paidOut: '',
     objective: '', expectedOutput: '', expectedOutcome: '',
     status: 'Not started',
+    overallProgress: '', // Progress JSONB: percentage_complete (0-100)
     ministry: '', stateDepartment: '', sector: '', // New fields replacing departmentId, sectionId, categoryId
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
@@ -76,6 +77,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             expectedOutput: currentProject.expectedOutput || '',
             expectedOutcome: currentProject.expectedOutcome || '',
             status: currentProject.status ? normalizeProjectStatus(currentProject.status) : 'Not started',
+            overallProgress: currentProject.overallProgress !== undefined && currentProject.overallProgress !== null ? String(currentProject.overallProgress) : '',
             ministry: currentProject.ministry || '',
             stateDepartment: currentProject.stateDepartment || '',
             sector: currentProject.sector || '',
@@ -139,6 +141,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         directorate: '', costOfProject: '', paidOut: '',
         objective: '', expectedOutput: '', expectedOutcome: '',
         status: 'Not started',
+        overallProgress: '',
         ministry: '', stateDepartment: '', sector: '',
         categoryId: '',
         countyIds: defaultCountyIds, // Default to configured default county (Kisumu)
@@ -227,6 +230,17 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     // Validate date range only if both dates are provided
     if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) {
       errors.date_range = 'End Date cannot be before Start Date.';
+    }
+    // Validate percentage complete (0-100)
+    if (formData.overallProgress && formData.overallProgress !== '') {
+      const percentage = parseFloat(formData.overallProgress);
+      if (isNaN(percentage)) {
+        errors.overallProgress = 'Percentage must be a valid number.';
+      } else if (percentage < 0) {
+        errors.overallProgress = 'Percentage cannot be less than 0.';
+      } else if (percentage > 100) {
+        errors.overallProgress = 'Percentage cannot exceed 100.';
+      }
     }
     setFormErrors(errors);
     return { isValid: Object.keys(errors).length === 0, errors };

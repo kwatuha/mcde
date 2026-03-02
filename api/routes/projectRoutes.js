@@ -2432,9 +2432,9 @@ router.get('/', async (req, res) => {
                 (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
                 (p.location->'geocoordinates'->>'lng')::numeric AS "longitude",
                 (p.public_engagement->>'feedback_enabled')::boolean AS "feedbackEnabled",
-                STRING_AGG(DISTINCT ps.county, ', ') AS "countyNames",
-                STRING_AGG(DISTINCT ps.constituency, ', ') AS "constituencyNames",
-                STRING_AGG(DISTINCT ps.ward, ', ') AS "wardNames"
+                p.location->>'county' AS "countyNames",
+                p.location->>'constituency' AS "constituencyNames",
+                p.location->>'ward' AS "wardNames"
         ` : `
             SELECT
                 p.id,
@@ -2493,14 +2493,13 @@ router.get('/', async (req, res) => {
         `;
         
         // This part dynamically builds the query.
-        // Include LEFT JOIN to project_sites for PostgreSQL to get County, Constituency, Ward
+        // County, Constituency, Ward are now retrieved from location JSONB in projects table
         let fromAndJoinClauses = DB_TYPE === 'postgresql' ? `
             FROM
                 projects p
             LEFT JOIN programs pr ON (p.notes->>'program_id')::integer = pr."programId" AND (pr.voided IS NULL OR pr.voided = false)
             LEFT JOIN subprograms spr ON (p.notes->>'subprogram_id')::integer = spr."subProgramId" AND (spr.voided IS NULL OR spr.voided = false)
             LEFT JOIN categories cat ON p.category_id = cat."categoryId" AND (cat.voided IS NULL OR cat.voided = false)
-            LEFT JOIN project_sites ps ON p.project_id = ps.project_id
         ` : `
             FROM
                 projects p
@@ -2629,15 +2628,7 @@ router.get('/', async (req, res) => {
         if (whereConditions.length > 0) {
             query += ` WHERE ${whereConditions.join(' AND ')}`;
         }
-        // GROUP BY needed for PostgreSQL when using STRING_AGG
-        // Must include all non-aggregated columns from SELECT
-        if (DB_TYPE === 'postgresql') {
-            query += ` GROUP BY 
-                p.project_id, p.name, p.description, p.implementing_agency, 
-                p.timeline, p.budget, p.progress, p.notes, p.data_sources, 
-                p.public_engagement, p.created_at, p.updated_at, p.voided, 
-                p.sector, p.ministry, p.state_department`;
-        }
+        // No GROUP BY needed since we're getting location data directly from JSONB, not using STRING_AGG
         query += ` ORDER BY ${DB_TYPE === 'postgresql' ? 'p.project_id' : 'p.id'}`;
 
         // Convert MySQL ? placeholders to PostgreSQL $1, $2, etc. if needed

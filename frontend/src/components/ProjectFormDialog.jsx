@@ -407,6 +407,61 @@ const ProjectFormDialog = ({
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField 
+                name="overallProgress" 
+                label="Percentage Complete (%)" 
+                type="number" 
+                fullWidth 
+                variant="outlined" 
+                size="small"
+                value={formData.overallProgress || ''} 
+                onChange={handleChange}
+                placeholder="e.g., 45"
+                error={!!formErrors.overallProgress}
+                helperText={formErrors.overallProgress || "Overall project completion percentage (0-100)"}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                onBlur={(e) => {
+                  // Validate on blur and clamp value if needed
+                  const value = parseFloat(e.target.value);
+                  if (!isNaN(value)) {
+                    if (value < 0) {
+                      handleChange({ target: { name: 'overallProgress', value: '0' } });
+                    } else if (value > 100) {
+                      handleChange({ target: { name: 'overallProgress', value: '100' } });
+                    }
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': {
+                      borderColor: formErrors.overallProgress 
+                        ? colors.redAccent[500] 
+                        : (colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400]),
+                      borderWidth: '2px',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: formErrors.overallProgress 
+                        ? colors.redAccent[600] 
+                        : (colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300]),
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: formErrors.overallProgress 
+                        ? colors.redAccent[500] 
+                        : (colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400]),
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                    fontWeight: 'bold',
+                  },
+                  '& .MuiInputBase-input': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                  },
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField 
                 name="startDate" 
                 label="Start Date" 
                 type="date" 
