@@ -159,6 +159,7 @@ deploy_on_server() {
         
         # Make scripts executable
         chmod +x *.sh 2>/dev/null || true
+        chmod +x scripts/*.sh 2>/dev/null || true
         
         # Stop existing containers (if any)
         print_status() { echo "[INFO] \$1"; }
@@ -195,6 +196,20 @@ deploy_on_server() {
         # Check status
         print_status "Checking container status..."
         \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE ps
+        
+        # Set up cron job for PostgreSQL password reset (if not already set)
+        print_status "Setting up cron job for PostgreSQL password maintenance..."
+        CRON_SCRIPT="$SERVER_PATH/scripts/reset-postgres-password.sh"
+        
+        # Check if cron job already exists
+        if crontab -l 2>/dev/null | grep -q "reset-postgres-password.sh"; then
+            print_status "Cron job for PostgreSQL password reset already exists"
+        else
+            # Add cron job (runs every 2 minutes to prevent authentication issues on busy server)
+            CRON_JOB="*/2 * * * * cd $SERVER_PATH && bash \$CRON_SCRIPT > /dev/null 2>&1"
+            (crontab -l 2>/dev/null; echo "\$CRON_JOB") | crontab -
+            print_success "Cron job added to run PostgreSQL password reset every 2 minutes"
+        fi
         
         print_success "Deployment completed!"
 EOF
