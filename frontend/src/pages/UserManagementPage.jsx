@@ -55,6 +55,8 @@ function UserManagementPage() {
     confirmPassword: '',
     firstName: '',
     lastName: '',
+    idNumber: '',
+    employeeNumber: '',
     role: '',
   });
   const [userFormErrors, setUserFormErrors] = useState({});
@@ -204,6 +206,7 @@ function UserManagementPage() {
     setCurrentUserToEdit(null);
     setUserFormData({
       username: '', email: '', password: '', confirmPassword: '', firstName: '', lastName: '',
+      idNumber: '', employeeNumber: '',
       role: roles.length > 0 ? roles[0].roleName : '',
     });
     setUserFormErrors({});
@@ -223,6 +226,8 @@ function UserManagementPage() {
       confirmPassword: '',
       firstName: userItem.firstName || '',
       lastName: userItem.lastName || '',
+      idNumber: userItem.idNumber || '',
+      employeeNumber: userItem.employeeNumber || '',
       role: userItem.role || '',
     });
     setUserFormErrors({});
@@ -837,6 +842,18 @@ function UserManagementPage() {
       },
     },
     {
+      field: "idNumber",
+      headerName: "ID Number",
+      flex: 1,
+      minWidth: 120,
+    },
+    {
+      field: "employeeNumber",
+      headerName: "Employee Number",
+      flex: 1,
+      minWidth: 140,
+    },
+    {
       field: "role",
       headerName: "Role",
       flex: 1,
@@ -1398,6 +1415,8 @@ function UserManagementPage() {
           <TextField margin="dense" name="email" label="Email" type="email" fullWidth variant="outlined" value={userFormData.email} onChange={handleUserFormChange} error={!!userFormErrors.email} helperText={userFormErrors.email} disabled={!!currentUserToEdit} sx={{ mb: 2 }} />
           <TextField margin="dense" name="firstName" label="First Name" type="text" fullWidth variant="outlined" value={userFormData.firstName} onChange={handleUserFormChange} error={!!userFormErrors.firstName} helperText={userFormErrors.firstName} disabled={!!currentUserToEdit} sx={{ mb: 2 }} />
           <TextField margin="dense" name="lastName" label="Last Name" type="text" fullWidth variant="outlined" value={userFormData.lastName} onChange={handleUserFormChange} error={!!userFormErrors.lastName} helperText={userFormErrors.lastName} disabled={!!currentUserToEdit} sx={{ mb: 2 }} />
+          <TextField margin="dense" name="idNumber" label="ID Number" type="text" fullWidth variant="outlined" value={userFormData.idNumber} onChange={handleUserFormChange} error={!!userFormErrors.idNumber} helperText={userFormErrors.idNumber || 'National ID number'} sx={{ mb: 2 }} />
+          <TextField margin="dense" name="employeeNumber" label="Employee Number" type="text" fullWidth variant="outlined" value={userFormData.employeeNumber} onChange={handleUserFormChange} error={!!userFormErrors.employeeNumber} helperText={userFormErrors.employeeNumber || 'Employee number'} sx={{ mb: 2 }} />
           {!currentUserToEdit ? (
             <>
               <TextField margin="dense" name="password" label="Password" type="password" fullWidth variant="outlined" value={userFormData.password} onChange={handleUserFormChange} error={!!userFormErrors.password} helperText={userFormErrors.password} sx={{ mb: 2 }} />

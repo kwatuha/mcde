@@ -12,7 +12,10 @@ import {
     Link,
     Alert,
     CircularProgress,
-    Container
+    Container,
+    Checkbox,
+    FormControlLabel,
+    FormHelperText
 } from '@mui/material';
 
 const Register = () => {
@@ -22,26 +25,60 @@ const Register = () => {
         password: '',
         firstName: '',
         lastName: '',
+        idNumber: '',
+        employeeNumber: '',
     });
+    const [consentGiven, setConsentGiven] = useState(false);
+    const [emailError, setEmailError] = useState('');
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
+    // Email validation function
+    const validateEmail = (email) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    };
+
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        
+        // Validate email in real-time
+        if (name === 'email') {
+            if (value && !validateEmail(value)) {
+                setEmailError('Please enter a valid email address (e.g., user@example.com)');
+            } else {
+                setEmailError('');
+            }
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setSuccessMessage('');
+        setEmailError('');
         setLoading(true);
 
         // Basic client-side validation for required fields
-        if (!formData.username || !formData.email || !formData.password || !formData.firstName || !formData.lastName) {
+        if (!formData.username || !formData.email || !formData.password || !formData.firstName || !formData.lastName || !formData.idNumber || !formData.employeeNumber) {
             setError('Please fill in all required fields.');
+            setLoading(false);
+            return;
+        }
+
+        // Email validation
+        if (!validateEmail(formData.email)) {
+            setEmailError('Please enter a valid email address (e.g., user@example.com)');
+            setLoading(false);
+            return;
+        }
+
+        // Consent validation
+        if (!consentGiven) {
+            setError('You must consent to the collection and use of your information to proceed.');
             setLoading(false);
             return;
         }
@@ -55,7 +92,10 @@ const Register = () => {
 
         try {
             // Call the register API endpoint using axiosInstance
-            const response = await axiosInstance.post('/auth/register', formData);
+            const response = await axiosInstance.post('/auth/register', {
+                ...formData,
+                consentGiven: consentGiven
+            });
             const data = response.data;
             
             setSuccessMessage(data.message || 'Registration successful! Your account is pending approval by an administrator.');
@@ -67,7 +107,10 @@ const Register = () => {
                 password: '',
                 firstName: '',
                 lastName: '',
+                idNumber: '',
+                employeeNumber: '',
             });
+            setConsentGiven(false);
             
             // Redirect to login page after a delay to let user read the message
             setTimeout(() => {
@@ -211,6 +254,8 @@ const Register = () => {
                             onChange={handleChange}
                             required
                             disabled={loading}
+                            error={!!emailError}
+                            helperText={emailError || 'Enter a valid email address (e.g., user@example.com)'}
                             sx={{ 
                                 mb: 2,
                                 '& .MuiOutlinedInput-root': {
@@ -339,6 +384,107 @@ const Register = () => {
                             }}
                             variant="outlined"
                         />
+
+                        <TextField
+                            fullWidth
+                            label="ID Number"
+                            id="idNumber"
+                            name="idNumber"
+                            value={formData.idNumber}
+                            onChange={handleChange}
+                            required
+                            disabled={loading}
+                            inputProps={{ maxLength: 20 }}
+                            helperText="Enter your national ID number"
+                            sx={{ 
+                                mb: 2,
+                                '& .MuiOutlinedInput-root': {
+                                    borderRadius: 2,
+                                    backgroundColor: '#f8fafc',
+                                    transition: 'all 0.3s ease-in-out',
+                                    '&:hover': {
+                                        backgroundColor: '#f1f5f9',
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderColor: '#3b82f6',
+                                            borderWidth: 2
+                                        }
+                                    },
+                                    '&.Mui-focused': {
+                                        backgroundColor: 'white',
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderColor: '#1e3a8a',
+                                            borderWidth: 2
+                                        }
+                                    }
+                                }
+                            }}
+                            variant="outlined"
+                        />
+
+                        <TextField
+                            fullWidth
+                            label="Employee Number"
+                            id="employeeNumber"
+                            name="employeeNumber"
+                            value={formData.employeeNumber}
+                            onChange={handleChange}
+                            required
+                            disabled={loading}
+                            inputProps={{ maxLength: 20 }}
+                            helperText="Enter your employee number"
+                            sx={{ 
+                                mb: 2,
+                                '& .MuiOutlinedInput-root': {
+                                    borderRadius: 2,
+                                    backgroundColor: '#f8fafc',
+                                    transition: 'all 0.3s ease-in-out',
+                                    '&:hover': {
+                                        backgroundColor: '#f1f5f9',
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderColor: '#3b82f6',
+                                            borderWidth: 2
+                                        }
+                                    },
+                                    '&.Mui-focused': {
+                                        backgroundColor: 'white',
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderColor: '#1e3a8a',
+                                            borderWidth: 2
+                                        }
+                                    }
+                                }
+                            }}
+                            variant="outlined"
+                        />
+
+                        <Box sx={{ mb: 2 }}>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        checked={consentGiven}
+                                        onChange={(e) => setConsentGiven(e.target.checked)}
+                                        disabled={loading}
+                                        required
+                                        sx={{
+                                            color: '#3b82f6',
+                                            '&.Mui-checked': {
+                                                color: '#1e3a8a',
+                                            },
+                                        }}
+                                    />
+                                }
+                                label={
+                                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                                        I consent to the collection and use of my information for account registration and portal management purposes.
+                                    </Typography>
+                                }
+                            />
+                            {!consentGiven && (
+                                <FormHelperText sx={{ color: '#d32f2f', ml: 4, mt: 0 }}>
+                                    You must provide consent to proceed
+                                </FormHelperText>
+                            )}
+                        </Box>
 
                         {error && (
                             <Alert severity="error" sx={{ mb: 2, fontSize: '0.875rem' }}>

@@ -212,7 +212,7 @@ const Topbar = () => {
             <ListItemIcon>
               <PersonOutlinedIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Profile Settings</ListItemText>
+            <ListItemText>My Profile</ListItemText>
           </MenuItem>
           
           {/* CHANGE PASSWORD */}

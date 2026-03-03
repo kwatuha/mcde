@@ -64,10 +64,22 @@ async function getPrivilegesByRole(roleId) {
 // @desc    Register a new user (requires admin approval)
 // @access  Public
 router.post('/register', async (req, res) => {
-    const { username, email, password, firstName, lastName, roleName } = req.body;
+    const { username, email, password, firstName, lastName, roleName, idNumber, employeeNumber, consentGiven } = req.body;
 
-    if (!username || !email || !password || !firstName || !lastName) {
-        return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name.' });
+    // Validate required fields
+    if (!username || !email || !password || !firstName || !lastName || !idNumber || !employeeNumber) {
+        return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, ID number, and employee number.' });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Please enter a valid email address (e.g., user@example.com).' });
+    }
+
+    // Validate consent
+    if (!consentGiven) {
+        return res.status(400).json({ error: 'You must consent to the collection and use of your information to proceed.' });
     }
 
     try {
@@ -136,17 +148,17 @@ router.post('/register', async (req, res) => {
         let insertParams;
         if (DB_TYPE === 'postgresql') {
             insertQuery = `
-                INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, createdat, updatedat, isactive, voided)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false, false)
+                INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, createdat, updatedat, isactive, voided)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false, false)
                 RETURNING userid
             `;
-            insertParams = [username, email, passwordHash, firstName, lastName, roleId];
+            insertParams = [username, email, passwordHash, firstName, lastName, roleId, idNumber, employeeNumber];
         } else {
             insertQuery = `
-                INSERT INTO users (username, email, passwordHash, firstName, lastName, roleId, createdAt, updatedAt, isActive, voided)
-                VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW(), 0, 0)
+                INSERT INTO users (username, email, passwordHash, firstName, lastName, roleId, idNumber, employeeNumber, createdAt, updatedAt, isActive, voided)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0, 0)
             `;
-            insertParams = [username, email, passwordHash, firstName, lastName, roleId];
+            insertParams = [username, email, passwordHash, firstName, lastName, roleId, idNumber, employeeNumber];
         }
         
         const insertResult = await pool.query(insertQuery, insertParams);

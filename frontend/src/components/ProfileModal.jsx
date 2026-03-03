@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,11 +10,10 @@ import {
   TextField,
   Button,
   Grid,
-  Chip,
   IconButton,
-  LinearProgress,
-  Divider,
   useTheme,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -23,77 +22,186 @@ import {
   Cancel as CancelIcon,
   Person as AccountIcon,
   Email as EmailIcon,
-  Phone as PhoneIcon,
-  LocationOn as LocationIcon,
+  Badge as BadgeIcon,
   Work as WorkIcon,
-  Star as StarIcon,
 } from '@mui/icons-material';
 import { tokens } from '../pages/dashboard/theme';
+import { useAuth } from '../context/AuthContext';
+import userService from '../api/userService';
 
-const ProfileModal = ({ open, onClose, user, onSave }) => {
+const ProfileModal = ({ open, onClose }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const { user: currentUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
-    department: user?.department || '',
-    role: user?.role || '',
-    location: user?.location || '',
-    bio: user?.bio || '',
+    email: '',
+    firstName: '',
+    lastName: '',
+    idNumber: '',
+    employeeNumber: '',
   });
+  const [formErrors, setFormErrors] = useState({});
+
+  // Email validation function
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Fetch user data when modal opens
+  useEffect(() => {
+    if (open && currentUser?.userId) {
+      fetchUserData();
+    }
+  }, [open, currentUser?.userId]);
+
+  const fetchUserData = async () => {
+    if (!currentUser?.userId) return;
+    
+    setLoading(true);
+    setError('');
+    try {
+      const userData = await userService.getUserById(currentUser.userId);
+      setFormData({
+        email: userData.email || '',
+        firstName: userData.firstName || '',
+        lastName: userData.lastName || '',
+        idNumber: userData.idNumber || '',
+        employeeNumber: userData.employeeNumber || '',
+      });
+    } catch (err) {
+      console.error('Error fetching user data:', err);
+      setError('Failed to load profile data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
+
+    // Clear error for this field
+    if (formErrors[field]) {
+      setFormErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
+
+    // Validate email in real-time
+    if (field === 'email' && value && !validateEmail(value)) {
+      setFormErrors(prev => ({
+        ...prev,
+        email: 'Please enter a valid email address (e.g., user@example.com)'
+      }));
+    }
   };
 
-  const handleSave = () => {
-    onSave(formData);
-    setIsEditing(false);
+  const validateForm = () => {
+    const errors = {};
+
+    if (!formData.email || formData.email.trim() === '') {
+      errors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      errors.email = 'Please enter a valid email address (e.g., user@example.com)';
+    }
+
+    if (!formData.firstName || formData.firstName.trim() === '') {
+      errors.firstName = 'First name is required';
+    }
+
+    if (!formData.lastName || formData.lastName.trim() === '') {
+      errors.lastName = 'Last name is required';
+    }
+
+    if (!formData.idNumber || formData.idNumber.trim() === '') {
+      errors.idNumber = 'ID number is required';
+    }
+
+    if (!formData.employeeNumber || formData.employeeNumber.trim() === '') {
+      errors.employeeNumber = 'Employee number is required';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validateForm()) {
+      setError('Please correct the form errors before saving.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await userService.updateUser(currentUser.userId, {
+        email: formData.email.trim(),
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        idNumber: formData.idNumber.trim(),
+        employeeNumber: formData.employeeNumber.trim(),
+      });
+
+      setSuccess('Profile updated successfully!');
+      setIsEditing(false);
+      
+      // Refresh user data
+      setTimeout(() => {
+        fetchUserData();
+      }, 500);
+    } catch (err) {
+      console.error('Error updating profile:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to update profile. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
-    setFormData({
-      name: user?.name || '',
-      email: user?.email || '',
-      phone: user?.phone || '',
-      department: user?.department || '',
-      role: user?.role || '',
-      location: user?.location || '',
-      bio: user?.bio || '',
-    });
+    fetchUserData(); // Reset to original values
     setIsEditing(false);
+    setFormErrors({});
+    setError('');
+    setSuccess('');
   };
 
-  const calculateProfileCompletion = () => {
-    const fields = ['name', 'email', 'phone', 'department', 'role', 'location', 'bio'];
-    const completedFields = fields.filter(field => formData[field] && formData[field].trim() !== '').length;
-    return Math.round((completedFields / fields.length) * 100);
+  const handleEdit = () => {
+    setIsEditing(true);
+    setError('');
+    setSuccess('');
   };
 
-  const profileCompletion = calculateProfileCompletion();
+  const fullName = `${formData.firstName || ''} ${formData.lastName || ''}`.trim() || currentUser?.username || 'User';
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
       PaperProps={{
         sx: {
-          bgcolor: colors.primary[400],
+          bgcolor: theme.palette.mode === 'dark' ? colors.primary[100] : '#ffffff',
           borderRadius: 3,
-          boxShadow: `0 8px 32px ${colors.primary[300]}20`,
+          boxShadow: `0 8px 32px rgba(0, 0, 0, 0.1)`,
         }
       }}
     >
       <DialogTitle sx={{ 
-        bgcolor: colors.primary[500], 
-        color: colors.grey[100],
+        bgcolor: theme.palette.mode === 'dark' ? colors.primary[200] : colors.blueAccent?.[100] || '#e0e2f5',
+        color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800],
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -105,13 +213,13 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
             width: 40,
             height: 40
           }}>
-            <AccountIcon />
+            {fullName.charAt(0).toUpperCase()}
           </Avatar>
           <Box>
             <Typography variant="h6" fontWeight="bold">
-              Profile Details
+              My Profile
             </Typography>
-            <Typography variant="body2" color={colors.grey[300]}>
+            <Typography variant="body2" color={theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600]}>
               Manage your personal information
             </Typography>
           </Box>
@@ -119,7 +227,7 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
         <Box display="flex" alignItems="center" gap={1}>
           {!isEditing ? (
             <IconButton 
-              onClick={() => setIsEditing(true)}
+              onClick={handleEdit}
               sx={{ 
                 color: colors.blueAccent?.[500] || '#6870fa',
                 '&:hover': { bgcolor: colors.blueAccent?.[500] + '20' }
@@ -131,18 +239,22 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
             <Box display="flex" gap={1}>
               <IconButton 
                 onClick={handleSave}
+                disabled={saving}
                 sx={{ 
                   color: colors.greenAccent?.[500] || '#4cceac',
-                  '&:hover': { bgcolor: colors.greenAccent?.[500] + '20' }
+                  '&:hover': { bgcolor: colors.greenAccent?.[500] + '20' },
+                  '&:disabled': { opacity: 0.5 }
                 }}
               >
-                <SaveIcon />
+                {saving ? <CircularProgress size={20} /> : <SaveIcon />}
               </IconButton>
               <IconButton 
                 onClick={handleCancel}
+                disabled={saving}
                 sx={{ 
                   color: colors.redAccent?.[500] || '#db4f4a',
-                  '&:hover': { bgcolor: colors.redAccent?.[500] + '20' }
+                  '&:hover': { bgcolor: colors.redAccent?.[500] + '20' },
+                  '&:disabled': { opacity: 0.5 }
                 }}
               >
                 <CancelIcon />
@@ -152,8 +264,8 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
           <IconButton 
             onClick={onClose}
             sx={{ 
-              color: colors.grey[300],
-              '&:hover': { bgcolor: colors.primary[600] }
+              color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600],
+              '&:hover': { bgcolor: theme.palette.mode === 'dark' ? colors.primary[300] : colors.grey[200] }
             }}
           >
             <CloseIcon />
@@ -162,85 +274,46 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
       </DialogTitle>
 
       <DialogContent sx={{ p: 3 }}>
-        {/* Profile Completion Progress */}
-        <Box mb={3}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="medium">
-              Profile Completion
-            </Typography>
-            <Typography variant="h6" color={colors.blueAccent?.[500] || '#6870fa'} fontWeight="bold">
-              {profileCompletion}%
-            </Typography>
+        {loading ? (
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
+            <CircularProgress />
           </Box>
-          <LinearProgress
-            variant="determinate"
-            value={profileCompletion}
-            sx={{
-              height: 8,
-              borderRadius: 4,
-              bgcolor: colors.primary[300],
-              '& .MuiLinearProgress-bar': {
-                bgcolor: colors.blueAccent?.[500] || '#6870fa',
-                borderRadius: 4,
-              }
-            }}
-          />
-        </Box>
+        ) : (
+          <>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            {success && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {success}
+              </Alert>
+            )}
 
-        <Divider sx={{ mb: 3, borderColor: colors.primary[300] }} />
-
-        {/* Profile Form */}
-        <Grid container spacing={3}>
-          {/* Profile Picture Section */}
-          <Grid item xs={12} md={4}>
-            <Box textAlign="center">
-              <Avatar sx={{ 
-                width: 120, 
-                height: 120, 
-                mx: 'auto', 
-                mb: 2,
-                bgcolor: colors.blueAccent?.[500] || '#6870fa',
-                boxShadow: `0 4px 20px ${colors.blueAccent?.[500] || '#6870fa'}30`
-              }}>
-                <AccountIcon sx={{ fontSize: 60 }} />
-              </Avatar>
-              <Typography variant="h6" fontWeight="bold" color={colors.grey[100]} mb={1}>
-                {formData.name}
-              </Typography>
-              <Chip 
-                label={formData.role} 
-                size="small" 
-                sx={{ 
-                  bgcolor: colors.greenAccent?.[500] || '#4cceac', 
-                  color: 'white',
-                  fontWeight: 'bold'
-                }}
-              />
-            </Box>
-          </Grid>
-
-          {/* Form Fields */}
-          <Grid item xs={12} md={8}>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Full Name"
-                  value={formData.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  label="First Name"
+                  value={formData.firstName}
+                  onChange={(e) => handleInputChange('firstName', e.target.value)}
                   disabled={!isEditing}
+                  required
+                  error={!!formErrors.firstName}
+                  helperText={formErrors.firstName}
                   InputProps={{
-                    startAdornment: <AccountIcon sx={{ color: colors.grey[400], mr: 1 }} />
+                    startAdornment: <AccountIcon sx={{ color: theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[500], mr: 1 }} />
                   }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
+                      bgcolor: theme.palette.mode === 'dark' ? colors.primary[50] : '#ffffff',
+                      '& fieldset': { borderColor: colors.grey[400] },
                       '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                       '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                     },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
+                    '& .MuiInputLabel-root': { color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600] },
+                    '& .MuiOutlinedInput-input': { color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800] },
                   }}
                 />
               </Grid>
@@ -248,115 +321,25 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  label="Last Name"
+                  value={formData.lastName}
+                  onChange={(e) => handleInputChange('lastName', e.target.value)}
                   disabled={!isEditing}
+                  required
+                  error={!!formErrors.lastName}
+                  helperText={formErrors.lastName}
                   InputProps={{
-                    startAdornment: <EmailIcon sx={{ color: colors.grey[400], mr: 1 }} />
+                    startAdornment: <AccountIcon sx={{ color: theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[500], mr: 1 }} />
                   }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
+                      bgcolor: theme.palette.mode === 'dark' ? colors.primary[50] : '#ffffff',
+                      '& fieldset': { borderColor: colors.grey[400] },
                       '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                       '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                     },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Phone"
-                  value={formData.phone}
-                  onChange={(e) => handleInputChange('phone', e.target.value)}
-                  disabled={!isEditing}
-                  InputProps={{
-                    startAdornment: <PhoneIcon sx={{ color: colors.grey[400], mr: 1 }} />
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
-                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                    },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Department"
-                  value={formData.department}
-                  onChange={(e) => handleInputChange('department', e.target.value)}
-                  disabled={!isEditing}
-                  InputProps={{
-                    startAdornment: <WorkIcon sx={{ color: colors.grey[400], mr: 1 }} />
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
-                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                    },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Role"
-                  value={formData.role}
-                  onChange={(e) => handleInputChange('role', e.target.value)}
-                  disabled={!isEditing}
-                  InputProps={{
-                    startAdornment: <StarIcon sx={{ color: colors.grey[400], mr: 1 }} />
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
-                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                    },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Location"
-                  value={formData.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  disabled={!isEditing}
-                  InputProps={{
-                    startAdornment: <LocationIcon sx={{ color: colors.grey[400], mr: 1 }} />
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
-                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
-                    },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
+                    '& .MuiInputLabel-root': { color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600] },
+                    '& .MuiOutlinedInput-input': { color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800] },
                   }}
                 />
               </Grid>
@@ -364,36 +347,94 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
               <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="Bio"
-                  multiline
-                  rows={3}
-                  value={formData.bio}
-                  onChange={(e) => handleInputChange('bio', e.target.value)}
+                  label="Email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
                   disabled={!isEditing}
-                  placeholder="Tell us about yourself..."
+                  required
+                  error={!!formErrors.email}
+                  helperText={formErrors.email || 'Enter a valid email address (e.g., user@example.com)'}
+                  InputProps={{
+                    startAdornment: <EmailIcon sx={{ color: theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[500], mr: 1 }} />
+                  }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      bgcolor: colors.primary[500],
-                      '& fieldset': { borderColor: colors.primary[300] },
+                      bgcolor: theme.palette.mode === 'dark' ? colors.primary[50] : '#ffffff',
+                      '& fieldset': { borderColor: colors.grey[400] },
                       '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                       '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
                     },
-                    '& .MuiInputLabel-root': { color: colors.grey[300] },
-                    '& .MuiOutlinedInput-input': { color: colors.grey[100] },
+                    '& .MuiInputLabel-root': { color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600] },
+                    '& .MuiOutlinedInput-input': { color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800] },
+                  }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="ID Number"
+                  value={formData.idNumber}
+                  onChange={(e) => handleInputChange('idNumber', e.target.value)}
+                  disabled={!isEditing}
+                  required
+                  error={!!formErrors.idNumber}
+                  helperText={formErrors.idNumber || 'National ID number'}
+                  inputProps={{ maxLength: 50 }}
+                  InputProps={{
+                    startAdornment: <BadgeIcon sx={{ color: theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[500], mr: 1 }} />
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: theme.palette.mode === 'dark' ? colors.primary[50] : '#ffffff',
+                      '& fieldset': { borderColor: colors.grey[400] },
+                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
+                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
+                    },
+                    '& .MuiInputLabel-root': { color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600] },
+                    '& .MuiOutlinedInput-input': { color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800] },
+                  }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Employee Number"
+                  value={formData.employeeNumber}
+                  onChange={(e) => handleInputChange('employeeNumber', e.target.value)}
+                  disabled={!isEditing}
+                  required
+                  error={!!formErrors.employeeNumber}
+                  helperText={formErrors.employeeNumber || 'Employee number'}
+                  inputProps={{ maxLength: 50 }}
+                  InputProps={{
+                    startAdornment: <WorkIcon sx={{ color: theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[500], mr: 1 }} />
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: theme.palette.mode === 'dark' ? colors.primary[50] : '#ffffff',
+                      '& fieldset': { borderColor: colors.grey[400] },
+                      '&:hover fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
+                      '&.Mui-focused fieldset': { borderColor: colors.blueAccent?.[500] || '#6870fa' },
+                    },
+                    '& .MuiInputLabel-root': { color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600] },
+                    '& .MuiOutlinedInput-input': { color: theme.palette.mode === 'dark' ? colors.grey[900] : colors.grey[800] },
                   }}
                 />
               </Grid>
             </Grid>
-          </Grid>
-        </Grid>
+          </>
+        )}
       </DialogContent>
 
-      <DialogActions sx={{ p: 3, bgcolor: colors.primary[500] }}>
+      <DialogActions sx={{ p: 3, bgcolor: theme.palette.mode === 'dark' ? colors.primary[100] : '#f5f5f5' }}>
         <Button
           onClick={onClose}
           sx={{
-            color: colors.grey[300],
-            '&:hover': { bgcolor: colors.primary[600] }
+            color: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[600],
+            '&:hover': { bgcolor: theme.palette.mode === 'dark' ? colors.primary[200] : colors.grey[200] }
           }}
         >
           Close
@@ -402,12 +443,14 @@ const ProfileModal = ({ open, onClose, user, onSave }) => {
           <Button
             onClick={handleSave}
             variant="contained"
+            disabled={saving}
             sx={{
               bgcolor: colors.blueAccent?.[500] || '#6870fa',
-              '&:hover': { bgcolor: colors.blueAccent?.[600] || '#535ac8' }
+              '&:hover': { bgcolor: colors.blueAccent?.[600] || '#535ac8' },
+              '&:disabled': { opacity: 0.5 }
             }}
           >
-            Save Changes
+            {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         )}
       </DialogActions>

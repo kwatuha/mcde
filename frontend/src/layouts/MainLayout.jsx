@@ -13,7 +13,8 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { Outlet, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { PageTitleProvider } from '../context/PageTitleContext.jsx';
-import { ProfileModalProvider } from '../context/ProfileModalContext.jsx';
+import { ProfileModalProvider, useProfileModal } from '../context/ProfileModalContext.jsx';
+import ProfileModal from '../components/ProfileModal.jsx';
 import { MenuCategoryProvider } from '../context/MenuCategoryContext.jsx';
 import { SidebarProvider, useSidebar } from '../context/SidebarContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
@@ -50,6 +51,7 @@ function MainLayoutContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isCollapsed } = useSidebar();
+  const { isOpen: isProfileModalOpen, closeModal: closeProfileModal } = useProfileModal();
   
   // Calculate current sidebar width
   const currentSidebarWidth = isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth;
@@ -184,6 +186,12 @@ function MainLayoutContent() {
       
       {/* Floating Chat Button - Hidden for now */}
       {/* <FloatingChatButton /> */}
+
+      {/* Profile Modal */}
+      <ProfileModal
+        open={isProfileModalOpen}
+        onClose={closeProfileModal}
+      />
     </>
   );
 }

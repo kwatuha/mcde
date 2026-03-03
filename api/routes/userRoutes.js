@@ -18,6 +18,7 @@ router.get('/users', async (req, res) => {
             query = `
                 SELECT 
                     u.userid AS "userId", u.username, u.email, u.firstname AS "firstName", u.lastname AS "lastName", 
+                    u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                     u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive", 
                     u.roleid AS "roleId", r.name AS role
                 FROM users u
@@ -28,7 +29,8 @@ router.get('/users', async (req, res) => {
         } else {
             query = `
                 SELECT 
-                    u.userId, u.username, u.email, u.firstName, u.lastName, u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
+                    u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
+                    u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
                 WHERE u.voided = 0
@@ -60,6 +62,7 @@ router.get('/users/:id', async (req, res) => {
             query = `
                 SELECT 
                     u.userid AS "userId", u.username, u.email, u.firstname AS "firstName", u.lastname AS "lastName", 
+                    u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                     u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive", 
                     u.roleid AS "roleId", r.name AS role
                 FROM users u
@@ -70,7 +73,8 @@ router.get('/users/:id', async (req, res) => {
         } else {
             query = `
                 SELECT 
-                    u.userId, u.username, u.email, u.firstName, u.lastName, u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
+                    u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
+                    u.createdAt, u.updatedAt, u.isActive, u.roleId, r.roleName AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
                 WHERE u.userId = ?
@@ -97,7 +101,7 @@ router.get('/users/:id', async (req, res) => {
  * @description Create a new user in the users table.
  */
 router.post('/users', async (req, res) => {
-    const { username, email, password, firstName, lastName, roleId } = req.body;
+    const { username, email, password, firstName, lastName, roleId, idNumber, employeeNumber } = req.body;
 
     if (!username || !email || !password || !firstName || !lastName || !roleId) {
         return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, and role ID.' });
@@ -131,10 +135,10 @@ router.post('/users', async (req, res) => {
         if (DB_TYPE === 'postgresql') {
             // PostgreSQL: Use explicit INSERT with RETURNING
             const insertResult = await pool.query(
-                `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, createdat, updatedat, isactive, voided)
-                 VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $7, false)
+                `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, createdat, updatedat, isactive, voided)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $9, false)
                  RETURNING userid`,
-                [username, email, passwordHash, firstName, lastName, roleId, true]
+                [username, email, passwordHash, firstName, lastName, roleId, idNumber || null, employeeNumber || null, true]
             );
             insertedUserId = insertResult.rows[0].userid;
         } else {
@@ -146,6 +150,8 @@ router.post('/users', async (req, res) => {
                 firstName,
                 lastName,
                 roleId,
+                idNumber: idNumber || null,
+                employeeNumber: employeeNumber || null,
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 isActive: true,
@@ -161,6 +167,7 @@ router.post('/users', async (req, res) => {
             fetchQuery = `
                 SELECT 
                     u.userid AS "userId", u.username, u.email, u.firstname AS "firstName", u.lastname AS "lastName", 
+                    u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                     u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive"
                 FROM users u
                 LEFT JOIN roles r ON u.roleid = r.roleid
@@ -170,7 +177,8 @@ router.post('/users', async (req, res) => {
         } else {
             fetchQuery = `
                 SELECT 
-                    u.userId, u.username, u.email, u.firstName, u.lastName, u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
+                    u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
+                    u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
                 WHERE u.userId = ?
@@ -221,6 +229,8 @@ router.put('/users/:id', async (req, res) => {
                 passwordHash: 'passwordhash',
                 firstName: 'firstname',
                 lastName: 'lastname',
+                idNumber: 'id_number',
+                employeeNumber: 'employee_number',
                 roleId: 'roleid',
                 isActive: 'isactive'
             };
@@ -255,6 +265,7 @@ router.put('/users/:id', async (req, res) => {
                 fetchQuery = `
                     SELECT 
                         u.userid AS "userId", u.username, u.email, u.firstname AS "firstName", u.lastname AS "lastName", 
+                        u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                         u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive"
                     FROM users u
                     LEFT JOIN roles r ON u.roleid = r.roleid
@@ -264,7 +275,8 @@ router.put('/users/:id', async (req, res) => {
             } else {
                 fetchQuery = `
                     SELECT 
-                        u.userId, u.username, u.email, u.firstName, u.lastName, u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
+                        u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
+                        u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive
                     FROM users u
                     LEFT JOIN roles r ON u.roleId = r.roleId
                     WHERE u.userId = ?
