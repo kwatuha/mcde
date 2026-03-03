@@ -46,7 +46,9 @@ const Login = () => {
             }
         } catch (err) {
             console.error('Login.jsx: Error caught during login API call:', err);
-            setError(err.message || err.error || 'Login failed. Please check your credentials.');
+            // Handle different error formats from axios interceptor
+            const errorMessage = err?.error || err?.message || (typeof err === 'string' ? err : 'Login failed. Please check your credentials.');
+            setError(errorMessage);
         } finally {
             setLoading(false);
             console.log('Login.jsx: Login attempt finished. Loading set to false.');
@@ -121,7 +123,7 @@ const Login = () => {
                                     textTransform: 'uppercase'
                                 }}
                             >
-                                Civic Chat Portal
+                                CivicChat Portal
                             </Typography>
                         </Box>
                         <Typography 

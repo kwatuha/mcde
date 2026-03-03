@@ -141,7 +141,7 @@ function ProjectManagementPage() {
 
   // States for column visibility and menu
   const [columnVisibilityModel, setColumnVisibilityModel] = useState(() => {
-    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, Ward
+    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, County, Constituency, Ward
     const defaultVisibleColumns = [
       'projectName',
       'status',
@@ -149,6 +149,8 @@ function ProjectManagementPage() {
       'overallProgress', // Progress
       'departmentName', // Department
       'financialYearName', // Fin. Year
+      'countyNames', // County
+      'constituencyNames', // Constituency
       'wardNames', // Ward
       'actions' // Always visible
     ];
@@ -977,7 +979,7 @@ function ProjectManagementPage() {
   };
 
   const handleResetColumns = () => {
-    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, Ward
+    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, County, Constituency, Ward
     const defaultVisibleColumns = [
       'projectName',
       'status',
@@ -985,6 +987,8 @@ function ProjectManagementPage() {
       'overallProgress', // Progress
       'departmentName', // Department
       'financialYearName', // Fin. Year
+      'countyNames', // County
+      'constituencyNames', // Constituency
       'wardNames', // Ward
       'actions' // Always visible
     ];

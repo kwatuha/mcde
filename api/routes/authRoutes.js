@@ -31,15 +31,16 @@ async function getPrivilegesByRole(roleId) {
         
         if (DB_TYPE === 'postgresql') {
             // PostgreSQL structure: role_privileges -> privileges (same as MySQL)
-            const result = await pool.execute(
-                `SELECT p.privilegename as privilegeName
+            // Use $1 placeholder directly for PostgreSQL
+            const result = await pool.query(
+                `SELECT p.privilegename as "privilegeName"
                  FROM role_privileges rp
                  JOIN privileges p ON rp.privilegeid = p.privilegeid
-                 WHERE rp.roleid = ? AND rp.voided = false AND p.voided = false`,
+                 WHERE rp.roleid = $1 AND rp.voided = false AND p.voided = false`,
                 [roleId]
             );
-            // PostgreSQL pool.execute returns { rows: [...] } structure
-            rows = result.rows || (Array.isArray(result) ? result : []);
+            // PostgreSQL pool.query returns { rows: [...] } structure
+            rows = result.rows || [];
         } else {
             // MySQL structure: role_privileges -> privileges
             const result = await pool.query(
@@ -53,9 +54,10 @@ async function getPrivilegesByRole(roleId) {
             rows = Array.isArray(result) ? result[0] : result.rows || result;
         }
         
-        return rows.map(row => row.privilegeName || row.privilegename);
+        // Handle both camelCase and lowercase column names
+        return rows.map(row => row.privilegeName || row.privilegename || row.PrivilegeName || '').filter(p => p);
     } catch (error) {
-        console.error('Error fetching privileges:', error);
+        console.error('Error fetching privileges for roleId', roleId, ':', error);
         return [];
     }
 }
@@ -198,14 +200,14 @@ router.post('/login', async (req, res) => {
                 SELECT 
                     u.*, 
                     r.name AS role,
-                    cu."contractorId"
+                    cu."contractorId" AS "contractorId"
                 FROM users u
                 LEFT JOIN roles r ON u.roleid = r.roleid
                 LEFT JOIN contractor_users cu ON u.userid = cu."userId"
                 WHERE (u.username = $1 OR u.email = $1) AND u.voided = false
             `;
-            const result = await pool.execute(query, [username]);
-            users = result.rows || result;
+            const result = await pool.query(query, [username]);
+            users = result.rows || [];
         } else {
             // MySQL uses camelCase column names
             query = `
@@ -220,6 +222,11 @@ router.post('/login', async (req, res) => {
             `;
             const result = await pool.execute(query, [username, username]);
             users = Array.isArray(result) ? result[0] : result.rows || result;
+        }
+
+        // Ensure users is an array
+        if (!Array.isArray(users)) {
+            users = users ? [users] : [];
         }
 
         if (users.length === 0) {
@@ -281,7 +288,7 @@ router.post('/login', async (req, res) => {
             { expiresIn: '24h' }, // Changed to 24 hours for a better user experience
             (err, token) => {
                 if (err) {
-                    
+                    console.error('JWT signing error:', err);
                     return res.status(500).json({ error: 'Server error during token generation.' });
                 }
                 res.json({ token, message: 'Logged in successfully!' });

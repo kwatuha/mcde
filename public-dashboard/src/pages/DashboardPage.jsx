@@ -272,7 +272,7 @@ const DashboardPage = () => {
               WebkitTextFillColor: 'transparent',
               letterSpacing: '-0.02em'
             }}>
-              Civic Chat Portal - Public Dashboard
+              CivicChat Portal - Public Dashboard
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', mt: 0.25 }}>
               Real-time project monitoring and analytics

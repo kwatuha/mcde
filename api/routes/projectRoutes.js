@@ -1746,8 +1746,36 @@ router.post('/confirm-import-data', async (req, res) => {
         return res.status(200).json({ success: true, message, details: summary });
     } catch (err) {
         if (connection) {
-            await connection.rollback();
+            try {
+                await connection.rollback();
+            } catch (rollbackErr) {
+                console.error('Error during rollback:', rollbackErr.message);
+            }
         }
+        
+        // Check if it's a connection/authentication error
+        const isConnectionError = 
+            err.code === 'ECONNREFUSED' ||
+            err.code === 'ETIMEDOUT' ||
+            err.code === 'ECONNRESET' ||
+            err.code === '28P01' || // PostgreSQL authentication failure
+            err.message?.includes('Connection terminated') ||
+            err.message?.includes('Connection closed') ||
+            err.message?.includes('password authentication failed');
+        
+        if (isConnectionError) {
+            console.error('Project import failed due to database connection issue:', err.message);
+            console.error('This may occur during long-running imports. The connection may have timed out.');
+            return res.status(503).json({ 
+                success: false, 
+                message: 'Database connection error during import. This may occur with large imports. Please try again with a smaller batch or contact support.',
+                details: { 
+                    error: err.message,
+                    suggestion: 'Try importing in smaller batches or wait a moment and retry'
+                }
+            });
+        }
+        
         console.error('Project import confirmation error:', err);
         return res.status(500).json({ 
             success: false, 
@@ -1755,7 +1783,13 @@ router.post('/confirm-import-data', async (req, res) => {
             details: { error: err.message, stack: process.env.NODE_ENV === 'development' ? err.stack : undefined }
         });
     } finally {
-        if (connection) connection.release();
+        if (connection) {
+            try {
+                connection.release();
+            } catch (releaseErr) {
+                console.error('Error releasing connection:', releaseErr.message);
+            }
+        }
     }
 });
 //===========================================================================

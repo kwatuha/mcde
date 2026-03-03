@@ -2670,7 +2670,7 @@ const PublicApprovalManagementPage = () => {
                   {selectedItem.approved_at && (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                       Approved on: {new Date(selectedItem.approved_at).toLocaleString()}
-                      {selectedItem.approved_by && ` by ${selectedItem.approved_by}`}
+                      {selectedItem.approved_by && selectedItem.approved_by > 0 && ` by User ID: ${selectedItem.approved_by}`}
                     </Typography>
                   )}
                 </Alert>
@@ -2688,7 +2688,7 @@ const PublicApprovalManagementPage = () => {
                   {selectedItem.revision_requested_at && (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                       Requested on: {new Date(selectedItem.revision_requested_at).toLocaleString()}
-                      {selectedItem.revision_requested_by && ` by ${selectedItem.revision_requested_by}`}
+                      {selectedItem.revision_requested_by && selectedItem.revision_requested_by > 0 && ` by User ID: ${selectedItem.revision_requested_by}`}
                     </Typography>
                   )}
                 </Alert>

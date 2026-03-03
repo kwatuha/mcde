@@ -65,17 +65,12 @@ services:
     environment:
       # PostgreSQL connection (primary)
       DB_TYPE: postgresql
-      DB_HOST: postgres_db
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: government_projects
-      DB_PORT: 5432
-      # MySQL connection (for migration only - can be removed after migration)
-      MYSQL_HOST: mysql_db
-      MYSQL_USER: impesUser
-      MYSQL_PASSWORD: Admin2010impes
-      MYSQL_DATABASE: gov_imbesdb
-      MYSQL_PORT: 3306
+      # Use service name by default; can be overridden via .env
+      DB_HOST: ${DB_HOST:-postgres_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-government_projects}
+      DB_PORT: ${DB_PORT:-5432}
       NODE_ENV: development
     command: npm run dev
 
@@ -88,6 +83,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: government_projects
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c tcp_keepalives_idle=600
+      -c tcp_keepalives_interval=30
+      -c tcp_keepalives_count=3
+      -c statement_timeout=30000
     volumes:
       - gov_postgres_data:/var/lib/postgresql/data
       - ./scripts/migration/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql
@@ -100,29 +103,5 @@ services:
       retries: 5
       start_period: 10s
 
-  # MySQL database (for migration - can be removed after migration)
-  mysql_db:
-    image: mysql:8.0
-    container_name: gov_db
-    restart: always
-    command: --default-authentication-plugin=mysql_native_password
-    environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: gov_imbesdb
-      MYSQL_USER: impesUser
-      MYSQL_PASSWORD: Admin2010impes
-    volumes:
-      - ./api/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - gov_db_data:/var/lib/mysql
-    ports:
-      - "3308:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
 volumes:
-  gov_db_data:
   gov_postgres_data:

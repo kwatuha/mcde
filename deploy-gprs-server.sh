@@ -165,30 +165,36 @@ deploy_on_server() {
         print_success() { echo "[SUCCESS] \$1"; }
         
         print_status "Stopping existing containers..."
-        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
-        
-        # Build and start containers
-        print_status "Building and starting containers..."
-        
-        # Use docker compose (plugin) if available, otherwise docker-compose
+        # Prefer docker compose plugin, fall back to docker-compose
         if docker compose version &> /dev/null; then
             DOCKER_COMPOSE_CMD="docker compose"
         else
             DOCKER_COMPOSE_CMD="docker-compose"
         fi
+        COMPOSE_FILE="docker-compose.prod.yml"
+
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE down 2>/dev/null || true
         
-        \$DOCKER_COMPOSE_CMD build --no-cache
+        # Build and start containers
+        print_status "Building and starting containers..."
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE build --no-cache
         
         print_status "Starting services..."
-        \$DOCKER_COMPOSE_CMD up -d
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE up -d
         
-        # Wait for services to be healthy
-        print_status "Waiting for services to start..."
-        sleep 15
+        # Restart API to reconnect to database (in case of configuration changes)
+        print_status "Restarting API to reconnect to database..."
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE restart api
+        
+        # Restart frontend to pick up latest code changes
+        print_status "Restarting frontend to load latest changes..."
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE restart frontend
+        
+        sleep 5
         
         # Check status
         print_status "Checking container status..."
-        \$DOCKER_COMPOSE_CMD ps
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE ps
         
         print_success "Deployment completed!"
 EOF
@@ -219,9 +225,9 @@ show_deployment_info() {
     print_status "  - API: http://$SERVER_IP:3010/api/"
     echo
     print_status "Useful commands:"
-    print_status "  - View logs: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && docker-compose logs -f'"
-    print_status "  - Restart: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && docker-compose restart'"
-    print_status "  - Stop: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && docker-compose down'"
+    print_status "  - View logs: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml logs -f || docker-compose -f docker-compose.prod.yml logs -f)'"
+    print_status "  - Restart: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml restart || docker-compose -f docker-compose.prod.yml restart)'"
+    print_status "  - Stop: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml down || docker-compose -f docker-compose.prod.yml down)'"
     print_status "  - SSH: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP"
     echo
 }

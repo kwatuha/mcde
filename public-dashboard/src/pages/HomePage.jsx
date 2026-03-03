@@ -207,7 +207,7 @@ const HomePage = () => {
                     fontSize: { xs: '0.875rem', md: '1rem' }
                   }}
                 >
-                  Civic Chat Portal
+                  CivicChat Portal
                 </Typography>
                 <Typography 
                   variant="body1" 

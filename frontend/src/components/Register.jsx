@@ -193,7 +193,7 @@ const Register = () => {
                                     textTransform: 'uppercase'
                                 }}
                             >
-                                Civic Chat Portal
+                                CivicChat Portal
                             </Typography>
                         </Box>
                         <Typography 

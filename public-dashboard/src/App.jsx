@@ -87,7 +87,7 @@ function App() {
                   margin: 0
                 }}
               >
-                Civic Chat Portal
+                CivicChat Portal
               </Typography>
             </Grid>
           </Grid>
@@ -324,7 +324,7 @@ function App() {
                   CivicChat
                 </Typography>
                 <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                  Civic Chat Portal
+                  CivicChat Portal
                 </Typography>
               </Box>
               
@@ -364,7 +364,7 @@ function App() {
                 <Box display="flex" alignItems="center" gap={1}>
                   <LocationOn sx={{ fontSize: 16, color: '#3498db' }} />
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                    Civic Chat Portal<br />
+                    CivicChat Portal<br />
                     Multi-County Platform
                   </Typography>
                 </Box>
@@ -461,7 +461,7 @@ function App() {
           {/* Copyright */}
           <Box textAlign="center">
             <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
-              © {new Date().getFullYear()} Civic Chat Portal. All rights reserved.
+              © {new Date().getFullYear()} CivicChat Portal. All rights reserved.
             </Typography>
             <Typography variant="caption" color="rgba(255, 255, 255, 0.5)" sx={{ mt: 1, display: 'block' }}>
               Built with transparency and accountability in mind
