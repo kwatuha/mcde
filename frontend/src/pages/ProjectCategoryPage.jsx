@@ -4,9 +4,10 @@ import {
   DialogContent, DialogActions, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, CircularProgress, IconButton,
   Alert, Snackbar, Stack, Collapse, Accordion, AccordionSummary, AccordionDetails,
-  Grid, useTheme, FormControl, InputLabel, Select, MenuItem, Card, CardContent, Chip
+  Grid, useTheme, FormControl, InputLabel, Select, MenuItem, Card, CardContent, Chip,
+  InputAdornment
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Search as SearchIcon, Category as CategoryIcon, Checklist as ChecklistIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiService from '../api/metaDataService.js';
 import useProjectCategoryData from '../hooks/useProjectCategoryData.jsx'; // NEW: Custom hook for data logic
@@ -28,12 +29,26 @@ const DeleteConfirmDialog = ({ open, onClose, onConfirm, itemToDeleteName, itemT
 const ProjectCategoryPage = () => {
   const { hasPrivilege } = useAuth();
   const theme = useTheme();
+  const isLight = theme.palette.mode === 'light';
   
   // Custom hook for data fetching and state
   const {
     projectCategories, loading, setLoading, snackbar, setSnackbar,
     fetchCategoriesAndMilestones,
   } = useProjectCategoryData();
+
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Calculate statistics
+  const totalCategories = projectCategories.length;
+  const totalMilestones = projectCategories.reduce((sum, cat) => sum + (cat.milestones?.length || 0), 0);
+  
+  // Filter categories based on search query
+  const filteredCategories = projectCategories.filter(category => 
+    category.categoryName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    category.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Centralized State for Dialogs and Forms
   const [dialogState, setDialogState] = useState({
@@ -245,51 +260,201 @@ const ProjectCategoryPage = () => {
 
   return (
     <Box sx={{ pt: 1, px: 2, pb: 2 }}>
-      {/* Compact Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-        <Box>
-          <Typography variant="h5" component="h1" sx={{ color: theme.palette.primary.main, fontWeight: 700, lineHeight: 1.2 }}>
-            Project Types Management
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.1 }}>
-            Manage project types and their milestone templates
-          </Typography>
+      {/* Compact Header Section */}
+      <Box sx={{ mb: 1.5 }}>
+        {/* Title and Action Row */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+          <Box>
+            <Typography variant="h5" component="h1" sx={{ 
+              color: theme.palette.primary.main, 
+              fontWeight: 700, 
+              lineHeight: 1.2,
+              mb: 0.25
+            }}>
+              Project Types Management
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Manage project types and their milestone templates
+            </Typography>
+          </Box>
+          {hasPrivilege('projectcategory.create') && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleOpenCreateCategoryDialog}
+              sx={{ 
+                backgroundColor: '#16a34a', 
+                '&:hover': { backgroundColor: '#15803d' }, 
+                color: 'white', 
+                fontWeight: 600, 
+                borderRadius: '6px',
+                px: 2,
+                py: 0.5,
+                boxShadow: '0 2px 4px rgba(22, 163, 74, 0.2)',
+                textTransform: 'none',
+                fontSize: '0.875rem'
+              }}
+            >
+              New Type
+            </Button>
+          )}
         </Box>
-        {hasPrivilege('projectcategory.create') && (
-          <Button
-            variant="contained"
+
+        {/* Compact Statistics Cards */}
+        <Grid container spacing={1.5} sx={{ mb: 1.5 }}>
+          <Grid item xs={6} sm={3}>
+            <Card sx={{ 
+              background: isLight 
+                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                : 'linear-gradient(135deg, #4a5568 0%, #2d3748 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            }}>
+              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
+                      Total Categories
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {totalCategories}
+                    </Typography>
+                  </Box>
+                  <CategoryIcon sx={{ fontSize: 28, opacity: 0.8 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card sx={{ 
+              background: isLight 
+                ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                : 'linear-gradient(135deg, #5a5568 0%, #3d3748 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            }}>
+              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
+                      Total Milestones
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {totalMilestones}
+                    </Typography>
+                  </Box>
+                  <ChecklistIcon sx={{ fontSize: 28, opacity: 0.8 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card sx={{ 
+              background: isLight 
+                ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+                : 'linear-gradient(135deg, #2c5282 0%, #2a4365 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            }}>
+              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
+                      Avg/Category
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {totalCategories > 0 ? Math.round((totalMilestones / totalCategories) * 10) / 10 : 0}
+                    </Typography>
+                  </Box>
+                  <ChecklistIcon sx={{ fontSize: 28, opacity: 0.8 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card sx={{ 
+              background: isLight 
+                ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+                : 'linear-gradient(135deg, #744210 0%, #5a3208 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            }}>
+              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
+                      Showing
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {filteredCategories.length}
+                    </Typography>
+                  </Box>
+                  <SearchIcon sx={{ fontSize: 28, opacity: 0.8 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Compact Search Bar */}
+        <Paper sx={{ 
+          p: 1, 
+          mb: 1.5, 
+          borderRadius: '8px',
+          background: isLight ? '#ffffff' : theme.palette.background.paper,
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.08)'
+        }}>
+          <TextField
+            fullWidth
             size="small"
-            startIcon={<AddIcon />}
-            onClick={handleOpenCreateCategoryDialog}
-            sx={{ 
-              backgroundColor: '#16a34a', 
-              '&:hover': { backgroundColor: '#15803d' }, 
-              color: 'white', 
-              fontWeight: 600, 
-              borderRadius: '6px',
-              px: 2,
-              py: 0.75,
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+            placeholder="Search project types..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: theme.palette.text.secondary, fontSize: '1.2rem' }} />
+                </InputAdornment>
+              ),
             }}
-          >
-            New Type
-          </Button>
-        )}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: '6px',
+                backgroundColor: isLight ? '#f5f5f5' : theme.palette.background.default,
+                '&:hover': {
+                  backgroundColor: isLight ? '#eeeeee' : theme.palette.action.hover,
+                },
+                '&.Mui-focused': {
+                  backgroundColor: isLight ? '#ffffff' : theme.palette.background.paper,
+                }
+              }
+            }}
+          />
+        </Paper>
       </Box>
 
       {projectCategories.length === 0 ? (
-        <Alert severity="info">No categories found. Add a new category to get started.</Alert>
+        <Alert severity="info" sx={{ borderRadius: '8px', py: 0.5 }}>No categories found. Add a new category to get started.</Alert>
+      ) : filteredCategories.length === 0 ? (
+        <Alert severity="info" sx={{ borderRadius: '8px', py: 0.5 }}>
+          No categories match your search "{searchQuery}". Try a different search term.
+        </Alert>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: '8px', overflow: 'hidden', boxShadow: theme.shadows[2] }}>
-          <Table>
+        <TableContainer component={Paper} sx={{ borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)' }}>
+          <Table size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: theme.palette.primary.main }}>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Category</TableCell>
-                <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.875rem', py: 1 }}>Category</TableCell>
+                <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.875rem', py: 1 }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {projectCategories.map((category) => (
+              {filteredCategories.map((category) => (
                 <TableRow key={category.categoryId}>
                   <TableCell colSpan={2} sx={{ p: 0, borderBottom: 'none' }}>
                     <Accordion sx={{ boxShadow: 'none', '&:nth-of-type(odd)': { backgroundColor: theme.palette.action.hover } }}>
