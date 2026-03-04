@@ -289,7 +289,8 @@ function ProjectDetailsPage() {
         totalJobs: 0,
         totalMale: 0,
         totalFemale: 0,
-        totalYouth: 0,
+        totalDirectJobs: 0,
+        totalIndirectJobs: 0,
     });
     const [loadingJobs, setLoadingJobs] = useState(false);
     const [jobsError, setJobsError] = useState(null);
@@ -300,9 +301,13 @@ function ProjectDetailsPage() {
         jobsCount: '',
         maleCount: '',
         femaleCount: '',
-        youthCount: '',
+        directJobs: '',
+        indirectJobs: '',
     });
     const [jobFormErrors, setJobFormErrors] = useState({});
+    const [editingJob, setEditingJob] = useState(null);
+    const [deleteJobConfirmOpen, setDeleteJobConfirmOpen] = useState(false);
+    const [jobToDelete, setJobToDelete] = useState(null);
 
     // Fetch job categories (for dropdown)
     const fetchJobCategories = useCallback(async () => {
@@ -329,7 +334,8 @@ function ProjectDetailsPage() {
                 totalJobs: summary.totalJobs || 0,
                 totalMale: summary.totalMale || 0,
                 totalFemale: summary.totalFemale || 0,
-                totalYouth: summary.totalYouth || 0,
+                totalDirectJobs: summary.totalDirectJobs || 0,
+                totalIndirectJobs: summary.totalIndirectJobs || 0,
             });
             setProjectJobs(Array.isArray(data?.jobs) ? data.jobs : []);
         } catch (error) {
@@ -466,10 +472,22 @@ function ProjectDetailsPage() {
             const milestonesData = await apiService.milestones.getMilestonesForProject(projectId);
             setMilestones(milestonesData);
 
-            const milestoneActivitiesPromises = milestonesData.map(m =>
-                apiService.strategy.milestoneActivities.getActivitiesByMilestoneId(m.milestoneId)
-            );
-            const milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
+            // Fetch activities for each milestone (only if there are milestones)
+            let milestoneActivitiesResults = [];
+            if (milestonesData && milestonesData.length > 0) {
+                try {
+                    const milestoneActivitiesPromises = milestonesData.map(m =>
+                        apiService.strategy.milestoneActivities.getActivitiesByMilestoneId(m.milestoneId).catch(err => {
+                            console.warn(`Error fetching activities for milestone ${m.milestoneId}:`, err);
+                            return []; // Return empty array on error
+                        })
+                    );
+                    milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
+                } catch (err) {
+                    console.warn('Error fetching milestone activities:', err);
+                    milestoneActivitiesResults = [];
+                }
+            }
             setMilestoneActivities(milestoneActivitiesResults);
 
             const rawStaffData = await apiService.users.getStaff();
@@ -552,7 +570,7 @@ function ProjectDetailsPage() {
         setSitesError(null);
         
         try {
-            const result = await apiService.junctions.getProjectSites(projectId);
+            const result = await apiService.getProjectSites(projectId);
             // API returns an object: { projectId, summary, sites: [...] }
             let sitesArray = Array.isArray(result?.sites)
                 ? result.sites
@@ -874,18 +892,18 @@ function ProjectDetailsPage() {
                 const row = jsonData[i];
                 if (!row || row.length === 0 || !row[0]) continue; // Skip empty rows
                 
+                // Map Excel columns to API expected format (camelCase)
                 const site = {
-                    site_name: row[0] || '',
-                    county: row[1] || null,
-                    constituency: row[2] || null,
-                    ward: row[3] || null,
-                    status_norm: row[4] || null,
-                    percent_complete: row[5] ? parseFloat(row[5]) || 0 : null,
-                    approved_cost_kes: row[6] ? parseFloat(row[6]) || 0 : null,
-                    remarks: row[7] || null,
+                    siteName: (row[0] || '').toString().trim(),
+                    county: row[1] ? (row[1]).toString().trim() : null,
+                    constituency: row[2] ? (row[2]).toString().trim() : null,
+                    ward: row[3] ? (row[3]).toString().trim() : null,
+                    status: row[4] ? (row[4]).toString().trim() : null,
+                    progress: row[5] ? (parseFloat(row[5]) || null) : null,
+                    approvedCost: row[6] ? (parseFloat(row[6]) || null) : null,
                 };
                 
-                if (site.site_name) {
+                if (site.siteName) {
                     sitesToImport.push(site);
                 }
             }
@@ -899,20 +917,31 @@ function ProjectDetailsPage() {
             // Import sites one by one
             let successCount = 0;
             let errorCount = 0;
+            const errors = [];
             
             for (const site of sitesToImport) {
                 try {
-                    await apiService.junctions.createProjectSite(projectId, site);
+                    await apiService.createProjectSite(projectId, site);
                     successCount++;
                 } catch (err) {
                     console.error('Error importing site:', err);
                     errorCount++;
+                    const errorMsg = err.response?.data?.message || err.message || 'Unknown error';
+                    errors.push(`${site.siteName}: ${errorMsg}`);
                 }
             }
 
+            let message = `Imported ${successCount} site(s) successfully`;
+            if (errorCount > 0) {
+                message += `. ${errorCount} failed.`;
+                if (errors.length > 0) {
+                    message += ` Errors: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '...' : ''}`;
+                }
+            }
+            
             setSnackbar({ 
                 open: true, 
-                message: `Imported ${successCount} site(s) successfully${errorCount > 0 ? `. ${errorCount} failed.` : ''}`, 
+                message: message, 
                 severity: errorCount > 0 ? 'warning' : 'success' 
             });
             
@@ -1992,7 +2021,7 @@ function ProjectDetailsPage() {
                                         Sites
                                     </Typography>
                                     <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.2, fontSize: '0.95rem' }}>
-                                        {projectSites.length}
+                                        {sitesSummary.total || 0}
                                     </Typography>
                                     <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.25, fontSize: '0.65rem' }}>
                                         Total project sites
@@ -3437,19 +3466,29 @@ function ProjectDetailsPage() {
                             <Grid item xs={12} md={3}>
                                 <Paper sx={{ p: 2 }}>
                                     <Typography variant="subtitle2" color="text.secondary">
-                                        Youth
+                                        Direct Jobs
                                     </Typography>
                                     <Typography variant="h6">
-                                        {jobsSummary.totalYouth}
+                                        {jobsSummary.totalDirectJobs}
+                                    </Typography>
+                                </Paper>
+                            </Grid>
+                            <Grid item xs={12} md={3}>
+                                <Paper sx={{ p: 2 }}>
+                                    <Typography variant="subtitle2" color="text.secondary">
+                                        Indirect Jobs
+                                    </Typography>
+                                    <Typography variant="h6">
+                                        {jobsSummary.totalIndirectJobs}
                                     </Typography>
                                 </Paper>
                             </Grid>
                         </Grid>
 
-                        {/* Add Job form */}
+                        {/* Add/Edit Job form */}
                         <Paper sx={{ p: 2, mb: 2 }}>
                             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                Add Jobs Created
+                                {editingJob ? 'Edit Job Record' : 'Add Jobs Created'}
                             </Typography>
                             <Grid container spacing={2}>
                                 <Grid item xs={12} md={4}>
@@ -3481,8 +3520,31 @@ function ProjectDetailsPage() {
                                         size="small"
                                         fullWidth
                                         value={jobFormData.jobsCount}
-                                        onChange={(e) => setJobFormData(prev => ({ ...prev, jobsCount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            setJobFormData(prev => ({ ...prev, jobsCount: newValue }));
+                                            // Clear errors when Jobs field changes
+                                            if (jobFormErrors.jobsCount) {
+                                                setJobFormErrors(prev => ({ ...prev, jobsCount: undefined }));
+                                            }
+                                            // Re-validate male/female if they exist
+                                            if (jobFormData.maleCount || jobFormData.femaleCount) {
+                                                const jobsCountInt = parseInt(newValue, 10) || 0;
+                                                const maleCountInt = parseInt(jobFormData.maleCount, 10) || 0;
+                                                const femaleCountInt = parseInt(jobFormData.femaleCount, 10) || 0;
+                                                const errors = { ...jobFormErrors };
+                                                if (maleCountInt + femaleCountInt > jobsCountInt) {
+                                                    errors.maleCount = 'Male + Female cannot exceed total jobs';
+                                                    errors.femaleCount = 'Male + Female cannot exceed total jobs';
+                                                } else {
+                                                    delete errors.maleCount;
+                                                    delete errors.femaleCount;
+                                                }
+                                                setJobFormErrors(errors);
+                                            }
+                                        }}
                                         error={!!jobFormErrors.jobsCount}
+                                        helperText={jobFormErrors.jobsCount}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={2}>
@@ -3492,7 +3554,38 @@ function ProjectDetailsPage() {
                                         size="small"
                                         fullWidth
                                         value={jobFormData.maleCount}
-                                        onChange={(e) => setJobFormData(prev => ({ ...prev, maleCount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            const jobsCountInt = parseInt(jobFormData.jobsCount, 10) || 0;
+                                            const maleCountInt = parseInt(newValue, 10) || 0;
+                                            const femaleCountInt = parseInt(jobFormData.femaleCount, 10) || 0;
+                                            
+                                            // Auto-fill Female if Jobs Created is filled and Female is empty
+                                            let updatedFemale = jobFormData.femaleCount;
+                                            if (jobsCountInt > 0 && newValue && !jobFormData.femaleCount && maleCountInt <= jobsCountInt) {
+                                                updatedFemale = String(Math.max(0, jobsCountInt - maleCountInt));
+                                            }
+                                            
+                                            setJobFormData(prev => ({ 
+                                                ...prev, 
+                                                maleCount: newValue,
+                                                femaleCount: updatedFemale !== prev.femaleCount ? updatedFemale : prev.femaleCount
+                                            }));
+                                            
+                                            // Real-time validation: male + female cannot exceed jobs
+                                            const errors = { ...jobFormErrors };
+                                            const finalFemaleInt = parseInt(updatedFemale, 10) || 0;
+                                            if (jobsCountInt > 0 && maleCountInt + finalFemaleInt > jobsCountInt) {
+                                                errors.maleCount = 'Male + Female cannot exceed total jobs';
+                                                errors.femaleCount = 'Male + Female cannot exceed total jobs';
+                                            } else {
+                                                delete errors.maleCount;
+                                                delete errors.femaleCount;
+                                            }
+                                            setJobFormErrors(errors);
+                                        }}
+                                        error={!!jobFormErrors.maleCount}
+                                        helperText={jobFormErrors.maleCount}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={2}>
@@ -3502,17 +3595,120 @@ function ProjectDetailsPage() {
                                         size="small"
                                         fullWidth
                                         value={jobFormData.femaleCount}
-                                        onChange={(e) => setJobFormData(prev => ({ ...prev, femaleCount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            const jobsCountInt = parseInt(jobFormData.jobsCount, 10) || 0;
+                                            const maleCountInt = parseInt(jobFormData.maleCount, 10) || 0;
+                                            const femaleCountInt = parseInt(newValue, 10) || 0;
+                                            
+                                            // Auto-fill Male if Jobs Created is filled and Male is empty
+                                            let updatedMale = jobFormData.maleCount;
+                                            if (jobsCountInt > 0 && newValue && !jobFormData.maleCount && femaleCountInt <= jobsCountInt) {
+                                                updatedMale = String(Math.max(0, jobsCountInt - femaleCountInt));
+                                            }
+                                            
+                                            setJobFormData(prev => ({ 
+                                                ...prev, 
+                                                femaleCount: newValue,
+                                                maleCount: updatedMale !== prev.maleCount ? updatedMale : prev.maleCount
+                                            }));
+                                            
+                                            // Real-time validation: male + female cannot exceed jobs
+                                            const errors = { ...jobFormErrors };
+                                            const finalMaleInt = parseInt(updatedMale, 10) || 0;
+                                            if (jobsCountInt > 0 && finalMaleInt + femaleCountInt > jobsCountInt) {
+                                                errors.maleCount = 'Male + Female cannot exceed total jobs';
+                                                errors.femaleCount = 'Male + Female cannot exceed total jobs';
+                                            } else {
+                                                delete errors.maleCount;
+                                                delete errors.femaleCount;
+                                            }
+                                            setJobFormErrors(errors);
+                                        }}
+                                        error={!!jobFormErrors.femaleCount}
+                                        helperText={jobFormErrors.femaleCount}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={2}>
                                     <TextField
-                                        label="Youth"
+                                        label="Direct Jobs"
                                         type="number"
                                         size="small"
                                         fullWidth
-                                        value={jobFormData.youthCount}
-                                        onChange={(e) => setJobFormData(prev => ({ ...prev, youthCount: e.target.value }))}
+                                        value={jobFormData.directJobs}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            const jobsCountInt = parseInt(jobFormData.jobsCount, 10) || 0;
+                                            const directJobsInt = parseInt(newValue, 10) || 0;
+                                            const indirectJobsInt = parseInt(jobFormData.indirectJobs, 10) || 0;
+                                            
+                                            // Auto-fill Indirect Jobs if Jobs Created is filled and Indirect Jobs is empty
+                                            let updatedIndirect = jobFormData.indirectJobs;
+                                            if (jobsCountInt > 0 && newValue && !jobFormData.indirectJobs && directJobsInt <= jobsCountInt) {
+                                                updatedIndirect = String(Math.max(0, jobsCountInt - directJobsInt));
+                                            }
+                                            
+                                            setJobFormData(prev => ({ 
+                                                ...prev, 
+                                                directJobs: newValue,
+                                                indirectJobs: updatedIndirect !== prev.indirectJobs ? updatedIndirect : prev.indirectJobs
+                                            }));
+                                            
+                                            // Real-time validation: direct + indirect cannot exceed jobs
+                                            const errors = { ...jobFormErrors };
+                                            const finalIndirectInt = parseInt(updatedIndirect, 10) || 0;
+                                            if (jobsCountInt > 0 && directJobsInt + finalIndirectInt > jobsCountInt) {
+                                                errors.directJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                                errors.indirectJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                            } else {
+                                                delete errors.directJobs;
+                                                delete errors.indirectJobs;
+                                            }
+                                            setJobFormErrors(errors);
+                                        }}
+                                        error={!!jobFormErrors.directJobs}
+                                        helperText={jobFormErrors.directJobs}
+                                    />
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <TextField
+                                        label="Indirect Jobs"
+                                        type="number"
+                                        size="small"
+                                        fullWidth
+                                        value={jobFormData.indirectJobs}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            const jobsCountInt = parseInt(jobFormData.jobsCount, 10) || 0;
+                                            const directJobsInt = parseInt(jobFormData.directJobs, 10) || 0;
+                                            const indirectJobsInt = parseInt(newValue, 10) || 0;
+                                            
+                                            // Auto-fill Direct Jobs if Jobs Created is filled and Direct Jobs is empty
+                                            let updatedDirect = jobFormData.directJobs;
+                                            if (jobsCountInt > 0 && newValue && !jobFormData.directJobs && indirectJobsInt <= jobsCountInt) {
+                                                updatedDirect = String(Math.max(0, jobsCountInt - indirectJobsInt));
+                                            }
+                                            
+                                            setJobFormData(prev => ({ 
+                                                ...prev, 
+                                                indirectJobs: newValue,
+                                                directJobs: updatedDirect !== prev.directJobs ? updatedDirect : prev.directJobs
+                                            }));
+                                            
+                                            // Real-time validation: direct + indirect cannot exceed jobs
+                                            const errors = { ...jobFormErrors };
+                                            const finalDirectInt = parseInt(updatedDirect, 10) || 0;
+                                            if (jobsCountInt > 0 && finalDirectInt + indirectJobsInt > jobsCountInt) {
+                                                errors.directJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                                errors.indirectJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                            } else {
+                                                delete errors.directJobs;
+                                                delete errors.indirectJobs;
+                                            }
+                                            setJobFormErrors(errors);
+                                        }}
+                                        error={!!jobFormErrors.indirectJobs}
+                                        helperText={jobFormErrors.indirectJobs}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={12}>
@@ -3526,7 +3722,8 @@ function ProjectDetailsPage() {
                                                     jobsCount: '',
                                                     maleCount: '',
                                                     femaleCount: '',
-                                                    youthCount: '',
+                                                    directJobs: '',
+                                                    indirectJobs: '',
                                                 });
                                                 setJobFormErrors({});
                                             }}
@@ -3544,43 +3741,102 @@ function ProjectDetailsPage() {
                                                 if (!jobFormData.jobsCount || parseInt(jobFormData.jobsCount, 10) <= 0) {
                                                     errors.jobsCount = 'Jobs must be a positive number';
                                                 }
+
+                                                // Validation: directJobs + indirectJobs should not exceed jobsCount
+                                                const jobsCountInt = parseInt(jobFormData.jobsCount, 10) || 0;
+                                                const directJobsInt = parseInt(jobFormData.directJobs, 10) || 0;
+                                                const indirectJobsInt = parseInt(jobFormData.indirectJobs, 10) || 0;
+                                                if (directJobsInt + indirectJobsInt > jobsCountInt) {
+                                                    errors.directJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                                    errors.indirectJobs = 'Direct + Indirect jobs cannot exceed total jobs';
+                                                }
+
+                                                // Validation: maleCount + femaleCount should not exceed jobsCount
+                                                const maleCountInt = parseInt(jobFormData.maleCount, 10) || 0;
+                                                const femaleCountInt = parseInt(jobFormData.femaleCount, 10) || 0;
+                                                if (maleCountInt + femaleCountInt > jobsCountInt) {
+                                                    errors.maleCount = 'Male + Female cannot exceed total jobs';
+                                                    errors.femaleCount = 'Male + Female cannot exceed total jobs';
+                                                }
+
                                                 setJobFormErrors(errors);
                                                 if (Object.keys(errors).length > 0) return;
 
                                                 try {
-                                                    await projectService.junctions.createProjectJob(projectId, {
-                                                        categoryId: jobFormData.categoryId,
-                                                        jobsCount: jobFormData.jobsCount,
-                                                        maleCount: jobFormData.maleCount,
-                                                        femaleCount: jobFormData.femaleCount,
-                                                        youthCount: jobFormData.youthCount,
-                                                    });
-                                                    setSnackbar({
-                                                        open: true,
-                                                        message: 'Job record added successfully',
-                                                        severity: 'success',
-                                                    });
+                                                    if (editingJob) {
+                                                        // Update existing job
+                                                        await projectService.junctions.updateProjectJob(projectId, editingJob.id, {
+                                                            categoryId: jobFormData.categoryId,
+                                                            jobsCount: jobFormData.jobsCount,
+                                                            maleCount: jobFormData.maleCount,
+                                                            femaleCount: jobFormData.femaleCount,
+                                                            directJobs: jobFormData.directJobs,
+                                                            indirectJobs: jobFormData.indirectJobs,
+                                                        });
+                                                        setSnackbar({
+                                                            open: true,
+                                                            message: 'Job record updated successfully',
+                                                            severity: 'success',
+                                                        });
+                                                        setEditingJob(null);
+                                                    } else {
+                                                        // Create new job
+                                                        await projectService.junctions.createProjectJob(projectId, {
+                                                            categoryId: jobFormData.categoryId,
+                                                            jobsCount: jobFormData.jobsCount,
+                                                            maleCount: jobFormData.maleCount,
+                                                            femaleCount: jobFormData.femaleCount,
+                                                            directJobs: jobFormData.directJobs,
+                                                            indirectJobs: jobFormData.indirectJobs,
+                                                        });
+                                                        setSnackbar({
+                                                            open: true,
+                                                            message: 'Job record added successfully',
+                                                            severity: 'success',
+                                                        });
+                                                    }
                                                     setJobFormData({
                                                         categoryId: '',
                                                         jobsCount: '',
                                                         maleCount: '',
                                                         femaleCount: '',
-                                                        youthCount: '',
+                                                        directJobs: '',
+                                                        indirectJobs: '',
                                                     });
                                                     setJobFormErrors({});
                                                     fetchProjectJobs();
                                                 } catch (error) {
-                                                    console.error('Error creating project job:', error);
+                                                    console.error(`Error ${editingJob ? 'updating' : 'creating'} project job:`, error);
                                                     setSnackbar({
                                                         open: true,
-                                                        message: error?.response?.data?.message || 'Failed to add job record',
+                                                        message: error?.response?.data?.message || `Failed to ${editingJob ? 'update' : 'add'} job record`,
                                                         severity: 'error',
                                                     });
                                                 }
                                             }}
                                         >
-                                            Save
+                                            {editingJob ? 'Update' : 'Save'}
                                         </Button>
+                                        {editingJob && (
+                                            <Button
+                                                variant="outlined"
+                                                size="small"
+                                                onClick={() => {
+                                                    setEditingJob(null);
+                                                    setJobFormData({
+                                                        categoryId: '',
+                                                        jobsCount: '',
+                                                        maleCount: '',
+                                                        femaleCount: '',
+                                                        directJobs: '',
+                                                        indirectJobs: '',
+                                                    });
+                                                    setJobFormErrors({});
+                                                }}
+                                            >
+                                                Cancel
+                                            </Button>
+                                        )}
                     </Box>
                                 </Grid>
                             </Grid>
@@ -3611,7 +3867,9 @@ function ProjectDetailsPage() {
                                                 <TableCell><strong>Jobs</strong></TableCell>
                                                 <TableCell><strong>Male</strong></TableCell>
                                                 <TableCell><strong>Female</strong></TableCell>
-                                                <TableCell><strong>Youth</strong></TableCell>
+                                                <TableCell><strong>Direct Jobs</strong></TableCell>
+                                                <TableCell><strong>Indirect Jobs</strong></TableCell>
+                                                <TableCell><strong>Actions</strong></TableCell>
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
@@ -3631,7 +3889,44 @@ function ProjectDetailsPage() {
                                                     <TableCell>{job.jobs_count ?? 0}</TableCell>
                                                     <TableCell>{job.male_count ?? 0}</TableCell>
                                                     <TableCell>{job.female_count ?? 0}</TableCell>
-                                                    <TableCell>{job.youth_count ?? 0}</TableCell>
+                                                    <TableCell>{job.direct_jobs ?? 0}</TableCell>
+                                                    <TableCell>{job.indirect_jobs ?? 0}</TableCell>
+                                                    <TableCell>
+                                                        <Box display="flex" gap={0.5}>
+                                                            <Tooltip title="Edit">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="primary"
+                                                                    onClick={() => {
+                                                                        setEditingJob(job);
+                                                                        setJobFormData({
+                                                                            categoryId: job.category_id,
+                                                                            jobsCount: String(job.jobs_count || ''),
+                                                                            maleCount: String(job.male_count || ''),
+                                                                            femaleCount: String(job.female_count || ''),
+                                                                            directJobs: String(job.direct_jobs || ''),
+                                                                            indirectJobs: String(job.indirect_jobs || ''),
+                                                                        });
+                                                                        setJobFormErrors({});
+                                                                    }}
+                                                                >
+                                                                    <EditIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                            <Tooltip title="Delete">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="error"
+                                                                    onClick={() => {
+                                                                        setJobToDelete(job);
+                                                                        setDeleteJobConfirmOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <DeleteIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        </Box>
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
@@ -3967,7 +4262,7 @@ function ProjectDetailsPage() {
                                                             onClick={async () => {
                                                                 if (window.confirm('Are you sure you want to delete this site?')) {
                                                                     try {
-                                                                            await apiService.junctions.deleteProjectSite(projectId, site.site_id);
+                                                                            await apiService.deleteProjectSite(projectId, site.site_id);
                                                                         setSnackbar({ open: true, message: 'Site deleted successfully', severity: 'success' });
                                                                             await fetchProjectSites(true, true); // Force refresh after delete (still limit to 10 for tab)
                                                                     } catch (err) {
@@ -4137,21 +4432,21 @@ function ProjectDetailsPage() {
                                 if (Object.keys(errors).length > 0) return;
 
                                 const payload = {
-                                    site_name: siteFormData.siteName.trim(),
+                                    siteName: siteFormData.siteName.trim(),
                                     county: siteFormData.county.trim() || null,
                                     constituency: siteFormData.constituency.trim() || null,
                                     ward: siteFormData.ward.trim() || null,
-                                    status_norm: siteFormData.status || null,
-                                    percent_complete: siteFormData.progress !== '' ? parseFloat(siteFormData.progress) || 0 : null,
-                                    approved_cost_kes: siteFormData.approvedCost !== '' ? parseFloat(siteFormData.approvedCost) || 0 : null,
+                                    status: siteFormData.status || null,
+                                    progress: siteFormData.progress !== '' ? parseFloat(siteFormData.progress) || null : null,
+                                    approvedCost: siteFormData.approvedCost !== '' ? parseFloat(siteFormData.approvedCost) || null : null,
                                 };
 
                                 try {
                                     if (editingSite) {
-                                        await apiService.junctions.updateProjectSite(projectId, editingSite.site_id, payload);
+                                        await apiService.updateProjectSite(projectId, editingSite.site_id, payload);
                                         setSnackbar({ open: true, message: 'Site updated successfully', severity: 'success' });
                                     } else {
-                                        await apiService.junctions.createProjectSite(projectId, payload);
+                                        await apiService.createProjectSite(projectId, payload);
                                         setSnackbar({ open: true, message: 'Site created successfully', severity: 'success' });
                                     }
                                     setOpenSiteDialog(false);
@@ -4689,6 +4984,58 @@ function ProjectDetailsPage() {
                         startIcon={importingSites ? <CircularProgress size={16} /> : <UploadIcon />}
                     >
                         {importingSites ? 'Importing...' : 'Import Sites'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Job Confirmation Dialog */}
+            <Dialog open={deleteJobConfirmOpen} onClose={() => setDeleteJobConfirmOpen(false)}>
+                <DialogTitle>Delete Job Record</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        Are you sure you want to delete this job record? This action cannot be undone.
+                        {jobToDelete && (
+                            <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
+                                <Typography variant="body2"><strong>Category:</strong> {jobToDelete.category_name || 'Uncategorized'}</Typography>
+                                <Typography variant="body2"><strong>Jobs:</strong> {jobToDelete.jobs_count || 0}</Typography>
+                            </Box>
+                        )}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => {
+                        setDeleteJobConfirmOpen(false);
+                        setJobToDelete(null);
+                    }}>
+                        Cancel
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        onClick={async () => {
+                            if (jobToDelete) {
+                                try {
+                                    await projectService.junctions.deleteProjectJob(projectId, jobToDelete.id);
+                                    setSnackbar({
+                                        open: true,
+                                        message: 'Job record deleted successfully',
+                                        severity: 'success',
+                                    });
+                                    setDeleteJobConfirmOpen(false);
+                                    setJobToDelete(null);
+                                    fetchProjectJobs();
+                                } catch (error) {
+                                    console.error('Error deleting project job:', error);
+                                    setSnackbar({
+                                        open: true,
+                                        message: error?.response?.data?.message || 'Failed to delete job record',
+                                        severity: 'error',
+                                    });
+                                }
+                            }
+                        }}
+                    >
+                        Delete
                     </Button>
                 </DialogActions>
             </Dialog>

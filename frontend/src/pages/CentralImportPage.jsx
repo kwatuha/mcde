@@ -10,6 +10,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import WarningIcon from '@mui/icons-material/Warning';
+import ErrorIcon from '@mui/icons-material/Error';
 import { 
   CloudUpload as CloudUploadIcon, 
   Download as DownloadIcon, 
@@ -306,21 +307,17 @@ function CentralImportPage() {
         return Array.from(seen.values());
       };
 
-      // Skip metadata mapping check for projects import (disabled per user request)
-      if (currentImportType.id === 'projects') {
-        setMappingSummary(null);
-        setShowMappingPreview(false);
-      }
-
-      // Automatically check metadata for budget imports after preview
+      // Automatically check metadata for projects and budget imports after preview
       // This helps users review metadata before confirming import
       if (currentImportType.id === 'budgets' && selectedFile) {
         try {
-          console.log('Automatically checking metadata for budget import...');
+          console.log(`Automatically checking metadata for ${currentImportType.id} import...`);
           const metadataFormData = new FormData();
           metadataFormData.append('file', selectedFile);
           
-          const mappingResponse = await apiService.budgets.checkMetadataMapping(metadataFormData);
+          const mappingResponse = currentImportType.id === 'projects'
+            ? await apiService.projects.checkMetadataMapping(metadataFormData)
+            : await apiService.budgets.checkMetadataMapping(metadataFormData);
           
           if (mappingResponse && mappingResponse.success && mappingResponse.mappingSummary) {
             const mappingSummary = mappingResponse.mappingSummary;
@@ -351,17 +348,35 @@ function CentralImportPage() {
                 new: deduplicateCaseInsensitive(mappingSummary.financialYears?.new || []),
                 unmatched: deduplicateCaseInsensitive(mappingSummary.financialYears?.unmatched || [])
               },
+              counties: mappingSummary.counties ? {
+                existing: deduplicateCaseInsensitive(mappingSummary.counties?.existing || []),
+                new: deduplicateCaseInsensitive(mappingSummary.counties?.new || []),
+                unmatched: deduplicateCaseInsensitive(mappingSummary.counties?.unmatched || [])
+              } : undefined,
+              constituencies: mappingSummary.constituencies ? {
+                existing: deduplicateCaseInsensitive(mappingSummary.constituencies?.existing || []),
+                new: deduplicateCaseInsensitive(mappingSummary.constituencies?.new || []),
+                unmatched: deduplicateCaseInsensitive(mappingSummary.constituencies?.unmatched || [])
+              } : undefined,
+              kenyaWards: mappingSummary.kenyaWards ? {
+                existing: deduplicateCaseInsensitive(mappingSummary.kenyaWards?.existing || []),
+                new: deduplicateCaseInsensitive(mappingSummary.kenyaWards?.new || []),
+                unmatched: deduplicateCaseInsensitive(mappingSummary.kenyaWards?.unmatched || [])
+              } : undefined,
+              implementingAgencies: mappingSummary.implementingAgencies ? {
+                existing: deduplicateCaseInsensitive(mappingSummary.implementingAgencies?.existing || []),
+                new: deduplicateCaseInsensitive(mappingSummary.implementingAgencies?.new || []),
+                unmatched: deduplicateCaseInsensitive(mappingSummary.implementingAgencies?.unmatched || [])
+              } : undefined,
               duplicateProjectNames: mappingSummary.duplicateProjectNames || []
             };
 
             setMappingSummary(deduplicatedSummary);
-            // Automatically show mapping preview for budgets
+            // Automatically show mapping preview for projects and budgets
             setShowMappingPreview(true);
             setSnackbar({ 
               open: true, 
-              message: importType === 'projects' 
-                ? 'Preview completed. You can now confirm the import.' 
-                : 'Preview completed. Please review metadata mapping before confirming import.', 
+              message: 'Preview completed. Please review metadata mapping before confirming import.', 
               severity: 'info' 
             });
           }
@@ -1248,6 +1263,178 @@ function CentralImportPage() {
                             <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: '0.75rem' }}>
                               No financial years found in import data
                             </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  )}
+
+                  {/* Counties - Only for Projects Import */}
+                  {currentImportType?.id === 'projects' && mappingSummary.counties && (
+                    <Grid item xs={12} md={6}>
+                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
+                        <CardContent>
+                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
+                            Counties ({mappingSummary.counties.existing.length + mappingSummary.counties.unmatched.length})
+                          </Typography>
+                          {mappingSummary.counties.existing.length > 0 && (
+                            <Box sx={{ mb: 0.75 }}>
+                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <CheckCircleIcon fontSize="small" /> {mappingSummary.counties.existing.length} Matched in Kenya Wards
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.counties.existing.map((county, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <CheckCircleIcon fontSize="small" color="success" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{county}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                          {mappingSummary.counties.unmatched.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <ErrorIcon fontSize="small" /> {mappingSummary.counties.unmatched.length} Not Found in Kenya Wards
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.counties.unmatched.map((county, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <ErrorIcon fontSize="small" color="error" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{county}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  )}
+
+                  {/* Constituencies - Only for Projects Import */}
+                  {currentImportType?.id === 'projects' && mappingSummary.constituencies && (
+                    <Grid item xs={12} md={6}>
+                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
+                        <CardContent>
+                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
+                            Constituencies ({mappingSummary.constituencies.existing.length + mappingSummary.constituencies.unmatched.length})
+                          </Typography>
+                          {mappingSummary.constituencies.existing.length > 0 && (
+                            <Box sx={{ mb: 0.75 }}>
+                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <CheckCircleIcon fontSize="small" /> {mappingSummary.constituencies.existing.length} Matched in Kenya Wards
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.constituencies.existing.map((constituency, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <CheckCircleIcon fontSize="small" color="success" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{constituency}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                          {mappingSummary.constituencies.unmatched.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <ErrorIcon fontSize="small" /> {mappingSummary.constituencies.unmatched.length} Not Found in Kenya Wards
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.constituencies.unmatched.map((constituency, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <ErrorIcon fontSize="small" color="error" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{constituency}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  )}
+
+                  {/* Kenya Wards - Only for Projects Import */}
+                  {currentImportType?.id === 'projects' && mappingSummary.kenyaWards && (
+                    <Grid item xs={12} md={6}>
+                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
+                        <CardContent>
+                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
+                            Kenya Wards ({mappingSummary.kenyaWards.existing.length + mappingSummary.kenyaWards.unmatched.length})
+                          </Typography>
+                          {mappingSummary.kenyaWards.existing.length > 0 && (
+                            <Box sx={{ mb: 0.75 }}>
+                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <CheckCircleIcon fontSize="small" /> {mappingSummary.kenyaWards.existing.length} Matched
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.kenyaWards.existing.map((ward, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <CheckCircleIcon fontSize="small" color="success" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{ward}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                          {mappingSummary.kenyaWards.unmatched.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <ErrorIcon fontSize="small" /> {mappingSummary.kenyaWards.unmatched.length} Not Found
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.kenyaWards.unmatched.map((ward, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <ErrorIcon fontSize="small" color="error" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{ward}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  )}
+
+                  {/* Implementing Agencies - Only for Projects Import */}
+                  {currentImportType?.id === 'projects' && mappingSummary.implementingAgencies && (
+                    <Grid item xs={12} md={6}>
+                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
+                        <CardContent>
+                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
+                            Implementing Agencies ({mappingSummary.implementingAgencies.existing.length + mappingSummary.implementingAgencies.unmatched.length})
+                          </Typography>
+                          {mappingSummary.implementingAgencies.existing.length > 0 && (
+                            <Box sx={{ mb: 0.75 }}>
+                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <CheckCircleIcon fontSize="small" /> {mappingSummary.implementingAgencies.existing.length} Matched in Agencies
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.implementingAgencies.existing.map((agency, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <CheckCircleIcon fontSize="small" color="success" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{agency}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+                          {mappingSummary.implementingAgencies.unmatched.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
+                                <ErrorIcon fontSize="small" /> {mappingSummary.implementingAgencies.unmatched.length} Not Found in Agencies
+                              </Typography>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
+                                {mappingSummary.implementingAgencies.unmatched.map((agency, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
+                                    <ErrorIcon fontSize="small" color="error" sx={{ fontSize: '0.875rem' }} />
+                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{agency}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
                           )}
                         </CardContent>
                       </Card>

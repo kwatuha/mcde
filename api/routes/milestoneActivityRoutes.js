@@ -7,9 +7,17 @@ const pool = require('../config/db');
 router.get('/by-milestone/:milestoneId', async (req, res) => {
     const { milestoneId } = req.params;
     try {
-        const [rows] = await pool.query('SELECT a.*, ma.milestoneId FROM activities a JOIN milestone_activities ma ON a.activityId = ma.activityId WHERE ma.milestoneId = ? AND a.voided = 0', [milestoneId]);
+        const [rows] = await pool.query(
+            'SELECT a.*, ma.milestoneId FROM activities a JOIN milestone_activities ma ON a.activityId = ma.activityId WHERE ma.milestoneId = ? AND a.voided = 0', 
+            [milestoneId]
+        );
         res.status(200).json(rows);
     } catch (error) {
+        // If it's a "table doesn't exist" error (MySQL error code 1146 or PostgreSQL error 42P01), return empty array instead of error
+        if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42P01' || error.message.includes("doesn't exist") || error.message.includes("does not exist")) {
+            console.warn('milestone_activities table does not exist, returning empty array');
+            return res.status(200).json([]);
+        }
         console.error('Error fetching milestone activities:', error);
         res.status(500).json({ message: 'Error fetching milestone activities', error: error.message });
     }

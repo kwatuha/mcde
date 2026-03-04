@@ -45,6 +45,10 @@ const ProjectFormDialog = ({
   const [loadingConstituencies, setLoadingConstituencies] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
 
+  // State for agencies dropdown
+  const [agencies, setAgencies] = useState([]);
+  const [loadingAgencies, setLoadingAgencies] = useState(false);
+
   // Fetch counties on mount - only if dialog is open
   useEffect(() => {
     if (!open) return;
@@ -67,6 +71,24 @@ const ProjectFormDialog = ({
       }
     };
     fetchCounties();
+  }, [open]);
+
+  // Fetch agencies on mount - only if dialog is open
+  useEffect(() => {
+    if (!open) return;
+    
+    const fetchAgencies = async () => {
+      setLoadingAgencies(true);
+      try {
+        const data = await apiService.agencies.getAllAgencies();
+        setAgencies(data);
+      } catch (error) {
+        console.error('Error fetching agencies:', error);
+      } finally {
+        setLoadingAgencies(false);
+      }
+    };
+    fetchAgencies();
   }, [open]);
 
   // Fetch constituencies when county changes
@@ -433,39 +455,65 @@ const ProjectFormDialog = ({
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField 
-                name="directorate" 
-                label="Implementing Agency" 
-                type="text" 
-                fullWidth 
-                variant="outlined" 
-                size="small"
-                value={formData.directorate} 
-                onChange={handleChange}
-                placeholder="e.g., Ministry of Health"
-                helperText="The organization responsible for project implementation"
-                inputProps={{ maxLength: 150 }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                                     '& .MuiInputLabel-root': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                     fontWeight: 'bold',
-                   },
-                   '& .MuiInputBase-input': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                   },
+              <Autocomplete
+                options={agencies}
+                getOptionLabel={(option) => typeof option === 'string' ? option : (option.agency_name || '')}
+                value={agencies.find(a => a.agency_name === formData.directorate) || null}
+                onChange={(event, newValue) => {
+                  if (newValue) {
+                    // Set implementing agency
+                    handleChange({ target: { name: 'directorate', value: newValue.agency_name } });
+                    // Prefill ministry and state department
+                    handleChange({ target: { name: 'ministry', value: newValue.ministry || '' } });
+                    handleChange({ target: { name: 'stateDepartment', value: newValue.state_department || '' } });
+                  } else {
+                    // Clear all fields if agency is cleared
+                    handleChange({ target: { name: 'directorate', value: '' } });
+                  }
+                }}
+                loading={loadingAgencies}
+                freeSolo
+                sx={{ minWidth: 200 }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="directorate"
+                    label="Implementing Agency"
+                    variant="outlined"
+                    size="small"
+                    placeholder="Search or select agency"
+                    helperText="The organization responsible for project implementation"
+                    sx={{
+                      minWidth: 200,
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400],
+                          borderWidth: '2px',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300],
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400],
+                          borderWidth: '2px',
+                        },
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                        fontWeight: 'bold',
+                      },
+                      '& .MuiInputBase-input': {
+                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                      },
+                    }}
+                  />
+                )}
+                filterOptions={(options, params) => {
+                  const filtered = options.filter((option) => {
+                    const agencyName = typeof option === 'string' ? option : (option.agency_name || '');
+                    return agencyName.toLowerCase().includes(params.inputValue.toLowerCase());
+                  });
+                  return filtered;
                 }}
               />
             </Grid>

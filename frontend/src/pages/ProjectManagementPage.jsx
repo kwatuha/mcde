@@ -1464,45 +1464,116 @@ function ProjectManagementPage() {
           const canDelete = checkUserPrivilege(user, 'project.delete');
           
           return (
-            <>
-              <Tooltip title="Actions">
+            <Box 
+              display="flex" 
+              gap={0.5} 
+              justifyContent="center" 
+              alignItems="center"
+              sx={{ 
+                width: '100%',
+                height: '100%',
+                minHeight: '40px',
+                py: 0.5,
+                px: 0.5,
+                boxSizing: 'border-box'
+              }}
+            >
+              {canUpdate && (
+                <Tooltip title="Edit">
+                  <IconButton
+                    size="small"
+                    color="primary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenFormDialog(params.row);
+                    }}
+                    sx={{ 
+                      padding: '4px',
+                      '&:hover': {
+                        backgroundColor: 'rgba(25, 118, 210, 0.08)'
+                      }
+                    }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {canDelete && (
+                <Tooltip title="Delete">
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteProject(params.row);
+                    }}
+                    sx={{ 
+                      padding: '4px',
+                      '&:hover': {
+                        backgroundColor: 'rgba(211, 47, 47, 0.08)'
+                      }
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="View Details">
                 <IconButton
                   size="small"
+                  color="default"
                   onClick={(e) => {
-                    setSelectedRow(params.row);
-                    setRowActionMenuAnchor(e.currentTarget);
+                    e.stopPropagation();
+                    const projectId = params.row.id || params.row.project_id || params.row.projectId;
+                    if (projectId) {
+                      handleViewDetails(projectId);
+                    } else {
+                      console.error('Project ID not found in row:', params.row);
+                    }
                   }}
-                  sx={{ color: ui.actionIcon }}
+                  sx={{ 
+                    padding: '4px',
+                    '&:hover': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                    }
+                  }}
                 >
-                  <MoreVertIcon fontSize="small" />
+                  <ViewDetailsIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-            </>
+            </Box>
           );
         };
         dataGridColumn.renderHeader = () => (
-          <Tooltip title="Actions">
-            <IconButton
-              size="small"
+          <Box 
+            sx={{ 
+              width: '100%', 
+              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%'
+            }}
+          >
+            <Typography 
+              variant="body2" 
+              fontWeight={600} 
               sx={{ 
-                color: 'inherit',
-                padding: '4px',
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                }
+                fontSize: '0.8125rem',
+                color: theme.palette.mode === 'dark' ? '#ffffff' : colors.blueAccent[900]
               }}
             >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+              Action
+            </Typography>
+          </Box>
         );
         dataGridColumn.sortable = false;
         dataGridColumn.filterable = false;
         dataGridColumn.headerAlign = 'center';
         dataGridColumn.align = 'center';
-        // Reduce width since we only have one button now and using icon header
+        // Increase width to accommodate multiple icons
         if (!dataGridColumn.width && !dataGridColumn.flex) {
-          dataGridColumn.width = 50;
+          dataGridColumn.width = 140;
         }
         break;
       default:
@@ -2464,6 +2535,17 @@ function ProjectManagementPage() {
                   fontSize: '0.8125rem',
                   fontWeight: 600,
                 },
+              },
+              // Ensure Actions column header has proper background
+              '& .MuiDataGrid-columnHeader[data-field="actions"]': {
+                backgroundColor: `${theme.palette.mode === 'light' ? colors.blueAccent[100] : colors.blueAccent[700]} !important`,
+              },
+              // Ensure Actions column cells are properly aligned
+              '& .MuiDataGrid-cell[data-field="actions"]': {
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px !important',
               },
               '& .MuiDataGrid-footerContainer': {
                 minHeight: '40px !important',

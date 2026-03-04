@@ -69,10 +69,21 @@ const useStrategicPlanDetails = (planId) => {
       setMilestones(milestonesData);
 
       // NEW: Step 8: Fetch all activities for each milestone.
-      const milestoneActivitiesPromises = milestonesData.map(milestone =>
-        apiService.strategy.milestoneActivities.getActivitiesByMilestoneId(milestone.milestoneId)
-      );
-      const milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
+      let milestoneActivitiesResults = [];
+      if (milestonesData && milestonesData.length > 0) {
+        try {
+          const milestoneActivitiesPromises = milestonesData.map(milestone =>
+            apiService.strategy.milestoneActivities.getActivitiesByMilestoneId(milestone.milestoneId).catch(err => {
+              console.warn(`Error fetching activities for milestone ${milestone.milestoneId}:`, err);
+              return []; // Return empty array on error
+            })
+          );
+          milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
+        } catch (err) {
+          console.warn('Error fetching milestone activities:', err);
+          milestoneActivitiesResults = [];
+        }
+      }
       setMilestoneActivities(milestoneActivitiesResults);
 
     } catch (err) {

@@ -596,10 +596,80 @@ router.post('/import-data', upload.single('file'), async (req, res) => {
 
 /**
  * @route POST /api/projects/check-metadata-mapping
- * @description Check metadata mappings for import data (departments, directorates, wards, subcounties)
+ * @description Check metadata mappings for import data (counties, constituencies, wards, implementing agencies)
+ * @access Private
+ * Accepts either:
+ *   - FormData with 'file' field (for file upload)
+ *   - JSON body with 'dataToImport' array
  */
-router.post('/check-metadata-mapping', async (req, res) => {
-    const { dataToImport } = req.body || {};
+router.post('/check-metadata-mapping', upload.single('file'), async (req, res) => {
+    let dataToImport = req.body?.dataToImport;
+    let filePath = req.file?.path;
+    
+    // If no data provided but file uploaded, parse the file
+    if ((!dataToImport || !Array.isArray(dataToImport) || dataToImport.length === 0) && filePath) {
+        try {
+            console.log('No dataToImport provided, parsing uploaded file for metadata check');
+            const workbook = xlsx.readFile(filePath, { 
+                cellDates: true,
+                cellNF: false,
+                cellStyles: false
+            });
+            const sheetName = workbook.SheetNames[0];
+            let worksheet = workbook.Sheets[sheetName];
+            
+            const rawData = xlsx.utils.sheet_to_json(worksheet, { 
+                header: 1,
+                defval: null,
+                raw: false
+            });
+            
+            if (rawData.length < 2) {
+                fs.unlink(filePath, () => {});
+                return res.status(400).json({ success: false, message: 'Uploaded Excel file is empty or has no data rows.' });
+            }
+            
+            const headers = rawData[0];
+            const dataRows = rawData.slice(1).filter(row => {
+                if (!row || !Array.isArray(row)) return false;
+                return row.some(cell => cell !== undefined && cell !== null && cell !== '');
+            });
+            
+            // Map headers to canonical names (same as in import-data)
+            const headerMap = {
+                'projectname': 'projectName',
+                'project name': 'projectName',
+                'project': 'projectName',
+                'county': 'county',
+                'constituency': 'constituency',
+                'ward': 'ward',
+                'implementing agency': 'implementingAgency',
+                'implementingagency': 'implementingAgency',
+                'directorate': 'implementingAgency',
+                'agency': 'implementingAgency',
+            };
+            
+            dataToImport = dataRows.map(row => {
+                const mappedRow = {};
+                headers.forEach((header, index) => {
+                    const normalizedHeader = String(header || '').toLowerCase().trim();
+                    const canonicalKey = headerMap[normalizedHeader] || normalizedHeader;
+                    mappedRow[canonicalKey] = row[index];
+                });
+                return mappedRow;
+            }).filter(row => {
+                const projectName = (row.projectName || '').toString().trim();
+                return projectName && projectName.length >= 3;
+            });
+        } catch (parseErr) {
+            console.error('Error parsing file in check-metadata-mapping:', parseErr);
+            if (filePath && fs.existsSync(filePath)) {
+                fs.unlink(filePath, () => {});
+            }
+            return res.status(400).json({ success: false, message: `Failed to parse uploaded file: ${parseErr.message}` });
+        }
+    }
+    
     if (!dataToImport || !Array.isArray(dataToImport) || dataToImport.length === 0) {
         return res.status(400).json({ success: false, message: 'No data provided for metadata mapping check.' });
     }
@@ -637,6 +707,10 @@ router.post('/check-metadata-mapping', async (req, res) => {
         wards: { existing: [], new: [], unmatched: [] },
         subcounties: { existing: [], new: [], unmatched: [] },
         financialYears: { existing: [], new: [], unmatched: [] },
+        counties: { existing: [], new: [], unmatched: [] },
+        constituencies: { existing: [], new: [], unmatched: [] },
+        kenyaWards: { existing: [], new: [], unmatched: [] },
+        implementingAgencies: { existing: [], new: [], unmatched: [] },
         totalRows: dataToImport.length,
         rowsWithUnmatchedMetadata: []
     };
@@ -650,6 +724,10 @@ router.post('/check-metadata-mapping', async (req, res) => {
         const uniqueWards = new Set();
         const uniqueSubcounties = new Set();
         const uniqueFinancialYears = new Set();
+        const uniqueCounties = new Set();
+        const uniqueConstituencies = new Set();
+        const uniqueKenyaWards = new Set();
+        const uniqueImplementingAgencies = new Set();
 
         dataToImport.forEach((row, index) => {
             // Skip rows where project name is empty, null, or has less than 3 characters
@@ -663,12 +741,20 @@ router.post('/check-metadata-mapping', async (req, res) => {
             const ward = normalizeStr(row.ward || row.Ward || row['Ward Name']);
             const subcounty = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty);
             const finYear = normalizeStr(row.financialYear || row.FinancialYear || row['Financial Year'] || row.ADP || row.Year);
+            const county = normalizeStr(row.county || row.County || row['County']);
+            const constituency = normalizeStr(row.constituency || row.Constituency || row['Constituency']);
+            const kenyaWard = normalizeStr(row.ward || row.Ward || row['Ward Name'] || row['Kenya Ward']);
+            const implementingAgency = normalizeStr(row.implementingAgency || row['Implementing Agency'] || row.implementing_agency || row.directorate || row.Directorate);
 
             if (dept) uniqueDepartments.add(dept);
             if (directorate) uniqueDirectorates.add(directorate);
             if (ward) uniqueWards.add(ward);
             if (subcounty) uniqueSubcounties.add(subcounty);
             if (finYear) uniqueFinancialYears.add(finYear);
+            if (county) uniqueCounties.add(county);
+            if (constituency) uniqueConstituencies.add(constituency);
+            if (kenyaWard) uniqueKenyaWards.add(kenyaWard);
+            if (implementingAgency) uniqueImplementingAgencies.add(implementingAgency);
         });
 
         // Check departments (by name and alias)
@@ -929,6 +1015,98 @@ router.post('/check-metadata-mapping', async (req, res) => {
             });
         }
 
+        // Check counties against kenya_wards table
+        if (uniqueCounties.size > 0) {
+            const countyList = Array.from(uniqueCounties);
+            const [allCounties] = await connection.query(
+                `SELECT DISTINCT county FROM kenya_wards WHERE county IS NOT NULL AND county != '' AND voided = false`
+            );
+            const existingCounties = new Set();
+            allCounties.forEach(c => {
+                if (c.county) {
+                    existingCounties.add(normalizeStr(c.county).toLowerCase());
+                }
+            });
+            
+            countyList.forEach(county => {
+                const normalizedCounty = normalizeStr(county).toLowerCase();
+                if (existingCounties.has(normalizedCounty)) {
+                    mappingSummary.counties.existing.push(county);
+                } else {
+                    mappingSummary.counties.unmatched.push(county);
+                }
+            });
+        }
+
+        // Check constituencies against kenya_wards table
+        if (uniqueConstituencies.size > 0) {
+            const constituencyList = Array.from(uniqueConstituencies);
+            const [allConstituencies] = await connection.query(
+                `SELECT DISTINCT constituency FROM kenya_wards WHERE constituency IS NOT NULL AND constituency != '' AND voided = false`
+            );
+            const existingConstituencies = new Set();
+            allConstituencies.forEach(c => {
+                if (c.constituency) {
+                    existingConstituencies.add(normalizeStr(c.constituency).toLowerCase());
+                }
+            });
+            
+            constituencyList.forEach(constituency => {
+                const normalizedConstituency = normalizeStr(constituency).toLowerCase();
+                if (existingConstituencies.has(normalizedConstituency)) {
+                    mappingSummary.constituencies.existing.push(constituency);
+                } else {
+                    mappingSummary.constituencies.unmatched.push(constituency);
+                }
+            });
+        }
+
+        // Check wards against kenya_wards table
+        if (uniqueKenyaWards.size > 0) {
+            const wardList = Array.from(uniqueKenyaWards);
+            const [allWards] = await connection.query(
+                `SELECT DISTINCT iebc_ward_name FROM kenya_wards WHERE iebc_ward_name IS NOT NULL AND iebc_ward_name != '' AND voided = false`
+            );
+            const existingWards = new Set();
+            allWards.forEach(w => {
+                if (w.iebc_ward_name) {
+                    existingWards.add(normalizeStr(w.iebc_ward_name).toLowerCase());
+                }
+            });
+            
+            wardList.forEach(ward => {
+                const normalizedWard = normalizeStr(ward).toLowerCase();
+                if (existingWards.has(normalizedWard)) {
+                    mappingSummary.kenyaWards.existing.push(ward);
+                } else {
+                    mappingSummary.kenyaWards.unmatched.push(ward);
+                }
+            });
+        }
+
+        // Check implementing agencies against agencies table
+        if (uniqueImplementingAgencies.size > 0) {
+            const agencyList = Array.from(uniqueImplementingAgencies);
+            const [allAgencies] = await connection.query(
+                `SELECT agency_name FROM agencies WHERE voided = false`
+            );
+            const existingAgencies = new Set();
+            allAgencies.forEach(a => {
+                if (a.agency_name) {
+                    existingAgencies.add(normalizeStr(a.agency_name).toLowerCase());
+                }
+            });
+            
+            agencyList.forEach(agency => {
+                const normalizedAgency = normalizeStr(agency).toLowerCase();
+                if (existingAgencies.has(normalizedAgency)) {
+                    mappingSummary.implementingAgencies.existing.push(agency);
+                } else {
+                    mappingSummary.implementingAgencies.unmatched.push(agency);
+                }
+            });
+        }
+
         // Check financial years (with flexible matching for formats like "FY2014/2015", "fy2014/2015", "2014/2015", "2014-2015", "fy 2014-2015")
         if (uniqueFinancialYears.size > 0) {
             const fyList = Array.from(uniqueFinancialYears);
@@ -1036,6 +1214,10 @@ router.post('/check-metadata-mapping', async (req, res) => {
             const ward = normalizeStr(row.ward || row.Ward || row['Ward Name']);
             const subcounty = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty);
             const finYear = normalizeStr(row.financialYear || row.FinancialYear || row['Financial Year'] || row.ADP || row.Year);
+            const county = normalizeStr(row.county || row.County || row['County']);
+            const constituency = normalizeStr(row.constituency || row.Constituency || row['Constituency']);
+            const kenyaWard = normalizeStr(row.ward || row.Ward || row['Ward Name'] || row['Kenya Ward']);
+            const implementingAgency = normalizeStr(row.implementingAgency || row['Implementing Agency'] || row.implementing_agency || row.directorate || row.Directorate);
             
             const unmatched = [];
             if (dept && !mappingSummary.departments.existing.includes(dept) && !mappingSummary.departments.new.includes(dept)) {
@@ -1049,6 +1231,18 @@ router.post('/check-metadata-mapping', async (req, res) => {
             }
             if (finYear && !mappingSummary.financialYears.existing.includes(finYear) && !mappingSummary.financialYears.new.includes(finYear)) {
                 unmatched.push(`Financial Year: ${finYear}`);
+            }
+            if (county && !mappingSummary.counties.existing.includes(county) && !mappingSummary.counties.unmatched.includes(county)) {
+                unmatched.push(`County: ${county}`);
+            }
+            if (constituency && !mappingSummary.constituencies.existing.includes(constituency) && !mappingSummary.constituencies.unmatched.includes(constituency)) {
+                unmatched.push(`Constituency: ${constituency}`);
+            }
+            if (kenyaWard && !mappingSummary.kenyaWards.existing.includes(kenyaWard) && !mappingSummary.kenyaWards.unmatched.includes(kenyaWard)) {
+                unmatched.push(`Ward: ${kenyaWard}`);
+            }
+            if (implementingAgency && !mappingSummary.implementingAgencies.existing.includes(implementingAgency) && !mappingSummary.implementingAgencies.unmatched.includes(implementingAgency)) {
+                unmatched.push(`Implementing Agency: ${implementingAgency}`);
             }
             
             if (unmatched.length > 0) {

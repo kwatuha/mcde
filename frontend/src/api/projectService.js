@@ -49,7 +49,14 @@ const projectService = {
       return response.data;
     },
     checkMetadataMapping: async (importData) => {
-      const response = await axiosInstance.post('/projects/check-metadata-mapping', importData);
+      const isFormData = importData instanceof FormData;
+      const config = isFormData ? {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000 // 60 seconds timeout for large file processing
+      } : {
+        timeout: 60000
+      };
+      const response = await axiosInstance.post('/projects/check-metadata-mapping', importData, config);
       return response.data;
     },
     confirmProjectImport: async (importData) => {
@@ -425,6 +432,14 @@ const projectService = {
     },
     createProjectJob: async (projectId, jobData) => {
       const response = await axiosInstance.post(`/projects/${projectId}/jobs`, jobData);
+      return response.data;
+    },
+    updateProjectJob: async (projectId, jobId, jobData) => {
+      const response = await axiosInstance.put(`/projects/${projectId}/jobs/${jobId}`, jobData);
+      return response.data;
+    },
+    deleteProjectJob: async (projectId, jobId) => {
+      const response = await axiosInstance.delete(`/projects/${projectId}/jobs/${jobId}`);
       return response.data;
     },
   },
