@@ -206,6 +206,12 @@
           "icon": "AttachMoneyIcon",
           "route": "BUDGET_MANAGEMENT",
           "hidden": true
+        },
+        {
+          "title": "Job Categories",
+          "icon": "WorkIcon",
+          "route": "JOB_CATEGORIES",
+          "roles": ["admin"]
         }
       ]
     }

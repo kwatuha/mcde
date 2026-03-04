@@ -53,6 +53,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import ApprovalIcon from '@mui/icons-material/Approval';
 import StorageIcon from '@mui/icons-material/Storage';
+import WorkIcon from '@mui/icons-material/Work';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -82,6 +83,7 @@ const ICON_MAP = {
   AnnouncementIcon,
   PublicIcon,
   AttachMoneyIcon,
+  WorkIcon,
 };
 
 const Item = ({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {

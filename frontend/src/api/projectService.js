@@ -407,6 +407,26 @@ const projectService = {
       const response = await axiosInstance.delete(`/projects/${projectId}/sites/${siteId}`);
       return response.data;
     },
+
+    // --- Project Site History API Calls ---
+    getProjectSiteHistory: async (projectId, siteId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/sites/${siteId}/history`);
+      return response.data;
+    },
+    createProjectSiteHistory: async (projectId, siteId, data) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/sites/${siteId}/history`, data);
+      return response.data;
+    },
+
+    // --- Project Jobs API Calls ---
+    getProjectJobs: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/jobs`);
+      return response.data;
+    },
+    createProjectJob: async (projectId, jobData) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/jobs`, jobData);
+      return response.data;
+    },
   },
   
   // Comprehensive Project Import

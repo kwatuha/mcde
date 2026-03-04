@@ -11,6 +11,8 @@ const projectTableColumns = [
   { id: 'Contracted', label: 'Contracted', minWidth: 150, show: true, sortable: true },   // Added sortable
   { id: 'paidOut', label: 'Disbursed', minWidth: 100, show: false, sortable: true },     // Added sortable
   { id: 'overallProgress', label: 'Progress', minWidth: 160, width: 160, show: true, sortable: true },
+  { id: 'coverageCount', label: 'Sites', minWidth: 120, width: 120, show: true, sortable: true }, // Site count badge
+  { id: 'jobsCount', label: 'Jobs', minWidth: 120, width: 120, show: true, sortable: true }, // Jobs opportunities created
   { id: 'countyNames', label: 'County', minWidth: 150, show: true, sortable: false }, // From project_sites - Default visible
   { id: 'constituencyNames', label: 'Constituency', minWidth: 150, show: true, sortable: false }, // From project_sites - Default visible
   { id: 'wardNames', label: 'Ward', minWidth: 150, show: true, sortable: false }, // From project_sites - Default visible

@@ -53,16 +53,17 @@ services:
     command: npm run dev
     restart: unless-stopped
 
-  public-dashboard:
-    build:
-      context: ./public-dashboard
-      dockerfile: Dockerfile.production
-    container_name: gov_public_dashboard
-    restart: unless-stopped
-    expose:
-      - "80"
-    ports:
-      - "5177:80"
+  # public-dashboard service removed - not needed for this application
+  # public-dashboard:
+  #   build:
+  #     context: ./public-dashboard
+  #     dockerfile: Dockerfile.production
+  #   container_name: gov_public_dashboard
+  #   restart: unless-stopped
+  #   expose:
+  #     - "80"
+  #   ports:
+  #     - "5177:80"
 
   # PostgreSQL database (primary)
   postgres_db:

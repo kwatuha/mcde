@@ -36,6 +36,7 @@ const projectRouter = require('./routes/projectRouter')
 const publicRoutes = require('./routes/publicRoutes')
 const moderationRoutes = require('./routes/moderationRoutes')
 const countyProposedProjectsRoutes = require('./routes/countyProposedProjectsRoutes')
+const jobCategoriesRoutes = require('./routes/jobCategoriesRoutes')
 const projectAnnouncementsRoutes = require('./routes/projectAnnouncementsRoutes')
 const citizenProposalsRoutes = require('./routes/citizenProposalsRoutes')
 const comprehensiveProjectRoutes = require('./routes/comprehensiveProjectRoutes')
@@ -112,6 +113,7 @@ app.use('/api/projects/documents', projectDocumentsRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
+app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/chat', chatRoutes(io));
 app.use('/api/moderate', moderationRoutes);
 app.use('/api/county-proposed-projects', countyProposedProjectsRoutes);

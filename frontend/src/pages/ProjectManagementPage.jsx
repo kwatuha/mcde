@@ -15,7 +15,7 @@ import {
   HourglassEmpty as HourglassIcon, AccountBalance as ContractedIcon, Payment as PaidIcon,
   Search as SearchIcon, Clear as ClearIcon, PlayArrow as PlayArrowIcon, Pause as PauseIcon,
   Warning as WarningIcon, Cancel as CancelIcon, Schedule as ScheduleIcon, CheckCircleOutline as CheckCircleOutlineIcon,
-  MoreVert as MoreVertIcon
+  MoreVert as MoreVertIcon, LocationOn as LocationOnIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -36,6 +36,8 @@ import useProjectData from '../hooks/useProjectData';
 import useTableSort from '../hooks/useTableSort';
 import useTableScrollShadows from '../hooks/useTableScrollShadows';
 import AssignContractorModal from '../components/AssignContractorModal.jsx';
+import ProjectSitesModal from '../components/ProjectSitesModal';
+import ProjectJobsModal from '../components/ProjectJobsModal';
 
 function ProjectManagementPage() {
   const { user, loading: authLoading, hasPrivilege } = useAuth();
@@ -201,6 +203,14 @@ function ProjectManagementPage() {
   // State for Assign Contractor modal
   const [openAssignModal, setOpenAssignModal] = useState(false);
   const [selectedProjectForAssignment, setSelectedProjectForAssignment] = useState(null);
+  
+  // State for Project Sites modal
+  const [openSitesModal, setOpenSitesModal] = useState(false);
+  const [selectedProjectForSites, setSelectedProjectForSites] = useState(null);
+  
+  // State for Project Jobs modal
+  const [openJobsModal, setOpenJobsModal] = useState(false);
+  const [selectedProjectForJobs, setSelectedProjectForJobs] = useState(null);
   
   // State for context menu
   const [contextMenu, setContextMenu] = useState(null);
@@ -509,8 +519,9 @@ function ProjectManagementPage() {
         totalBudget: 0,
         completedProjects: 0,
         inProgressProjects: 0,
-        totalContracted: 0,
         totalPaidOut: 0,
+        totalSites: 0,
+        totalJobs: 0,
         completionRate: 0,
         progressStats: {
           notStarted: 0,
@@ -527,14 +538,19 @@ function ProjectManagementPage() {
       return sum + cost;
     }, 0);
 
-    const totalContracted = projectsToUse.reduce((sum, p) => {
-      const contracted = parseFloat(p.Contracted) || 0;
-      return sum + contracted;
-    }, 0);
-
     const totalPaidOut = projectsToUse.reduce((sum, p) => {
       const paid = parseFloat(p.paidOut) || 0;
       return sum + paid;
+    }, 0);
+
+    const totalSites = projectsToUse.reduce((sum, p) => {
+      const sites = parseInt(p.coverageCount) || 0;
+      return sum + sites;
+    }, 0);
+
+    const totalJobs = projectsToUse.reduce((sum, p) => {
+      const jobs = parseInt(p.jobsCount) || 0;
+      return sum + jobs;
     }, 0);
 
     // Use normalized status for accurate categorization
@@ -601,8 +617,9 @@ function ProjectManagementPage() {
       totalBudget,
       completedProjects,
       inProgressProjects,
-      totalContracted,
       totalPaidOut,
+      totalSites,
+      totalJobs,
       completionRate,
       progressStats,
       statusStats,
@@ -1151,6 +1168,116 @@ function ProjectManagementPage() {
           );
         };
         break;
+      case 'coverageCount':
+        dataGridColumn.width = 120;
+        dataGridColumn.minWidth = 120;
+        dataGridColumn.renderCell = (params) => {
+          if (!params || params.value === null || params.value === undefined) {
+            return (
+              <Chip
+                label="0"
+                size="small"
+                sx={{
+                  backgroundColor: isLight ? colors.grey[200] : colors.grey[700],
+                  color: isLight ? colors.grey[600] : colors.grey[300],
+                  cursor: 'not-allowed',
+                }}
+              />
+            );
+          }
+          
+          const count = parseInt(params.value) || 0;
+          
+          return (
+            <Chip
+              label={count}
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (count > 0) {
+                  setSelectedProjectForSites({
+                    id: params.row.id,
+                    name: params.row.projectName || 'Project',
+                  });
+                  setOpenSitesModal(true);
+                }
+              }}
+              sx={{
+                backgroundColor: count > 0 
+                  ? (isLight ? colors.blueAccent[100] : colors.blueAccent[700])
+                  : (isLight ? colors.grey[200] : colors.grey[700]),
+                color: count > 0
+                  ? (isLight ? colors.blueAccent[900] : colors.blueAccent[100])
+                  : (isLight ? colors.grey[600] : colors.grey[300]),
+                cursor: count > 0 ? 'pointer' : 'not-allowed',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+                height: '26px',
+                '&:hover': count > 0 ? {
+                  backgroundColor: isLight ? colors.blueAccent[200] : colors.blueAccent[600],
+                  transform: 'scale(1.05)',
+                } : {},
+                transition: 'all 0.2s ease-in-out',
+                boxShadow: count > 0 && isLight 
+                  ? '0 2px 4px rgba(0,0,0,0.1)' 
+                  : count > 0 
+                    ? '0 2px 6px rgba(0,0,0,0.3)' 
+                    : 'none',
+              }}
+            />
+          );
+        };
+        break;
+      case 'jobsCount':
+        dataGridColumn.width = 120;
+        dataGridColumn.minWidth = 120;
+        dataGridColumn.renderCell = (params) => {
+          if (!params || params.value === null || params.value === undefined) {
+            return (
+              <Chip
+                label="0"
+                size="small"
+                sx={{
+                  backgroundColor: isLight ? colors.grey[200] : colors.grey[700],
+                  color: isLight ? colors.grey[600] : colors.grey[300],
+                  cursor: 'default',
+                }}
+              />
+            );
+          }
+
+          const count = parseInt(params.value) || 0;
+
+          return (
+            <Chip
+              label={count}
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (count > 0) {
+                  setSelectedProjectForJobs({
+                    id: params.row.id,
+                    name: params.row.projectName || 'Project',
+                  });
+                  setOpenJobsModal(true);
+                }
+              }}
+              sx={{
+                backgroundColor: count > 0 
+                  ? (isLight ? colors.greenAccent[100] : colors.greenAccent[700])
+                  : (isLight ? colors.grey[200] : colors.grey[700]),
+                color: count > 0
+                  ? (isLight ? colors.greenAccent[900] : colors.greenAccent[100])
+                  : (isLight ? colors.grey[600] : colors.grey[300]),
+                cursor: 'default',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+                height: '26px',
+              }}
+            />
+          );
+        };
+        break;
       case 'costOfProject':
         dataGridColumn.width = 150; // Ensure fixed width
         dataGridColumn.minWidth = 150;
@@ -1624,43 +1751,43 @@ function ProjectManagementPage() {
             </Card>
           </Grid>
 
+          {/* Sites Summary */}
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card 
               sx={{ 
                 height: '100%',
                 background: isLight 
-                  ? 'linear-gradient(135deg, #ff6f00 0%, #ff8f00 100%)'
-                  : `linear-gradient(135deg, ${colors.orange?.[800] || colors.yellowAccent[800]}, ${colors.orange?.[700] || colors.yellowAccent[700]})`,
+                  ? 'linear-gradient(135deg, #3949ab 0%, #5c6bc0 100%)'
+                  : `linear-gradient(135deg, ${colors.blueAccent[800]}, ${colors.blueAccent[700]})`,
                 color: isLight ? 'white' : 'inherit',
-                borderTop: `2px solid ${isLight ? '#e65100' : colors.orange?.[500] || colors.yellowAccent[500]}`,
+                borderTop: `2px solid ${isLight ? '#283593' : colors.blueAccent[500]}`,
                 border: 'none',
                 boxShadow: ui.elevatedShadow,
                 transition: 'transform 0.2s ease-in-out',
                 '&:hover': {
                   transform: 'translateY(-2px)',
-                  boxShadow: isLight ? '0 4px 12px rgba(255, 111, 0, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
+                  boxShadow: isLight ? '0 4px 12px rgba(57, 73, 171, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                 }
               }}
             >
               <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
                   <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.7rem' }}>
-                    Contracted
+                    Sites
                   </Typography>
-                  <ContractedIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.orange?.[500] || colors.yellowAccent[500], fontSize: 16 }} />
+                  <LocationOnIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontSize: 16 }} />
                 </Box>
                 <Typography variant="h5" sx={{ color: isLight ? '#ffffff' : '#fff', fontWeight: 'bold', fontSize: '1.1rem', mb: 0.25, lineHeight: 1.2 }}>
-                  {formatCurrencyInMillions(summaryStats.totalContracted)}
+                  {summaryStats.totalSites.toLocaleString()}
                 </Typography>
                 <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.8)' : colors.grey[300], fontWeight: 400, fontSize: '0.65rem' }}>
-                  {summaryStats.totalBudget > 0 
-                    ? Math.round((summaryStats.totalContracted / summaryStats.totalBudget) * 100) 
-                    : 0}% of budget
+                  Total project sites
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
 
+          {/* Disbursed Summary */}
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card 
               sx={{ 
@@ -1690,9 +1817,45 @@ function ProjectManagementPage() {
                   {formatCurrencyInMillions(summaryStats.totalPaidOut)}
                 </Typography>
                 <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.8)' : colors.grey[300], fontWeight: 400, fontSize: '0.65rem' }}>
-                  {summaryStats.totalContracted > 0 
-                    ? Math.round((summaryStats.totalPaidOut / summaryStats.totalContracted) * 100) 
-                    : 0}% of contracted
+                  {summaryStats.totalBudget > 0 
+                    ? Math.round((summaryStats.totalPaidOut / summaryStats.totalBudget) * 100) 
+                    : 0}% of budget
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Jobs Summary */}
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <Card 
+              sx={{ 
+                height: '100%',
+                background: isLight 
+                  ? 'linear-gradient(135deg, #2e7d32 0%, #43a047 100%)'
+                  : `linear-gradient(135deg, ${colors.greenAccent[700]}, ${colors.greenAccent[500]})`,
+                color: isLight ? 'white' : 'inherit',
+                borderTop: `2px solid ${isLight ? '#1b5e20' : colors.greenAccent[400]}`,
+                border: 'none',
+                boxShadow: ui.elevatedShadow,
+                transition: 'transform 0.2s ease-in-out',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: isLight ? '0 4px 12px rgba(46, 125, 50, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
+                }
+              }}
+            >
+              <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                  <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.7rem' }}>
+                    Jobs Created
+                  </Typography>
+                  <GroupAddIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontSize: 16 }} />
+                </Box>
+                <Typography variant="h5" sx={{ color: isLight ? '#ffffff' : '#fff', fontWeight: 'bold', fontSize: '1.1rem', mb: 0.25, lineHeight: 1.2 }}>
+                  {summaryStats.totalJobs.toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.8)' : colors.grey[300], fontWeight: 400, fontSize: '0.65rem' }}>
+                  Total jobs across projects
                 </Typography>
               </CardContent>
             </Card>
@@ -2489,6 +2652,28 @@ function ProjectManagementPage() {
           project={selectedProjectForAssignment}
         />
       )}
+      
+      {/* Project Sites Modal */}
+      <ProjectSitesModal
+        open={openSitesModal}
+        onClose={() => {
+          setOpenSitesModal(false);
+          setSelectedProjectForSites(null);
+        }}
+        projectId={selectedProjectForSites?.id}
+        projectName={selectedProjectForSites?.name}
+      />
+
+      {/* Project Jobs Modal */}
+      <ProjectJobsModal
+        open={openJobsModal}
+        onClose={() => {
+          setOpenJobsModal(false);
+          setSelectedProjectForJobs(null);
+        }}
+        projectId={selectedProjectForJobs?.id}
+        projectName={selectedProjectForJobs?.name}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>

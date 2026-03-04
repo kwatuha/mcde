@@ -105,7 +105,8 @@ const HomePage = () => {
         // Get full project list from authenticated endpoint (or public as fallback)
         let response;
         try {
-          response = await apiService.projects.projects.getProjects();
+          // apiService.projects maps to the projects service; no nested .projects needed
+          response = await apiService.projects.getProjects();
         } catch (authErr) {
           console.warn('Authenticated endpoint failed, trying public endpoint...', authErr.message);
           const publicData = await apiService.public.getProjects({ limit: 1000 });
@@ -290,7 +291,7 @@ const HomePage = () => {
       try {
         setLoadingMilestones(true);
         console.log('Fetching upcoming milestones...');
-        const projects = await apiService.projects.projects.getProjects() || [];
+        const projects = await apiService.projects.getProjects() || [];
         const projectsArray = Array.isArray(projects) ? projects : [];
         console.log('Projects for milestones:', projectsArray.length);
         
@@ -369,7 +370,7 @@ const HomePage = () => {
         setLoadingApprovals(true);
         console.log('Fetching pending approvals...');
         // Try to fetch payment requests with pending status
-        const projects = await apiService.projects.projects.getProjects() || [];
+        const projects = await apiService.projects.getProjects() || [];
         const projectsArray = Array.isArray(projects) ? projects : [];
         console.log('Projects for approvals:', projectsArray.length);
         const pending = [];
@@ -418,7 +419,8 @@ const HomePage = () => {
       try {
         setLoadingStatusData(true);
         console.log('Fetching project status distribution...');
-        const statusCounts = await apiService.projects.analytics.getProjectStatusCounts() || [];
+        // analytics is a top-level service on apiService
+        const statusCounts = await apiService.analytics.getProjectStatusCounts() || [];
         console.log('Status counts fetched:', statusCounts);
         setProjectStatusData(Array.isArray(statusCounts) ? statusCounts : []);
       } catch (error) {

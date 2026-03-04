@@ -22,6 +22,7 @@ const projectWarningRoutes = require('./projectWarningRoutes');
 const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
+const projectJobsRoutes = require('./projectJobsRoutes');
 
 
 // Base SQL query for project details with all left joins
@@ -250,6 +251,7 @@ router.use('/project_payments', projectPaymentRoutes);
 router.use('/projectscheduling', projectSchedulingRoutes);
 router.use('/projectcategories', projectCategoryRoutes);
 router.use('/:projectId/monitoring', projectMonitoringRoutes);
+router.use('/:projectId', projectJobsRoutes);
 
 
 // Mount junction table routers
@@ -2450,7 +2452,9 @@ router.get('/', async (req, res) => {
                 (p.public_engagement->>'feedback_enabled')::boolean AS "feedbackEnabled",
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
-                p.location->>'ward' AS "wardNames"
+                p.location->>'ward' AS "wardNames",
+                COALESCE(site_counts.site_count, 0) AS "coverageCount",
+                COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
         ` : `
             SELECT
                 p.id,
@@ -2505,7 +2509,9 @@ router.get('/', async (req, res) => {
                 NULL AS budgetId,
                 NULL AS countyNames,
                 NULL AS subcountyNames,
-                NULL AS wardNames
+                NULL AS wardNames,
+                COALESCE(site_counts.site_count, 0) AS "coverageCount",
+                COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
         `;
         
         // This part dynamically builds the query.
@@ -2516,9 +2522,25 @@ router.get('/', async (req, res) => {
             LEFT JOIN programs pr ON (p.notes->>'program_id')::integer = pr."programId" AND (pr.voided IS NULL OR pr.voided = false)
             LEFT JOIN subprograms spr ON (p.notes->>'subprogram_id')::integer = spr."subProgramId" AND (spr.voided IS NULL OR spr.voided = false)
             LEFT JOIN categories cat ON p.category_id = cat."categoryId" AND (cat.voided IS NULL OR cat.voided = false)
+            LEFT JOIN (
+                SELECT project_id, COUNT(*) AS site_count
+                FROM project_sites
+                GROUP BY project_id
+            ) site_counts ON p.project_id = site_counts.project_id
+            LEFT JOIN (
+                SELECT project_id, SUM(jobs_count) AS jobs_count
+                FROM project_jobs
+                WHERE voided = false
+                GROUP BY project_id
+            ) job_counts ON p.project_id = job_counts.project_id
         ` : `
             FROM
                 projects p
+            LEFT JOIN (
+                SELECT projectId, COUNT(*) AS site_count
+                FROM project_sites
+                GROUP BY projectId
+            ) site_counts ON p.id = site_counts.projectId
         `;
 
         let queryParams = [];
@@ -2660,6 +2682,658 @@ router.get('/', async (req, res) => {
     } catch (error) {
         console.error('Error fetching projects:', error);
         res.status(500).json({ message: 'Error fetching projects', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/:id/sites
+ * @description Get all project sites for a specific project with summary counts
+ * @returns {Object} Project sites with summary counts by county, constituency, and ward
+ * 
+ * NOTE: This route MUST come before router.get('/:id') to ensure proper route matching
+ */
+router.get('/:id/sites', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { county, constituency, ward } = req.query; // Filter parameters
+        
+        console.log(`[Project Sites Route] Route matched! Request for project ID: ${id}`);
+        
+        if (isNaN(parseInt(id))) {
+            return res.status(400).json({ message: 'Invalid project ID' });
+        }
+
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+        const projectId = parseInt(id);
+        
+        console.log(`[Project Sites] Fetching sites for project ID: ${projectId} (DB_TYPE: ${DB_TYPE})`);
+        
+        // First, check if project_sites table exists
+        try {
+            const tableCheckQuery = DB_TYPE === 'postgresql' 
+                ? `SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'project_sites'
+                )`
+                : `SELECT COUNT(*) as count FROM information_schema.tables 
+                   WHERE table_schema = DATABASE() 
+                   AND table_name = 'project_sites'`;
+            
+            const tableCheck = await pool.execute(tableCheckQuery);
+            const tableExists = DB_TYPE === 'postgresql' 
+                ? tableCheck.rows?.[0]?.exists 
+                : (Array.isArray(tableCheck) ? tableCheck[0]?.[0]?.count > 0 : false);
+            
+            if (!tableExists) {
+                console.log('project_sites table does not exist, returning empty result');
+                return res.status(200).json({
+                    projectId: parseInt(id),
+                    summary: { total: 0, byCounty: {}, byConstituency: {}, byWard: {} },
+                    sites: []
+                });
+            }
+            
+            // Debug: Check if there are any sites for this project_id (only if table exists)
+            try {
+                const debugQuery = DB_TYPE === 'postgresql'
+                    ? `SELECT COUNT(*) as count, MIN(project_id) as min_id, MAX(project_id) as max_id FROM project_sites WHERE project_id = $1`
+                    : `SELECT COUNT(*) as count, MIN(projectId) as min_id, MAX(projectId) as max_id FROM project_sites WHERE projectId = ?`;
+                
+                const debugResult = await pool.execute(debugQuery, [projectId]);
+                const debugData = DB_TYPE === 'postgresql' 
+                    ? (debugResult.rows?.[0] || {})
+                    : (Array.isArray(debugResult) ? debugResult[0]?.[0] : {});
+                
+                console.log(`[Project Sites] Debug - Sites count for project_id ${projectId}:`, debugData);
+                
+                // Also check what project_ids actually exist in project_sites
+                const sampleQuery = DB_TYPE === 'postgresql'
+                    ? `SELECT DISTINCT project_id FROM project_sites ORDER BY project_id LIMIT 10`
+                    : `SELECT DISTINCT projectId FROM project_sites ORDER BY projectId LIMIT 10`;
+                
+                const sampleResult = await pool.execute(sampleQuery);
+                const sampleData = DB_TYPE === 'postgresql'
+                    ? (sampleResult.rows || [])
+                    : (Array.isArray(sampleResult) ? sampleResult[0] : []);
+                
+                console.log(`[Project Sites] Sample project_ids in project_sites:`, sampleData.map(r => r.project_id || r.projectId));
+            } catch (debugError) {
+                console.warn('[Project Sites] Debug query failed (non-critical):', debugError.message);
+                // Continue - debug queries are optional
+            }
+            
+        } catch (checkError) {
+            console.error('Error checking if project_sites table exists:', checkError);
+            // Continue anyway - the actual query will fail if table doesn't exist
+        }
+        
+        let query;
+        let queryParams = [projectId];
+        
+        if (DB_TYPE === 'postgresql') {
+            // Build WHERE clause for filters
+            // NOTE: In the current PostgreSQL schema, county/constituency/ward are plain text columns
+            // on project_sites – there is NO location JSONB column on this table.
+            // Keep this logic simple and only use the real columns that exist.
+            let whereConditions = ['ps.project_id = $1'];
+            
+            console.log(`[Project Sites] PostgreSQL query - project_id = ${projectId}`);
+            // Only add voided check if the column exists (it does not currently), so we skip it.
+            
+            if (county) {
+                whereConditions.push('ps.county ILIKE $' + (queryParams.length + 1));
+                queryParams.push(`%${county}%`);
+            }
+            if (constituency) {
+                whereConditions.push('ps.constituency ILIKE $' + (queryParams.length + 1));
+                queryParams.push(`%${constituency}%`);
+            }
+            if (ward) {
+                whereConditions.push('ps.ward ILIKE $' + (queryParams.length + 1));
+                queryParams.push(`%${ward}%`);
+            }
+            
+            // Simple query: select all columns plus the three location fields
+            query = `
+                SELECT 
+                    ps.*,
+                    ps.county AS county,
+                    ps.constituency AS constituency,
+                    ps.ward AS ward
+                FROM project_sites ps
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY 
+                    COALESCE(ps.county, ''),
+                    COALESCE(ps.constituency, ''),
+                    COALESCE(ps.ward, '')
+            `;
+        } else {
+            // MySQL version
+            let whereConditions = ['ps.projectId = ?'];
+            // Only add voided check if the column exists
+            // For now, we'll skip the voided check since the column may not exist
+            
+            if (county) {
+                whereConditions.push('ps.county LIKE ?');
+                queryParams.push(`%${county}%`);
+            }
+            if (constituency) {
+                whereConditions.push('ps.constituency LIKE ?');
+                queryParams.push(`%${constituency}%`);
+            }
+            if (ward) {
+                whereConditions.push('ps.ward LIKE ?');
+                queryParams.push(`%${ward}%`);
+            }
+            
+            query = `
+                SELECT 
+                    ps.*,
+                    ps.county,
+                    ps.constituency,
+                    ps.ward
+                FROM project_sites ps
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY ps.county, ps.constituency, ps.ward
+            `;
+        }
+        
+        // Convert MySQL ? placeholders to PostgreSQL $1, $2, etc. if needed
+        if (DB_TYPE === 'postgresql') {
+            let paramIndex = 1;
+            query = query.replace(/\?/g, () => `$${paramIndex++}`);
+        }
+        
+        console.log(`[Project Sites] Executing query with params:`, queryParams);
+        console.log(`[Project Sites] Query:`, query.substring(0, 200) + '...');
+        
+        const result = await pool.execute(query, queryParams);
+        const sites = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
+        
+        // Ensure sites is an array
+        const sitesArray = Array.isArray(sites) ? sites : [];
+        
+        console.log(`[Project Sites] Found ${sitesArray.length} sites for project ID ${projectId}`);
+        
+        // Calculate summary counts
+        const summary = {
+            total: sitesArray.length,
+            byCounty: {},
+            byConstituency: {},
+            byWard: {}
+        };
+        
+        sitesArray.forEach(site => {
+            // Handle different possible column names
+            const county = site.county || site.county_name || site.location?.county || 'Unknown';
+            const constituency = site.constituency || site.constituency_name || site.location?.constituency || 'Unknown';
+            const ward = site.ward || site.ward_name || site.location?.ward || 'Unknown';
+            
+            summary.byCounty[county] = (summary.byCounty[county] || 0) + 1;
+            summary.byConstituency[constituency] = (summary.byConstituency[constituency] || 0) + 1;
+            summary.byWard[ward] = (summary.byWard[ward] || 0) + 1;
+        });
+        
+        const response = {
+            projectId: projectId,
+            summary,
+            sites: sitesArray
+        };
+        
+        console.log(`[Project Sites] Returning response for project ${projectId}:`, {
+            totalSites: sitesArray.length,
+            summaryTotal: summary.total,
+            sampleSite: sitesArray[0] || null
+        });
+        
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('Error fetching project sites:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            hint: error.hint,
+            projectId: projectId
+        });
+        
+        // Return empty result instead of error if table/column doesn't exist or any query error
+        // This ensures the frontend can gracefully handle missing data
+        const errorMessage = error.message || '';
+        const isSchemaError = (
+            errorMessage.includes('does not exist') || 
+            errorMessage.includes('relation') ||
+            errorMessage.includes('column') ||
+            errorMessage.includes('syntax error') ||
+            errorMessage.includes('invalid input') ||
+            error.code === '42P01' || // PostgreSQL: relation does not exist
+            error.code === '42703'    // PostgreSQL: column does not exist
+        );
+        
+        if (isSchemaError) {
+            console.log('Schema error detected, returning empty result:', errorMessage);
+            return res.status(200).json({
+                projectId: parseInt(id),
+                summary: { total: 0, byCounty: {}, byConstituency: {}, byWard: {} },
+                sites: [],
+                message: 'Project sites table or columns may not exist yet. No sites found for this project.'
+            });
+        }
+        
+        // For any other error, also return empty result with a message (don't crash the frontend)
+        console.log('Unexpected error, returning empty result to prevent frontend crash:', errorMessage);
+        return res.status(200).json({
+            projectId: parseInt(id),
+            summary: { total: 0, byCounty: {}, byConstituency: {}, byWard: {} },
+            sites: [],
+            message: 'Unable to fetch project sites at this time. Please try again later.'
+        });
+    }
+});
+
+/**
+ * @route POST /api/projects/:id/sites
+ * @description Create a new site for a project
+ */
+router.post('/:id/sites', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const projectId = parseInt(id, 10);
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+
+        if (isNaN(projectId)) {
+            return res.status(400).json({ message: 'Invalid project ID' });
+        }
+
+        const {
+            siteName,
+            county,
+            constituency,
+            ward,
+            status,
+            progress,
+            approvedCost,
+        } = req.body;
+
+        if (!siteName) {
+            return res.status(400).json({ message: 'Site name is required' });
+        }
+
+        let query;
+        let params;
+
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                INSERT INTO project_sites (
+                    project_id,
+                    site_name,
+                    county,
+                    constituency,
+                    ward,
+                    status_norm,
+                    percent_complete,
+                    approved_cost_kes
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *
+            `;
+            params = [
+                projectId,
+                siteName,
+                county || null,
+                constituency || null,
+                ward || null,
+                status || null,
+                progress !== undefined && progress !== '' ? Number(progress) : null,
+                approvedCost !== undefined && approvedCost !== '' ? Number(approvedCost) : null,
+            ];
+        } else {
+            // MySQL-style schema (camelCase identifiers)
+            query = `
+                INSERT INTO project_sites (
+                    projectId,
+                    siteName,
+                    county,
+                    constituency,
+                    ward,
+                    statusNorm,
+                    percentComplete,
+                    approvedCostKes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `;
+            params = [
+                projectId,
+                siteName,
+                county || null,
+                constituency || null,
+                ward || null,
+                status || null,
+                progress !== undefined && progress !== '' ? Number(progress) : null,
+                approvedCost !== undefined && approvedCost !== '' ? Number(approvedCost) : null,
+            ];
+        }
+
+        const result = await pool.execute(query, params);
+        const row =
+            DB_TYPE === 'postgresql'
+                ? result.rows?.[0]
+                : Array.isArray(result) && result[0] ? result[0][0] : null;
+
+        return res.status(201).json(row || {});
+    } catch (error) {
+        console.error('Error creating project site:', error);
+        return res.status(500).json({
+            message: 'Failed to create site',
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * @route PUT /api/projects/:projectId/sites/:siteId
+ * @description Update an existing project site (status / progress / budget)
+ */
+router.put('/:projectId/sites/:siteId', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.params;
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+
+        const projectIdNum = parseInt(projectId, 10);
+        const siteIdNum = parseInt(siteId, 10);
+
+        if (isNaN(projectIdNum) || isNaN(siteIdNum)) {
+            return res.status(400).json({ message: 'Invalid project or site ID' });
+        }
+
+        const {
+            status,
+            percent_complete,
+            approved_cost_kes,
+        } = req.body;
+
+        let query;
+        let params;
+
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                UPDATE project_sites
+                SET
+                    status_norm = COALESCE($3, status_norm),
+                    percent_complete = COALESCE($4, percent_complete),
+                    approved_cost_kes = COALESCE($5, approved_cost_kes)
+                WHERE project_id = $1 AND site_id = $2
+                RETURNING *
+            `;
+            params = [
+                projectIdNum,
+                siteIdNum,
+                status || null,
+                percent_complete !== undefined && percent_complete !== '' ? Number(percent_complete) : null,
+                approved_cost_kes !== undefined && approved_cost_kes !== '' ? Number(approved_cost_kes) : null,
+            ];
+        } else {
+            query = `
+                UPDATE project_sites
+                SET
+                    statusNorm = COALESCE(?, statusNorm),
+                    percentComplete = COALESCE(?, percentComplete),
+                    approvedCostKes = COALESCE(?, approvedCostKes)
+                WHERE projectId = ? AND siteId = ?
+            `;
+            params = [
+                status || null,
+                percent_complete !== undefined && percent_complete !== '' ? Number(percent_complete) : null,
+                approved_cost_kes !== undefined && approved_cost_kes !== '' ? Number(approved_cost_kes) : null,
+                projectIdNum,
+                siteIdNum,
+            ];
+        }
+
+        const result = await pool.execute(query, params);
+        const row =
+            DB_TYPE === 'postgresql'
+                ? result.rows?.[0]
+                : Array.isArray(result) && result[0] ? result[0][0] : null;
+
+        if (!row) {
+            return res.status(404).json({ message: 'Site not found' });
+        }
+
+        return res.status(200).json(row);
+    } catch (error) {
+        console.error('Error updating project site:', error);
+        return res.status(500).json({
+            message: 'Failed to update site',
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * @route DELETE /api/projects/:projectId/sites/:siteId
+ * @description Delete a project site
+ */
+router.delete('/:projectId/sites/:siteId', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.params;
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+
+        const projectIdNum = parseInt(projectId, 10);
+        const siteIdNum = parseInt(siteId, 10);
+
+        if (isNaN(projectIdNum) || isNaN(siteIdNum)) {
+            return res.status(400).json({ message: 'Invalid project or site ID' });
+        }
+
+        let query;
+        let params;
+
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                DELETE FROM project_sites
+                WHERE project_id = $1 AND site_id = $2
+                RETURNING site_id
+            `;
+            params = [projectIdNum, siteIdNum];
+        } else {
+            query = `
+                DELETE FROM project_sites
+                WHERE projectId = ? AND siteId = ?
+            `;
+            params = [projectIdNum, siteIdNum];
+        }
+
+        const result = await pool.execute(query, params);
+        const row =
+            DB_TYPE === 'postgresql'
+                ? result.rows?.[0]
+                : Array.isArray(result) && result[0] ? result[0][0] : null;
+
+        if (!row) {
+            return res.status(404).json({ message: 'Site not found' });
+        }
+
+        return res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Error deleting project site:', error);
+        return res.status(500).json({
+            message: 'Failed to delete site',
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * @route GET /api/projects/:projectId/sites/:siteId/history
+ * @description Get history updates for a specific project site
+ */
+router.get('/:projectId/sites/:siteId/history', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.params;
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+
+        const projectIdNum = parseInt(projectId, 10);
+        const siteIdNum = parseInt(siteId, 10);
+
+        if (isNaN(projectIdNum) || isNaN(siteIdNum)) {
+            return res.status(400).json({ message: 'Invalid project or site ID' });
+        }
+
+        let query;
+        let params;
+
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                SELECT
+                    id,
+                    project_id,
+                    site_id,
+                    status,
+                    change_date,
+                    notes,
+                    budget_kes,
+                    challenges,
+                    recommendations,
+                    created_at
+                FROM project_site_history
+                WHERE project_id = $1 AND site_id = $2
+                ORDER BY change_date DESC, created_at DESC, id DESC
+            `;
+            params = [projectIdNum, siteIdNum];
+        } else {
+            query = `
+                SELECT
+                    id,
+                    projectId AS project_id,
+                    siteId AS site_id,
+                    status,
+                    changeDate AS change_date,
+                    notes,
+                    budgetKes AS budget_kes,
+                    challenges,
+                    recommendations,
+                    createdAt AS created_at
+                FROM project_site_history
+                WHERE projectId = ? AND siteId = ?
+                ORDER BY changeDate DESC, createdAt DESC, id DESC
+            `;
+            params = [projectIdNum, siteIdNum];
+        }
+
+        const result = await pool.execute(query, params);
+        const rows =
+            DB_TYPE === 'postgresql'
+                ? result.rows || []
+                : Array.isArray(result) && result[0]
+                    ? result[0]
+                    : [];
+
+        return res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching project site history:', error);
+        return res.status(500).json({
+            message: 'Failed to fetch site history',
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * @route POST /api/projects/:projectId/sites/:siteId/history
+ * @description Create a history update entry for a specific project site
+ */
+router.post('/:projectId/sites/:siteId/history', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.params;
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+
+        const projectIdNum = parseInt(projectId, 10);
+        const siteIdNum = parseInt(siteId, 10);
+
+        if (isNaN(projectIdNum) || isNaN(siteIdNum)) {
+            return res.status(400).json({ message: 'Invalid project or site ID' });
+        }
+
+        const {
+            status,
+            change_date,
+            notes,
+            budget_kes,
+            challenges,
+            recommendations,
+        } = req.body;
+
+        let query;
+        let params;
+
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                INSERT INTO project_site_history (
+                    project_id,
+                    site_id,
+                    status,
+                    change_date,
+                    notes,
+                    budget_kes,
+                    challenges,
+                    recommendations
+                )
+                VALUES ($1, $2, $3, COALESCE($4, NOW()), $5, $6, $7, $8)
+                RETURNING *
+            `;
+            params = [
+                projectIdNum,
+                siteIdNum,
+                status || null,
+                change_date || null,
+                notes || null,
+                budget_kes !== undefined && budget_kes !== '' ? Number(budget_kes) : null,
+                challenges || null,
+                recommendations || null,
+            ];
+        } else {
+            query = `
+                INSERT INTO project_site_history (
+                    projectId,
+                    siteId,
+                    status,
+                    changeDate,
+                    notes,
+                    budgetKes,
+                    challenges,
+                    recommendations
+                )
+                VALUES (?, ?, ?, COALESCE(?, NOW()), ?, ?, ?, ?)
+            `;
+            params = [
+                projectIdNum,
+                siteIdNum,
+                status || null,
+                change_date || null,
+                notes || null,
+                budget_kes !== undefined && budget_kes !== '' ? Number(budget_kes) : null,
+                challenges || null,
+                recommendations || null,
+            ];
+        }
+
+        const result = await pool.execute(query, params);
+        const row =
+            DB_TYPE === 'postgresql'
+                ? result.rows?.[0]
+                : Array.isArray(result) && result[0]
+                    ? result[0][0]
+                    : null;
+
+        return res.status(201).json(row || {});
+    } catch (error) {
+        console.error('Error creating project site history:', error);
+        return res.status(500).json({
+            message: 'Failed to create site update',
+            details: error.message,
+        });
     }
 });
 

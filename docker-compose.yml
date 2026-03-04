@@ -16,8 +16,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      network: host
     container_name: gov_react_frontend
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "5176:5173"
     volumes:
@@ -30,30 +34,35 @@ services:
     # environment:
     #   VITE_API_URL: /api  # Uses vite.config.js proxy to api:3000
 
-  public-dashboard:
-    build:
-      context: ./public-dashboard
-      dockerfile: Dockerfile
-    container_name: gov_public_dashboard
-    restart: always
-    ports:
-      - "5177:5173"
-    volumes:
-      - ./public-dashboard:/app
-      - /app/node_modules
-    depends_on:
-      - api
-    command: npm run dev
-    environment:
-      - VITE_API_URL=/api
-      - VITE_MAPS_API_KEY=AIzaSyArNdYrq_WsuoGc34C7Osua7kbpt2Twf_s
+  # public-dashboard service removed - not needed for this application
+  # public-dashboard:
+  #   build:
+  #     context: ./public-dashboard
+  #     dockerfile: Dockerfile
+  #   container_name: gov_public_dashboard
+  #   restart: always
+  #   ports:
+  #     - "5177:5173"
+  #   volumes:
+  #     - ./public-dashboard:/app
+  #     - /app/node_modules
+  #   depends_on:
+  #     - api
+  #   command: npm run dev
+  #   environment:
+  #     - VITE_API_URL=/api
+  #     - VITE_MAPS_API_KEY=AIzaSyArNdYrq_WsuoGc34C7Osua7kbpt2Twf_s
 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
+      network: host
     container_name: gov_node_api
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "3010:3000"
     volumes:

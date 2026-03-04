@@ -502,39 +502,80 @@ router.get('/project-status-summary', async (req, res) => {
  */
 router.get('/project-category-summary', async (req, res) => {
     try {
-        const { finYearId, departmentId } = req.query;
-        let whereConditions = ['p.voided = 0', 'p.categoryId IS NOT NULL'];
-        const queryParams = [];
+        const DB_TYPE = getDBType();
 
-        if (finYearId) {
-            whereConditions.push('p.finYearId = ?');
-            queryParams.push(finYearId);
+        // For PostgreSQL, categories are stored as sector text on projects table.
+        // For MySQL, we use the legacy project_milestone_implementations table.
+        if (DB_TYPE === 'postgresql') {
+            const { finYearId, departmentId } = req.query;
+            const queryParams = [];
+            let whereConditions = ['p.voided = false'];
+
+            if (finYearId) {
+                whereConditions.push(`(p.timeline->>'financial_year') = $${queryParams.length + 1}`);
+                queryParams.push(finYearId);
+            }
+            if (departmentId) {
+                // In PostgreSQL, department is stored as ministry text
+                whereConditions.push(`p.ministry = $${queryParams.length + 1}`);
+                queryParams.push(departmentId);
+            }
+
+            const sqlQuery = `
+                SELECT
+                    COALESCE(p.sector, 'Uncategorized') AS name,
+                    COUNT(p.project_id) AS value
+                FROM
+                    projects p
+                ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+                GROUP BY
+                    COALESCE(p.sector, 'Uncategorized')
+                ORDER BY
+                    name;
+            `;
+
+            const result = await pool.execute(sqlQuery, queryParams);
+            const rows = result.rows || result;
+            return res.status(200).json(rows);
+        } else {
+            const { finYearId, departmentId } = req.query;
+            let whereConditions = ['p.voided = 0', 'p.categoryId IS NOT NULL'];
+            const queryParams = [];
+
+            if (finYearId) {
+                whereConditions.push('p.finYearId = ?');
+                queryParams.push(finYearId);
+            }
+            if (departmentId) {
+                whereConditions.push('p.departmentId = ?');
+                queryParams.push(departmentId);
+            }
+            
+            const sqlQuery = `
+                SELECT
+                    pc.categoryName AS name,
+                    COUNT(p.id) AS value
+                FROM
+                    projects p
+                LEFT JOIN
+                    project_milestone_implementations pc ON p.categoryId = pc.categoryId
+                ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
+                GROUP BY
+                    pc.categoryName
+                ORDER BY
+                    name;
+            `;
+            
+            const [rows] = await pool.query(sqlQuery, queryParams);
+            return res.status(200).json(rows);
         }
-        if (departmentId) {
-            whereConditions.push('p.departmentId = ?');
-            queryParams.push(departmentId);
-        }
-        
-        const sqlQuery = `
-            SELECT
-                pc.categoryName AS name,
-                COUNT(p.id) AS value
-            FROM
-                projects p
-            LEFT JOIN
-                project_milestone_implementations pc ON p.categoryId = pc.categoryId
-            ${whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''}
-            GROUP BY
-                pc.categoryName
-            ORDER BY
-                name;
-        `;
-        
-        const [rows] = await pool.query(sqlQuery, queryParams);
-        res.status(200).json(rows);
 
     } catch (error) {
         console.error('Error fetching project category summary:', error);
+        // If table or column is missing, return empty data instead of 500
+        if (error.message && (error.message.includes('does not exist') || error.message.includes('relation'))) {
+            return res.status(200).json([]);
+        }
         res.status(500).json({ message: 'Error fetching project category summary', error: error.message });
     }
 });

@@ -80,6 +80,7 @@ export const ROUTES = {
     PUBLIC_APPROVAL: '/public-approval', // ✨ NEW: Public Content Approval management route
     BUDGET_MANAGEMENT: '/budget-management', // ✨ NEW: Budget Management route
     PROJECT_TYPES: '/project-types', // ✨ NEW: Project Types management route
+    JOB_CATEGORIES: '/job-categories', // ✨ NEW: Job Categories management route
 
     // Sub-routes with dynamic parameters
     PROJECT_DETAILS: '/projects/:projectId',

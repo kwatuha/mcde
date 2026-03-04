@@ -55,7 +55,8 @@ function ReportsPage() {
     setError(null);
     try {
       // Fetch Project Status Counts
-      const statusCounts = await apiService.getProjectStatusCounts();
+      // analytics is a top-level service on apiService
+      const statusCounts = await apiService.analytics.getProjectStatusCounts();
       console.log('Fetched project status counts:', statusCounts);
 
       // Group statuses by normalized categories for charts

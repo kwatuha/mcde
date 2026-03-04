@@ -174,6 +174,11 @@ deploy_on_server() {
         fi
         COMPOSE_FILE="docker-compose.prod.yml"
 
+        # Stop and remove public dashboard container if it exists (no longer needed)
+        print_status "Stopping and removing public dashboard container (if exists)..."
+        docker stop gov_public_dashboard 2>/dev/null || true
+        docker rm gov_public_dashboard 2>/dev/null || true
+
         \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE down 2>/dev/null || true
         
         # Build and start containers
@@ -234,10 +239,9 @@ show_deployment_info() {
     print_status "  - User: $SERVER_USER"
     print_status "  - Path: $SERVER_PATH"
     echo
-    print_status "Access your application at:"
-    print_status "  - Admin Frontend: http://$SERVER_IP:8081/impes/"
-    print_status "  - Public Dashboard: http://$SERVER_IP:5177/"
-    print_status "  - API: http://$SERVER_IP:3010/api/"
+        print_status "Access your application at:"
+        print_status "  - Admin Frontend: http://$SERVER_IP:8081/impes/"
+        print_status "  - API: http://$SERVER_IP:3010/api/"
     echo
     print_status "Useful commands:"
     print_status "  - View logs: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml logs -f || docker-compose -f docker-compose.prod.yml logs -f)'"

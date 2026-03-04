@@ -68,6 +68,8 @@ import PublicApprovalManagementPage from './pages/PublicApprovalManagementPage';
 import ProjectAnalyticsPage from './pages/ProjectAnalyticsPage';
 // ✨ NEW: Import the Budget Management page
 import BudgetManagementPage from './pages/BudgetManagementPage';
+// ✨ NEW: Import the Job Categories page
+import JobCategoriesPage from './pages/JobCategoriesPage';
  
 import ReportingView from './components/ReportingView';
 import RegionalReportsView from './components/RegionalReportsView';
@@ -237,6 +239,10 @@ const router = createBrowserRouter([
       {
         path: 'budget-management',
         element: <BudgetManagementPage />,
+      },
+      {
+        path: 'job-categories',
+        element: <JobCategoriesPage />,
       },
       {
         path: 'budgets',
