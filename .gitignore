@@ -149,3 +149,6 @@ ENV/
 # Local configuration
 config/local.json
 config/local.js
+
+# Remote database dumps and exports
+remote_119db/

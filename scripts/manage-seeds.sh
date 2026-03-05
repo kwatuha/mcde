@@ -50,7 +50,7 @@ function create_seed() {
     echo "📝 Next steps:"
     echo "   1. Edit $SEED_FILE to add ${COUNTY_CODE^^} County specific data"
     echo "   2. Update config/counties/${COUNTY_CODE}.json to reference this seed file"
-    echo "   3. Deploy: ./scripts/deploy-county.sh $COUNTY_CODE"
+    echo "   3. Deploy using your deployment script (e.g., ./deploy-gprs-server.sh)"
 }
 
 function copy_seed() {

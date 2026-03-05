@@ -114,6 +114,9 @@ create_server_directory() {
 }
 
 # Sync files to server
+# Note: public-dashboard is excluded as it's no longer used. To re-enable:
+# 1. Remove '--exclude public-dashboard' from rsync commands below
+# 2. Uncomment public-dashboard service in docker-compose.prod.yml
 sync_files() {
     print_status "Syncing files to server..."
     print_warning "This may take a few minutes..."
@@ -136,9 +139,35 @@ sync_files() {
         --exclude 'db_data' \
         --exclude 'uploads/*' \
         --exclude '*.sql' \
+        --exclude '*.txt' \
+        --exclude '*.html' \
+        --exclude '*.md' \
+        --exclude 'api/migrations' \
+        --exclude 'api/dump' \
         --exclude 'scripts/migration' \
         --exclude 'screenshots' \
         --exclude 'docs' \
+        --exclude 'adp' \
+        --exclude 'remote_119db' \
+        --exclude 'public-dashboard' \
+        --exclude 'process_budget_mapping.py' \
+        --exclude 'fix_metadata_endpoint.py' \
+        --exclude 'original_docker_compose.yml' \
+        --exclude 'test-guide' \
+        --exclude 'test*.sh' \
+        --exclude 'test*.js' \
+        --exclude 'diagnose*.sh' \
+        --exclude 'check*.sh' \
+        --exclude 'import*.sh' \
+        --exclude 'copy*.sh' \
+        --exclude 'sync*.sh' \
+        --exclude 'verify*.sh' \
+        --exclude 'setup*.sh' \
+        --exclude 'install*.sh' \
+        --exclude 'fix*.sh' \
+        --exclude 'run*.sh' \
+        --exclude 'deploy*.sh' \
+        --include 'deploy-gprs-server.sh' \
         ./ "$SERVER_USER@$SERVER_IP:$SERVER_PATH/"
     
     if [ $? -eq 0 ]; then
@@ -202,18 +231,35 @@ deploy_on_server() {
         print_status "Checking container status..."
         \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE ps
         
-        # Set up cron job for PostgreSQL password reset (if not already set)
+        # Set up cron job for PostgreSQL password reset (always ensure it's configured correctly)
         print_status "Setting up cron job for PostgreSQL password maintenance..."
         CRON_SCRIPT="$SERVER_PATH/scripts/reset-postgres-password.sh"
         
-        # Check if cron job already exists
+        # Ensure script is executable
+        chmod +x "\$CRON_SCRIPT" 2>/dev/null || true
+        
+        # Ensure logs directory exists
+        mkdir -p "$SERVER_PATH/logs" 2>/dev/null || true
+        
+        # Remove any existing PostgreSQL password reset cronjobs (to avoid duplicates)
+        TEMP_CRON=$(mktemp)
+        crontab -l 2>/dev/null | grep -v "reset-postgres-password.sh" | grep -v "ALTER USER postgres WITH PASSWORD" > "\$TEMP_CRON" || true
+        
+        # Add the correct cron job (runs every 2 minutes to prevent authentication issues)
+        CRON_JOB="*/2 * * * * cd $SERVER_PATH && bash \$CRON_SCRIPT > /dev/null 2>&1"
+        echo "\$CRON_JOB" >> "\$TEMP_CRON"
+        
+        # Install the updated crontab
+        crontab "\$TEMP_CRON"
+        rm -f "\$TEMP_CRON"
+        
+        print_success "Cron job configured to run PostgreSQL password reset every 2 minutes"
+        
+        # Verify the cron job was added
         if crontab -l 2>/dev/null | grep -q "reset-postgres-password.sh"; then
-            print_status "Cron job for PostgreSQL password reset already exists"
+            print_success "Cron job verified successfully"
         else
-            # Add cron job (runs every 2 minutes to prevent authentication issues on busy server)
-            CRON_JOB="*/2 * * * * cd $SERVER_PATH && bash \$CRON_SCRIPT > /dev/null 2>&1"
-            (crontab -l 2>/dev/null; echo "\$CRON_JOB") | crontab -
-            print_success "Cron job added to run PostgreSQL password reset every 2 minutes"
+            print_warning "Cron job may not have been set up correctly - please check manually"
         fi
         
         print_success "Deployment completed!"
@@ -319,6 +365,24 @@ if [ "$1" = "--dry-run" ]; then
         --exclude '.idea' \
         --exclude 'db_data' \
         --exclude 'uploads/*' \
+        --exclude '*.sql' \
+        --exclude '*.txt' \
+        --exclude '*.html' \
+        --exclude '*.md' \
+        --exclude 'api/migrations' \
+        --exclude 'api/dump' \
+        --exclude 'scripts/migration' \
+        --exclude 'adp' \
+        --exclude 'remote_119db' \
+        --exclude 'public-dashboard' \
+        --exclude 'process_budget_mapping.py' \
+        --exclude 'fix_metadata_endpoint.py' \
+        --exclude 'original_docker_compose.yml' \
+        --exclude 'test-guide' \
+        --exclude 'test*.sh' \
+        --exclude 'test*.js' \
+        --exclude 'deploy*.sh' \
+        --include 'deploy-gprs-server.sh' \
         ./ "$SERVER_USER@$SERVER_IP:$SERVER_PATH/"
     exit 0
 fi
