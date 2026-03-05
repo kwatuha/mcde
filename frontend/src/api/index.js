@@ -19,6 +19,7 @@ import reportsService from './reportsService';
 import budgetService from './budgetService';
 import kenyaWardsService from './kenyaWardsService';
 import agenciesService from './agenciesService';
+import sectorsService from './sectorsService';
 
 // Public API service (no authentication required)
 const publicApiService = {
@@ -84,6 +85,7 @@ const apiService = {
   public: publicApiService, // 👈 Mount the publicApiService here
   kenyaWards: kenyaWardsService, // 👈 Mount the kenyaWardsService here
   agencies: agenciesService, // 👈 Mount the agenciesService here
+  sectors: sectorsService, // 👈 Mount the sectorsService here
 };
 
 export { axiosInstance };

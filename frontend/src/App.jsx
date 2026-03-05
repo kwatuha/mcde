@@ -74,6 +74,8 @@ import JobCategoriesPage from './pages/JobCategoriesPage';
 import KenyaWardsPage from './pages/KenyaWardsPage';
 // ✨ NEW: Import the Agencies page
 import AgenciesPage from './pages/AgenciesPage';
+// ✨ NEW: Import the Sectors page
+import SectorsPage from './pages/SectorsPage';
  
 import ReportingView from './components/ReportingView';
 import RegionalReportsView from './components/RegionalReportsView';
@@ -247,6 +249,10 @@ const router = createBrowserRouter([
       {
         path: 'job-categories',
         element: <JobCategoriesPage />,
+      },
+      {
+        path: 'sectors',
+        element: <SectorsPage />,
       },
       {
         path: 'kenya-wards',

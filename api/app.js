@@ -117,6 +117,7 @@ app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
 app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/kenya-wards', kenyaWardsRoutes);
+app.use('/api/sectors', require('./routes/sectorsRoutes'));
 app.use('/api/agencies', agenciesRoutes);
 app.use('/api/chat', chatRoutes(io));
 app.use('/api/moderate', moderationRoutes);

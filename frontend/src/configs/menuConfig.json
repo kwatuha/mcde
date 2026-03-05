@@ -214,6 +214,12 @@
           "roles": ["admin"]
         },
         {
+          "title": "Sectors",
+          "icon": "CategoryIcon",
+          "route": "SECTORS",
+          "roles": ["admin"]
+        },
+        {
           "title": "Kenya Wards",
           "icon": "LocationOnIcon",
           "route": "KENYA_WARDS",
