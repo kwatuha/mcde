@@ -229,6 +229,10 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     if (!formData.directorate || !formData.directorate.trim()) {
       errors.directorate = 'Implementing Agency is required.';
     }
+    // Sector is required
+    if (!formData.sector || !formData.sector.trim()) {
+      errors.sector = 'Sector is required.';
+    }
     // Project category is optional
     // Sites are no longer required during project creation - they will be added later on project details page
     // Validate date range only if both dates are provided

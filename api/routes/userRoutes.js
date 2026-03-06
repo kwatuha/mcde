@@ -538,7 +538,13 @@ router.post('/roles', async (req, res) => {
         
         const fetchResult = await pool.query(fetchQuery, fetchParams);
         const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
-        res.status(201).json(Array.isArray(rows) ? rows[0] : rows);
+        const createdRole = Array.isArray(rows) ? rows[0] : rows;
+        
+        if (!createdRole) {
+            return res.status(500).json({ message: 'Error creating role', error: 'Failed to fetch created role' });
+        }
+        
+        res.status(201).json(createdRole);
     } catch (error) {
         console.error('Error creating role:', error);
         if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
@@ -715,8 +721,11 @@ router.get('/privileges/:id', async (req, res) => {
 router.post('/privileges', async (req, res) => {
     const { privilegeName, description } = req.body;
 
+    // Better error message for debugging
     if (!privilegeName) {
-        return res.status(400).json({ error: 'Privilege name is required' });
+        console.error('Privilege creation failed: Missing privilegeName in request body');
+        console.error('Request body:', JSON.stringify(req.body));
+        return res.status(400).json({ error: 'Privilege name is required', received: req.body });
     }
 
     try {
@@ -752,8 +761,21 @@ router.post('/privileges', async (req, res) => {
         }
         
         const fetchResult = await pool.query(fetchQuery, fetchParams);
-        const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
-        res.status(201).json(Array.isArray(rows) ? rows[0] : rows);
+        let createdPrivilege;
+        if (DB_TYPE === 'postgresql') {
+            // For PostgreSQL, fetchResult.rows is an array
+            createdPrivilege = fetchResult.rows && fetchResult.rows.length > 0 ? fetchResult.rows[0] : null;
+        } else {
+            // For MySQL, result is [rows, fields]
+            const rows = Array.isArray(fetchResult) ? fetchResult[0] : fetchResult;
+            createdPrivilege = Array.isArray(rows) ? (rows.length > 0 ? rows[0] : null) : rows;
+        }
+        
+        if (!createdPrivilege) {
+            return res.status(500).json({ message: 'Error creating privilege', error: 'Failed to fetch created privilege' });
+        }
+        
+        res.status(201).json(createdPrivilege);
     } catch (error) {
         console.error('Error creating privilege:', error);
         if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {

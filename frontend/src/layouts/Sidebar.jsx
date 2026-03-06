@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { ProSidebar, Menu, MenuItem, SubMenu } from "react-pro-sidebar";
 import { 
   Box, 
@@ -88,18 +88,17 @@ const ICON_MAP = {
   LocationOnIcon,
 };
 
-const Item = ({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {
+const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {
   const navigate = useNavigate();
   
   if (privilegeCheck && !privilegeCheck()) {
     return null;
   }
 
-  const handleClick = () => {
-    console.log('Menu item clicked:', title, 'navigating to:', to);
+  const handleClick = useCallback(() => {
     setSelected(to);
     navigate(to);
-  };
+  }, [to, setSelected, navigate]);
 
   return (
     <Tooltip title={isCollapsed ? title : ''} placement="right" arrow>
@@ -152,7 +151,7 @@ const Item = ({ title, to, icon, selected, setSelected, privilegeCheck, theme, i
       </Box>
     </Tooltip>
   );
-};
+});
 
 const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isCollapsed }) => {
 
@@ -271,6 +270,12 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   const [selected, setSelected] = useState(location.pathname);
+  const previousPathnameRef = useRef(location.pathname);
+  
+  // Memoize setSelected to prevent Item components from re-rendering unnecessarily
+  const stableSetSelected = useCallback((value) => {
+    setSelected(value);
+  }, []);
   
   // Get sidebar collapse state from context
   const { isCollapsed, toggleSidebar } = useSidebar();
@@ -325,10 +330,20 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
       });
   }, [selectedCategory, hasPrivilege, user]);
   
-  // Update selected state when route changes
+  // Update selected state when route changes - use ref to prevent infinite loops
   useEffect(() => {
-    setSelected(location.pathname);
-  }, [location]);
+    const currentPath = location.pathname;
+    if (currentPath !== previousPathnameRef.current) {
+      previousPathnameRef.current = currentPath;
+      // Use functional update to avoid dependency on setSelected
+      setSelected(prev => {
+        if (prev !== currentPath) {
+          return currentPath;
+        }
+        return prev;
+      });
+    }
+  }, [location.pathname]); // Only depend on pathname
 
   // Organized menu groups
   const dashboardItems = [
@@ -656,7 +671,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
             <SearchableMenu 
               items={submenuItems}
               selected={selected}
-              setSelected={setSelected}
+              setSelected={stableSetSelected}
               theme={theme}
               isCollapsed={isCollapsed}
             />

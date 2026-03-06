@@ -82,10 +82,16 @@ const userService = {
 
   createRole: async (roleData) => {
     try {
+      console.log('Creating role with data:', roleData);
       const response = await axiosInstance.post('/users/roles', roleData);
+      console.log('Create role response:', response.data);
+      if (!response.data) {
+        throw new Error('No data returned from role creation');
+      }
       return response.data;
     } catch (error) {
       console.error('Error creating role:', error);
+      console.error('Error response:', error.response?.data);
       throw error;
     }
   },
@@ -134,10 +140,32 @@ const userService = {
   createPrivilege: async (privilegeData) => {
     try {
       const response = await axiosInstance.post('/users/privileges', privilegeData);
+      if (!response.data) {
+        throw new Error('No data returned from privilege creation');
+      }
       return response.data;
     } catch (error) {
-      console.error('Error creating privilege:', error);
-      throw error;
+      // The axios interceptor rejects with error.response.data directly, so error might be the data object
+      // Check if error is a plain object with error/message properties (from interceptor)
+      if (error && typeof error === 'object' && !error.response && (error.error || error.message)) {
+        const errorMessage = error.error || error.message || 'Failed to create privilege';
+        const customError = new Error(errorMessage);
+        customError.originalError = error;
+        throw customError;
+      }
+      // Standard axios error structure
+      if (error.response) {
+        const errorData = error.response.data;
+        const errorMessage = errorData?.error || errorData?.message || error.message || 'Failed to create privilege';
+        const customError = new Error(errorMessage);
+        customError.response = error.response;
+        customError.status = error.response.status;
+        throw customError;
+      } else if (error.request) {
+        throw new Error('Network error: No response from server');
+      } else {
+        throw error;
+      }
     }
   },
 

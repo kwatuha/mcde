@@ -48,7 +48,6 @@ import { ROUTES } from '../configs/appConfig';
 import logo from '../assets/logo.png';
 import apiService from '../api';
 import useDashboardData from '../hooks/useDashboardData';
-import BarChart from '../components/charts/BarChart';
 
 const HomePage = () => {
   const theme = useTheme();
@@ -75,8 +74,6 @@ const HomePage = () => {
 
   const [recentProjects, setRecentProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
-  const [projectCategoryData, setProjectCategoryData] = useState([]);
-  const [loadingCategoryData, setLoadingCategoryData] = useState(false);
 
   // Fetch project statistics - optimized to use stats API first
   useEffect(() => {
@@ -240,37 +237,6 @@ const HomePage = () => {
   }, []);
 
 
-  // Fetch project category distribution - lazy load after initial render
-  useEffect(() => {
-    const fetchCategoryDistribution = async () => {
-      try {
-        setLoadingCategoryData(true);
-        const categoryData = await apiService.reports.getProjectCategorySummary() || [];
-        const categoryArray = Array.isArray(categoryData) ? categoryData : [];
-        
-        // Transform to chart-friendly format
-        const formatted = categoryArray
-          .filter(item => item.name && item.value > 0)
-          .sort((a, b) => b.value - a.value)
-          .slice(0, 10) // Top 10 categories
-          .map(item => ({
-            name: item.name || 'Uncategorized',
-            count: item.value || 0,
-          }));
-        setProjectCategoryData(formatted);
-      } catch (error) {
-        console.error('❌ Error fetching category distribution:', error);
-        console.error('Error details:', error.response?.data || error.message);
-        setProjectCategoryData([]);
-      } finally {
-        setLoadingCategoryData(false);
-      }
-    };
-
-    // Delay this fetch slightly to prioritize critical data
-    const timeoutId = setTimeout(fetchCategoryDistribution, 400);
-    return () => clearTimeout(timeoutId);
-  }, []);
 
 
   const quickAccessItems = [
@@ -788,42 +754,6 @@ const HomePage = () => {
         </Grid>
 
 
-        {/* Project Distribution Charts */}
-        <Grid container spacing={2} sx={{ mt: 1.5 }}>
-          {/* Projects by Category */}
-          <Grid item xs={12} md={4}>
-            <Card elevation={1} sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', height: '100%' }}>
-              <CardContent sx={{ p: 2 }}>
-                <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-                  <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: '#1976d215', display: 'flex', alignItems: 'center' }}>
-                    <ProjectsIcon sx={{ color: '#1976d2', fontSize: 20 }} />
-                  </Box>
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
-                    Projects by Category
-                  </Typography>
-                </Box>
-                {loadingCategoryData ? (
-                  <Box display="flex" justifyContent="center" p={3}>
-                    <CircularProgress size={24} />
-                  </Box>
-                ) : projectCategoryData.length > 0 ? (
-                  <BarChart
-                    title=""
-                    data={projectCategoryData}
-                    xDataKey="name"
-                    yDataKey="count"
-                    yAxisLabel="Number of Projects"
-                    horizontal={true}
-                  />
-                ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-                    No category data available
-                  </Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
 
       </Container>
     </Box>

@@ -424,20 +424,28 @@ const ProjectFormDialog = ({
                     label="Sector"
                     variant="outlined"
                     size="small"
+                    required
                     placeholder="Search or select sector"
-                    helperText="Select the government sector for this project"
+                    helperText={formErrors.sector || "Select the government sector for this project"}
+                    error={!!formErrors.sector}
                     sx={{
                       minWidth: 200,
                       '& .MuiOutlinedInput-root': {
                         '& fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400],
+                          borderColor: formErrors.sector 
+                            ? (colorMode === 'dark' ? colors.redAccent[500] : colors.redAccent[400])
+                            : (colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400]),
                           borderWidth: '2px',
                         },
                         '&:hover fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300],
+                          borderColor: formErrors.sector 
+                            ? (colorMode === 'dark' ? colors.redAccent[600] : colors.redAccent[500])
+                            : (colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300]),
                         },
                         '&.Mui-focused fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400],
+                          borderColor: formErrors.sector 
+                            ? (colorMode === 'dark' ? colors.redAccent[500] : colors.redAccent[400])
+                            : (colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400]),
                           borderWidth: '2px',
                         },
                       },

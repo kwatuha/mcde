@@ -415,7 +415,8 @@ function UserManagementPage() {
       fetchUsers();
     } catch (err) {
       console.error("Submit user error:", err);
-      setSnackbar({ open: true, message: err.response?.data?.message || err.message || 'Failed to save user.', severity: 'error' });
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save user.';
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -684,6 +685,10 @@ function UserManagementPage() {
           return;
         }
         const createdRole = await apiService.createRole(roleDataToSubmit);
+        console.log('Created role response:', createdRole);
+        if (!createdRole || !createdRole.roleId) {
+          throw new Error('Role creation succeeded but did not return a valid role ID');
+        }
         roleId = createdRole.roleId;
         setSnackbar({ open: true, message: 'Role created successfully!', severity: 'success' });
       }
@@ -704,7 +709,8 @@ function UserManagementPage() {
       fetchUsers();
     } catch (err) {
       console.error("Submit role error:", err);
-      setSnackbar({ open: true, message: err.response?.data?.message || err.message || 'Failed to save role.', severity: 'error' });
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save role.';
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -804,7 +810,11 @@ function UserManagementPage() {
   };
 
   const handlePrivilegeSubmit = async () => {
+    console.log('handlePrivilegeSubmit called');
+    console.log('Form data:', privilegeFormData);
+    
     if (!validatePrivilegeForm()) {
+      console.log('Validation failed');
       setSnackbar({ open: true, message: 'Please correct the form errors.', severity: 'error' });
       return;
     }
@@ -827,10 +837,21 @@ function UserManagementPage() {
           return;
         }
         const newPrivilegeData = {
-          privilegeName: privilegeFormData.privilegeName,
-          description: privilegeFormData.description
+          privilegeName: privilegeFormData.privilegeName.trim(),
+          description: (privilegeFormData.description || '').trim()
         };
-        await apiService.createPrivilege(newPrivilegeData);
+        console.log('Creating privilege with data:', newPrivilegeData);
+        const createdPrivilege = await apiService.createPrivilege(newPrivilegeData);
+        console.log('Created privilege response:', createdPrivilege);
+        if (!createdPrivilege) {
+          throw new Error('No response from privilege creation');
+        }
+        // Check for privilegeId in various possible formats
+        const privilegeId = createdPrivilege.privilegeId || createdPrivilege.privilegeid || createdPrivilege.id;
+        if (!privilegeId) {
+          console.warn('Created privilege missing ID, but proceeding:', createdPrivilege);
+          // Still proceed - the privilege might have been created even if response format is unexpected
+        }
         setSnackbar({ open: true, message: 'Privilege created successfully!', severity: 'success' });
       }
       handleClosePrivilegeDialog();
@@ -838,7 +859,19 @@ function UserManagementPage() {
       fetchRoles();
     } catch (err) {
       console.error("Submit privilege error:", err);
-      setSnackbar({ open: true, message: err.response?.data?.message || err.message || 'Failed to save privilege.', severity: 'error' });
+      // The axios interceptor rejects with error.response.data directly, so err.message should have the error
+      // Also check if err is a plain object with error property (from interceptor)
+      let errorMessage = 'Failed to save privilege.';
+      if (err.message) {
+        errorMessage = err.message;
+      } else if (err.error) {
+        errorMessage = err.error;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      }
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -2571,8 +2604,10 @@ function UserManagementPage() {
           <TextField margin="dense" name="description" label="Description" type="text" fullWidth variant="outlined" value={privilegeFormData.description} onChange={handlePrivilegeFormChange} sx={{ mb: 2 }} />
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>
-          <Button onClick={handleClosePrivilegeDialog} color="primary" variant="outlined">Cancel</Button>
-          <Button onClick={handlePrivilegeSubmit} color="primary" variant="contained">{currentPrivilegeToEdit ? 'Update Privilege' : 'Create Privilege'}</Button>
+          <Button onClick={handleClosePrivilegeDialog} color="primary" variant="outlined" disabled={loading}>Cancel</Button>
+          <Button onClick={handlePrivilegeSubmit} color="primary" variant="contained" disabled={loading}>
+            {loading ? 'Saving...' : (currentPrivilegeToEdit ? 'Update Privilege' : 'Create Privilege')}
+          </Button>
         </DialogActions>
       </Dialog>
 
