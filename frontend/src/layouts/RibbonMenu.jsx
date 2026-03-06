@@ -69,7 +69,8 @@ export default function RibbonMenu({ isAdmin = false }) {
   useEffect(() => {
     // Skip auto-detection if user just manually selected a category
     if (manualSelectionRef.current) {
-      manualSelectionRef.current = false; // Reset flag after one check
+      // Don't reset the flag here - let the auto-navigation effect handle it
+      // This prevents the route-based detection from overriding manual selection
       return;
     }
     
@@ -212,11 +213,20 @@ export default function RibbonMenu({ isAdmin = false }) {
     });
     
     // If not on a category route, navigate to the default
+    // This handles the case where user clicks a sidebar menu from one category,
+    // then clicks a different top menu - we should navigate to that category's default
     if (!isOnCategoryRoute) {
       const defaultRoute = getDefaultRouteForCategory(selectedCategoryId);
       if (defaultRoute) {
+        // Reset manual selection flag after navigation is triggered
+        // This allows the route-based detection to work normally after navigation completes
+        manualSelectionRef.current = false;
         navigate(defaultRoute);
       }
+    } else {
+      // If we're already on a category route, reset the manual selection flag
+      // This allows normal route-based detection to work
+      manualSelectionRef.current = false;
     }
   }, [selectedCategoryId, menuCategories, navigate, location.pathname, hasPrivilege, user]);
 
