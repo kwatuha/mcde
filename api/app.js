@@ -75,7 +75,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/templates', express.static(path.join(__dirname, 'templates')));
 
 app.get('/', (req, res) => {
-    res.send('Welcome to the KEMRI CRUD API!');
+    res.send('Welcome to the Government Projects Reporting Platform API!');
 });
 
 app.use('/api/auth', authRoutes);
@@ -148,7 +148,7 @@ require('./socket/chatSocket')(io);
 server.listen(port, () => {
     // Use local/container host in logs; avoid hard-coding any production IPs here.
     const host = process.env.API_HOST || 'localhost';
-    console.log(`IMPES API listening at http://${host}:${port}`);
+    console.log(`Government Projects Reporting Platform API listening at http://${host}:${port}`);
     console.log(`Socket.IO server initialized`);
     console.log(`CORS enabled for all origins during development.`);
 });

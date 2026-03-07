@@ -1,10 +1,10 @@
-// GPRS Logo Component - Government Projects Reporting System
+// GPRS Logo Component - Government Projects Reporting Platform
 import React from 'react';
 import { Box } from '@mui/material';
 
 /**
  * GPRS Logo Component
- * A scalable SVG logo for Government Projects Reporting System
+ * A scalable SVG logo for Government Projects Reporting Platform
  * Can be used with different sizes via the size prop
  */
 const GPRSLogo = ({ size = 120, color = '#1976d2', showText = true, variant = 'full' }) => {
@@ -100,7 +100,7 @@ const GPRSLogo = ({ size = 120, color = '#1976d2', showText = true, variant = 'f
             >
               Government Projects
               <br />
-              Reporting System
+              Reporting Platform
             </Box>
           )}
         </Box>

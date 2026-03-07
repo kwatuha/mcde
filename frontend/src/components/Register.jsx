@@ -384,7 +384,7 @@ const Register = () => {
                                     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif'
                                 }}
                             >
-                                CivicChat
+                                GPRP
                             </Typography>
                             <Typography 
                                 variant="subtitle1" 
@@ -393,10 +393,10 @@ const Register = () => {
                                     fontWeight: 500,
                                     color: '#64748b',
                                     letterSpacing: '0.05em',
-                                    textTransform: 'uppercase'
+                                    textTransform: 'none'
                                 }}
                             >
-                                CivicChat Portal
+                                Government Projects Reporting Platform
                             </Typography>
                         </Box>
                         <Typography 

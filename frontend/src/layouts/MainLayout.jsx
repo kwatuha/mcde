@@ -113,7 +113,7 @@ function MainLayoutContent() {
             
             <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '180px' }}>
               <Typography variant="h6" noWrap component="div" sx={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em' }}>
-                CivicChat
+                GPRP
               </Typography>
             </Box>
             
