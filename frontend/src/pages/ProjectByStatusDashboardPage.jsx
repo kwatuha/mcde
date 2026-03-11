@@ -1130,7 +1130,7 @@ const ProjectByStatusDashboardPage = () => {
         </Box>
 
         {/* Status Comparison Bar Chart — ~66% */}
-        <Box sx={{ flex: 1, minWidth: 0, maxWidth: { md: '50%' } }}>
+        <Box sx={{ flex: 1, minWidth: 0, maxWidth: { md: '45%' } }}>
           <Card
             sx={{
               borderRadius: 4,
@@ -1227,7 +1227,7 @@ const ProjectByStatusDashboardPage = () => {
         </Box>
 
         {/* Status by Sector — ~16% */}
-        <Box sx={{ width: { xs: '100%', md: 'calc(25% - 8px)' }, flexShrink: 0 }}>
+        <Box sx={{ width: { xs: '100%', md: 'calc(30% - 8px)' }, flexShrink: 0 }}>
           <Card
             sx={{
               borderRadius: 4,
