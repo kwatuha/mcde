@@ -1021,9 +1021,9 @@ const ProjectByStatusDashboardPage = () => {
       </Box>
 
       {/* Charts Row — explicit flex with calc widths to avoid MUI Grid constraints */}
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 1, mb: 1, width: '100%' }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 1, mb: 1, width: '100%', alignItems: 'stretch' }}>
         {/* Status Distribution Pie Chart — ~16% */}
-        <Box sx={{ width: { xs: '100%', md: 'calc(25% - 8px)' }, flexShrink: 0 }}>
+        <Box sx={{ width: { xs: '100%', md: 'calc(25% - 8px)' }, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
           <Card
             sx={{
               borderRadius: 4,
@@ -1130,7 +1130,7 @@ const ProjectByStatusDashboardPage = () => {
         </Box>
 
         {/* Status Comparison Bar Chart — ~66% */}
-        <Box sx={{ flex: 1, minWidth: 0, maxWidth: { md: '45%' } }}>
+        <Box sx={{ flex: 1, minWidth: 0, maxWidth: { md: '45%' }, display: 'flex', flexDirection: 'column' }}>
           <Card
             sx={{
               borderRadius: 4,
@@ -1143,6 +1143,7 @@ const ProjectByStatusDashboardPage = () => {
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               width: '100%',
+              height: '100%',
               '&:hover': {
                 boxShadow: theme.palette.mode === 'dark'
                   ? '0 12px 48px rgba(0,0,0,0.5)'
@@ -1184,7 +1185,7 @@ const ProjectByStatusDashboardPage = () => {
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ height: 420, mt: 0, mb: 0, width: '100%', overflow: 'visible', px: 0 }}>
+              <Box sx={{ height: 320, mt: 0, mb: 0, width: "100%", overflow: "visible", px: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={statusData.statusChart} margin={{ top: 5, right: 30, left: 20, bottom: 100 }}>
                     <CartesianGrid
@@ -1227,7 +1228,7 @@ const ProjectByStatusDashboardPage = () => {
         </Box>
 
         {/* Status by Sector — ~16% */}
-        <Box sx={{ width: { xs: '100%', md: 'calc(30% - 8px)' }, flexShrink: 0 }}>
+        <Box sx={{ width: { xs: '100%', md: 'calc(30% - 8px)' }, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
           <Card
             sx={{
               borderRadius: 4,
