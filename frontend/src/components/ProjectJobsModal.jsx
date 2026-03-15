@@ -8,22 +8,30 @@ import {
   Box,
   Typography,
   Grid,
-  Card,
-  CardContent,
-  Chip,
   CircularProgress,
   Alert,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
 } from '@mui/material';
-import { Work as WorkIcon, Close as CloseIcon, Group as GroupIcon } from '@mui/icons-material';
+import { Work as WorkIcon, Close as CloseIcon } from '@mui/icons-material';
 import axiosInstance from '../api/axiosInstance';
+import { useTheme } from '@mui/material/styles';
 
 const ProjectJobsModal = ({ open, onClose, projectId, projectName }) => {
+  const theme = useTheme();
   const [jobs, setJobs] = useState([]);
   const [summary, setSummary] = useState({
     totalJobs: 0,
     totalMale: 0,
     totalFemale: 0,
-    totalYouth: 0,
+    totalDirectJobs: 0,
+    totalIndirectJobs: 0,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -37,7 +45,8 @@ const ProjectJobsModal = ({ open, onClose, projectId, projectName }) => {
         totalJobs: 0,
         totalMale: 0,
         totalFemale: 0,
-        totalYouth: 0,
+        totalDirectJobs: 0,
+        totalIndirectJobs: 0,
       });
       setError(null);
     }
@@ -56,7 +65,8 @@ const ProjectJobsModal = ({ open, onClose, projectId, projectName }) => {
         totalJobs: 0,
         totalMale: 0,
         totalFemale: 0,
-        totalYouth: 0,
+        totalDirectJobs: 0,
+        totalIndirectJobs: 0,
       });
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err) {
@@ -66,11 +76,22 @@ const ProjectJobsModal = ({ open, onClose, projectId, projectName }) => {
         totalJobs: 0,
         totalMale: 0,
         totalFemale: 0,
-        totalYouth: 0,
+        totalDirectJobs: 0,
+        totalIndirectJobs: 0,
       });
       setError(err?.response?.data?.message || err.message || 'Failed to fetch project jobs');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '—';
+    try {
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+      return '—';
     }
   };
 
@@ -83,162 +104,157 @@ const ProjectJobsModal = ({ open, onClose, projectId, projectName }) => {
       PaperProps={{
         sx: {
           maxHeight: '90vh',
+          borderRadius: 2,
         },
       }}
     >
-      <DialogTitle>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box display="flex" alignItems="center" gap={1}>
-            <WorkIcon color="primary" />
-            <Box>
-              <Typography variant="h6">
-                Jobs Created: {projectName}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Jobs: {summary.totalJobs}
-              </Typography>
-            </Box>
+      <DialogTitle
+        sx={{
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          py: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 1,
+        }}
+      >
+        <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
+          <WorkIcon sx={{ color: 'primary.main', fontSize: 28 }} />
+          <Box minWidth={0}>
+            <Typography variant="h6" noWrap sx={{ fontSize: '1.1rem' }}>
+              Jobs Created
+            </Typography>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {projectName}
+            </Typography>
           </Box>
-          <Button onClick={onClose} size="small">
-            <CloseIcon />
-          </Button>
         </Box>
+        <IconButton onClick={onClose} size="small" aria-label="Close">
+          <CloseIcon />
+        </IconButton>
       </DialogTitle>
 
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ p: 0 }}>
         {loading && (
-          <Box display="flex" justifyContent="center" p={3}>
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
             <CircularProgress />
           </Box>
         )}
 
         {error && !loading && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ m: 2 }}>
             {error}
           </Alert>
         )}
 
         {!loading && !error && (
           <>
-            {/* Summary cards */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Total Jobs
+            {/* Compact summary strip - aligned with Project Details Jobs tab */}
+            <Box
+              sx={{
+                px: 2,
+                py: 1.5,
+                backgroundColor: theme.palette.mode === 'dark' ? theme.palette.action.hover : theme.palette.grey[50],
+                borderBottom: `1px solid ${theme.palette.divider}`,
+              }}
+            >
+              <Grid container spacing={2}>
+                {[
+                  { label: 'Total Jobs', value: summary.totalJobs, strong: true },
+                  { label: 'Male', value: summary.totalMale },
+                  { label: 'Female', value: summary.totalFemale },
+                  { label: 'Direct', value: summary.totalDirectJobs },
+                  { label: 'Indirect', value: summary.totalIndirectJobs },
+                ].map(({ label, value, strong }) => (
+                  <Grid item xs={6} sm={4} md={2} key={label}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {label}
                     </Typography>
-                    <Typography variant="h5" fontWeight={600}>
-                      {summary.totalJobs}
+                    <Typography variant="body1" fontWeight={strong ? 600 : 500}>
+                      {value}
                     </Typography>
-                  </CardContent>
-                </Card>
+                  </Grid>
+                ))}
               </Grid>
-              <Grid item xs={12} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Male
-                    </Typography>
-                    <Typography variant="h6">
-                      {summary.totalMale}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Female
-                    </Typography>
-                    <Typography variant="h6">
-                      {summary.totalFemale}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Youth
-                    </Typography>
-                    <Typography variant="h6">
-                      {summary.totalYouth}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
+            </Box>
 
-            {/* Breakdown by category */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle1" gutterBottom>
+            {/* Jobs by category - table to match Project Details and improve scanability */}
+            <Box sx={{ px: 2, py: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 600 }}>
                 Jobs by Category
               </Typography>
 
-              {jobs.length === 0 && (
+              {jobs.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
                   No job records have been captured for this project yet.
                 </Typography>
-              )}
-
-              {jobs.length > 0 && (
-                <Grid container spacing={2}>
-                  {jobs.map((job) => (
-                    <Grid item xs={12} md={6} key={job.id}>
-                      <Card variant="outlined">
-                        <CardContent>
-                          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                            <Box display="flex" alignItems="center" gap={1}>
-                              <GroupIcon fontSize="small" color="action" />
-                              <Typography variant="subtitle1" fontWeight={600}>
-                                {job.category_name || 'Uncategorized'}
-                              </Typography>
-                            </Box>
-                            <Chip
-                              label={`${job.jobs_count ?? 0} jobs`}
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
-                          </Box>
-                          {job.category_description && (
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                              {job.category_description}
-                            </Typography>
-                          )}
-                          <Box display="flex" gap={1} flexWrap="wrap">
-                            <Chip
-                              label={`Male: ${job.male_count ?? 0}`}
-                              size="small"
-                              variant="outlined"
-                            />
-                            <Chip
-                              label={`Female: ${job.female_count ?? 0}`}
-                              size="small"
-                              variant="outlined"
-                            />
-                            <Chip
-                              label={`Youth: ${job.youth_count ?? 0}`}
-                              size="small"
-                              variant="outlined"
-                            />
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
+              ) : (
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1, overflow: 'hidden' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Category
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Date
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Jobs
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Male
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Female
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Direct
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, backgroundColor: (t) => t.palette.mode === 'dark' ? t.palette.grey[800] : t.palette.grey[50], fontSize: '0.75rem' }}>
+                          Indirect
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {jobs.map((job) => (
+                        <TableRow key={job.id} hover>
+                          <TableCell sx={{ fontSize: '0.8125rem' }}>
+                            {job.category_name || 'Uncategorized'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.8125rem', color: 'text.secondary' }}>
+                            {formatDate(job.created_at)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.8125rem' }}>
+                            {job.jobs_count ?? 0}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.8125rem' }}>
+                            {job.male_count ?? 0}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.8125rem' }}>
+                            {job.female_count ?? 0}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.8125rem' }}>
+                            {job.direct_jobs ?? 0}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.8125rem' }}>
+                            {job.indirect_jobs ?? 0}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Box>
           </>
         )}
       </DialogContent>
 
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+      <DialogActions sx={{ borderTop: `1px solid ${theme.palette.divider}`, px: 2, py: 1 }}>
+        <Button onClick={onClose} variant="contained" size="small">
+          Close
+        </Button>
       </DialogActions>
     </Dialog>
   );

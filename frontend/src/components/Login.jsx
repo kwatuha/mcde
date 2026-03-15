@@ -1,5 +1,5 @@
 // src/components/Login.jsx
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiService from '../api';
@@ -46,7 +46,6 @@ const Login = () => {
             }
         } catch (err) {
             console.error('Login.jsx: Error caught during login API call:', err);
-            // Handle different error formats from axios interceptor
             const errorMessage = err?.error || err?.message || (typeof err === 'string' ? err : 'Login failed. Please check your credentials.');
             setError(errorMessage);
         } finally {
@@ -56,20 +55,20 @@ const Login = () => {
     };
 
     return (
-        <Container 
-            maxWidth="sm" 
-            sx={{ 
-                minHeight: '100vh', 
-                display: 'flex', 
-                alignItems: 'center', 
+        <Container
+            maxWidth="sm"
+            sx={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
                 background: 'linear-gradient(135deg, #2196f3 0%, #42a5f5 25%, #1976d2 50%, #1e88e5 75%, #2196f3 100%)',
                 py: 2
             }}
         >
-            <Card 
-                sx={{ 
-                    width: '100%', 
+            <Card
+                sx={{
+                    width: '100%',
                     maxWidth: 420,
                     p: 2.5,
                     borderRadius: 4,
@@ -86,20 +85,11 @@ const Login = () => {
                 }}
             >
                 <CardContent sx={{ p: 0 }}>
-                    {/* Logo and Title Section */}
                     <Box sx={{ textAlign: 'center', mb: 3 }}>
-                        <Box
-                            sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                mb: 2
-                            }}
-                        >
-                            <Typography 
-                                variant="h4" 
-                                sx={{ 
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                            <Typography
+                                variant="h4"
+                                sx={{
                                     fontSize: '2.5rem',
                                     fontWeight: 700,
                                     background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 50%, #64b5f6 100%)',
@@ -113,28 +103,11 @@ const Login = () => {
                             >
                                 GPRP
                             </Typography>
-                            <Typography 
-                                variant="subtitle1" 
-                                sx={{ 
-                                    fontSize: '0.875rem',
-                                    fontWeight: 500,
-                                    color: '#64748b',
-                                    letterSpacing: '0.05em',
-                                    textTransform: 'none'
-                                }}
-                            >
+                            <Typography variant="subtitle1" sx={{ fontSize: '0.875rem', fontWeight: 500, color: '#64748b', letterSpacing: '0.05em', textTransform: 'none' }}>
                                 Government Projects Reporting Platform
                             </Typography>
                         </Box>
-                        <Typography 
-                            variant="body2" 
-                            sx={{ 
-                                fontSize: '0.75rem', 
-                                mt: 1,
-                                fontStyle: 'italic',
-                                color: '#6b7280'
-                            }}
-                        >
+                        <Typography variant="body2" sx={{ fontSize: '0.75rem', mt: 1, fontStyle: 'italic', color: '#6b7280' }}>
                             Please Login
                         </Typography>
                     </Box>
@@ -149,7 +122,7 @@ const Login = () => {
                             required
                             disabled={loading}
                             size="small"
-                            sx={{ 
+                            sx={{
                                 mb: 1.5,
                                 '& .MuiOutlinedInput-root': {
                                     borderRadius: 2,
@@ -157,23 +130,16 @@ const Login = () => {
                                     transition: 'all 0.3s ease-in-out',
                                     '&:hover': {
                                         backgroundColor: '#f1f5f9',
-                                        '& .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#3b82f6',
-                                            borderWidth: 2
-                                        }
+                                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#3b82f6', borderWidth: 2 }
                                     },
                                     '&.Mui-focused': {
                                         backgroundColor: 'white',
-                                        '& .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#1e3a8a',
-                                            borderWidth: 2
-                                        }
+                                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1e3a8a', borderWidth: 2 }
                                     }
                                 }
                             }}
                             variant="outlined"
                         />
-                        
                         <TextField
                             fullWidth
                             label="Password"
@@ -184,7 +150,7 @@ const Login = () => {
                             required
                             disabled={loading}
                             size="small"
-                            sx={{ 
+                            sx={{
                                 mb: 1.5,
                                 '& .MuiOutlinedInput-root': {
                                     borderRadius: 2,
@@ -192,48 +158,24 @@ const Login = () => {
                                     transition: 'all 0.3s ease-in-out',
                                     '&:hover': {
                                         backgroundColor: '#f1f5f9',
-                                        '& .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#3b82f6',
-                                            borderWidth: 2
-                                        }
+                                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#3b82f6', borderWidth: 2 }
                                     },
                                     '&.Mui-focused': {
                                         backgroundColor: 'white',
-                                        '& .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#1e3a8a',
-                                            borderWidth: 2
-                                        }
+                                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1e3a8a', borderWidth: 2 }
                                     }
                                 }
                             }}
                             variant="outlined"
                         />
 
-                        {/* Remember Me & Forgot Password Section */}
-                        <Box sx={{ 
-                            display: 'flex', 
-                            justifyContent: 'space-between', 
-                            alignItems: 'center', 
-                            mb: 1.5 
-                        }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                             <FormControlLabel
                                 control={<Checkbox size="small" />}
                                 label="Remember me"
                                 sx={{ fontSize: '0.8rem', '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
                             />
-                            <Link 
-                                href="#" 
-                                sx={{ 
-                                    fontSize: '0.8rem',
-                                    textDecoration: 'none',
-                                    color: '#3b82f6',
-                                    fontWeight: 500,
-                                    '&:hover': { 
-                                        textDecoration: 'underline',
-                                        color: '#1e3a8a'
-                                    }
-                                }}
-                            >
+                            <Link href="#" sx={{ fontSize: '0.8rem', textDecoration: 'none', color: '#3b82f6', fontWeight: 500, '&:hover': { textDecoration: 'underline', color: '#1e3a8a' } }}>
                                 Forgot Password?
                             </Link>
                         </Box>
@@ -243,13 +185,13 @@ const Login = () => {
                                 {error}
                             </Alert>
                         )}
-                        
+
                         <Button
                             type="submit"
                             fullWidth
                             variant="contained"
                             disabled={loading}
-                            sx={{ 
+                            sx={{
                                 py: 1.2,
                                 fontSize: '1rem',
                                 fontWeight: 'bold',
@@ -279,26 +221,12 @@ const Login = () => {
                                 'Login'
                             )}
                         </Button>
-                        
-                        {/* Registration Link */}
+
                         <Box sx={{ textAlign: 'center', mt: 2 }}>
                             <Typography variant="body2" sx={{ color: '#6b7280', mb: 0.5, fontSize: '0.85rem' }}>
                                 Don't have an account?
                             </Typography>
-                            <Link 
-                                component={RouterLink}
-                                to="/register"
-                                sx={{ 
-                                    fontSize: '0.9rem',
-                                    textDecoration: 'none',
-                                    color: '#3b82f6',
-                                    fontWeight: 600,
-                                    '&:hover': { 
-                                        textDecoration: 'underline',
-                                        color: '#1e3a8a'
-                                    }
-                                }}
-                            >
+                            <Link component={RouterLink} to="/register" sx={{ fontSize: '0.9rem', textDecoration: 'none', color: '#3b82f6', fontWeight: 600, '&:hover': { textDecoration: 'underline', color: '#1e3a8a' } }}>
                                 Register here
                             </Link>
                         </Box>

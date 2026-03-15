@@ -8,7 +8,7 @@ import {
     Divider, Tabs, Tab, Card, CardContent, CardMedia, Link,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
-    InputLabel, Select, FormControl, Menu, ListItemIcon
+    InputLabel, Select, FormControl, Menu, ListItemIcon, Switch, FormControlLabel
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon, Add as AddIcon, Edit as EditIcon,
@@ -42,7 +42,8 @@ import {
     Public as PublicIcon,
     Cancel as CancelIcon,
     Pending as PendingIcon,
-    Work as WorkIcon
+    Work as WorkIcon,
+    Feedback as FeedbackIcon
 } from '@mui/icons-material';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -382,9 +383,33 @@ function ProjectDetailsPage() {
     const [projectPhotos, setProjectPhotos] = useState([]);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
 
+    // Updates tab form state (progress summary, percentage)
+    const [updatesForm, setUpdatesForm] = useState({ progressSummary: '', overallProgress: '' });
+    const [savingUpdates, setSavingUpdates] = useState(false);
+    // Feedback tab form state
+    const [feedbackForm, setFeedbackForm] = useState({ feedbackEnabled: true, complaintsReceived: '', commonFeedback: '' });
+    const [savingFeedback, setSavingFeedback] = useState(false);
+
+    // Sync Updates/Feedback form from project when user switches to those tabs
+    useEffect(() => {
+        if (!project || (activeTab !== 4 && activeTab !== 5)) return;
+        if (activeTab === 4) {
+            setUpdatesForm({
+                progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
+                overallProgress: project?.overallProgress != null ? String(project.overallProgress) : ''
+            });
+        } else {
+            setFeedbackForm({
+                feedbackEnabled: project?.feedbackEnabled === true || project?.feedbackEnabled === 1,
+                complaintsReceived: project?.complaintsReceived != null ? String(project.complaintsReceived) : '',
+                commonFeedback: project?.commonFeedback || ''
+            });
+        }
+    }, [activeTab, project]);
+
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 2) { // Jobs tab index (0:Overview,1:Sites,2:Jobs,3:Teams,4:Timeline,5:Map)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Updates,5:Feedback,6:Map)
             fetchJobCategories();
             fetchProjectJobs();
         }
@@ -516,12 +541,7 @@ function ProjectDetailsPage() {
                 console.warn('Error fetching teams (non-critical):', err);
             }
             
-            // NEW: Fetch project sites (limit to 10 for tab display) (don't fail if this errors)
-            try {
-                await fetchProjectSites(false, true);
-            } catch (err) {
-                console.warn('Error fetching project sites (non-critical):', err);
-            }
+            // Sites are loaded when the user opens the Sites tab (see useEffect below), not on initial load.
 
         } catch (err) {
             console.error('ProjectDetailsPage: Error fetching project details:', err);
@@ -582,7 +602,7 @@ function ProjectDetailsPage() {
         setSitesError(null);
         
         try {
-            const result = await apiService.getProjectSites(projectId);
+            const result = await apiService.junctions.getProjectSites(projectId);
             // API returns an object: { projectId, summary, sites: [...] }
             let sitesArray = Array.isArray(result?.sites)
                 ? result.sites
@@ -630,6 +650,12 @@ function ProjectDetailsPage() {
         }
     }, [projectId, projectSites.length, loadingSites]);
 
+    // Load project sites when Sites tab is active
+    useEffect(() => {
+        if (activeTab === 2) {
+            fetchProjectSites(false, true);
+        }
+    }, [activeTab, fetchProjectSites]);
 
     // NEW: Function to fetch teams for project
     const fetchProjectTeams = useCallback(async () => {
@@ -754,6 +780,43 @@ function ProjectDetailsPage() {
             setSnackbar({ open: true, message: 'Team member deleted successfully!', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || 'Failed to delete team member.', severity: 'error' });
+        }
+    };
+
+    const handleSaveUpdates = async () => {
+        if (!projectId) return;
+        setSavingUpdates(true);
+        try {
+            const payload = {
+                progressSummary: updatesForm.progressSummary.trim() || null,
+                overallProgress: updatesForm.overallProgress === '' ? undefined : parseFloat(updatesForm.overallProgress)
+            };
+            await apiService.projects.updateProject(projectId, payload);
+            await fetchProjectDetails();
+            setSnackbar({ open: true, message: 'Updates saved successfully.', severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save updates.', severity: 'error' });
+        } finally {
+            setSavingUpdates(false);
+        }
+    };
+
+    const handleSaveFeedback = async () => {
+        if (!projectId) return;
+        setSavingFeedback(true);
+        try {
+            const payload = {
+                feedbackEnabled: feedbackForm.feedbackEnabled,
+                complaintsReceived: feedbackForm.complaintsReceived === '' ? undefined : parseInt(feedbackForm.complaintsReceived, 10),
+                commonFeedback: feedbackForm.commonFeedback.trim() || null
+            };
+            await apiService.projects.updateProject(projectId, payload);
+            await fetchProjectDetails();
+            setSnackbar({ open: true, message: 'Feedback settings saved successfully.', severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save feedback.', severity: 'error' });
+        } finally {
+            setSavingFeedback(false);
         }
     };
 
@@ -933,7 +996,7 @@ function ProjectDetailsPage() {
             
             for (const site of sitesToImport) {
                 try {
-                    await apiService.createProjectSite(projectId, site);
+                    await apiService.junctions.createProjectSite(projectId, site);
                     successCount++;
                 } catch (err) {
                     console.error('Error importing site:', err);
@@ -2294,10 +2357,11 @@ function ProjectDetailsPage() {
                     }}
                 >
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
+                    <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
-                    <Tab label="Teams" icon={<AccountTreeIcon />} iconPosition="start" />
-                    <Tab label="Timeline & Milestones" icon={<ScheduleIcon />} iconPosition="start" />
+                    <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
+                    <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
                 </Tabs>
 
@@ -2406,6 +2470,25 @@ function ProjectDetailsPage() {
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Sector:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.sector || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ 
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Implementing Agency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.implementingAgency || project?.directorate || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ 
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Financial Year:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.financialYear || project?.financialYearName || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ 
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Last Updated:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.updatedAt) || 'N/A'}</span>
                                 </Typography>
                                 <Divider sx={{ my: 0.3 }} />
                                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2429,95 +2512,20 @@ function ProjectDetailsPage() {
                                         />
                                     )}
                                 </Box>
-                            </Stack>
-                        </Box>
-                    </Grid>
-                    {/* Second Column: Financial Details */}
-                    <Grid item xs={12} md={4}>
-                        <Box sx={{
-                            p: 1,
-                            borderRadius: '10px',
-                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : '#F5F5F5', // Light grey background for light mode
-                            border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
-                            height: '100%',
-                            boxShadow: theme.palette.mode === 'light' ? `0 2px 8px rgba(0, 0, 0, 0.05)` : `0 4px 16px rgba(0, 0, 0, 0.2)`,
-                            transition: 'all 0.3s ease-in-out',
-                            '&:hover': {
-                                transform: 'translateY(-2px)',
-                                boxShadow: theme.palette.mode === 'light' ? `0 4px 12px rgba(0, 0, 0, 0.08)` : `0 6px 24px rgba(0, 0, 0, 0.3)`,
-                                borderColor: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[400]
-                            }
-                        }}>
-                            <Typography variant="h6" sx={{ 
-                                fontWeight: 'bold', 
-                                mb: 0.4,
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
-                                textAlign: 'center',
-                                borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[300]}`,
-                                pb: 0.25,
-                                fontSize: '0.85rem'
-                            }}>
-                                Financial Details
-                            </Typography>
-                            <Stack spacing={0.3}>
-                                <Typography variant="body1" sx={{ 
-                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
-                                    fontSize: '0.85rem'
-                                }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Start Date:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.startDate)}</span>
-                                </Typography>
-                                <Typography variant="body1" sx={{ 
-                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
-                                    fontSize: '0.85rem'
-                                }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>End Date:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.endDate)}</span>
-                                </Typography>
-                                <Divider sx={{ my: 0.5 }} />
-                                <Typography variant="body2" sx={{ 
-                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], 
-                                    fontWeight: 600,
-                                    fontSize: '0.75rem',
-                                    mb: 0.25
-                                }}>
-                                    Budget Breakdown
-                                </Typography>
-                                <Typography variant="body1" sx={{ 
-                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
-                                    fontSize: '0.85rem'
-                                }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Total Budget:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatCurrency(totalBudget)}</span>
-                                </Typography>
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.8rem' }}>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>Disbursed:</Typography>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: colors.greenAccent[500] }}>
-                                        {formatCurrency(paidAmount)} ({disbursementRate.toFixed(1)}%)
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <Typography variant="body1" sx={{ 
+                                        color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                        fontSize: '0.9rem'
+                                    }}>
+                                        <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Feedback Enabled:</strong>
                                     </Typography>
-                                </Box>
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.8rem' }}>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>Remaining:</Typography>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
-                                        {formatCurrency(remainingBudget)}
-                                    </Typography>
-                                </Box>
-                                <Divider sx={{ my: 0.5 }} />
-                                <Typography variant="body2" sx={{ 
-                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], 
-                                    fontWeight: 600,
-                                    fontSize: '0.75rem',
-                                    mb: 0.25
-                                }}>
-                                    Payment Status
-                                </Typography>
-                                <LinearProgress 
-                                    variant="determinate" 
-                                    value={disbursementRate}
-                                    sx={{ mb: 0.5, height: 8, borderRadius: 4 }}
-                                />
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.8rem', mb: 0.5 }}>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>Disbursement Rate:</Typography>
-                                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: colors.blueAccent[500] }}>
-                                        {disbursementRate.toFixed(1)}%
-                                    </Typography>
+                                    <Chip
+                                        label={project?.feedbackEnabled === true || project?.feedbackEnabled === 1 ? 'Yes' : project?.feedbackEnabled === false || project?.feedbackEnabled === 0 ? 'No' : 'N/A'}
+                                        size="small"
+                                        variant="outlined"
+                                        color={project?.feedbackEnabled ? 'success' : 'default'}
+                                        sx={{ fontSize: '0.7rem', height: '22px' }}
+                                    />
                                 </Box>
                             </Stack>
                         </Box>
@@ -2597,7 +2605,55 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 4 && (
+                {activeTab === 1 && (
+                    <Box>
+                        {/* Financials Tab */}
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2, maxWidth: 560 }}>
+                            <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
+                                Financial Details
+                            </Typography>
+                            <Stack spacing={0.3}>
+                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Start Date:</strong>{' '}
+                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.startDate)}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>End Date:</strong>{' '}
+                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.endDate)}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Budget Source:</strong>{' '}
+                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.budgetSource || 'N/A'}</span>
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], fontWeight: 600, fontSize: '0.75rem', mb: 0.5 }}>Budget Breakdown</Typography>
+                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
+                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Total Budget:</strong>{' '}
+                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatCurrency(totalBudget)}</span>
+                                </Typography>
+                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
+                                    <Typography variant="body2">Disbursed:</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600, color: colors.greenAccent[500] }}>
+                                        {formatCurrency(paidAmount)} ({disbursementRate.toFixed(1)}%)
+                                    </Typography>
+                                </Box>
+                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
+                                    <Typography variant="body2">Remaining:</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatCurrency(remainingBudget)}</Typography>
+                                </Box>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], fontWeight: 600, fontSize: '0.75rem', mb: 0.5 }}>Payment Status</Typography>
+                                <LinearProgress variant="determinate" value={disbursementRate} sx={{ mb: 0.5, height: 8, borderRadius: 4 }} />
+                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
+                                    <Typography variant="body2">Disbursement Rate:</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600, color: colors.blueAccent[500] }}>{disbursementRate.toFixed(1)}%</Typography>
+                                </Box>
+                            </Stack>
+                        </Paper>
+                    </Box>
+                )}
+
+                {false && activeTab === 3 && (
                     <Box>
                         {/* Timeline & Milestones Tab */}
                         {/* Work Plans and Milestones Section (Refactored) */}
@@ -3428,7 +3484,7 @@ function ProjectDetailsPage() {
 
                 {/* Documents Tab Content - Removed */}
 
-                {activeTab === 2 && (
+                {activeTab === 3 && (
                     <Box>
                         {/* Jobs Tab */}
                         <Typography variant="h6" sx={{ 
@@ -3920,7 +3976,7 @@ function ProjectDetailsPage() {
                 {/* M&E Tab Content - Removed */}
                 {/* Documents Tab Content - Removed */}
 
-                {activeTab === 5 && (
+                {activeTab === 6 && (
                     <Box>
                         {/* Map Tab */}
                         <ProjectMapEditor 
@@ -3930,33 +3986,119 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 1 && (
+                {activeTab === 4 && (
+                    <Box>
+                        {/* Updates Tab */}
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
+                                Project updates
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Record progress and latest update summary for this project.
+                            </Typography>
+                            <Stack spacing={2} sx={{ maxWidth: 640 }}>
+                                <TextField
+                                    label="Latest update summary"
+                                    value={updatesForm.progressSummary}
+                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, progressSummary: e.target.value }))}
+                                    multiline
+                                    rows={4}
+                                    fullWidth
+                                    placeholder="Describe current progress, milestones reached, or any notable changes..."
+                                />
+                                <TextField
+                                    label="Percentage complete"
+                                    type="number"
+                                    value={updatesForm.overallProgress}
+                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, overallProgress: e.target.value }))}
+                                    inputProps={{ min: 0, max: 100, step: 0.5 }}
+                                    placeholder="0–100"
+                                    sx={{ maxWidth: 160 }}
+                                />
+                                <Box>
+                                    <Button
+                                        variant="contained"
+                                        onClick={handleSaveUpdates}
+                                        disabled={savingUpdates}
+                                        startIcon={savingUpdates ? <CircularProgress size={18} /> : <UpdateIcon />}
+                                    >
+                                        {savingUpdates ? 'Saving…' : 'Save updates'}
+                                    </Button>
+                                </Box>
+                            </Stack>
+                        </Paper>
+                    </Box>
+                )}
+
+                {activeTab === 5 && (
+                    <Box>
+                        {/* Feedback Tab */}
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
+                                Feedback settings
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Manage whether feedback is enabled and record complaints or common feedback for this project.
+                            </Typography>
+                            <Stack spacing={2} sx={{ maxWidth: 640 }}>
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={feedbackForm.feedbackEnabled}
+                                            onChange={(e) => setFeedbackForm((prev) => ({ ...prev, feedbackEnabled: e.target.checked }))}
+                                            color="primary"
+                                        />
+                                    }
+                                    label="Feedback enabled"
+                                />
+                                <TextField
+                                    label="Complaints received"
+                                    type="number"
+                                    value={feedbackForm.complaintsReceived}
+                                    onChange={(e) => setFeedbackForm((prev) => ({ ...prev, complaintsReceived: e.target.value }))}
+                                    inputProps={{ min: 0 }}
+                                    placeholder="Number of complaints"
+                                    sx={{ maxWidth: 200 }}
+                                />
+                                <TextField
+                                    label="Common feedback"
+                                    value={feedbackForm.commonFeedback}
+                                    onChange={(e) => setFeedbackForm((prev) => ({ ...prev, commonFeedback: e.target.value }))}
+                                    multiline
+                                    rows={4}
+                                    fullWidth
+                                    placeholder="Summarise recurring or common feedback from the public..."
+                                />
+                                <Box>
+                                    <Button
+                                        variant="contained"
+                                        onClick={handleSaveFeedback}
+                                        disabled={savingFeedback}
+                                        startIcon={savingFeedback ? <CircularProgress size={18} /> : <FeedbackIcon />}
+                                    >
+                                        {savingFeedback ? 'Saving…' : 'Save feedback'}
+                                    </Button>
+                                </Box>
+                            </Stack>
+                        </Paper>
+                    </Box>
+                )}
+
+                {activeTab === 2 && (
                     <Box>
                         {/* Sites Tab */}
-                        <Typography variant="h6" sx={{ 
-                            mb: 1, 
-                            fontWeight: 'bold',
-                            color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600],
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            fontSize: '1rem'
-                        }}>
-                            <LocationOnIcon /> Project Sites
-                        </Typography>
-                        {loadingSites ? (
-                            <Box display="flex" justifyContent="center" alignItems="center" minHeight="150px">
-                                <CircularProgress />
-                            </Box>
-                        ) : sitesError ? (
-                            <Alert severity="error" sx={{ mb: 1 }}>
-                                {sitesError}
-                            </Alert>
-                        ) : projectSites.length === 0 ? (
-                            <Paper sx={{ p: 2, textAlign: 'center' }}>
-                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem', mb: 2 }}>
-                                    No sites added to this project yet.
-                                </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
+                            <Typography variant="h6" sx={{ 
+                                fontWeight: 'bold',
+                                color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600],
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                fontSize: '1rem'
+                            }}>
+                                <LocationOnIcon /> Project Sites
+                            </Typography>
+                            <Stack direction="row" spacing={1}>
                                 <Button
                                     variant="contained"
                                     startIcon={<AddIcon />}
@@ -3976,13 +4118,82 @@ function ProjectDetailsPage() {
                                     }}
                                     sx={{
                                         backgroundColor: colors.greenAccent[600],
+                                        '&:hover': { backgroundColor: colors.greenAccent[700] }
+                                    }}
+                                >
+                                    Add site
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<UploadIcon />}
+                                    onClick={() => setOpenImportSitesDialog(true)}
+                                    sx={{
+                                        borderColor: colors.blueAccent[500],
+                                        color: colors.blueAccent[600],
                                         '&:hover': {
-                                            backgroundColor: colors.greenAccent[700]
+                                            borderColor: colors.blueAccent[600],
+                                            backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[50]
                                         }
                                     }}
                                 >
-                                    Add Site
+                                    Import
                                 </Button>
+                            </Stack>
+                        </Box>
+                        {loadingSites ? (
+                            <Box display="flex" justifyContent="center" alignItems="center" minHeight="150px">
+                                <CircularProgress />
+                            </Box>
+                        ) : sitesError ? (
+                            <Alert severity="error" sx={{ mb: 1 }}>
+                                {sitesError}
+                            </Alert>
+                        ) : projectSites.length === 0 ? (
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem', mb: 2 }}>
+                                    No sites added to this project yet. Add a site one at a time or import multiple sites using the template.
+                                </Typography>
+                                <Stack direction="row" spacing={1.5} justifyContent="center" flexWrap="wrap" useFlexGap>
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<AddIcon />}
+                                        onClick={() => {
+                                            setEditingSite(null);
+                                            setSiteFormData({
+                                                siteName: '',
+                                                county: '',
+                                                constituency: '',
+                                                ward: '',
+                                                status: '',
+                                                progress: '',
+                                                approvedCost: '',
+                                            });
+                                            setSiteFormErrors({});
+                                            setOpenSiteDialog(true);
+                                        }}
+                                        sx={{
+                                            backgroundColor: colors.greenAccent[600],
+                                            '&:hover': { backgroundColor: colors.greenAccent[700] }
+                                        }}
+                                    >
+                                        Add site
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<UploadIcon />}
+                                        onClick={() => setOpenImportSitesDialog(true)}
+                                        sx={{
+                                            borderColor: colors.blueAccent[500],
+                                            color: colors.blueAccent[600],
+                                            '&:hover': {
+                                                borderColor: colors.blueAccent[600],
+                                                backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[50]
+                                            }
+                                        }}
+                                    >
+                                        Import
+                                    </Button>
+                                </Stack>
                             </Paper>
                         ) : (
                             <Box>
@@ -4009,7 +4220,7 @@ function ProjectDetailsPage() {
                                         </Button>
                                     </Box>
                                 )}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1.5 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, flexWrap: 'wrap', gap: 1.5 }}>
                                     <Typography variant="body2" color="text.secondary">
                                         {projectSites.length} of {sitesSummary.total} site{sitesSummary.total !== 1 ? 's' : ''} shown
                                     </Typography>
@@ -4052,193 +4263,119 @@ function ProjectDetailsPage() {
                                         >
                                             Clear
                                         </Button>
-                                    <Button
-                                        variant="contained"
-                                        startIcon={<AddIcon />}
-                                        onClick={() => {
-                                                setEditingSite(null);
-                                                setSiteFormData({
-                                                    siteName: '',
-                                                    county: '',
-                                                    constituency: '',
-                                                    ward: '',
-                                                    status: '',
-                                                    progress: '',
-                                                    approvedCost: '',
-                                                });
-                                                setSiteFormErrors({});
-                                                setOpenSiteDialog(true);
-                                        }}
-                                        size="small"
-                                        sx={{
-                                            backgroundColor: colors.greenAccent[600],
-                                            '&:hover': {
-                                                backgroundColor: colors.greenAccent[700]
-                                            }
-                                        }}
-                                    >
-                                        Add Site
-                                    </Button>
+                                    </Box>
                                 </Box>
-                                </Box>
-                                <Grid container spacing={1.5}>
-                                    {projectSites
-                                        .filter((site) => {
-                                            const locationFilter = siteFilters.location?.toLowerCase() || '';
-                                            const statusFilter = siteFilters.status;
-
-                                            const locationText = [
-                                                site.county,
-                                                site.constituency,
-                                                site.ward,
-                                            ]
-                                                .filter(Boolean)
-                                                .join(' ')
-                                                .toLowerCase();
-
-                                            const statusText = (site.status_norm || site.status_raw || '').toString().toLowerCase();
-
-                                            const matchesLocation =
-                                                !locationFilter ||
-                                                locationText.includes(locationFilter.toLowerCase());
-
-                                            const matchesStatus =
-                                                !statusFilter || 
-                                                normalizeStatusForFilter(statusText) === normalizeStatusForFilter(statusFilter);
-
-                                            return matchesLocation && matchesStatus;
-                                        })
-                                        .map((site, index) => (
-                                        <Grid item xs={12} md={6} key={site.site_id || index}>
-                                            <Paper 
-                                                sx={{ 
-                                                    p: 1.75, 
-                                                    borderRadius: '10px',
-                                                    backgroundColor: theme.palette.mode === 'dark' ? '#1F2A40' : '#ffffff',
-                                                    border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : '#e0e0e0'}`,
-                                                    boxShadow: theme.palette.mode === 'dark'
-                                                        ? '0 2px 6px rgba(0,0,0,0.6)'
-                                                        : '0 1px 4px rgba(0,0,0,0.06)',
-                                                }}
-                                            >
-                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                                                    <Box>
-                                                        <Typography
-                                                            variant="subtitle2"
-                                                            sx={{
-                                                                fontWeight: 700,
-                                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[300] : colors.blueAccent[600],
-                                                                fontSize: '0.9rem',
-                                                                mb: 0.4,
-                                                            }}
-                                                        >
-                                                        {site.site_name || `Site ${index + 1}`}
-                                                    </Typography>
-                                                        <Typography
-                                                            variant="caption"
-                                                            sx={{ color: 'text.secondary', fontSize: '0.7rem' }}
-                                                        >
-                                                            {[site.ward, site.constituency, site.county]
-                                                                .filter(Boolean)
-                                                                .join(', ') || 'No location set'}
-                                                        </Typography>
-                                                    </Box>
-                                                    <Box>
-                                                        <Tooltip title="Edit site details">
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={() => {
-                                                                    setEditingSite(site);
-                                                                    setSiteFormData({
-                                                                        siteName: site.site_name || site.siteName || '',
-                                                                        county: site.county || '',
-                                                                        constituency: site.constituency || '',
-                                                                        ward: site.ward || '',
-                                                                        status: site.status_norm || site.status_raw || '',
-                                                                        progress: site.percent_complete ?? '',
-                                                                        approvedCost: site.approved_cost_kes ?? '',
-                                                                    });
-                                                                    setSiteFormErrors({});
-                                                                    setOpenSiteDialog(true);
-                                                            }}
-                                                            sx={{ color: colors.blueAccent[500] }}
-                                                        >
-                                                            <EditIcon fontSize="small" />
-                                                        </IconButton>
-                                                        </Tooltip>
-                                                        <Tooltip title="Delete site">
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={async () => {
-                                                                if (window.confirm('Are you sure you want to delete this site?')) {
-                                                                    try {
-                                                                            await apiService.deleteProjectSite(projectId, site.site_id);
-                                                                        setSnackbar({ open: true, message: 'Site deleted successfully', severity: 'success' });
-                                                                            await fetchProjectSites(true, true); // Force refresh after delete (still limit to 10 for tab)
-                                                                    } catch (err) {
-                                                                        setSnackbar({ open: true, message: 'Failed to delete site', severity: 'error' });
-                                                                    }
-                                                                }
-                                                            }}
-                                                            sx={{ color: colors.redAccent[500] }}
-                                                        >
-                                                            <DeleteIcon fontSize="small" />
-                                                        </IconButton>
-                                                        </Tooltip>
-                                                        <Tooltip title="Observations / Site updates">
-                                                            <IconButton
-                                                                size="small"
-                                                                onClick={() => {
-                                                                    setSiteForUpdates(site);
-                                                                    setSiteUpdatesDialogOpen(true);
-                                                                }}
-                                                                sx={{ color: colors.grey[500] }}
-                                                            >
-                                                                <UpdateIcon fontSize="small" />
-                                                            </IconButton>
-                                                        </Tooltip>
-                                                    </Box>
-                                                </Box>
-                                                <Stack spacing={0.5}>
-                                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.5 }}>
-                                                    {(site.status_norm || site.status_raw) && (
-                                                            <Chip
-                                                                label={site.status_norm || site.status_raw}
-                                                                size="small"
-                                                                color={
-                                                                    (site.status_norm || site.status_raw || '').toLowerCase() === 'completed'
-                                                                        ? 'success'
-                                                                        : (site.status_norm || site.status_raw || '').toLowerCase().includes('progress') || 
-                                                                          (site.status_norm || site.status_raw || '').toLowerCase() === 'ongoing'
-                                                                            ? 'primary'
-                                                                            : 'default'
-                                                                }
-                                                                sx={{ fontSize: '0.7rem', height: 22 }}
-                                                            />
-                                                        )}
-                                                        {site.percent_complete !== null &&
-                                                            site.percent_complete !== undefined && (
+                                <TableContainer component={Paper} variant="outlined" sx={{ border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.grey[300]}`, borderRadius: 1 }}>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow sx={{ backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.grey[100] }}>
+                                                <TableCell><strong>Site Name</strong></TableCell>
+                                                <TableCell><strong>County</strong></TableCell>
+                                                <TableCell><strong>Constituency</strong></TableCell>
+                                                <TableCell><strong>Ward</strong></TableCell>
+                                                <TableCell><strong>Status</strong></TableCell>
+                                                <TableCell><strong>Progress</strong></TableCell>
+                                                <TableCell><strong>Approved Cost</strong></TableCell>
+                                                <TableCell align="right"><strong>Actions</strong></TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {projectSites
+                                                .filter((site) => {
+                                                    const locationFilter = siteFilters.location?.toLowerCase() || '';
+                                                    const statusFilter = siteFilters.status;
+                                                    const locationText = [site.county, site.constituency, site.ward].filter(Boolean).join(' ').toLowerCase();
+                                                    const statusText = (site.status_norm || site.status_raw || '').toString().toLowerCase();
+                                                    const matchesLocation = !locationFilter || locationText.includes(locationFilter.toLowerCase());
+                                                    const matchesStatus = !statusFilter || normalizeStatusForFilter(statusText) === normalizeStatusForFilter(statusFilter);
+                                                    return matchesLocation && matchesStatus;
+                                                })
+                                                .map((site, index) => (
+                                                    <TableRow key={site.site_id || index} hover>
+                                                        <TableCell sx={{ fontWeight: 500 }}>{site.site_name || site.siteName || `Site ${index + 1}`}</TableCell>
+                                                        <TableCell>{site.county || '—'}</TableCell>
+                                                        <TableCell>{site.constituency || '—'}</TableCell>
+                                                        <TableCell>{site.ward || '—'}</TableCell>
+                                                        <TableCell>
+                                                            {(site.status_norm || site.status_raw) ? (
                                                                 <Chip
-                                                                    label={`Progress: ${site.percent_complete}%`}
+                                                                    label={site.status_norm || site.status_raw}
                                                                     size="small"
-                                                                    variant="outlined"
+                                                                    color={
+                                                                        (site.status_norm || site.status_raw || '').toLowerCase() === 'completed' ? 'success'
+                                                                        : (site.status_norm || site.status_raw || '').toLowerCase().includes('progress') || (site.status_norm || site.status_raw || '').toLowerCase() === 'ongoing' ? 'primary'
+                                                                        : 'default'
+                                                                    }
                                                                     sx={{ fontSize: '0.7rem', height: 22 }}
                                                                 />
-                                                    )}
-                                                    {site.approved_cost_kes && (
-                                                            <Chip
-                                                                label={`KES ${formatCurrency(site.approved_cost_kes)}`}
-                                                                size="small"
-                                                                variant="outlined"
-                                                                sx={{ fontSize: '0.7rem', height: 22 }}
-                                                            />
-                                                        )}
-                                                    </Box>
-                                                </Stack>
-                                            </Paper>
-                                        </Grid>
-                                    ))}
-                                </Grid>
+                                                            ) : '—'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {site.percent_complete !== null && site.percent_complete !== undefined ? `${site.percent_complete}%` : '—'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {site.approved_cost_kes != null ? formatCurrency(site.approved_cost_kes) : '—'}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                            <Tooltip title="Edit site">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    onClick={() => {
+                                                                        setEditingSite(site);
+                                                                        setSiteFormData({
+                                                                            siteName: site.site_name || site.siteName || '',
+                                                                            county: site.county || '',
+                                                                            constituency: site.constituency || '',
+                                                                            ward: site.ward || '',
+                                                                            status: site.status_norm || site.status_raw || '',
+                                                                            progress: site.percent_complete ?? '',
+                                                                            approvedCost: site.approved_cost_kes ?? '',
+                                                                        });
+                                                                        setSiteFormErrors({});
+                                                                        setOpenSiteDialog(true);
+                                                                    }}
+                                                                    sx={{ color: colors.blueAccent[500] }}
+                                                                >
+                                                                    <EditIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                            <Tooltip title="Delete site">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    onClick={async () => {
+                                                                        if (window.confirm('Are you sure you want to delete this site?')) {
+                                                                            try {
+                                                                                await apiService.junctions.deleteProjectSite(projectId, site.site_id);
+                                                                                setSnackbar({ open: true, message: 'Site deleted successfully', severity: 'success' });
+                                                                                await fetchProjectSites(true, true);
+                                                                            } catch (err) {
+                                                                                setSnackbar({ open: true, message: 'Failed to delete site', severity: 'error' });
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    sx={{ color: colors.redAccent[500] }}
+                                                                >
+                                                                    <DeleteIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                            <Tooltip title="Observations / Site updates">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    onClick={() => {
+                                                                        setSiteForUpdates(site);
+                                                                        setSiteUpdatesDialogOpen(true);
+                                                                    }}
+                                                                    sx={{ color: colors.grey[500] }}
+                                                                >
+                                                                    <UpdateIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
                             </Box>
                         )}
                     </Box>
@@ -4356,10 +4493,10 @@ function ProjectDetailsPage() {
 
                                 try {
                                     if (editingSite) {
-                                        await apiService.updateProjectSite(projectId, editingSite.site_id, payload);
+                                        await apiService.junctions.updateProjectSite(projectId, editingSite.site_id, payload);
                                         setSnackbar({ open: true, message: 'Site updated successfully', severity: 'success' });
                                     } else {
-                                        await apiService.createProjectSite(projectId, payload);
+                                        await apiService.junctions.createProjectSite(projectId, payload);
                                         setSnackbar({ open: true, message: 'Site created successfully', severity: 'success' });
                                     }
                                     setOpenSiteDialog(false);
@@ -4389,9 +4526,9 @@ function ProjectDetailsPage() {
                     />
                 )}
 
-                {activeTab === 3 && (
+                {false && activeTab === 3 && (
                     <Box>
-                        {/* Teams Tab */}
+                        {/* Teams Tab - hidden */}
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                             <Typography variant="h6" sx={{ 
                                 fontWeight: 'bold',

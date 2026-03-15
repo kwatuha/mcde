@@ -3,9 +3,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { getComparator, stableSort } from '../utils/tableHelpers';
 
-const useTableSort = (data, projectTableColumnsConfig) => {
-  const [order, setOrder] = useState('asc');
-  const [orderBy, setOrderBy] = useState('');
+const useTableSort = (data, projectTableColumnsConfig, initialSort) => {
+  const { orderBy: initialOrderBy = '', order: initialOrder = 'asc' } = initialSort || {};
+  const [order, setOrder] = useState(initialOrder);
+  const [orderBy, setOrderBy] = useState(initialOrderBy);
 
   const handleRequestSort = useCallback((event, property) => {
     const isAsc = orderBy === property && order === 'asc';

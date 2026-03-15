@@ -180,6 +180,11 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
                 (p.location->'geocoordinates'->>'lng')::numeric AS "longitude",
                 (p.public_engagement->>'feedback_enabled')::boolean AS "feedbackEnabled",
+                (p.public_engagement->>'complaints_received')::integer AS "complaintsReceived",
+                p.public_engagement->>'common_feedback' AS "commonFeedback",
+                p.data_sources AS "dataSources",
+                (p.timeline->>'financial_year') AS "financialYear",
+                p.implementing_agency AS "implementingAgency",
                 NULL AS "countyNames",
                 NULL AS "subcountyNames",
                 NULL AS "wardNames"
@@ -3300,8 +3305,10 @@ router.post('/:id/sites', async (req, res) => {
         let params;
 
         if (DB_TYPE === 'postgresql') {
+            // site_id has no DEFAULT; generate next id from current max
             query = `
                 INSERT INTO project_sites (
+                    site_id,
                     project_id,
                     site_name,
                     county,
@@ -3311,7 +3318,8 @@ router.post('/:id/sites', async (req, res) => {
                     percent_complete,
                     approved_cost_kes
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                SELECT (COALESCE(MAX(ps.site_id), 0) + 1), $1, $2, $3, $4, $5, $6, $7, $8
+                FROM project_sites ps
                 RETURNING *
             `;
             params = [
@@ -4411,7 +4419,9 @@ router.put('/:id', validateProject, async (req, res) => {
                 progressSummary,
                 latitude,
                 longitude,
-                feedbackEnabled
+                feedbackEnabled,
+                complaintsReceived,
+                commonFeedback
             } = projectData;
 
             // Debug logging for sector, ministry, stateDepartment
@@ -4506,7 +4516,13 @@ router.put('/:id', validateProject, async (req, res) => {
                 revision_submitted_at: existingPublicEngagement.revision_submitted_at || null,
                 feedback_enabled: feedbackEnabled !== undefined 
                     ? (feedbackEnabled === true || feedbackEnabled === 'true' || feedbackEnabled === 1)
-                    : (existingPublicEngagement.feedback_enabled !== undefined ? existingPublicEngagement.feedback_enabled : true)
+                    : (existingPublicEngagement.feedback_enabled !== undefined ? existingPublicEngagement.feedback_enabled : true),
+                complaints_received: complaintsReceived !== undefined && complaintsReceived !== null
+                    ? Number(complaintsReceived)
+                    : (existingPublicEngagement.complaints_received ?? 0),
+                common_feedback: commonFeedback !== undefined && commonFeedback !== null
+                    ? (typeof commonFeedback === 'string' ? commonFeedback.trim() || null : commonFeedback)
+                    : (existingPublicEngagement.common_feedback ?? null)
             });
 
             // Build location JSONB object with county, constituency, ward, and geocoordinates

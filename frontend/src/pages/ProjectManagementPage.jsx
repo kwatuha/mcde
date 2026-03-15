@@ -161,25 +161,26 @@ function ProjectManagementPage() {
   }, [projects, searchQuery]);
 
   // Custom hook for table sorting
-  const { order, orderBy, handleRequestSort, sortedData: sortedProjects } = useTableSort(filteredProjects || []);
+  const { order, orderBy, handleRequestSort, sortedData: sortedProjects } = useTableSort(
+    filteredProjects || [],
+    undefined,
+    { orderBy: 'id', order: 'desc' } // Newer projects (higher id) on top
+  );
 
   // Custom hook for table scroll shadows (no longer needed for DataGrid)
   const { tableContainerRef, showLeftShadow, showRightShadow, handleScrollRight, handleScrollLeft } = useTableScrollShadows(projects || []);
 
   // States for column visibility and menu
   const [columnVisibilityModel, setColumnVisibilityModel] = useState(() => {
-    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, County, Constituency, Ward
+    // Default columns: Project Name, Status, Budget, Progress, Sites, Jobs, Actions (fits without horizontal scroll)
     const defaultVisibleColumns = [
       'projectName',
       'status',
       'costOfProject', // Budget
       'overallProgress', // Progress
-      'departmentName', // Department
-      'financialYearName', // Fin. Year
-      'countyNames', // County
-      'constituencyNames', // Constituency
-      'wardNames', // Ward
-      'actions' // Always visible
+      'coverageCount', // Sites
+      'jobsCount', // Jobs
+      'actions', // Always visible
     ];
     
     // Create default visibility - only show specified columns
@@ -242,8 +243,9 @@ function ProjectManagementPage() {
   const [selectedProjectForContextMenu, setSelectedProjectForContextMenu] = useState(null);
   
   // State for pagination
+  // Default page size ~10 keeps grid inside viewport (no page scroll); row height ~36px + header/footer ~96px
   const [paginationModel, setPaginationModel] = useState({
-    pageSize: 25,
+    pageSize: 10,
     page: 0,
   });
 
@@ -1024,18 +1026,15 @@ function ProjectManagementPage() {
   };
 
   const handleResetColumns = () => {
-    // Default columns to show: Project Name, Status, Budget, Progress, Department, Fin. Year, County, Constituency, Ward
+    // Default columns: Project Name, Status, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
       'status',
       'costOfProject', // Budget
       'overallProgress', // Progress
-      'departmentName', // Department
-      'financialYearName', // Fin. Year
-      'countyNames', // County
-      'constituencyNames', // Constituency
-      'wardNames', // Ward
-      'actions' // Always visible
+      'coverageCount', // Sites
+      'jobsCount', // Jobs
+      'actions', // Always visible
     ];
     
     const defaultVisibility = {};
@@ -1206,8 +1205,9 @@ function ProjectManagementPage() {
                 label="0"
                 size="small"
                 sx={{
-                  backgroundColor: isLight ? colors.grey[200] : colors.grey[700],
-                  color: isLight ? colors.grey[600] : colors.grey[300],
+                  backgroundColor: isLight ? theme.palette.grey[100] : colors.grey[700],
+                  color: isLight ? theme.palette.text.secondary : colors.grey[300],
+                  border: isLight ? `1px solid ${theme.palette.grey[200]}` : 'none',
                   cursor: 'not-allowed',
                 }}
               />
@@ -1231,26 +1231,21 @@ function ProjectManagementPage() {
                 }
               }}
               sx={{
-                backgroundColor: count > 0 
-                  ? (isLight ? colors.blueAccent[100] : colors.blueAccent[700])
-                  : (isLight ? colors.grey[200] : colors.grey[700]),
+                backgroundColor: count > 0
+                  ? (isLight ? 'rgba(25, 118, 210, 0.08)' : colors.blueAccent[700])
+                  : (isLight ? theme.palette.grey[100] : colors.grey[700]),
                 color: count > 0
-                  ? (isLight ? colors.blueAccent[900] : colors.blueAccent[100])
-                  : (isLight ? colors.grey[600] : colors.grey[300]),
+                  ? (isLight ? theme.palette.primary.main : colors.blueAccent[100])
+                  : (isLight ? theme.palette.text.secondary : colors.grey[300]),
+                border: isLight ? `1px solid ${count > 0 ? 'rgba(25, 118, 210, 0.2)' : theme.palette.grey[200]}` : 'none',
                 cursor: count > 0 ? 'pointer' : 'not-allowed',
                 fontWeight: 600,
                 fontSize: '0.75rem',
                 height: '26px',
                 '&:hover': count > 0 ? {
-                  backgroundColor: isLight ? colors.blueAccent[200] : colors.blueAccent[600],
-                  transform: 'scale(1.05)',
+                  backgroundColor: isLight ? 'rgba(25, 118, 210, 0.14)' : colors.blueAccent[600],
                 } : {},
-                transition: 'all 0.2s ease-in-out',
-                boxShadow: count > 0 && isLight 
-                  ? '0 2px 4px rgba(0,0,0,0.1)' 
-                  : count > 0 
-                    ? '0 2px 6px rgba(0,0,0,0.3)' 
-                    : 'none',
+                transition: 'background-color 0.2s ease',
               }}
             />
           );
@@ -1266,8 +1261,9 @@ function ProjectManagementPage() {
                 label="0"
                 size="small"
                 sx={{
-                  backgroundColor: isLight ? colors.grey[200] : colors.grey[700],
-                  color: isLight ? colors.grey[600] : colors.grey[300],
+                  backgroundColor: isLight ? theme.palette.grey[100] : colors.grey[700],
+                  color: isLight ? theme.palette.text.secondary : colors.grey[300],
+                  border: isLight ? `1px solid ${theme.palette.grey[200]}` : 'none',
                   cursor: 'default',
                 }}
               />
@@ -1291,16 +1287,21 @@ function ProjectManagementPage() {
                 }
               }}
               sx={{
-                backgroundColor: count > 0 
-                  ? (isLight ? colors.greenAccent[100] : colors.greenAccent[700])
-                  : (isLight ? colors.grey[200] : colors.grey[700]),
+                backgroundColor: count > 0
+                  ? (isLight ? 'rgba(76, 175, 80, 0.1)' : colors.greenAccent[700])
+                  : (isLight ? theme.palette.grey[100] : colors.grey[700]),
                 color: count > 0
-                  ? (isLight ? colors.greenAccent[900] : colors.greenAccent[100])
-                  : (isLight ? colors.grey[600] : colors.grey[300]),
-                cursor: 'default',
+                  ? (isLight ? theme.palette.success.main : colors.greenAccent[100])
+                  : (isLight ? theme.palette.text.secondary : colors.grey[300]),
+                border: isLight ? `1px solid ${count > 0 ? 'rgba(76, 175, 80, 0.25)' : theme.palette.grey[200]}` : 'none',
+                cursor: count > 0 ? 'pointer' : 'default',
                 fontWeight: 600,
                 fontSize: '0.75rem',
                 height: '26px',
+                '&:hover': count > 0 ? {
+                  backgroundColor: isLight ? 'rgba(76, 175, 80, 0.16)' : colors.greenAccent[600],
+                } : {},
+                transition: 'background-color 0.2s ease',
               }}
             />
           );
@@ -1487,122 +1488,51 @@ function ProjectManagementPage() {
         dataGridColumn.renderCell = (params) => {
           if (!params) return null;
           if (!params.row) return null;
-          // Removed unused privilege checks: canAssignContractor, canViewGantt, canViewKdsp
-          const canUpdate = checkUserPrivilege(user, 'project.update');
-          const canDelete = checkUserPrivilege(user, 'project.delete');
-          
           return (
-            <Box 
-              display="flex" 
-              gap={0.5} 
-              justifyContent="center" 
+            <Box
+              display="flex"
               alignItems="center"
-              sx={{ 
+              justifyContent="center"
+              sx={{
                 width: '100%',
                 height: '100%',
                 minHeight: '40px',
                 py: 0.5,
                 px: 0.5,
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
               }}
             >
-              {canUpdate && (
-                <Tooltip title="Edit">
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenFormDialog(params.row);
-                    }}
-                    sx={{ 
-                      padding: '4px',
-                      '&:hover': {
-                        backgroundColor: 'rgba(25, 118, 210, 0.08)'
-                      }
-                    }}
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-              {canDelete && (
-                <Tooltip title="Delete">
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteProject(params.row);
-                    }}
-                    sx={{ 
-                      padding: '4px',
-                      '&:hover': {
-                        backgroundColor: 'rgba(211, 47, 47, 0.08)'
-                      }
-                    }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-              <Tooltip title="View Details">
+              <Tooltip title="Actions">
                 <IconButton
                   size="small"
-                  color="default"
-                  onClick={(e) => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
-                    const projectId = params.row.id || params.row.project_id || params.row.projectId;
-                    if (projectId) {
-                      handleViewDetails(projectId);
-                    } else {
-                      console.error('Project ID not found in row:', params.row);
-                    }
+                    setRowActionMenuAnchor(e.currentTarget);
+                    setSelectedRow(params.row);
                   }}
-                  sx={{ 
+                  sx={{
                     padding: '4px',
+                    color: 'text.secondary',
                     '&:hover': {
-                      backgroundColor: 'rgba(0, 0, 0, 0.04)'
-                    }
+                      backgroundColor: (theme) => theme.palette.action.hover,
+                    },
                   }}
                 >
-                  <ViewDetailsIcon fontSize="small" />
+                  <MoreVertIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
             </Box>
           );
         };
-        dataGridColumn.renderHeader = () => (
-          <Box 
-            sx={{ 
-              width: '100%', 
-              textAlign: 'center',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%'
-            }}
-          >
-            <Typography 
-              variant="body2" 
-              fontWeight={600} 
-              sx={{ 
-                fontSize: '0.8125rem',
-                color: theme.palette.mode === 'dark' ? '#ffffff' : colors.blueAccent[900]
-              }}
-            >
-              Action
-            </Typography>
-          </Box>
-        );
+        // Use default header (headerName from config: "Actions") so the label always shows
         dataGridColumn.sortable = false;
         dataGridColumn.filterable = false;
         dataGridColumn.headerAlign = 'center';
         dataGridColumn.align = 'center';
-        // Increase width to accommodate multiple icons
-        if (!dataGridColumn.width && !dataGridColumn.flex) {
-          dataGridColumn.width = 140;
-        }
+        // Width must fit header label "Action" so it doesn’t disappear when grid reflows
+        dataGridColumn.width = 80;
+        dataGridColumn.minWidth = 72;
         break;
       default:
         dataGridColumn.valueGetter = (params) => {
@@ -1615,17 +1545,17 @@ function ProjectManagementPage() {
   });
 
   return (
-    <Box m="8px">
-      {/* Enhanced Header Row with Better Visual Grouping */}
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          mb: 1.5, 
-          flexWrap: 'wrap', 
-          gap: 1.25,
-          p: 1.5,
+    <Box sx={{ m: 1 }}>
+      {/* Compact header row for better space utilization */}
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 1,
+          flexWrap: 'wrap',
+          gap: 1,
+          p: 1,
           borderRadius: 2,
           background: isLight 
             ? 'linear-gradient(to right, rgba(33, 150, 243, 0.04), rgba(33, 150, 243, 0.02))'
@@ -1853,14 +1783,14 @@ function ProjectManagementPage() {
         </Box>
       </Box>
 
-      {/* Enhanced Quick Filters and Status Overview Section */}
+      {/* Status Overview – compact when collapsed to save vertical space */}
       {!loading && !error && projects && projects.length > 0 && (
-        <Box 
-          sx={{ 
-            mb: statusOverviewExpanded ? 1.5 : 0.5, 
-            mt: 1.5,
-            p: statusOverviewExpanded ? 2 : 0.75,
-            borderRadius: 3,
+        <Box
+          sx={{
+            mb: statusOverviewExpanded ? 1 : 0.25,
+            mt: 0.5,
+            p: statusOverviewExpanded ? 1.5 : 0,
+            borderRadius: 2,
             background: isLight 
               ? 'linear-gradient(to bottom, rgba(33, 150, 243, 0.03), rgba(33, 150, 243, 0.06))'
               : `linear-gradient(to bottom, ${colors.primary[500]}20, ${colors.primary[600]}25)`,
@@ -1871,16 +1801,17 @@ function ProjectManagementPage() {
             transition: 'all 0.2s ease',
           }}
         >
-          {/* Status Overview Section with Collapsible Header */}
+          {/* Collapsible header – minimal height when collapsed */}
           <Box>
-            <Box 
-              sx={{ 
-                display: 'flex', 
-                alignItems: 'center', 
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'space-between',
                 cursor: 'pointer',
-                p: 0.5,
-                borderRadius: 1.5,
+                py: 0.35,
+                px: 0.75,
+                borderRadius: 1,
                 transition: 'all 0.2s ease',
                 '&:hover': {
                   backgroundColor: isLight ? colors.grey[50] : colors.primary[600],
@@ -1888,14 +1819,14 @@ function ProjectManagementPage() {
               }}
               onClick={() => setStatusOverviewExpanded(!statusOverviewExpanded)}
             >
-              <Typography 
-                variant="caption" 
-                sx={{ 
+              <Typography
+                variant="caption"
+                sx={{
                   color: isLight ? colors.grey[600] : colors.grey[400],
-                  fontWeight: 700,
-                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                  fontSize: '0.65rem',
                   textTransform: 'uppercase',
-                  letterSpacing: '1px',
+                  letterSpacing: '0.5px',
                 }}
               >
                 Status Overview
@@ -2518,15 +2449,14 @@ function ProjectManagementPage() {
         <Box
           ref={dataGridRef}
             sx={{
-              mt: 1,
+              mt: 0.5,
               backgroundColor: ui.bodyBg,
               borderRadius: '8px',
               overflow: 'hidden',
               boxShadow: ui.elevatedShadow,
               border: `1px solid ${ui.border}`,
-              height: `${calculateGridHeight()}px`,
               width: '100%',
-              ...getThemedDataGridSx(theme, colors),
+              ...getThemedDataGridSx(theme, colors, { _stickyHeaderTop: 74 }),
               '& .MuiDataGrid-columnHeaders': {
                 minHeight: '40px !important',
                 maxHeight: '40px !important',
@@ -2536,9 +2466,14 @@ function ProjectManagementPage() {
                   fontWeight: 600,
                 },
               },
-              // Ensure Actions column header has proper background
+              // Ensure Actions column header has same background as other headers (no white strip)
               '& .MuiDataGrid-columnHeader[data-field="actions"]': {
-                backgroundColor: `${theme.palette.mode === 'light' ? colors.blueAccent[100] : colors.blueAccent[700]} !important`,
+                backgroundColor: `${theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.04)' : colors.blueAccent[800]} !important`,
+              },
+              '& .MuiDataGrid-columnHeader[data-field="actions"] .MuiDataGrid-columnHeaderTitleContainer': {
+                backgroundColor: 'inherit !important',
+                overflow: 'visible',
+                paddingRight: 8,
               },
               // Ensure Actions column cells are properly aligned
               '& .MuiDataGrid-cell[data-field="actions"]': {
@@ -2550,7 +2485,14 @@ function ProjectManagementPage() {
               '& .MuiDataGrid-footerContainer': {
                 minHeight: '40px !important',
                 maxHeight: '40px !important',
-                fontSize: '0.8125rem', // Compact footer font
+                fontSize: '0.8125rem',
+                color: `${theme.palette.text.primary} !important`,
+              },
+              '& .MuiDataGrid-footerContainer .MuiTablePagination-selectLabel, & .MuiDataGrid-footerContainer .MuiTablePagination-displayedRows': {
+                color: `${theme.palette.text.primary} !important`,
+              },
+              '& .MuiDataGrid-footerContainer .MuiTablePagination-select': {
+                color: `${theme.palette.text.primary} !important`,
               },
             }}
         >
@@ -2590,14 +2532,13 @@ function ProjectManagementPage() {
                 sortModel: [{ field: orderBy, sort: order }],
               },
             }}
-            pageSizeOptions={[10, 25, 50, 100]}
+            pageSizeOptions={[10, 15, 25, 50, 100]}
             disableRowSelectionOnClick
             checkboxSelection={false}
             disableColumnSelector={false}
             disableDensitySelector={false}
-            autoHeight={false}
-            sx={{ 
-              height: '100%', 
+            autoHeight
+            sx={{
               width: '100%',
               '& .project-name-cell': {
                 whiteSpace: 'normal !important',
@@ -2833,6 +2774,7 @@ function ProjectManagementPage() {
           vertical: 'top',
           horizontal: 'right',
         }}
+        transitionDuration={0}
       >
         {selectedRow && checkUserPrivilege(user, 'project.update') && (
           <MenuItem 
@@ -2864,7 +2806,8 @@ function ProjectManagementPage() {
         )}
         {selectedRow && (
           <MenuItem onClick={() => {
-            handleViewDetails(selectedRow.id);
+            const projectId = selectedRow.id ?? selectedRow.project_id ?? selectedRow.projectId;
+            if (projectId) handleViewDetails(projectId);
             setRowActionMenuAnchor(null);
             setSelectedRow(null);
           }}>
