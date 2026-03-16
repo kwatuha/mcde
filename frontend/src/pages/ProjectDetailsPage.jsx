@@ -8,7 +8,8 @@ import {
     Divider, Tabs, Tab, Card, CardContent, CardMedia, Link,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
-    InputLabel, Select, FormControl, Menu, ListItemIcon, Switch, FormControlLabel
+    InputLabel, Select, FormControl, Menu, ListItemIcon, Switch, FormControlLabel,
+    Autocomplete, Checkbox, Collapse
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon, Add as AddIcon, Edit as EditIcon,
@@ -19,6 +20,7 @@ import {
     Visibility as VisibilityIcon,
     Paid as PaidIcon,
     ExpandMore as ExpandMoreIcon,
+    ExpandLess as ExpandLessIcon,
     Flag as FlagIcon,
     Assessment as AssessmentIcon,
     AccountTree as AccountTreeIcon,
@@ -38,6 +40,8 @@ import {
     Upload as UploadIcon,
     Download as DownloadIcon,
     Print as PrintIcon,
+    FileDownload as FileDownloadIcon,
+    PictureAsPdf as PictureAsPdfIcon,
     Group as GroupIcon,
     Public as PublicIcon,
     Cancel as CancelIcon,
@@ -295,6 +299,19 @@ function ProjectDetailsPage() {
         approvedCost: '',
     });
     const [siteFormErrors, setSiteFormErrors] = useState({});
+    // Cascading location for site dialog (same as Add New Project)
+    const [siteCounties, setSiteCounties] = useState([]);
+    const [siteConstituencies, setSiteConstituencies] = useState([]);
+    const [siteWards, setSiteWards] = useState([]);
+    const [loadingSiteCounties, setLoadingSiteCounties] = useState(false);
+    const [loadingSiteConstituencies, setLoadingSiteConstituencies] = useState(false);
+    const [loadingSiteWards, setLoadingSiteWards] = useState(false);
+    // Export project sites (Excel/PDF) - same pattern as Kenya Wards
+    const [exportAllSites, setExportAllSites] = useState(false);
+    const [exportingSitesExcel, setExportingSitesExcel] = useState(false);
+    const [exportingSitesPdf, setExportingSitesPdf] = useState(false);
+    // KPI section collapsed by default so tabs have clear hierarchy
+    const [kpiExpanded, setKpiExpanded] = useState(false);
 
     // NEW: State for Project Jobs
     const [projectJobs, setProjectJobs] = useState([]);
@@ -593,7 +610,8 @@ function ProjectDetailsPage() {
     
     // NEW: Function to fetch project sites
     const fetchProjectSites = useCallback(async (forceRefresh = false, limitForTab = false) => {
-        // Don't refetch if we already have data and it's not a forced refresh
+        if (!projectId) return;
+        // Don't refetch if we already have data and it's not a forced refresh (avoids duplicate requests)
         if (!forceRefresh && projectSites.length > 0 && !loadingSites) {
             return;
         }
@@ -648,14 +666,170 @@ function ProjectDetailsPage() {
         } finally {
             setLoadingSites(false);
         }
-    }, [projectId, projectSites.length, loadingSites]);
+    }, [projectId]);
 
-    // Load project sites when Sites tab is active
+    // Load project sites when Sites tab is active (only when tab or projectId changes, not when fetchProjectSites identity changes)
     useEffect(() => {
-        if (activeTab === 2) {
+        if (activeTab === 2 && projectId) {
             fetchProjectSites(false, true);
         }
-    }, [activeTab, fetchProjectSites]);
+    }, [activeTab, projectId, fetchProjectSites]);
+
+    // Site dialog: fetch counties when dialog opens (cascading location, same as Add New Project)
+    useEffect(() => {
+        if (!openSiteDialog) return;
+        let cancelled = false;
+        const load = async () => {
+            setLoadingSiteCounties(true);
+            try {
+                const data = await apiService.kenyaWards.getCounties();
+                if (!cancelled) setSiteCounties(data || []);
+            } catch (e) {
+                if (!cancelled) console.error('Error fetching counties for site:', e);
+            } finally {
+                if (!cancelled) setLoadingSiteCounties(false);
+            }
+        };
+        load();
+        return () => { cancelled = true; };
+    }, [openSiteDialog]);
+
+    useEffect(() => {
+        if (!openSiteDialog || !siteFormData.county) {
+            setSiteConstituencies([]);
+            return;
+        }
+        let cancelled = false;
+        setLoadingSiteConstituencies(true);
+        apiService.kenyaWards.getConstituenciesByCounty(siteFormData.county)
+            .then((data) => { if (!cancelled) setSiteConstituencies(data || []); })
+            .catch((e) => { if (!cancelled) console.error('Error fetching constituencies for site:', e); })
+            .finally(() => { if (!cancelled) setLoadingSiteConstituencies(false); });
+        return () => { cancelled = true; };
+    }, [openSiteDialog, siteFormData.county]);
+
+    useEffect(() => {
+        if (!openSiteDialog || !siteFormData.constituency) {
+            setSiteWards([]);
+            return;
+        }
+        let cancelled = false;
+        setLoadingSiteWards(true);
+        apiService.kenyaWards.getWardsByConstituency(siteFormData.constituency)
+            .then((data) => { if (!cancelled) setSiteWards(data || []); })
+            .catch((e) => { if (!cancelled) console.error('Error fetching wards for site:', e); })
+            .finally(() => { if (!cancelled) setLoadingSiteWards(false); });
+        return () => { cancelled = true; };
+    }, [openSiteDialog, siteFormData.constituency]);
+
+    // Fetch all project sites for export (when Export All is checked)
+    const fetchAllProjectSites = useCallback(async () => {
+        if (!projectId) return [];
+        try {
+            const result = await apiService.junctions.getProjectSites(projectId);
+            const sites = Array.isArray(result?.sites) ? result.sites : Array.isArray(result) ? result : [];
+            return sites;
+        } catch (err) {
+            console.error('Error fetching all project sites:', err);
+            throw err;
+        }
+    }, [projectId]);
+
+    // Export project sites to Excel (current tab list or all if exportAllSites)
+    const handleExportSitesToExcel = useCallback(async () => {
+        setExportingSitesExcel(true);
+        try {
+            let sitesToExport = projectSites;
+            if (exportAllSites) {
+                sitesToExport = await fetchAllProjectSites();
+            }
+            if (!sitesToExport.length) {
+                setSnackbar({ open: true, message: 'No sites to export', severity: 'warning' });
+                setExportingSitesExcel(false);
+                return;
+            }
+            const headers = ['Site Name', 'County', 'Constituency', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
+            const rows = sitesToExport.map((site) => {
+                const name = site.site_name || site.siteName || '';
+                const status = site.status_norm || site.status_raw || site.status || '';
+                const progress = site.progress != null && site.progress !== '' ? `${site.progress}%` : '';
+                const cost = site.approved_cost != null || site.approvedCost != null
+                    ? (site.approved_cost ?? site.approvedCost)
+                    : '';
+                return [name, site.county || '', site.constituency || '', site.ward || '', status, progress, cost];
+            });
+            const data = [headers, ...rows];
+            const worksheet = XLSX.utils.aoa_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Project Sites');
+            const dateStr = new Date().toISOString().split('T')[0];
+            const filename = exportAllSites
+                ? `project_sites_export_all_${dateStr}.xlsx`
+                : `project_sites_export_${dateStr}.xlsx`;
+            XLSX.writeFile(workbook, filename);
+            setSnackbar({
+                open: true,
+                message: `Exported ${sitesToExport.length} site${sitesToExport.length !== 1 ? 's' : ''} to Excel successfully!`,
+                severity: 'success',
+            });
+        } catch (err) {
+            console.error('Error exporting sites to Excel:', err);
+            setSnackbar({ open: true, message: 'Failed to export sites to Excel. Please try again.', severity: 'error' });
+        } finally {
+            setExportingSitesExcel(false);
+        }
+    }, [projectId, projectSites, exportAllSites, fetchAllProjectSites]);
+
+    // Export project sites to PDF (current tab list or all if exportAllSites)
+    const handleExportSitesToPDF = useCallback(async () => {
+        setExportingSitesPdf(true);
+        try {
+            let sitesToExport = projectSites;
+            if (exportAllSites) {
+                sitesToExport = await fetchAllProjectSites();
+            }
+            if (!sitesToExport.length) {
+                setSnackbar({ open: true, message: 'No sites to export', severity: 'warning' });
+                setExportingSitesPdf(false);
+                return;
+            }
+            const headers = ['Site Name', 'County', 'Constituency', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
+            const dataRows = sitesToExport.map((site) => {
+                const name = site.site_name || site.siteName || '';
+                const status = site.status_norm || site.status_raw || site.status || '';
+                const progress = site.progress != null && site.progress !== '' ? `${site.progress}%` : '';
+                const cost = site.approved_cost != null || site.approvedCost != null
+                    ? String(site.approved_cost ?? site.approvedCost)
+                    : '';
+                return [name, site.county || '', site.constituency || '', site.ward || '', status, progress, cost];
+            });
+            const doc = new jsPDF('landscape', 'pt', 'a4');
+            autoTable(doc, {
+                head: [headers],
+                body: dataRows,
+                startY: 20,
+                styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', halign: 'left' },
+                headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [245, 245, 245] },
+                margin: { top: 20, left: 40, right: 40 },
+            });
+            const dateStr = new Date().toISOString().split('T')[0];
+            const filename = exportAllSites
+                ? `project_sites_export_all_${dateStr}.pdf`
+                : `project_sites_export_${dateStr}.pdf`;
+            doc.save(filename);
+            setSnackbar({
+                open: true,
+                message: `Exported ${sitesToExport.length} site${sitesToExport.length !== 1 ? 's' : ''} to PDF successfully!`,
+                severity: 'success',
+            });
+        } catch (err) {
+            console.error('Error exporting sites to PDF:', err);
+            setSnackbar({ open: true, message: 'Failed to export sites to PDF. Please try again.', severity: 'error' });
+        } finally {
+            setExportingSitesPdf(false);
+        }
+    }, [projectSites, exportAllSites, fetchAllProjectSites]);
 
     // NEW: Function to fetch teams for project
     const fetchProjectTeams = useCallback(async () => {
@@ -1827,88 +2001,22 @@ function ProjectDetailsPage() {
                     pointerEvents: 'none'
                 } : {}
             }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                <Button
-                    variant="outlined"
-                    startIcon={<ArrowBackIcon />}
-                    onClick={() => navigate('/projects')}
-                    sx={{
-                        borderColor: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500],
-                        color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
-                        '&:hover': {
-                            borderColor: theme.palette.mode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[600],
-                            backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500],
-                            color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[100]
-                        },
-                        fontWeight: 'bold',
-                        borderRadius: '8px',
-                        px: 2,
-                        py: 0.5,
-                        boxShadow: theme.palette.mode === 'light' ? `0 2px 8px ${colors.blueAccent[100]}40` : 'none'
-                    }}
-                >
-                    Back to Projects
-                </Button>
-            </Box>
-
-            {/* Consolidated Top Section */}
-            <Paper elevation={8} sx={{ 
-                p: 1, 
-                mb: 0.5, 
-                borderRadius: '12px',
-                background: theme.palette.mode === 'dark'
-                    ? `linear-gradient(135deg, ${colors.primary[500]} 0%, ${colors.primary[600]} 100%)`
-                    : '#FFFFFF', // White background for light mode
-                border: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
-                boxShadow: theme.palette.mode === 'dark'
-                    ? `0 12px 40px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.25)`
-                    : `0 12px 40px rgba(0, 0, 0, 0.15), 0 6px 20px rgba(0, 0, 0, 0.1), 0 0 0 1px ${colors.blueAccent[100]}`,
-                position: 'relative',
-                overflow: 'hidden',
-                transition: 'all 0.3s ease-in-out',
-                '&:hover': {
-                    boxShadow: theme.palette.mode === 'dark'
-                        ? `0 16px 48px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3)`
-                        : `0 16px 48px rgba(0, 0, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.12)`
-                },
-                '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: '5px',
-                    background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.greenAccent[500]}, ${colors.blueAccent[500]})`,
-                    backgroundSize: '200% 100%',
-                    animation: 'shimmer 3s ease-in-out infinite',
-                    '@keyframes shimmer': {
-                        '0%': { backgroundPosition: '200% 0' },
-                        '100%': { backgroundPosition: '-200% 0' }
-                    }
-                }
-            }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
+            {/* Title – inline with page, no separate panel */}
+            <Box sx={{ mb: 1.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}>
+                    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
                         <Typography
-                            variant="h3"
+                            variant="h1"
                             component="h1"
                             sx={{
                                 fontWeight: 700,
-                                fontSize: { xs: '1.35rem', sm: '1.6rem', md: '1.85rem' },
-                                color: theme.palette.mode === 'dark' ? colors.grey[100] : '#1a1a1a',
+                                fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.4rem' },
+                                color: theme.palette.text.primary,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
                                 flexShrink: 1,
-                                textShadow: theme.palette.mode === 'dark' ? '2px 2px 4px rgba(0, 0, 0, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.1)',
-                                letterSpacing: '0.3px',
-                                lineHeight: 1.2,
-                                background: theme.palette.mode === 'light' 
-                                    ? 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)'
-                                    : 'none',
-                                WebkitBackgroundClip: theme.palette.mode === 'light' ? 'text' : 'none',
-                                WebkitTextFillColor: theme.palette.mode === 'light' ? 'transparent' : 'inherit',
-                                backgroundClip: theme.palette.mode === 'light' ? 'text' : 'none'
+                                lineHeight: 1.25,
                             }}
                         >
                             {project?.projectName || 'Project Name Missing'}
@@ -1916,21 +2024,16 @@ function ProjectDetailsPage() {
                         <Chip
                             label={project?.status || 'N/A'}
                             className="status-chip"
+                            size="small"
                             sx={{
                                 backgroundColor: getProjectStatusBackgroundColor(project?.status),
                                 color: getProjectStatusTextColor(project?.status),
-                                fontWeight: 'bold',
-                                fontSize: '0.875rem',
-                                height: '32px',
+                                fontWeight: 600,
+                                fontSize: '0.75rem',
+                                height: 24,
                                 flexShrink: 0,
-                                px: 1.5,
-                                boxShadow: theme.palette.mode === 'light' ? '0 2px 4px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
-                                // Enhanced color rendering
-                                WebkitColorAdjust: 'exact',
-                                colorAdjust: 'exact',
-                                transform: 'translateZ(0)',
-                                backfaceVisibility: 'hidden',
-                                isolation: 'isolate'
+                                px: 1,
+                                '& .MuiChip-label': { px: 0.5 }
                             }}
                         />
                         {getPublicApprovalStatus(project) && (
@@ -1940,305 +2043,117 @@ function ProjectDetailsPage() {
                                 color={getPublicApprovalStatus(project).color}
                                 size="small"
                                 sx={{
-                                    fontWeight: 'bold',
-                                    fontSize: '0.75rem',
-                                    height: '28px',
+                                    fontWeight: 600,
+                                    fontSize: '0.7rem',
+                                    height: 22,
                                     flexShrink: 0,
-                                    px: 1,
-                                    boxShadow: theme.palette.mode === 'light' ? '0 2px 4px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
-                                    '& .MuiChip-icon': { fontSize: 14 }
+                                    px: 0.75,
+                                    '& .MuiChip-icon': { fontSize: 12 }
                                 }}
                             />
                         )}
                     </Stack>
-                    <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+                    <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                         <Tooltip title="View Project Monitoring">
-                            <IconButton 
-                                color="info" 
-                                onClick={handleOpenMonitoringModal}
-                                sx={{
-                                    backgroundColor: theme.palette.mode === 'dark' ? 'rgba(33, 150, 243, 0.2)' : 'rgba(33, 150, 243, 0.1)',
-                                    '&:hover': {
-                                        backgroundColor: theme.palette.mode === 'dark' ? 'rgba(33, 150, 243, 0.3)' : 'rgba(33, 150, 243, 0.2)',
-                                        transform: 'scale(1.1)',
-                                        transition: 'all 0.2s ease-in-out'
-                                    },
-                                    transition: 'all 0.2s ease-in-out'
-                                }}
-                            >
-                                <VisibilityIcon />
+                            <IconButton size="small" color="info" onClick={handleOpenMonitoringModal} sx={{ p: 0.5 }}>
+                                <VisibilityIcon sx={{ fontSize: 18 }} />
                             </IconButton>
                         </Tooltip>
                         <Tooltip title="Manage Project Photos">
-                            <IconButton 
-                                color="secondary" 
-                                onClick={handleManagePhotos}
-                                sx={{
-                                    backgroundColor: theme.palette.mode === 'dark' ? 'rgba(156, 39, 176, 0.2)' : 'rgba(156, 39, 176, 0.1)',
-                                    '&:hover': {
-                                        backgroundColor: theme.palette.mode === 'dark' ? 'rgba(156, 39, 176, 0.3)' : 'rgba(156, 39, 176, 0.2)',
-                                        transform: 'scale(1.1)',
-                                        transition: 'all 0.2s ease-in-out'
-                                    },
-                                    transition: 'all 0.2s ease-in-out'
-                                }}
-                            >
-                                <PhotoCameraIcon />
+                            <IconButton size="small" color="secondary" onClick={handleManagePhotos} sx={{ p: 0.5 }}>
+                                <PhotoCameraIcon sx={{ fontSize: 18 }} />
                             </IconButton>
                         </Tooltip>
                     </Stack>
                 </Box>
-                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 0.5, pt: 0.5, borderTop: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}` }}>
-                    <Typography variant="h6" sx={{ 
-                        fontWeight: 600, 
-                        flexShrink: 0,
-                        fontSize: '1rem',
-                        color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333',
-                        textShadow: theme.palette.mode === 'dark' ? '1px 1px 2px rgba(0, 0, 0, 0.3)' : 'none',
-                        minWidth: '160px'
-                    }}>
-                        Overall Progress: <strong style={{ color: theme.palette.mode === 'dark' ? colors.greenAccent[400] : colors.greenAccent[600], fontSize: '1.1rem' }}>{overallProgress.toFixed(2)}%</strong>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.75 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, flexShrink: 0, fontSize: '0.8rem', minWidth: '130px' }}>
+                        Overall Progress: <strong style={{ color: theme.palette.success.main, fontSize: '0.9rem' }}>{overallProgress.toFixed(2)}%</strong>
                     </Typography>
                     <LinearProgress
                         variant="determinate"
                         value={Math.min(100, Math.max(0, overallProgress))}
-                        sx={{ 
-                            flexGrow: 1, 
-                            height: 12, 
-                            borderRadius: 6, 
+                        sx={{
+                            flexGrow: 1,
+                            height: 6,
+                            borderRadius: 1,
                             bgcolor: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200],
-                            boxShadow: theme.palette.mode === 'light' ? `inset 0 2px 4px rgba(0, 0, 0, 0.08)` : 'none',
-                            border: theme.palette.mode === 'light' ? `1px solid ${colors.grey[300]}` : 'none',
-                            '& .MuiLinearProgress-bar': {
-                                borderRadius: 8,
-                                background: `linear-gradient(90deg, ${colors.greenAccent[500]} 0%, ${colors.greenAccent[600]} 50%, ${colors.greenAccent[500]} 100%)`,
-                                backgroundSize: '200% 100%',
-                                boxShadow: theme.palette.mode === 'light' 
-                                    ? `0 2px 8px ${colors.greenAccent[500]}80, inset 0 1px 0 rgba(255, 255, 255, 0.2)` 
-                                    : `0 2px 8px ${colors.greenAccent[500]}60`,
-                                transition: 'width 0.6s ease-in-out',
-                                animation: 'shimmer 2s ease-in-out infinite',
-                                '@keyframes shimmer': {
-                                    '0%': { backgroundPosition: '200% 0' },
-                                    '100%': { backgroundPosition: '-200% 0' }
-                                }
-                            }
+                            '& .MuiLinearProgress-bar': { borderRadius: 1, backgroundColor: theme.palette.success.main },
                         }}
                     />
                 </Stack>
-            </Paper>
+            </Box>
 
-            {/* Key Metrics Cards */}
-            <Grid container spacing={1} sx={{ mb: 0.5 }}>
-                {/* Total Budget Card */}
-                <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ 
-                        background: isLight 
-                            ? 'linear-gradient(135deg, #2196f3 0%, #42a5f5 100%)'
-                            : `linear-gradient(135deg, ${colors.blueAccent[800]}, ${colors.blueAccent[700]})`,
-                        color: 'white',
-                        height: '100%',
-                        boxShadow: theme.palette.mode === 'dark' ? 4 : `0 4px 20px rgba(33, 150, 243, 0.2)`,
-                        borderRadius: '12px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: '-100%',
-                            width: '100%',
-                            height: '100%',
-                            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent)',
-                            transition: 'left 0.5s'
-                        },
-                        '&:hover': {
-                            transform: 'translateY(-6px) scale(1.02)',
-                            boxShadow: theme.palette.mode === 'dark' ? 8 : `0 8px 32px rgba(33, 150, 243, 0.4)`,
-                            '&::before': {
-                                left: '100%'
-                            }
-                        }
-                    }}>
-                        <CardContent>
-                            <Box display="flex" alignItems="center" justifyContent="space-between">
-                                <Box>
-                                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.75rem' }}>
-                                        Total Budget
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.25 }}>
-                                        {formatCurrency(totalBudget)}
-                                    </Typography>
-                                </Box>
-                                <MoneyIcon sx={{ fontSize: 40, opacity: 0.8 }} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                {/* Sites Summary Card */}
-                <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ 
-                        background: isLight 
-                            ? 'linear-gradient(135deg, #42a5f5 0%, #64b5f6 100%)'
-                            : `linear-gradient(135deg, ${colors.blueAccent[700]}, ${colors.blueAccent[600]})`,
-                        color: 'white',
-                        height: '100%',
-                        boxShadow: theme.palette.mode === 'dark' ? 4 : `0 4px 20px rgba(66, 165, 245, 0.2)`,
-                        borderRadius: '12px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}>
-                        <CardContent sx={{ p: 0.75, '&:last-child': { pb: 0.75 } }}>
-                            <Box display="flex" alignItems="center" justifyContent="space-between">
-                                <Box>
-                                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem' }}>
-                                        Sites
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.2, fontSize: '0.95rem' }}>
-                                        {sitesSummary.total || 0}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.25, fontSize: '0.65rem' }}>
-                                        Total project sites
-                                    </Typography>
-                                </Box>
-                                <LocationOnIcon sx={{ fontSize: 28, opacity: 0.9 }} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                {/* Disbursed Card */}
-                <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ 
-                        background: isLight 
-                            ? 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)'
-                            : `linear-gradient(135deg, ${colors.greenAccent[800]}, ${colors.greenAccent[700]})`,
-                        color: 'white',
-                        height: '100%',
-                        boxShadow: theme.palette.mode === 'dark' ? 4 : `0 4px 20px rgba(76, 175, 80, 0.2)`,
-                        borderRadius: '12px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: '-100%',
-                            width: '100%',
-                            height: '100%',
-                            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent)',
-                            transition: 'left 0.5s'
-                        },
-                        '&:hover': {
-                            transform: 'translateY(-6px) scale(1.02)',
-                            boxShadow: theme.palette.mode === 'dark' ? 8 : `0 8px 32px rgba(76, 175, 80, 0.4)`,
-                            '&::before': {
-                                left: '100%'
-                            }
-                        }
-                    }}>
-                        <CardContent>
-                            <Box display="flex" alignItems="center" justifyContent="space-between">
-                                <Box>
-                                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.75rem' }}>
-                                        Disbursed
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.25 }}>
-                                        {formatCurrency(paidAmount)}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.5, fontSize: '0.7rem' }}>
-                                        {disbursementRate.toFixed(1)}% of budget
-                                    </Typography>
-                                </Box>
-                                <PaidIcon sx={{ fontSize: 40, opacity: 0.8 }} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                {/* Disbursement Rate Card */}
-                <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ 
-                        background: isLight 
-                            ? 'linear-gradient(135deg, #26a69a 0%, #4db6ac 100%)'
-                            : `linear-gradient(135deg, ${colors.tealAccent?.[800] || colors.greenAccent[800]}, ${colors.tealAccent?.[700] || colors.greenAccent[700]})`,
-                        color: 'white',
-                        height: '100%',
-                        boxShadow: theme.palette.mode === 'dark' ? 4 : `0 4px 20px rgba(38, 166, 154, 0.2)`,
-                        borderRadius: '12px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: '-100%',
-                            width: '100%',
-                            height: '100%',
-                            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent)',
-                            transition: 'left 0.5s'
-                        },
-                        '&:hover': {
-                            transform: 'translateY(-6px) scale(1.02)',
-                            boxShadow: theme.palette.mode === 'dark' ? 8 : `0 8px 32px rgba(38, 166, 154, 0.4)`,
-                            '&::before': {
-                                left: '100%'
-                            }
-                        }
-                    }}>
-                        <CardContent>
-                            <Box display="flex" alignItems="center" justifyContent="space-between">
-                                <Box>
-                                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.75rem' }}>
-                                        Disbursement Rate
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.25 }}>
-                                        {disbursementRate.toFixed(1)}%
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.5, fontSize: '0.7rem' }}>
-                                        Disbursed vs Budget
-                                    </Typography>
-                                </Box>
-                                <ScheduleIcon sx={{ fontSize: 40, opacity: 0.8 }} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                {/* Jobs Summary Card */}
-                <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ 
-                        background: isLight 
-                            ? 'linear-gradient(135deg, #7e57c2 0%, #9575cd 100%)'
-                            : `linear-gradient(135deg, ${colors.primary[700]}, ${colors.primary[500]})`,
-                        color: 'white',
-                        height: '100%',
-                        boxShadow: theme.palette.mode === 'dark' ? 4 : `0 4px 20px rgba(126, 87, 194, 0.25)`,
-                        borderRadius: '12px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}>
-                        <CardContent sx={{ p: 0.75, '&:last-child': { pb: 0.75 } }}>
-                            <Box display="flex" alignItems="center" justifyContent="space-between">
-                                <Box>
-                                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem' }}>
-                                        Jobs Created
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.2, fontSize: '0.95rem' }}>
-                                        {jobsSummary.totalJobs}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.25, fontSize: '0.65rem' }}>
-                                        Across all job categories
-                                    </Typography>
-                                </Box>
-                                <WorkIcon sx={{ fontSize: 28, opacity: 0.9 }} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-            </Grid>
+            {/* Key metrics – collapsible, collapsed by default for clear tab hierarchy */}
+            <Box
+                sx={{
+                    mb: kpiExpanded ? 1.5 : 0.5,
+                    border: `1px solid ${theme.palette.divider}`,
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                }}
+            >
+                <Box
+                    onClick={() => setKpiExpanded(!kpiExpanded)}
+                    sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        px: 1,
+                        py: 0.5,
+                        cursor: 'pointer',
+                        backgroundColor: theme.palette.mode === 'dark' ? undefined : theme.palette.grey[50],
+                        '&:hover': { backgroundColor: theme.palette.action.hover },
+                    }}
+                >
+                    <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary' }}>
+                        Key metrics
+                    </Typography>
+                    {kpiExpanded ? <ExpandLessIcon sx={{ fontSize: 20, color: 'text.secondary' }} /> : <ExpandMoreIcon sx={{ fontSize: 20, color: 'text.secondary' }} />}
+                </Box>
+                <Collapse in={kpiExpanded}>
+                    <Box sx={{ px: 1, pb: 1, pt: 0.5 }}>
+                        <Grid container spacing={1.5}>
+                            {[
+                                { key: 'budget', label: 'Total Budget', value: formatCurrency(totalBudget), sub: null, Icon: MoneyIcon },
+                                { key: 'sites', label: 'Sites', value: sitesSummary.total || 0, sub: 'Project sites', Icon: LocationOnIcon },
+                                { key: 'disbursed', label: 'Disbursed', value: formatCurrency(paidAmount), sub: `${disbursementRate.toFixed(1)}% of budget`, Icon: PaidIcon },
+                                { key: 'rate', label: 'Disbursement Rate', value: `${disbursementRate.toFixed(1)}%`, sub: 'Disbursed vs Budget', Icon: ScheduleIcon },
+                                { key: 'jobs', label: 'Jobs Created', value: jobsSummary.totalJobs, sub: 'All categories', Icon: WorkIcon },
+                            ].map(({ key, label, value, sub, Icon }) => (
+                                <Grid item xs={6} sm={4} md key={key}>
+                                    <Card variant="outlined" sx={{
+                                        height: '100%',
+                                        borderRadius: 2,
+                                        borderColor: theme.palette.divider,
+                                        bgcolor: theme.palette.mode === 'dark' ? theme.palette.background.default : theme.palette.background.paper,
+                                        boxShadow: 'none',
+                                    }}>
+                                        <CardContent sx={{ py: 1.25, px: 1.5, '&:last-child': { pb: 1.25 } }}>
+                                            <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                                                <Box minWidth={0}>
+                                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                                        {label}
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.25, fontSize: '0.875rem', color: 'text.primary' }}>
+                                                        {value}
+                                                    </Typography>
+                                                    {sub && (
+                                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', display: 'block', mt: 0.15 }}>
+                                                            {sub}
+                                                        </Typography>
+                                                    )}
+                                                </Box>
+                                                <Icon sx={{ fontSize: 20, color: 'text.secondary', opacity: 0.7, flexShrink: 0 }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    </Box>
+                </Collapse>
+            </Box>
 
             {/* Project Photos Carousel */}
             {projectPhotos.length > 0 && (
@@ -2309,51 +2224,39 @@ function ProjectDetailsPage() {
                 </Paper>
             )}
 
-            {/* Tabbed Interface */}
-            <Paper elevation={6} sx={{ 
-                p: 0.75, 
-                mb: 0.5, 
-                borderRadius: '10px',
-                background: theme.palette.mode === 'dark'
-                    ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
-                    : '#FFFFFF', // White background for light mode
-                border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
-                boxShadow: theme.palette.mode === 'dark'
-                    ? `0 4px 20px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)`
-                    : `0 2px 12px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.03)`
-            }}>
-                <Tabs 
-                    value={activeTab} 
+            {/* Tabbed Interface – integrated with page, clear tab bar */}
+            <Box sx={{ borderBottom: `1px solid ${theme.palette.divider}`, mb: 0 }}>
+                <Tabs
+                    value={activeTab}
                     onChange={(e, newValue) => setActiveTab(newValue)}
                     variant="scrollable"
                     scrollButtons="auto"
                     sx={{
-                        borderBottom: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
-                        mb: 0.4,
+                        minHeight: 44,
+                        '& .MuiTabs-flexContainer': { gap: 0 },
+                        '& .MuiTabs-indicator': {
+                            backgroundColor: theme.palette.primary.main,
+                            height: 3,
+                            borderRadius: '3px 3px 0 0',
+                        },
                         '& .MuiTab-root': {
-                            color: theme.palette.mode === 'dark' ? colors.grey[300] : '#4a4a4a',
                             textTransform: 'none',
-                            fontSize: '0.9rem',
-                            fontWeight: 600,
-                            minHeight: 40,
-                            padding: '8px 16px',
-                            transition: 'all 0.2s ease-in-out',
-                            borderRadius: '8px 8px 0 0',
-                            marginRight: 1,
+                            fontSize: '0.8125rem',
+                            fontWeight: 500,
+                            minHeight: 44,
+                            py: 0,
+                            px: 2,
+                            color: theme.palette.text.secondary,
+                            transition: 'color 0.2s, background-color 0.2s',
+                            '& .MuiTab-iconWrapper': { fontSize: '1.1rem', mr: 0.75 },
                             '&:hover': {
-                                backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600]
+                                color: theme.palette.primary.main,
                             },
                             '&.Mui-selected': {
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600],
-                                fontWeight: 'bold',
-                                backgroundColor: theme.palette.mode === 'dark' ? 'rgba(33, 150, 243, 0.1)' : 'rgba(33, 150, 243, 0.08)',
-                                borderBottom: `3px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600]}`
-                            }
+                                color: theme.palette.primary.main,
+                                fontWeight: 600,
+                            },
                         },
-                        '& .MuiTabs-indicator': {
-                            display: 'none'
-                        }
                     }}
                 >
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
@@ -2364,68 +2267,52 @@ function ProjectDetailsPage() {
                     <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
                 </Tabs>
+            </Box>
 
+            <Box sx={{ pt: 1.5 }}>
                 {/* Tab Panels */}
                 {activeTab === 0 && (
                     <Box>
-                        {/* Combined Overview and Description Section */}
-            <Paper elevation={6} sx={{ 
-                p: 1, 
+                        {/* Project Overview – neutral card */}
+            <Paper elevation={0} sx={{ 
+                p: 1.25, 
                 mb: 0.75, 
-                borderRadius: '12px',
-                background: theme.palette.mode === 'dark'
-                    ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
-                    : '#FFFFFF', // White background for light mode
-                border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
-                boxShadow: theme.palette.mode === 'dark'
-                    ? `0 6px 24px rgba(0, 0, 0, 0.25), 0 3px 12px rgba(0, 0, 0, 0.15)`
-                    : `0 2px 12px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.03)`,
-                transition: 'all 0.3s ease-in-out',
-                '&:hover': {
-                    boxShadow: theme.palette.mode === 'dark'
-                        ? `0 8px 32px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2)`
-                        : `0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)`
-                }
+                borderRadius: 2,
+                background: theme.palette.mode === 'dark' ? colors.primary[500] : theme.palette.background.paper,
+                border: `1px solid ${theme.palette.divider}`,
+                boxShadow: 'none',
             }}>
-                <Typography variant="h5" sx={{ 
+                <Typography variant="subtitle1" sx={{ 
                     display: 'flex', 
                     alignItems: 'center', 
-                    mb: 0.4,
-                    color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
-                    fontWeight: 'bold',
-                    textShadow: theme.palette.mode === 'dark' ? '1px 1px 2px rgba(0, 0, 0, 0.2)' : 'none',
-                    borderBottom: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[300]}`,
-                    pb: 0.3,
+                    mb: 1,
+                    color: theme.palette.primary.main,
+                    fontWeight: 600,
+                    borderBottom: `1px solid ${theme.palette.divider}`,
+                    pb: 0.5,
                     fontSize: '0.95rem'
                 }}>
-                    <InfoIcon sx={{ mr: 0.5, fontSize: '0.9rem', color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600] }} />
+                    <InfoIcon sx={{ mr: 0.5, fontSize: '1rem', opacity: 0.9 }} />
                     Project Overview
                 </Typography>
-                <Grid container spacing={0.5}>
+                <Grid container spacing={1}>
                     {/* First Column: Key Information */}
                     <Grid item xs={12} md={4}>
                         <Box sx={{
-                            p: 1,
-                            borderRadius: '10px',
-                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : '#F5F5F5', // Light grey background for light mode
-                            border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
+                            p: 1.25,
+                            borderRadius: 2,
+                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : theme.palette.grey[50],
+                            border: `1px solid ${theme.palette.divider}`,
                             height: '100%',
-                            boxShadow: theme.palette.mode === 'light' ? `0 2px 8px rgba(0, 0, 0, 0.05)` : `0 4px 16px rgba(0, 0, 0, 0.2)`,
-                            transition: 'all 0.3s ease-in-out',
-                            '&:hover': {
-                                transform: 'translateY(-2px)',
-                                boxShadow: theme.palette.mode === 'light' ? `0 4px 12px rgba(0, 0, 0, 0.08)` : `0 6px 24px rgba(0, 0, 0, 0.3)`,
-                                borderColor: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[400]
-                            }
                         }}>
-                            <Typography variant="h6" sx={{ 
-                                fontWeight: 'bold', 
-                                mb: 0.4,
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
+                            <Typography variant="subtitle2" sx={{ 
+                                fontWeight: 600, 
+                                mb: 0.75,
+                                color: theme.palette.text.secondary,
                                 textAlign: 'center',
-                                borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[300]}`,
-                                pb: 0.25,
-                                fontSize: '0.85rem'
+                                borderBottom: `1px solid ${theme.palette.divider}`,
+                                pb: 0.5,
+                                fontSize: '0.8rem'
                             }}>
                                 Key Information
                             </Typography>
@@ -2434,61 +2321,61 @@ function ProjectDetailsPage() {
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Project Category:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{projectCategory?.categoryName || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Project Category:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{projectCategory?.categoryName || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Ministry:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.departmentAlias || project?.departmentName || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Ministry:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.departmentAlias || project?.departmentName || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>County:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.countyNames || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>County:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.countyNames || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Constituency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.subcountyNames || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Constituency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.subcountyNames || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Ward:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.wardNames || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Ward:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.wardNames || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>State Department:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.directorate || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>State Department:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.directorate || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Sector:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.sector || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Sector:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.sector || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Implementing Agency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.implementingAgency || project?.directorate || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Implementing Agency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.implementingAgency || project?.directorate || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Financial Year:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.financialYear || project?.financialYearName || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Financial Year:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.financialYear || project?.financialYearName || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Last Updated:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.updatedAt) || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Last Updated:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.updatedAt) || 'N/A'}</span>
                                 </Typography>
                                 <Divider sx={{ my: 0.3 }} />
                                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2496,7 +2383,7 @@ function ProjectDetailsPage() {
                                         color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                         fontSize: '0.9rem'
                                     }}>
-                                        <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Public Approval:</strong>
+                                        <strong style={{ color: theme.palette.primary.main }}>Public Approval:</strong>
                                     </Typography>
                                     {getPublicApprovalStatus(project) && (
                                         <Chip
@@ -2517,7 +2404,7 @@ function ProjectDetailsPage() {
                                         color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                         fontSize: '0.9rem'
                                     }}>
-                                        <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Feedback Enabled:</strong>
+                                        <strong style={{ color: theme.palette.primary.main }}>Feedback Enabled:</strong>
                                     </Typography>
                                     <Chip
                                         label={project?.feedbackEnabled === true || project?.feedbackEnabled === 1 ? 'Yes' : project?.feedbackEnabled === false || project?.feedbackEnabled === 0 ? 'No' : 'N/A'}
@@ -2533,66 +2420,48 @@ function ProjectDetailsPage() {
                     {/* Full-width row for Project Description */}
                     <Grid item xs={12}>
                         <Box sx={{
-                            p: 1,
-                            borderRadius: '10px',
-                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : '#F5F5F5',
-                            border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`,
+                            p: 1.25,
+                            borderRadius: 2,
+                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : theme.palette.grey[50],
+                            border: `1px solid ${theme.palette.divider}`,
                             mt: 0.5,
-                            boxShadow: theme.palette.mode === 'light' ? `0 2px 8px rgba(0, 0, 0, 0.05)` : `0 4px 16px rgba(0, 0, 0, 0.2)`,
-                            transition: 'all 0.3s ease-in-out',
-                            '&:hover': {
-                                transform: 'translateY(-2px)',
-                                boxShadow: theme.palette.mode === 'light' ? `0 4px 12px rgba(0, 0, 0, 0.08)` : `0 6px 24px rgba(0, 0, 0, 0.3)`,
-                                borderColor: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[400]
-                            }
                         }}>
-                            <Typography variant="h6" sx={{ 
-                                fontWeight: 'bold', 
-                                mb: 0.4,
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
+                            <Typography variant="subtitle2" sx={{ 
+                                fontWeight: 600, 
+                                mb: 0.75,
+                                color: theme.palette.text.secondary,
                                 textAlign: 'center',
-                                borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[300]}`,
-                                pb: 0.25,
-                                fontSize: '0.85rem'
+                                borderBottom: `1px solid ${theme.palette.divider}`,
+                                pb: 0.5,
+                                fontSize: '0.8rem'
                             }}>
                                 Project Description
                             </Typography>
-                            <Stack spacing={0.5}>
+                            <Stack spacing={0.75}>
                                 <Box>
-                                    <Typography variant="body1" sx={{ 
-                                        mb: 0.4,
-                                        fontWeight: 'bold',
-                                        color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600]
-                                    }}>
+                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
                                         Objective:
                                     </Typography>
-                                    <Typography variant="body1" sx={{ 
-                                        color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333',
+                                    <Typography variant="body2" sx={{ 
+                                        color: 'text.primary',
                                         pl: 1,
-                                        borderLeft: `3px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[400]}`,
-                                        py: 0.4,
-                                        fontSize: '0.9rem',
-                                        fontWeight: 600
+                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                        py: 0.25,
+                                        fontSize: '0.875rem'
                                     }}>
                                         {project?.objective || 'N/A'}
                                     </Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="body1" sx={{ 
-                                        mb: 0.4,
-                                        fontWeight: 'bold',
-                                        color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600],
-                                        fontSize: '0.95rem'
-                                    }}>
+                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
                                         Expected Outcome:
                                     </Typography>
-                                    <Typography variant="body1" sx={{ 
-                                        color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333',
+                                    <Typography variant="body2" sx={{ 
+                                        color: 'text.primary',
                                         pl: 1,
-                                        borderLeft: `3px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[400]}`,
-                                        py: 0.4,
-                                        fontSize: '0.9rem',
-                                        fontWeight: 600
+                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                        py: 0.25,
+                                        fontSize: '0.875rem'
                                     }}>
                                         {project?.expectedOutcome || 'N/A'}
                                     </Typography>
@@ -4086,197 +3955,151 @@ function ProjectDetailsPage() {
 
                 {activeTab === 2 && (
                     <Box>
-                        {/* Sites Tab */}
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
-                            <Typography variant="h6" sx={{ 
-                                fontWeight: 'bold',
-                                color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600],
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1,
-                                fontSize: '1rem'
-                            }}>
-                                <LocationOnIcon /> Project Sites
-                            </Typography>
-                            <Stack direction="row" spacing={1}>
+                        {/* Sites Tab – toolbar, filters, then grid */}
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, mb: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: 'text.primary', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                    <LocationOnIcon fontSize="small" />
+                                    Project Sites
+                                </Typography>
+                                {projectSites.length > 0 && (
+                                    <Chip
+                                        label={`${sitesSummary.total} site${sitesSummary.total !== 1 ? 's' : ''}`}
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{ fontWeight: 500, fontSize: '0.75rem' }}
+                                    />
+                                )}
+                            </Box>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                {projectSites.length > 0 && (
+                                    <>
+                                        <FormControlLabel
+                                            control={<Checkbox checked={exportAllSites} onChange={(e) => setExportAllSites(e.target.checked)} size="small" />}
+                                            label="Export all"
+                                            sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+                                        />
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            startIcon={exportingSitesExcel ? <CircularProgress size={14} color="inherit" /> : <FileDownloadIcon sx={{ fontSize: 16 }} />}
+                                            onClick={handleExportSitesToExcel}
+                                            disabled={exportingSitesExcel || exportingSitesPdf}
+                                            sx={{ borderColor: 'divider', color: 'text.secondary', minWidth: 80 }}
+                                        >
+                                            {exportingSitesExcel ? '…' : 'Excel'}
+                                        </Button>
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            startIcon={exportingSitesPdf ? <CircularProgress size={14} color="inherit" /> : <PictureAsPdfIcon sx={{ fontSize: 16 }} />}
+                                            onClick={handleExportSitesToPDF}
+                                            disabled={exportingSitesExcel || exportingSitesPdf}
+                                            sx={{ borderColor: 'divider', color: 'text.secondary', minWidth: 72 }}
+                                        >
+                                            {exportingSitesPdf ? '…' : 'PDF'}
+                                        </Button>
+                                    </>
+                                )}
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<UploadIcon />}
+                                    onClick={() => setOpenImportSitesDialog(true)}
+                                    sx={{ borderColor: theme.palette.divider, color: 'text.secondary' }}
+                                >
+                                    Import
+                                </Button>
                                 <Button
                                     variant="contained"
+                                    size="small"
                                     startIcon={<AddIcon />}
                                     onClick={() => {
                                         setEditingSite(null);
                                         setSiteFormData({
-                                            siteName: '',
-                                            county: '',
-                                            constituency: '',
-                                            ward: '',
-                                            status: '',
-                                            progress: '',
-                                            approvedCost: '',
+                                            siteName: '', county: '', constituency: '', ward: '',
+                                            status: '', progress: '', approvedCost: '',
                                         });
                                         setSiteFormErrors({});
                                         setOpenSiteDialog(true);
                                     }}
                                     sx={{
-                                        backgroundColor: colors.greenAccent[600],
-                                        '&:hover': { backgroundColor: colors.greenAccent[700] }
+                                        backgroundColor: theme.palette.primary.main,
+                                        '&:hover': { backgroundColor: theme.palette.primary.dark }
                                     }}
                                 >
                                     Add site
                                 </Button>
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<UploadIcon />}
-                                    onClick={() => setOpenImportSitesDialog(true)}
-                                    sx={{
-                                        borderColor: colors.blueAccent[500],
-                                        color: colors.blueAccent[600],
-                                        '&:hover': {
-                                            borderColor: colors.blueAccent[600],
-                                            backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[50]
-                                        }
-                                    }}
-                                >
-                                    Import
-                                </Button>
                             </Stack>
                         </Box>
                         {loadingSites ? (
-                            <Box display="flex" justifyContent="center" alignItems="center" minHeight="150px">
+                            <Box display="flex" justifyContent="center" alignItems="center" minHeight="140px">
                                 <CircularProgress />
                             </Box>
                         ) : sitesError ? (
-                            <Alert severity="error" sx={{ mb: 1 }}>
-                                {sitesError}
-                            </Alert>
+                            <Alert severity="error" sx={{ mb: 1 }}>{sitesError}</Alert>
                         ) : projectSites.length === 0 ? (
-                            <Paper sx={{ p: 3, textAlign: 'center' }}>
-                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem', mb: 2 }}>
-                                    No sites added to this project yet. Add a site one at a time or import multiple sites using the template.
+                            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', borderColor: 'divider' }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    No sites yet. Use <strong>Add site</strong> or <strong>Import</strong> above to add sites.
                                 </Typography>
-                                <Stack direction="row" spacing={1.5} justifyContent="center" flexWrap="wrap" useFlexGap>
-                                    <Button
-                                        variant="contained"
-                                        startIcon={<AddIcon />}
-                                        onClick={() => {
-                                            setEditingSite(null);
-                                            setSiteFormData({
-                                                siteName: '',
-                                                county: '',
-                                                constituency: '',
-                                                ward: '',
-                                                status: '',
-                                                progress: '',
-                                                approvedCost: '',
-                                            });
-                                            setSiteFormErrors({});
-                                            setOpenSiteDialog(true);
-                                        }}
-                                        sx={{
-                                            backgroundColor: colors.greenAccent[600],
-                                            '&:hover': { backgroundColor: colors.greenAccent[700] }
-                                        }}
-                                    >
-                                        Add site
-                                    </Button>
-                                    <Button
-                                        variant="outlined"
-                                        startIcon={<UploadIcon />}
-                                        onClick={() => setOpenImportSitesDialog(true)}
-                                        sx={{
-                                            borderColor: colors.blueAccent[500],
-                                            color: colors.blueAccent[600],
-                                            '&:hover': {
-                                                borderColor: colors.blueAccent[600],
-                                                backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[50]
-                                            }
-                                        }}
-                                    >
-                                        Import
-                                    </Button>
-                                </Stack>
                             </Paper>
                         ) : (
                             <Box>
                                 {sitesSummary.total > 10 && (
-                                    <Box sx={{ mb: 2, p: 1.5, bgcolor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[50], borderRadius: 1, border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}` }}>
-                                        <Typography variant="body2" sx={{ mb: 1, color: theme.palette.mode === 'dark' ? colors.grey[200] : colors.grey[700] }}>
-                                            Showing latest 10 of {sitesSummary.total} sites. 
+                                    <Box sx={{ mb: 1.5, p: 1.25, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: theme.palette.mode === 'dark' ? theme.palette.action.hover : theme.palette.grey[50] }}>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                            Showing latest 10 of {sitesSummary.total} sites.
                                         </Typography>
-                                        <Button
-                                            variant="outlined"
-                                            size="small"
-                                            onClick={() => setOpenSitesModal(true)}
-                                            startIcon={<LocationOnIcon />}
-                                            sx={{ 
-                                                borderColor: colors.blueAccent[500],
-                                                color: colors.blueAccent[500],
-                                                '&:hover': {
-                                                    borderColor: colors.blueAccent[600],
-                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.blueAccent[100]
-                                                }
-                                            }}
-                                        >
-                                            View All Sites
+                                        <Button variant="outlined" size="small" startIcon={<LocationOnIcon />} onClick={() => setOpenSitesModal(true)} sx={{ borderColor: 'divider' }}>
+                                            View all sites
                                         </Button>
                                     </Box>
                                 )}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, flexWrap: 'wrap', gap: 1.5 }}>
-                                    <Typography variant="body2" color="text.secondary">
-                                        {projectSites.length} of {sitesSummary.total} site{sitesSummary.total !== 1 ? 's' : ''} shown
-                                    </Typography>
-                                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <TextField
-                                            label="Filter by Location"
-                                            size="small"
-                                            value={siteFilters.location}
-                                            onChange={(e) =>
-                                                setSiteFilters((prev) => ({ ...prev, location: e.target.value }))
-                                            }
-                                            placeholder="County / Constituency / Ward"
-                                            sx={{ minWidth: 200 }}
-                                        />
-                                        <FormControl size="small" sx={{ minWidth: 180 }}>
-                                            <InputLabel id="site-status-filter-label">Status</InputLabel>
-                                            <Select
-                                                labelId="site-status-filter-label"
-                                                label="Status"
-                                                value={siteFilters.status}
-                                                onChange={(e) =>
-                                                    setSiteFilters((prev) => ({ ...prev, status: e.target.value }))
-                                                }
-                                            >
-                                                <MenuItem value="">
-                                                    <em>All</em>
-                                                </MenuItem>
-                                                <MenuItem value="Not Started">Not Started</MenuItem>
-                                                <MenuItem value="In Progress">In Progress</MenuItem>
-                                                <MenuItem value="Ongoing">Ongoing</MenuItem>
-                                                <MenuItem value="Completed">Completed</MenuItem>
-                                                <MenuItem value="Stalled">Stalled</MenuItem>
-                                                <MenuItem value="Suspended">Suspended</MenuItem>
-                                            </Select>
-                                        </FormControl>
-                                        <Button
-                                            variant="outlined"
-                                            size="small"
-                                            onClick={() => setSiteFilters({ location: '', status: '' })}
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+                                    <TextField
+                                        size="small"
+                                        placeholder="Filter by location…"
+                                        value={siteFilters.location}
+                                        onChange={(e) => setSiteFilters((prev) => ({ ...prev, location: e.target.value }))}
+                                        sx={{ minWidth: 220, '& .MuiOutlinedInput-root': { backgroundColor: theme.palette.background.paper } }}
+                                    />
+                                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                                        <InputLabel id="site-status-filter-label">Status</InputLabel>
+                                        <Select
+                                            labelId="site-status-filter-label"
+                                            label="Status"
+                                            value={siteFilters.status}
+                                            onChange={(e) => setSiteFilters((prev) => ({ ...prev, status: e.target.value }))}
                                         >
-                                            Clear
-                                        </Button>
-                                    </Box>
+                                            <MenuItem value=""><em>All</em></MenuItem>
+                                            <MenuItem value="Not Started">Not Started</MenuItem>
+                                            <MenuItem value="In Progress">In Progress</MenuItem>
+                                            <MenuItem value="Ongoing">Ongoing</MenuItem>
+                                            <MenuItem value="Completed">Completed</MenuItem>
+                                            <MenuItem value="Stalled">Stalled</MenuItem>
+                                            <MenuItem value="Suspended">Suspended</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                    <Button size="small" onClick={() => setSiteFilters({ location: '', status: '' })} sx={{ color: 'text.secondary' }}>
+                                        Clear filters
+                                    </Button>
+                                    <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                                        {projectSites.length} of {sitesSummary.total} shown
+                                    </Typography>
                                 </Box>
-                                <TableContainer component={Paper} variant="outlined" sx={{ border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.grey[300]}`, borderRadius: 1 }}>
-                                    <Table size="small">
+                                <TableContainer component={Paper} variant="outlined" sx={{ borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+                                    <Table size="small" stickyHeader>
                                         <TableHead>
-                                            <TableRow sx={{ backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : colors.grey[100] }}>
-                                                <TableCell><strong>Site Name</strong></TableCell>
-                                                <TableCell><strong>County</strong></TableCell>
-                                                <TableCell><strong>Constituency</strong></TableCell>
-                                                <TableCell><strong>Ward</strong></TableCell>
-                                                <TableCell><strong>Status</strong></TableCell>
-                                                <TableCell><strong>Progress</strong></TableCell>
-                                                <TableCell><strong>Approved Cost</strong></TableCell>
-                                                <TableCell align="right"><strong>Actions</strong></TableCell>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Site Name</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>County</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Constituency</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Ward</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Status</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Progress</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Approved Cost</TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Actions</TableCell>
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
@@ -4291,12 +4114,18 @@ function ProjectDetailsPage() {
                                                     return matchesLocation && matchesStatus;
                                                 })
                                                 .map((site, index) => (
-                                                    <TableRow key={site.site_id || index} hover>
-                                                        <TableCell sx={{ fontWeight: 500 }}>{site.site_name || site.siteName || `Site ${index + 1}`}</TableCell>
-                                                        <TableCell>{site.county || '—'}</TableCell>
-                                                        <TableCell>{site.constituency || '—'}</TableCell>
-                                                        <TableCell>{site.ward || '—'}</TableCell>
-                                                        <TableCell>
+                                                    <TableRow
+                                                        key={site.site_id || index}
+                                                        hover
+                                                        sx={{
+                                                            '&:nth-of-type(even)': { bgcolor: theme.palette.mode === 'dark' ? theme.palette.action.hover : theme.palette.grey[50] }
+                                                        }}
+                                                    >
+                                                        <TableCell sx={{ fontWeight: 500, py: 1.25 }}>{site.site_name || site.siteName || `Site ${index + 1}`}</TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>{site.county || '—'}</TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>{site.constituency || '—'}</TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>{site.ward || '—'}</TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>
                                                             {(site.status_norm || site.status_raw) ? (
                                                                 <Chip
                                                                     label={site.status_norm || site.status_raw}
@@ -4310,13 +4139,13 @@ function ProjectDetailsPage() {
                                                                 />
                                                             ) : '—'}
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>
                                                             {site.percent_complete !== null && site.percent_complete !== undefined ? `${site.percent_complete}%` : '—'}
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>
                                                             {site.approved_cost_kes != null ? formatCurrency(site.approved_cost_kes) : '—'}
                                                         </TableCell>
-                                                        <TableCell align="right">
+                                                        <TableCell align="right" sx={{ py: 1.25 }}>
                                                             <Tooltip title="Edit site">
                                                                 <IconButton
                                                                     size="small"
@@ -4406,26 +4235,94 @@ function ProjectDetailsPage() {
                                 error={!!siteFormErrors.siteName}
                                 helperText={siteFormErrors.siteName}
                             />
-                            <TextField
-                                label="County"
+                            <Autocomplete
+                                options={siteCounties}
+                                value={siteFormData.county || null}
+                                onChange={(event, newValue) => {
+                                    const county = newValue || '';
+                                    setSiteFormData(prev => ({
+                                        ...prev,
+                                        county,
+                                        ...(county !== prev.county ? { constituency: '', ward: '' } : {}),
+                                    }));
+                                }}
+                                loading={loadingSiteCounties}
+                                freeSolo
                                 fullWidth
                                 size="small"
-                                value={siteFormData.county}
-                                onChange={(e) => setSiteFormData(prev => ({ ...prev, county: e.target.value }))}
+                                renderInput={(params) => (
+                                    <TextField {...params} label="County" placeholder="Search or select county" />
+                                )}
+                                filterOptions={(options, params) =>
+                                    options.filter((o) =>
+                                        String(o).toLowerCase().includes((params.inputValue || '').toLowerCase())
+                                    )
+                                }
                             />
-                            <TextField
-                                label="Constituency"
+                            <Autocomplete
+                                options={siteConstituencies}
+                                value={siteFormData.constituency || null}
+                                onChange={(event, newValue) => {
+                                    const constituency = newValue || '';
+                                    setSiteFormData(prev => ({
+                                        ...prev,
+                                        constituency,
+                                        ...(constituency !== prev.constituency ? { ward: '' } : {}),
+                                    }));
+                                }}
+                                loading={loadingSiteConstituencies}
+                                disabled={!siteFormData.county}
+                                freeSolo
                                 fullWidth
                                 size="small"
-                                value={siteFormData.constituency}
-                                onChange={(e) => setSiteFormData(prev => ({ ...prev, constituency: e.target.value }))}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Constituency"
+                                        placeholder={siteFormData.county ? 'Search or select constituency' : 'Select county first'}
+                                    />
+                                )}
+                                filterOptions={(options, params) =>
+                                    options.filter((o) =>
+                                        String(o).toLowerCase().includes((params.inputValue || '').toLowerCase())
+                                    )
+                                }
                             />
-                            <TextField
-                                label="Ward"
+                            <Autocomplete
+                                options={siteWards}
+                                getOptionLabel={(option) => !option ? '' : (typeof option === 'string' ? option : (option.name || ''))}
+                                value={siteWards.find((w) => {
+                                    const name = typeof w === 'string' ? w : (w && w.name);
+                                    return name === siteFormData.ward;
+                                }) || null}
+                                onChange={(event, newValue) => {
+                                    const ward = newValue ? (typeof newValue === 'string' ? newValue : (newValue.name || '')) : '';
+                                    setSiteFormData(prev => ({ ...prev, ward }));
+                                }}
+                                loading={loadingSiteWards}
+                                disabled={!siteFormData.constituency}
+                                freeSolo
                                 fullWidth
                                 size="small"
-                                value={siteFormData.ward}
-                                onChange={(e) => setSiteFormData(prev => ({ ...prev, ward: e.target.value }))}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Ward"
+                                        placeholder={siteFormData.constituency ? 'Search or select ward' : 'Select constituency first'}
+                                    />
+                                )}
+                                filterOptions={(options, params) => {
+                                    const q = (params.inputValue || '').toLowerCase();
+                                    return options.filter((option) => {
+                                        const name = typeof option === 'string' ? option : (option && option.name);
+                                        return String(name || '').toLowerCase().includes(q);
+                                    });
+                                }}
+                                isOptionEqualToValue={(option, value) => {
+                                    const a = typeof option === 'string' ? option : (option && option.name);
+                                    const b = typeof value === 'string' ? value : (value && value.name);
+                                    return a === b;
+                                }}
                             />
                             <FormControl fullWidth size="small">
                                 <InputLabel id="site-status-label">Status</InputLabel>
@@ -4902,7 +4799,7 @@ function ProjectDetailsPage() {
                         </Menu>
                     </Box>
                 )}
-            </Paper>
+            </Box>
 
             {/* Modals for Milestones and Monitoring */}
             <MilestoneAttachments
