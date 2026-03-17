@@ -426,7 +426,7 @@ function ProjectDetailsPage() {
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Updates,5:Feedback,6:Map)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Updates,5:Feedback)
             fetchJobCategories();
             fetchProjectJobs();
         }
@@ -502,19 +502,20 @@ function ProjectDetailsPage() {
             const projectData = await apiService.projects.getProjectById(projectId);
             setProject(projectData);
 
-            const subProgramId = projectData.subProgramId;
-            if (subProgramId) {
-                setLoadingWorkPlans(true);
-                try {
-                    const workPlansData = await apiService.strategy.annualWorkPlans.getWorkPlansBySubprogramId(subProgramId);
-                    setProjectWorkPlans(workPlansData);
-                } catch (err) {
-                    console.error("Error fetching work plans for subprogram:", err);
-                    setProjectWorkPlans([]);
-                } finally {
-                    setLoadingWorkPlans(false);
-                }
-            }
+            /* SCOPE_DOWN: programs/subprograms/annual_workplans tables removed. Re-enable when restoring for wider market. */
+            // const subProgramId = projectData.subProgramId;
+            // if (subProgramId) {
+            //     setLoadingWorkPlans(true);
+            //     try {
+            //         const workPlansData = await apiService.strategy.annualWorkPlans.getWorkPlansBySubprogramId(subProgramId);
+            //         setProjectWorkPlans(workPlansData);
+            //     } catch (err) {
+            //         console.error("Error fetching work plans for subprogram:", err);
+            //         setProjectWorkPlans([]);
+            //     } finally {
+            //         setLoadingWorkPlans(false);
+            //     }
+            // }
 
             if (projectData.categoryId) {
                 const categoryData = await apiService.metadata.projectCategories.getCategoryById(projectData.categoryId);
@@ -1784,25 +1785,20 @@ function ProjectDetailsPage() {
     };
 
 
-    const handleOpenPaymentRequest = () => {
-        setOpenPaymentModal(true);
-    };
-
-    const handlePaymentRequestSubmit = async (projectId, formData) => {
-        try {
-            const newRequest = await apiService.paymentRequests.createRequest(projectId, formData);
-
-            setSnackbar({ open: true, message: 'Payment request submitted successfully!', severity: 'success' });
-
-            setOpenPaymentModal(false);
-            setSelectedRequestId(newRequest.requestId);
-            setOpenDocumentUploader(true);
-
-            fetchProjectDetails();
-        } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'Failed to submit payment request.', severity: 'error' });
-        }
-    };
+    /* SCOPE_DOWN: payment_requests tables removed. Re-enable when restoring for wider market. */
+    // const handleOpenPaymentRequest = () => { setOpenPaymentModal(true); };
+    // const handlePaymentRequestSubmit = async (projectId, formData) => {
+    //     try {
+    //         const newRequest = await apiService.paymentRequests.createRequest(projectId, formData);
+    //         setSnackbar({ open: true, message: 'Payment request submitted successfully!', severity: 'success' });
+    //         setOpenPaymentModal(false);
+    //         setSelectedRequestId(newRequest.requestId);
+    //         setOpenDocumentUploader(true);
+    //         fetchProjectDetails();
+    //     } catch (err) {
+    //         setSnackbar({ open: true, message: err.message || 'Failed to submit payment request.', severity: 'error' });
+    //     }
+    // };
 
     const handleOpenCreateActivityDialog = (workplanId, workplanName) => {
         setOpenActivityDialog(true);
@@ -1925,7 +1921,8 @@ function ProjectDetailsPage() {
     const canApplyTemplate = !!projectCategory && checkUserPrivilege(user, 'project.apply_template');
     
     // UPDATED: New logic for canReviewSubmissions
-    const canReviewSubmissions = checkUserPrivilege(user, 'project_manager.review') || (user?.contractorId && isAccessAllowed);
+    /* SCOPE_DOWN: contractorId removed with contractor_users table. Re-enable second part when restoring. */
+    const canReviewSubmissions = checkUserPrivilege(user, 'project_manager.review');
 
     // Manage Loading and Error States for both Access Control and Data Fetching
     if (authLoading || accessLoading) {
@@ -2259,13 +2256,13 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
+                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Updates, 5=Feedback. SCOPE_DOWN: Map tab hidden. */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
                     <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
                     <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
-                    <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
                 </Tabs>
             </Box>
 
@@ -3845,16 +3842,7 @@ function ProjectDetailsPage() {
                 {/* M&E Tab Content - Removed */}
                 {/* Documents Tab Content - Removed */}
 
-                {activeTab === 6 && (
-                    <Box>
-                        {/* Map Tab */}
-                        <ProjectMapEditor 
-                            projectId={projectId} 
-                            projectName={project?.projectName || ''}
-                        />
-                    </Box>
-                )}
-
+                {/* SCOPE_DOWN: Map tab hidden. Re-enable when restoring. */}
                 {activeTab === 4 && (
                     <Box>
                         {/* Updates Tab */}
@@ -4834,22 +4822,26 @@ function ProjectDetailsPage() {
                 isEditing={!!currentActivity}
             />
 
-            <PaymentRequestForm
-                open={openPaymentModal}
-                onClose={() => setOpenPaymentModal(false)}
-                projectId={project?.projectId}
-                projectName={project?.projectName}
-                onSubmit={handlePaymentRequestSubmit}
-                accomplishedActivities={paymentJustification.accomplishedActivities}
-                totalJustifiedAmount={paymentJustification.totalBudget}
-            />
-
-            <PaymentRequestDocumentUploader
-                open={openDocumentUploader}
-                onClose={handleCloseDocumentUploader}
-                requestId={selectedRequestId}
-                projectId={projectId}
-            />
+            {/* SCOPE_DOWN: payment_requests tables removed. Re-enable when restoring for wider market. */}
+            {false && (
+                <>
+                    <PaymentRequestForm
+                        open={openPaymentModal}
+                        onClose={() => setOpenPaymentModal(false)}
+                        projectId={project?.projectId}
+                        projectName={project?.projectName}
+                        onSubmit={() => {}}
+                        accomplishedActivities={paymentJustification.accomplishedActivities}
+                        totalJustifiedAmount={paymentJustification.totalBudget}
+                    />
+                    <PaymentRequestDocumentUploader
+                        open={openDocumentUploader}
+                        onClose={handleCloseDocumentUploader}
+                        requestId={selectedRequestId}
+                        projectId={projectId}
+                    />
+                </>
+            )}
 
             {/* Project Sites Modal */}
             <ProjectSitesModal

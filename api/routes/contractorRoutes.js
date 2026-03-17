@@ -251,34 +251,6 @@ router.put('/:contractorId', async (req, res) => {
     }
 });
 
-// --- Link Contractor to a User ---
-/**
- * @route POST /api/contractors/:contractorId/link-user
- * @description Creates a new link between a contractor and a user in the `contractor_users` join table.
- * @access Private (admin only)
- */
-router.post('/:contractorId/link-user', async (req, res) => {
-    const { contractorId } = req.params;
-    const { userId } = req.body;
-
-    if (!userId) {
-        return res.status(400).json({ message: 'userId is required for linking.' });
-    }
-
-    try {
-        // Insert a new record into the join table
-        const [result] = await pool.query(
-            'INSERT INTO contractor_users (contractorId, userId) VALUES (?, ?)',
-            [contractorId, userId]
-        );
-
-        res.status(201).json({ message: 'Contractor linked to user successfully.', linkId: result.insertId });
-    } catch (error) {
-        console.error('Error linking contractor to user:', error);
-        res.status(500).json({ message: 'Error linking contractor to user', error: error.message });
-    }
-});
-
 // --- Soft Delete Contractor ---
 /**
  * @route PUT /api/contractors/:contractorId/void

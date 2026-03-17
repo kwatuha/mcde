@@ -2856,12 +2856,10 @@ router.get('/', async (req, res) => {
         `;
         
         // This part dynamically builds the query.
-        // County, Constituency, Ward are now retrieved from location JSONB in projects table
+        /* SCOPE_DOWN: programs/subprograms tables removed. JOINs omitted so /projects list works. Re-enable when restoring. */
         let fromAndJoinClauses = DB_TYPE === 'postgresql' ? `
             FROM
                 projects p
-            LEFT JOIN programs pr ON (p.notes->>'program_id')::integer = pr."programId" AND (pr.voided IS NULL OR pr.voided = false)
-            LEFT JOIN subprograms spr ON (p.notes->>'subprogram_id')::integer = spr."subProgramId" AND (spr.voided IS NULL OR spr.voided = false)
             LEFT JOIN categories cat ON p.category_id = cat."categoryId" AND (cat.voided IS NULL OR cat.voided = false)
             LEFT JOIN (
                 SELECT project_id, COUNT(*) AS site_count

@@ -19,6 +19,7 @@ const quoteColumn = (col) => DB_TYPE === 'postgresql' ? `"${col}"` : col;
  * @description Get all programs that are not soft-deleted.
  * @access Public (can be protected by middleware)
  */
+/* SCOPE_DOWN: programs table may be removed. Return [] on error so /projects page still loads. Re-enable normal response when restoring. */
 router.get('/', async (req, res) => {
     try {
         const query = DB_TYPE === 'postgresql'
@@ -29,8 +30,8 @@ router.get('/', async (req, res) => {
         const rows = DB_TYPE === 'postgresql' ? result.rows : result[0];
         res.status(200).json(rows);
     } catch (error) {
-        console.error('Error fetching programs:', error);
-        res.status(500).json({ message: 'Error fetching programs', error: error.message });
+        console.warn('Programs fetch failed (table may be removed for scope-down):', error.message);
+        res.status(200).json([]);
     }
 });
 
@@ -129,6 +130,7 @@ router.delete('/:programId', async (req, res) => {
  * @description Get all sub-programs belonging to a specific program.
  * @access Public (can be protected by middleware)
  */
+/* SCOPE_DOWN: subprograms table may be removed. Return [] on error. */
 router.get('/:programId/subprograms', async (req, res) => {
     const { programId } = req.params;
     try {
@@ -138,8 +140,8 @@ router.get('/:programId/subprograms', async (req, res) => {
         );
         res.status(200).json(rows);
     } catch (error) {
-        console.error(`Error fetching sub-programs for program ${programId}:`, error);
-        res.status(500).json({ message: `Error fetching sub-programs for program ${programId}`, error: error.message });
+        console.warn(`Subprograms fetch failed for program ${programId} (table may be removed for scope-down):`, error.message);
+        res.status(200).json([]);
     }
 });
 

@@ -54,11 +54,7 @@ const contractorService = {
     return response.data;
   },
   
-  // --- Other Contractor-related Calls ---
-  linkToUser: async (contractorId, userId) => {
-    const response = await axiosInstance.post(`/contractors/${contractorId}/link-user`, { userId });
-    return response.data;
-  },
+  // linkToUser removed: contractor_users table no longer exists
 };
 
 export default contractorService;

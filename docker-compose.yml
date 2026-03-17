@@ -60,15 +60,10 @@ services:
     volumes:
       - ./api:/app
       - /app/node_modules
+    env_file:
+      - ./api/.env
     environment:
-      # PostgreSQL connection (primary) - connects to localhost PostgreSQL
-      # Override via .env file for your local setup
-      DB_TYPE: postgresql
-      DB_HOST: ${DB_HOST:-127.0.0.1}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-government_projects}
-      DB_PORT: ${DB_PORT:-5432}
+      # DB_* come from api/.env above; only NODE_ENV set here so api/.env controls DB connection
       NODE_ENV: development
     command: npm run dev
 

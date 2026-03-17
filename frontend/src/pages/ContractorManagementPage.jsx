@@ -140,11 +140,7 @@ function ContractorManagementPage() {
                   dataToSubmit.userId = user.uid;
               }
 
-              const newContractor = await apiService.contractors.createContractor(dataToSubmit);
-              
-              if (dataToSubmit.userId) {
-                await apiService.contractors.linkToUser(newContractor.contractorId, dataToSubmit.userId);
-              }
+              await apiService.contractors.createContractor(dataToSubmit);
 
               setSnackbar({ open: true, message: 'Contractor created successfully!', severity: 'success' });
           }

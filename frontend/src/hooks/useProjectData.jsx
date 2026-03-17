@@ -80,37 +80,36 @@ const useProjectData = (user, authLoading, filterState) => {
     if (authLoading || !user) return;
 
     try {
+      /* SCOPE_DOWN: programs/subprograms tables removed. Use empty arrays so page still loads. Re-enable when restoring. */
       const [
         departments, financialYears, programs, counties, projectCategories
       ] = await Promise.all([
         apiService.metadata.departments.getAllDepartments(),
         apiService.metadata.financialYears.getAllFinancialYears(),
-        apiService.metadata.programs.getAllPrograms(),
+        apiService.metadata.programs.getAllPrograms().catch(() => []),
         apiService.metadata.counties.getAllCounties(),
         apiService.metadata.projectCategories.getAllCategories().catch(err => {
           console.error('Error fetching project categories:', err);
-          return []; // Return empty array on error instead of failing the whole Promise.all
+          return [];
         }),
       ]);
 
-      console.log('Fetched project categories:', projectCategories);
       const newMetadata = { departments, financialYears, programs, counties, projectCategories };
 
       if (filterState.departmentId) {
         newMetadata.sections = await apiService.metadata.departments.getSectionsByDepartment(filterState.departmentId);
       }
       if (filterState.programId) {
-        newMetadata.subPrograms = await apiService.metadata.programs.getSubProgramsByProgram(filterState.programId);
+        newMetadata.subPrograms = await apiService.metadata.programs.getSubProgramsByProgram(filterState.programId).catch(() => []);
       }
-      // NOTE: We no longer rely on relational subcounties/wards metadata in this app.
-      // Location is handled via project_sites (county/constituency/ward as text),
-      // so we intentionally skip loading subcounties and wards metadata here.
       
       setAllMetadata(newMetadata);
 
     } catch (err) {
       console.error("Error fetching metadata:", err);
       setSnackbar({ open: true, message: 'Failed to load some dropdown options.', severity: 'error' });
+      /* SCOPE_DOWN: set safe fallback so /projects page still renders when metadata fails (e.g. missing tables). */
+      setAllMetadata(prev => ({ ...prev, departments: prev.departments || [], financialYears: prev.financialYears || [], programs: prev.programs || [], counties: prev.counties || [], projectCategories: prev.projectCategories || [], sections: [], subPrograms: [] }));
     }
   }, [authLoading, user, filterState]);
 

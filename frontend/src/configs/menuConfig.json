@@ -156,21 +156,24 @@
           "icon": "FeedbackIcon",
           "route": "FEEDBACK_MANAGEMENT",
           "permission": "feedback.respond",
-          "roles": ["admin"]
+          "roles": ["admin"],
+          "hidden": true
         },
         {
           "title": "County Projects",
           "icon": "AssignmentIcon",
           "route": "COUNTY_PROPOSED_PROJECTS",
           "permission": "county_proposed_projects.read",
-          "roles": ["admin"]
+          "roles": ["admin"],
+          "hidden": true
         },
         {
           "title": "Announcements",
           "icon": "AnnouncementIcon",
           "route": "PROJECT_ANNOUNCEMENTS",
           "permission": "project_announcements.read",
-          "roles": ["admin"]
+          "roles": ["admin"],
+          "hidden": true
         }
       ]
     },
@@ -183,7 +186,8 @@
         {
           "title": "Admin",
           "icon": "AdminPanelSettingsIcon",
-          "route": "ADMIN"
+          "route": "ADMIN",
+          "hidden": true
         },
         {
           "title": "User management",
@@ -195,14 +199,16 @@
           "icon": "AccountTreeIcon",
           "route": "WORKFLOW_MANAGEMENT",
           "permission": "project_workflow.read",
-          "roles": ["admin"]
+          "roles": ["admin"],
+          "hidden": true
         },
         {
           "title": "Approval levels",
           "icon": "ApprovalIcon",
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
-          "roles": ["admin"]
+          "roles": ["admin"],
+          "hidden": true
         },
         {
           "title": "Metadata mgmt",
@@ -213,8 +219,7 @@
         {
           "title": "Contractor mgmt",
           "icon": "BusinessIcon",
-          "route": "CONTRACTOR_MANAGEMENT",
-          "hidden": true
+          "route": "CONTRACTOR_MANAGEMENT"
         },
         {
           "title": "Budget Management",

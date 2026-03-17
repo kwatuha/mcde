@@ -18,8 +18,9 @@ const taskRoutes = require('./routes/taskRoutes');
 const milestoneRoutes = require('./routes/milestoneRoutes');
 const taskAssigneesRoutes = require('./routes/taskAssigneesRoutes');
 const taskDependenciesRoutes = require('./routes/taskDependenciesRoutes');
+/* SCOPE_DOWN: contractors/contractor_users tables removed. Re-enable when restoring for wider market. */
 const contractorRoutes = require('./routes/contractorRoutes');
-const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
+// const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
 const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
 const hrRoutes = require('./routes/humanResourceRoutes');
 const projectDocumentsRoutes = require('./routes/projectDocumentsRoutes');
@@ -108,8 +109,9 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/milestones', milestoneRoutes);
 app.use('/api/task_assignees', taskAssigneesRoutes);
 app.use('/api/task_dependencies', taskDependenciesRoutes);
-app.use('/api/contractors', contractorRoutes);
-app.use('/api/contractor-photos', contractorPhotoRoutes);
+/* SCOPE_DOWN: contractors table removed. Re-enable when restoring for wider market. */
+// app.use('/api/contractors', contractorRoutes);
+// app.use('/api/contractor-photos', contractorPhotoRoutes);
 app.use('/api/hr', hrRoutes);
 app.use('/api/projects/documents', projectDocumentsRoutes);
 app.use('/api/workflows', workflowRoutes);

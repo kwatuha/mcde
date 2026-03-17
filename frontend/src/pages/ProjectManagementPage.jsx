@@ -226,7 +226,7 @@ function ProjectManagementPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState(null);
   
-  // State for Assign Contractor modal
+  /* SCOPE_DOWN: contractors/contractor_users tables removed. Re-enable when restoring for wider market. */
   const [openAssignModal, setOpenAssignModal] = useState(false);
   const [selectedProjectForAssignment, setSelectedProjectForAssignment] = useState(null);
   
@@ -694,16 +694,15 @@ function ProjectManagementPage() {
     setCurrentProject(null);
   };
 
-  // Handlers for Assign Contractor modal
+  /* SCOPE_DOWN: Assign Contractor - contractors table removed. Re-enable when restoring. */
   const handleOpenAssignModal = (project) => {
       setSelectedProjectForAssignment(project);
       setOpenAssignModal(true);
   };
-  
   const handleCloseAssignModal = () => {
       setOpenAssignModal(false);
       setSelectedProjectForAssignment(null);
-      fetchProjects(); // Refresh projects list after a change
+      fetchProjects();
   };
 
   const handleFormSuccess = () => {
@@ -2667,7 +2666,7 @@ function ProjectManagementPage() {
         user={user}
       />
       
-      {/* AssignContractorModal - Hidden */}
+      {/* SCOPE_DOWN: contractors/contractor_users tables removed. Re-enable when restoring for wider market. */}
       {false && (
         <AssignContractorModal
           open={openAssignModal}

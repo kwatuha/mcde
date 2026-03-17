@@ -255,15 +255,12 @@ router.post('/login', async (req, res) => {
         
         if (DB_TYPE === 'postgresql') {
             // PostgreSQL schema: roles has 'name' column, roleid as PK
-            // Check for user first (including inactive ones) to provide better error message
             query = `
                 SELECT 
                     u.*, 
-                    r.name AS role,
-                    cu."contractorId" AS "contractorId"
+                    r.name AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleid = r.roleid
-                LEFT JOIN contractor_users cu ON u.userid = cu."userId"
                 WHERE (u.username = $1 OR u.email = $1) AND u.voided = false
             `;
             const result = await pool.query(query, [username]);
@@ -273,11 +270,9 @@ router.post('/login', async (req, res) => {
             query = `
                 SELECT 
                     u.*, 
-                    r.roleName AS role,
-                    cu.contractorId
+                    r.roleName AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
-                LEFT JOIN contractor_users cu ON u.userId = cu.userId
                 WHERE (u.username = ? OR u.email = ?) AND u.voided = 0
             `;
             const result = await pool.execute(query, [username, username]);
@@ -319,15 +314,8 @@ router.post('/login', async (req, res) => {
         // Handle both PostgreSQL (roleid, userid) and MySQL (roleId, userId) column names
         const roleId = user.roleId || user.roleid;
         const userId = user.userId || user.userid;
-        const contractorId = user.contractorId || user.contractorid;
-        
+
         const userPrivileges = await getPrivilegesByRole(roleId);
-        
-        // Debug: log privileges
-        console.log(`User ${user.username} (roleId: ${roleId}) has ${userPrivileges.length} privileges`);
-        if (userPrivileges.length > 0) {
-            console.log(`Sample privileges: ${userPrivileges.slice(0, 5).join(', ')}`);
-        }
 
         const payload = {
             user: {
@@ -337,8 +325,7 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 roleId: roleId,
                 roleName: user.role,
-                privileges: userPrivileges,
-                ...(contractorId && { contractorId: contractorId })
+                privileges: userPrivileges
             }
         };
 

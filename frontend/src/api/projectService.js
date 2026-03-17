@@ -323,11 +323,6 @@ const projectService = {
         const response = await axiosInstance.get(`/contractors/${contractorId}/projects`);
         return response.data;
     },
-    // NEW: Function to link a contractor to a user account
-    linkToUser: async (contractorId, userId) => {
-        const response = await axiosInstance.post(`/contractors/${contractorId}/link-user`, { userId });
-        return response.data;
-    },
   },
 
   // --- Task Assignees API Calls (kemri_task_assignees) ---
