@@ -400,8 +400,8 @@ function ProjectDetailsPage() {
     const [projectPhotos, setProjectPhotos] = useState([]);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
 
-    // Updates tab form state (progress summary, percentage)
-    const [updatesForm, setUpdatesForm] = useState({ progressSummary: '', overallProgress: '' });
+    // Updates tab form state (progress summary, percentage, and optional status update)
+    const [updatesForm, setUpdatesForm] = useState({ progressSummary: '', overallProgress: '', status: '', statusReason: '' });
     const [savingUpdates, setSavingUpdates] = useState(false);
     // Feedback tab form state
     const [feedbackForm, setFeedbackForm] = useState({ feedbackEnabled: true, complaintsReceived: '', commonFeedback: '' });
@@ -413,7 +413,9 @@ function ProjectDetailsPage() {
         if (activeTab === 4) {
             setUpdatesForm({
                 progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
-                overallProgress: project?.overallProgress != null ? String(project.overallProgress) : ''
+                overallProgress: project?.overallProgress != null ? String(project.overallProgress) : '',
+                status: project?.status || '',
+                statusReason: project?.statusReason || ''
             });
         } else {
             setFeedbackForm({
@@ -964,7 +966,10 @@ function ProjectDetailsPage() {
         try {
             const payload = {
                 progressSummary: updatesForm.progressSummary.trim() || null,
-                overallProgress: updatesForm.overallProgress === '' ? undefined : parseFloat(updatesForm.overallProgress)
+                overallProgress: updatesForm.overallProgress === '' ? undefined : parseFloat(updatesForm.overallProgress),
+                // Optional: allow status updates alongside progress
+                status: updatesForm.status === '' ? undefined : updatesForm.status,
+                statusReason: updatesForm.statusReason.trim() === '' ? undefined : updatesForm.statusReason.trim(),
             };
             await apiService.projects.updateProject(projectId, payload);
             await fetchProjectDetails();
@@ -2221,37 +2226,68 @@ function ProjectDetailsPage() {
                 </Paper>
             )}
 
-            {/* Tabbed Interface – integrated with page, clear tab bar */}
-            <Box sx={{ borderBottom: `1px solid ${theme.palette.divider}`, mb: 0 }}>
+            {/* Tabbed Interface – integrated with page, clearer & more visible tab bar */}
+            <Box
+                sx={{
+                    position: 'sticky',
+                    top: 64, // below AppBar
+                    zIndex: 5,
+                    mb: 0,
+                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : theme.palette.background.paper,
+                    borderBottom: `1px solid ${theme.palette.divider}`,
+                }}
+            >
                 <Tabs
                     value={activeTab}
                     onChange={(e, newValue) => setActiveTab(newValue)}
                     variant="scrollable"
                     scrollButtons="auto"
                     sx={{
-                        minHeight: 44,
-                        '& .MuiTabs-flexContainer': { gap: 0 },
+                        minHeight: 46,
+                        px: 0.5,
+                        py: 0.5,
+                        '& .MuiTabs-flexContainer': { gap: 0.75, alignItems: 'center', px: 0.5 },
+                        '& .MuiTabs-scrollButtons': {
+                            '&.Mui-disabled': { opacity: 0.25 },
+                        },
                         '& .MuiTabs-indicator': {
-                            backgroundColor: theme.palette.primary.main,
-                            height: 3,
-                            borderRadius: '3px 3px 0 0',
+                            height: 0, // we use pill highlight instead of indicator
                         },
                         '& .MuiTab-root': {
                             textTransform: 'none',
-                            fontSize: '0.8125rem',
-                            fontWeight: 500,
-                            minHeight: 44,
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            minHeight: 36,
+                            height: 36,
                             py: 0,
-                            px: 2,
+                            px: 1.5,
+                            borderRadius: 999,
                             color: theme.palette.text.secondary,
-                            transition: 'color 0.2s, background-color 0.2s',
-                            '& .MuiTab-iconWrapper': { fontSize: '1.1rem', mr: 0.75 },
+                            backgroundColor: 'transparent',
+                            border: `1px solid transparent`,
+                            transition: 'all 0.2s ease',
+                            '& .MuiTab-iconWrapper': { fontSize: '1.05rem', mr: 0.75, opacity: 0.9 },
                             '&:hover': {
-                                color: theme.palette.primary.main,
+                                color: theme.palette.text.primary,
+                                backgroundColor: theme.palette.mode === 'dark'
+                                    ? 'rgba(255,255,255,0.06)'
+                                    : 'rgba(2, 132, 199, 0.08)',
+                                borderColor: theme.palette.mode === 'dark'
+                                    ? 'rgba(255,255,255,0.10)'
+                                    : 'rgba(2, 132, 199, 0.18)',
                             },
                             '&.Mui-selected': {
-                                color: theme.palette.primary.main,
-                                fontWeight: 600,
+                                color: theme.palette.mode === 'dark' ? colors.grey[100] : theme.palette.primary.main,
+                                backgroundColor: theme.palette.mode === 'dark'
+                                    ? 'rgba(2, 132, 199, 0.25)'
+                                    : 'rgba(2, 132, 199, 0.12)',
+                                borderColor: theme.palette.mode === 'dark'
+                                    ? 'rgba(56, 189, 248, 0.35)'
+                                    : 'rgba(2, 132, 199, 0.25)',
+                                boxShadow: theme.palette.mode === 'dark'
+                                    ? '0 6px 16px rgba(0,0,0,0.25)'
+                                    : '0 4px 12px rgba(2, 132, 199, 0.18)',
+                                '& .MuiTab-iconWrapper': { opacity: 1 },
                             },
                         },
                     }}
@@ -2437,6 +2473,20 @@ function ProjectDetailsPage() {
                             <Stack spacing={0.75}>
                                 <Box>
                                     <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
+                                        Description:
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ 
+                                        color: 'text.primary',
+                                        pl: 1,
+                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                        py: 0.25,
+                                        fontSize: '0.875rem'
+                                    }}>
+                                        {project?.projectDescription || 'N/A'}
+                                    </Typography>
+                                </Box>
+                                <Box>
+                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
                                         Objective:
                                     </Typography>
                                     <Typography variant="body2" sx={{ 
@@ -2464,6 +2514,59 @@ function ProjectDetailsPage() {
                                     </Typography>
                                 </Box>
                             </Stack>
+                        </Box>
+                    </Grid>
+
+                    {/* Full-width row for Coordinates */}
+                    <Grid item xs={12}>
+                        <Box sx={{
+                            p: 1.25,
+                            borderRadius: 2,
+                            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : theme.palette.grey[50],
+                            border: `1px solid ${theme.palette.divider}`,
+                            mt: 0.5,
+                        }}>
+                            <Typography variant="subtitle2" sx={{ 
+                                fontWeight: 600, 
+                                mb: 0.75,
+                                color: theme.palette.text.secondary,
+                                textAlign: 'center',
+                                borderBottom: `1px solid ${theme.palette.divider}`,
+                                pb: 0.5,
+                                fontSize: '0.8rem'
+                            }}>
+                                Coordinates
+                            </Typography>
+                            <Grid container spacing={1.5}>
+                                <Grid item xs={12} sm={6}>
+                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
+                                        Latitude:
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ 
+                                        color: 'text.primary',
+                                        pl: 1,
+                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                        py: 0.25,
+                                        fontSize: '0.875rem'
+                                    }}>
+                                        {project?.latitude != null && String(project.latitude).trim() !== '' ? project.latitude : 'N/A'}
+                                    </Typography>
+                                </Grid>
+                                <Grid item xs={12} sm={6}>
+                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
+                                        Longitude:
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ 
+                                        color: 'text.primary',
+                                        pl: 1,
+                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                        py: 0.25,
+                                        fontSize: '0.875rem'
+                                    }}>
+                                        {project?.longitude != null && String(project.longitude).trim() !== '' ? project.longitude : 'N/A'}
+                                    </Typography>
+                                </Grid>
+                            </Grid>
                         </Box>
                     </Grid>
                 </Grid>
@@ -3851,9 +3954,68 @@ function ProjectDetailsPage() {
                                 Project updates
                             </Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Record progress and latest update summary for this project.
+                                Record progress and the latest update summary for this project. You can also update the status here if it changes.
                             </Typography>
                             <Stack spacing={2} sx={{ maxWidth: 640 }}>
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Status</InputLabel>
+                                    <Select
+                                        label="Status"
+                                        value={updatesForm.status}
+                                        onChange={(e) => setUpdatesForm((prev) => ({ ...prev, status: e.target.value }))}
+                                        renderValue={(value) => (
+                                            <Chip
+                                                label={value || 'Select status'}
+                                                size="small"
+                                                sx={{
+                                                    backgroundColor: getProjectStatusBackgroundColor(value),
+                                                    color: getProjectStatusTextColor(value),
+                                                    fontWeight: 700,
+                                                    height: 22,
+                                                    '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                                }}
+                                            />
+                                        )}
+                                        MenuProps={{
+                                            PaperProps: {
+                                                sx: {
+                                                    '& .MuiMenuItem-root': { py: 0.75 },
+                                                }
+                                            }
+                                        }}
+                                    >
+                                        {[
+                                            'Not Started',
+                                            'Ongoing',
+                                            'Completed',
+                                            'Stalled',
+                                            'Under Procurement',
+                                            'Suspended',
+                                            'Other'
+                                        ].map((s) => (
+                                            <MenuItem key={s} value={s}>
+                                                <Chip
+                                                    label={s}
+                                                    size="small"
+                                                    sx={{
+                                                        backgroundColor: getProjectStatusBackgroundColor(s),
+                                                        color: getProjectStatusTextColor(s),
+                                                        fontWeight: 700,
+                                                        height: 22,
+                                                        '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                                    }}
+                                                />
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <TextField
+                                    label="Status reason (optional)"
+                                    value={updatesForm.statusReason}
+                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, statusReason: e.target.value }))}
+                                    fullWidth
+                                    placeholder="Why did the status change? (e.g., procurement delays, funding constraints)"
+                                />
                                 <TextField
                                     label="Latest update summary"
                                     value={updatesForm.progressSummary}
@@ -4118,12 +4280,14 @@ function ProjectDetailsPage() {
                                                                 <Chip
                                                                     label={site.status_norm || site.status_raw}
                                                                     size="small"
-                                                                    color={
-                                                                        (site.status_norm || site.status_raw || '').toLowerCase() === 'completed' ? 'success'
-                                                                        : (site.status_norm || site.status_raw || '').toLowerCase().includes('progress') || (site.status_norm || site.status_raw || '').toLowerCase() === 'ongoing' ? 'primary'
-                                                                        : 'default'
-                                                                    }
-                                                                    sx={{ fontSize: '0.7rem', height: 22 }}
+                                                                    sx={{
+                                                                        fontSize: '0.7rem',
+                                                                        height: 22,
+                                                                        backgroundColor: getProjectStatusBackgroundColor(site.status_norm || site.status_raw),
+                                                                        color: getProjectStatusTextColor(site.status_norm || site.status_raw),
+                                                                        fontWeight: 700,
+                                                                        '& .MuiChip-label': { px: 0.75 },
+                                                                    }}
                                                                 />
                                                             ) : '—'}
                                                         </TableCell>
@@ -4319,13 +4483,86 @@ function ProjectDetailsPage() {
                                     label="Status"
                                     value={siteFormData.status}
                                     onChange={(e) => setSiteFormData(prev => ({ ...prev, status: e.target.value }))}
+                                    renderValue={(value) => (
+                                        <Chip
+                                            label={value || 'Select status'}
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor(value),
+                                                color: getProjectStatusTextColor(value),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    )}
                                 >
-                                    <MenuItem value="Not Started">Not Started</MenuItem>
-                                    <MenuItem value="In Progress">In Progress</MenuItem>
-                                    <MenuItem value="Ongoing">Ongoing</MenuItem>
-                                    <MenuItem value="Completed">Completed</MenuItem>
-                                    <MenuItem value="Stalled">Stalled</MenuItem>
-                                    <MenuItem value="Suspended">Suspended</MenuItem>
+                                    <MenuItem value="Not Started">
+                                        <Chip
+                                            label="Not Started"
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor('Not Started'),
+                                                color: getProjectStatusTextColor('Not Started'),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    </MenuItem>
+                                    {/* Ongoing and In Progress mean the same thing; keep one canonical value */}
+                                    <MenuItem value="Ongoing">
+                                        <Chip
+                                            label="Ongoing"
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor('Ongoing'),
+                                                color: getProjectStatusTextColor('Ongoing'),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    </MenuItem>
+                                    <MenuItem value="Completed">
+                                        <Chip
+                                            label="Completed"
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor('Completed'),
+                                                color: getProjectStatusTextColor('Completed'),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    </MenuItem>
+                                    <MenuItem value="Stalled">
+                                        <Chip
+                                            label="Stalled"
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor('Stalled'),
+                                                color: getProjectStatusTextColor('Stalled'),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    </MenuItem>
+                                    <MenuItem value="Suspended">
+                                        <Chip
+                                            label="Suspended"
+                                            size="small"
+                                            sx={{
+                                                backgroundColor: getProjectStatusBackgroundColor('Suspended'),
+                                                color: getProjectStatusTextColor('Suspended'),
+                                                fontWeight: 700,
+                                                height: 22,
+                                                '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
+                                            }}
+                                        />
+                                    </MenuItem>
                                 </Select>
                             </FormControl>
                             <TextField

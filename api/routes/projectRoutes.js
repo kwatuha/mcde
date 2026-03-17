@@ -205,12 +205,21 @@ const validateProject = (req, res, next) => {
     const { projectName, name } = req.body;
     // Accept either projectName (frontend) or name (API)
     const projectNameValue = projectName || name;
-    if (!projectNameValue || !projectNameValue.trim()) {
-        return res.status(400).json({ message: 'Missing required field: projectName or name' });
-    }
-    // Normalize to projectName for consistency
-    if (name && !projectName) {
-        req.body.projectName = name;
+    // Only enforce required project name on CREATE.
+    // Updates may legitimately patch only a subset of fields (e.g. progressSummary / overallProgress).
+    if (req.method === 'POST') {
+        if (!projectNameValue || !projectNameValue.trim()) {
+            return res.status(400).json({ message: 'Missing required field: projectName or name' });
+        }
+        // Normalize to projectName for consistency
+        if (name && !projectName) {
+            req.body.projectName = name;
+        }
+    } else if (req.method === 'PUT') {
+        // Normalize if provided, but don't require
+        if (name && !projectName) {
+            req.body.projectName = name;
+        }
     }
     next();
 };

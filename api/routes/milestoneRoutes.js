@@ -64,8 +64,28 @@ router.get('/project/:projectId', async (req, res) => {
         
         res.status(200).json(milestones);
     } catch (error) {
+        // SCOPE_DOWN / cleanup safety: some deployments may not have milestones tables yet.
+        // In that case, return an empty list so the UI can still load project details.
+        const pgMissingTable = error?.code === '42P01'; // undefined_table
+        const mysqlMissingTable = error?.code === 'ER_NO_SUCH_TABLE';
+        const msg = String(error?.message || '');
+        const looksLikeMissing =
+            pgMissingTable ||
+            mysqlMissingTable ||
+            msg.toLowerCase().includes('does not exist') ||
+            msg.toLowerCase().includes('no such table') ||
+            msg.toLowerCase().includes('project_milestones');
+
+        if (looksLikeMissing) {
+            console.warn(`Milestones table missing; returning [] for project ${projectId}`, {
+                code: error?.code,
+                message: error?.message,
+            });
+            return res.status(200).json([]);
+        }
+
         console.error(`Error fetching milestones for project ${projectId}:`, error);
-        res.status(500).json({ message: `Error fetching milestones for project ${projectId}`, error: error.message });
+        return res.status(500).json({ message: `Error fetching milestones for project ${projectId}`, error: error.message });
     }
 });
 

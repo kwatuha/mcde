@@ -1123,8 +1123,25 @@ router.get('/staff', async (req, res) => {
         
         res.status(200).json(staff);
     } catch (error) {
+        // SCOPE_DOWN / cleanup safety: some deployments may not have the staff table.
+        // Return [] so other screens (e.g., projects) can still load.
+        const pgMissingTable = error?.code === '42P01'; // undefined_table
+        const mysqlMissingTable = error?.code === 'ER_NO_SUCH_TABLE';
+        const msg = String(error?.message || '');
+        const looksLikeMissing =
+            pgMissingTable ||
+            mysqlMissingTable ||
+            msg.toLowerCase().includes('does not exist') ||
+            msg.toLowerCase().includes('no such table') ||
+            msg.toLowerCase().includes('staff');
+
+        if (looksLikeMissing) {
+            console.warn('Staff table missing; returning []', { code: error?.code, message: error?.message });
+            return res.status(200).json([]);
+        }
+
         console.error('Error fetching staff:', error);
-        res.status(500).json({ message: 'Error fetching staff', error: error.message });
+        return res.status(500).json({ message: 'Error fetching staff', error: error.message });
     }
 });
 
