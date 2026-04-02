@@ -3,6 +3,12 @@
  * Centralized privilege checking functions for the application
  */
 
+const ADMIN_ROLE_IDS = new Set([1]);
+const ADMIN_ROLE_NAMES = new Set(['admin', 'mda_ict_admin', 'super_admin', 'administrator', 'ict_admin']);
+
+export const normalizeRoleName = (roleName) =>
+  String(roleName || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
 /**
  * Helper function to check if the user has a specific privilege.
  * @param {object | null} user - The user object from AuthContext.
@@ -19,7 +25,15 @@ export const checkUserPrivilege = (user, privilegeName) => {
  * @returns {boolean} True if the user is an admin, false otherwise.
  */
 export const isAdmin = (user) => {
-  return user?.roleName === 'admin' || checkUserPrivilege(user, 'admin.access');
+  if (!user) return false;
+  const roleId = Number(user.roleId ?? user.role_id);
+  const normalizedRole = normalizeRoleName(user.roleName || user.role);
+  return (
+    (Number.isFinite(roleId) && ADMIN_ROLE_IDS.has(roleId)) ||
+    ADMIN_ROLE_NAMES.has(normalizedRole) ||
+    checkUserPrivilege(user, 'admin.access') ||
+    checkUserPrivilege(user, 'organization.scope_bypass')
+  );
 };
 
 /**
@@ -28,7 +42,7 @@ export const isAdmin = (user) => {
  * @returns {boolean} True if the user is a contractor, false otherwise.
  */
 export const isContractor = (user) => {
-  return user?.roleName === 'contractor' || user?.contractorId;
+  return normalizeRoleName(user?.roleName || user?.role) === 'contractor' || user?.contractorId;
 };
 
 /**

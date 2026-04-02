@@ -30,6 +30,7 @@ import {
   SupervisorAccount as SupervisorIcon,
 } from '@mui/icons-material';
 import { tokens } from '../../pages/dashboard/theme';
+import { isAdmin, normalizeRoleName } from '../../utils/privilegeUtils.js';
 
 const RoleBasedDashboard = ({ user, dashboardData }) => {
   const theme = useTheme();
@@ -353,8 +354,14 @@ const RoleBasedDashboard = ({ user, dashboardData }) => {
 
   // Render role-specific dashboard
   const renderRoleDashboard = () => {
-    switch (user?.roleName?.toLowerCase()) {
-      case 'admin':
+    const roleName = normalizeRoleName(user?.roleName || user?.role);
+    if (isAdmin(user)) {
+      return <AdminDashboard />;
+    }
+    switch (roleName) {
+      case 'mda_ict_admin':
+      case 'super_admin':
+      case 'administrator':
         return <AdminDashboard />;
       case 'contractor':
         return <ContractorDashboard />;
@@ -366,7 +373,7 @@ const RoleBasedDashboard = ({ user, dashboardData }) => {
   return (
     <Box>
       <Typography variant="h5" fontWeight="bold" color={colors.grey[100]} mb={3}>
-        {user?.roleName === 'admin' ? 'System Management' : 
+        {isAdmin(user) ? 'System Management' : 
          user?.roleName === 'contractor' ? 'Personal Dashboard' : 
          'Personal Dashboard'}
       </Typography>

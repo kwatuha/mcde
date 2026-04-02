@@ -259,8 +259,8 @@ export default function ProjectAnalyticsPage() {
             if (budgetAbsorptionRate > 90 && avgProgress < 50) {
                 risks.push({
                     type: 'high',
-                    title: 'High Budget Absorption with Low Progress',
-                    message: `${budgetAbsorptionRate.toFixed(1)}% budget absorbed but only ${avgProgress.toFixed(1)}% progress. Risk of budget overrun.`,
+                    title: 'High Budget Disbursement with Low Progress',
+                    message: `${budgetAbsorptionRate.toFixed(1)}% budget disbursed but only ${avgProgress.toFixed(1)}% progress. Risk of budget overrun.`,
                     iconType: 'warning',
                     color: 'error'
                 });
@@ -515,7 +515,7 @@ export default function ProjectAnalyticsPage() {
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
                                         <AccountBalance sx={{ color: 'primary.main', fontSize: '1rem' }} />
                                         <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.85rem' }}>
-                                            Budget Absorption
+                                            Budget Disbursement
                                         </Typography>
                                     </Box>
                                     <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.25 }}>
@@ -527,7 +527,7 @@ export default function ProjectAnalyticsPage() {
                                     {keyInsights.budgetAbsorptionRate > 90 && (
                                         <Chip 
                                             icon={<Warning />} 
-                                            label="High Absorption" 
+                                            label="High Disbursement" 
                                             size="small" 
                                             color="error" 
                                             sx={{ mt: 1 }}
@@ -1240,12 +1240,12 @@ export default function ProjectAnalyticsPage() {
                                             <CardHeader
                                                 title={
                                                     <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
-                                                        Absorption Rate Trend
+                                                        Disbursement Rate Trend
                                                     </Typography>
                                                 }
                                                 subheader={
                                                     <Typography variant="body2" color="text.secondary">
-                                                        Budget absorption percentage
+                                                        Budget disbursement percentage
                                                     </Typography>
                                                 }
                                                 sx={{ pb: 1 }}
@@ -1272,7 +1272,7 @@ export default function ProjectAnalyticsPage() {
                                                             <XAxis dataKey="name" />
                                                             <YAxis tickFormatter={(value) => `${value}%`} />
                                                             <Tooltip formatter={(value) => `${value.toFixed(2)}%`} />
-                                                            <Bar dataKey="absorptionRate" fill="#10b981" radius={[4, 4, 0, 0]} name="Absorption Rate %" />
+                                                            <Bar dataKey="absorptionRate" fill="#10b981" radius={[4, 4, 0, 0]} name="Disbursement Rate %" />
                                                         </BarChart>
                                                     </ResponsiveContainer>
                                                 )}
@@ -2180,7 +2180,7 @@ export default function ProjectAnalyticsPage() {
                                                 }
                                                 subheader={
                                                     <Typography variant="body2" color="text.secondary">
-                                                        Budget absorption by department
+                                                        Budget disbursement by department
                                                     </Typography>
                                                 }
                                                 sx={{ pb: 1 }}

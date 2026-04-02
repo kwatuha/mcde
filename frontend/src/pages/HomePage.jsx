@@ -68,6 +68,7 @@ import apiService from '../api';
 import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
+import { isAdmin } from '../utils/privilegeUtils.js';
 
 const HomePage = () => {
   const theme = useTheme();
@@ -84,14 +85,12 @@ const HomePage = () => {
   // Memoize permission checks to prevent unnecessary re-renders
   const canApproveUsers = React.useMemo(() => {
     if (!user) return false;
-    const roleName = user?.roleName?.toLowerCase() || '';
-    return roleName === 'admin' || hasPrivilege('user.update') || hasPrivilege('user.approve');
+    return isAdmin(user) || hasPrivilege('user.update') || hasPrivilege('user.approve');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
 
   const canManageProjects = React.useMemo(() => {
     if (!user) return false;
-    const roleName = user?.roleName?.toLowerCase() || '';
-    return roleName === 'admin' || hasPrivilege('project.read') || hasPrivilege('project.update');
+    return isAdmin(user) || hasPrivilege('project.read') || hasPrivilege('project.update');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
 
   const [projectStats, setProjectStats] = useState({

@@ -9,6 +9,12 @@ SERVER_USER="fortress"
 SERVER_IP="102.210.149.119"
 SERVER_PATH="/home/fortress/gprs"
 SSH_KEY="$HOME/.ssh/id_gprs_server"
+APP_DOMAIN="login.gpris.go.ke"
+
+# To copy PostgreSQL data from this server to your laptop for analysis (e.g. organization scopes),
+# deployment does not run pg_dump. Use the same SSH_* values as above:
+#   ./scripts/pull-remote-postgres-for-local.sh
+#   ./scripts/pull-remote-postgres-for-local.sh --org-only   # smaller: users, user_organization_scope, agencies, roles
 
 # Colors for output
 RED='\033[0;31m'
@@ -208,6 +214,8 @@ deploy_on_server() {
         # Stop existing containers (if any)
         print_status() { echo "[INFO] \$1"; }
         print_success() { echo "[SUCCESS] \$1"; }
+        print_warning() { echo "[WARNING] \$1"; }
+        print_error() { echo "[ERROR] \$1"; }
         
         print_status "Stopping existing containers..."
         # Prefer docker compose plugin, fall back to docker-compose
@@ -240,7 +248,10 @@ deploy_on_server() {
         
         # Build and start containers
         print_status "Building and starting containers..."
-        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE build --no-cache
+        # Use Docker layer cache for faster, less resource-intensive deploys.
+        # If you need a clean rebuild, run manually on server:
+        #   docker compose -f docker-compose.prod.yml build --no-cache
+        \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE build
         
         print_status "Starting services..."
         \$DOCKER_COMPOSE_CMD -f \$COMPOSE_FILE up -d
@@ -374,18 +385,22 @@ show_deployment_info() {
     print_status "  - IP: $SERVER_IP"
     print_status "  - User: $SERVER_USER"
     print_status "  - Path: $SERVER_PATH"
+    print_status "  - Domain: $APP_DOMAIN"
     echo
         print_status "Access your application at:"
-        print_status "  - Admin Frontend (Port 80): http://$SERVER_IP/impes/"
-        print_status "  - Admin Frontend (Port 8081): http://$SERVER_IP:8081/impes/"
+        print_status "  - Admin Frontend (HTTPS): https://$APP_DOMAIN/"
+        print_status "  - Admin Frontend (Port 80): http://$SERVER_IP/"
+        print_status "  - Admin Frontend (Port 8081): http://$SERVER_IP:8081/"
         print_status "  - API (Port 80): http://$SERVER_IP/api/"
         print_status "  - API (Port 8081): http://$SERVER_IP:8081/api/"
         print_status ""
         print_status "Note: Database connection uses localhost PostgreSQL (not Docker container)"
         print_status "      Ensure .env file has correct DB_HOST=127.0.0.1 configuration"
         print_status "      System nginx on port 80 proxies to Docker containers on port 8081"
+        print_status "      For TLS cert (one-time on server): sudo certbot --nginx -d $APP_DOMAIN"
     echo
     print_status "Useful commands:"
+    print_status "  - Pull DB dump to your machine: ./scripts/pull-remote-postgres-for-local.sh [--org-only]"
     print_status "  - View logs: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml logs -f || docker-compose -f docker-compose.prod.yml logs -f)'"
     print_status "  - Restart: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml restart || docker-compose -f docker-compose.prod.yml restart)'"
     print_status "  - Stop: ssh -i $SSH_KEY $SERVER_USER@$SERVER_IP 'cd $SERVER_PATH && (docker compose -f docker-compose.prod.yml down || docker-compose -f docker-compose.prod.yml down)'"

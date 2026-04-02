@@ -4,6 +4,7 @@ const photoRouter = express.Router();
 const multer = require('multer');
 const path = require('path');
 const pool = require('../config/db');
+const privilege = require('../middleware/privilegeMiddleware');
 
 // Multer storage configuration for project photos
 // Use absolute path to ensure files are saved correctly
@@ -200,7 +201,7 @@ photoRouter.put('/:photoId/approval', async (req, res) => {
     }
     
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve');
     
     if (!isAdmin && !hasPrivilege) {

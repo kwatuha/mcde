@@ -96,7 +96,8 @@ export const ROUTES = {
     CENTRAL_IMPORT: '/data-import', // ✨ NEW: Central Import route
     NEW_DASHBOARD: '/projects-dashboard/view',
     PROJECT_ANALYTICS: '/project-analytics', // ✨ NEW: Project Analytics route
-    SYSTEM_DASHBOARD: '/system-dashboard', // ✨ NEW: Executive Dashboard route
+    PROJECTS_BY_ORGANIZATION: '/projects-by-organization', // ✨ NEW: Projects by organization dashboard
+    SYSTEM_DASHBOARD: '/summary-statistics', // ✨ NEW: Summary Statistics route
     OPERATIONS_DASHBOARD: '/operations-dashboard', // ✨ NEW: Operations Dashboard route
     JOBS_DASHBOARD: '/jobs-dashboard', // ✨ NEW: Jobs & Impact Dashboard route
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route

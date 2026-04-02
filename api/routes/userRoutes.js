@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
+const orgScope = require('../services/organizationScopeService');
 
 // --- CRUD Operations for users ---
 
@@ -84,7 +85,21 @@ router.get('/users', async (req, res) => {
         
         const result = await pool.query(query);
         const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
-        res.status(200).json(rows);
+        let payload = Array.isArray(rows) ? rows : [];
+
+        if (DB_TYPE === 'postgresql' && payload.length > 0 && (await orgScope.organizationScopeTableExists())) {
+            try {
+                const scopeMap = await orgScope.fetchOrganizationScopesForUsers(payload.map((u) => u.userId));
+                payload = payload.map((u) => ({
+                    ...u,
+                    organizationScopes: scopeMap.get(parseInt(String(u.userId), 10)) || [],
+                }));
+            } catch (scopeErr) {
+                console.warn('User list: could not attach organization scopes:', scopeErr.message);
+            }
+        }
+
+        res.status(200).json(payload);
     } catch (error) {
         console.error('Error fetching users:', error);
         res.status(500).json({ message: 'Error fetching users', error: error.message });
@@ -116,9 +131,14 @@ router.get('/users/:id', async (req, res) => {
                     u.updatedat AS "updatedAt", 
                     u.isactive AS "isActive", 
                     u.roleid AS "roleId", 
-                    r.name AS role
+                    r.name AS role,
+                    u.ministry,
+                    u.state_department AS "stateDepartment",
+                    u.agency_id AS "agencyId",
+                    a.agency_name AS "agencyName"
                 FROM users u
                 LEFT JOIN roles r ON u.roleid = r.roleid
+                LEFT JOIN agencies a ON u.agency_id = a.id
                 WHERE u.userid = $1
             `;
             params = [id];
@@ -136,9 +156,14 @@ router.get('/users/:id', async (req, res) => {
                     u.updatedAt, 
                     u.isActive, 
                     u.roleId, 
-                    r.roleName AS role
+                    r.roleName AS role,
+                    u.ministry,
+                    u.state_department AS stateDepartment,
+                    u.agency_id AS agencyId,
+                    a.agency_name AS agencyName
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
+                LEFT JOIN agencies a ON u.agency_id = a.id
                 WHERE u.userId = ?
             `;
             params = [id];
@@ -148,7 +173,16 @@ router.get('/users/:id', async (req, res) => {
         const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
         
         if (Array.isArray(rows) ? rows.length > 0 : rows) {
-            res.status(200).json(Array.isArray(rows) ? rows[0] : rows);
+            const userRow = Array.isArray(rows) ? rows[0] : rows;
+            let organizationScopes = [];
+            if (DB_TYPE === 'postgresql') {
+                try {
+                    organizationScopes = await orgScope.fetchOrganizationScopesForUser(id);
+                } catch (scopeErr) {
+                    console.warn('fetchOrganizationScopesForUser:', scopeErr.message);
+                }
+            }
+            res.status(200).json({ ...userRow, organizationScopes });
         } else {
             res.status(404).json({ message: 'User not found' });
         }
@@ -163,7 +197,13 @@ router.get('/users/:id', async (req, res) => {
  * @description Create a new user in the users table.
  */
 router.post('/users', async (req, res) => {
-    const { username, email, password, firstName, lastName, roleId, idNumber, employeeNumber, ministry, state_department, agency_id } = req.body;
+    const {
+        username, email, password, firstName, lastName, roleId, idNumber, employeeNumber,
+        ministry, state_department, agency_id,
+        organizationScopes: organizationScopesBody,
+        organization_scopes: organization_scopes_snake,
+    } = req.body;
+    const scopesFromBody = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
 
     if (!username || !email || !password || !firstName || !lastName || !roleId) {
         return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, and role ID.' });
@@ -281,7 +321,28 @@ router.post('/users', async (req, res) => {
         
         const fetchResult = await pool.query(fetchQuery, fetchParams);
         const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
-        res.status(201).json(Array.isArray(rows) ? rows[0] : rows);
+        const created = Array.isArray(rows) ? rows[0] : rows;
+
+        if (DB_TYPE === 'postgresql') {
+            try {
+                if (Array.isArray(scopesFromBody) && scopesFromBody.length > 0) {
+                    await orgScope.replaceUserOrganizationScopes(insertedUserId, scopesFromBody);
+                } else {
+                    await orgScope.syncOrganizationScopesFromUserProfile(insertedUserId, { onlyIfEmpty: true });
+                }
+            } catch (scopeErr) {
+                console.error('Error saving organization scopes for new user:', scopeErr);
+            }
+            let organizationScopes = [];
+            try {
+                organizationScopes = await orgScope.fetchOrganizationScopesForUser(insertedUserId);
+            } catch (e) {
+                console.warn('fetchOrganizationScopesForUser after create:', e.message);
+            }
+            return res.status(201).json({ ...created, organizationScopes });
+        }
+
+        res.status(201).json(created);
     } catch (error) {
         console.error('Error creating user:', error);
         if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
@@ -297,7 +358,13 @@ router.post('/users', async (req, res) => {
  */
 router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
-    const { password, ...otherFieldsToUpdate } = req.body;
+    const {
+        password,
+        organizationScopes: organizationScopesBody,
+        organization_scopes: organization_scopes_snake,
+        ...otherFieldsToUpdate
+    } = req.body;
+    const scopesPayload = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
 
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
     
@@ -306,6 +373,18 @@ router.put('/users/:id', async (req, res) => {
         otherFieldsToUpdate.passwordHash = await bcrypt.hash(password, salt);
     }
     delete otherFieldsToUpdate.userId;
+
+    let previousIsActive = null;
+    if (DB_TYPE === 'postgresql') {
+        try {
+            const prevActiveRes = await pool.query('SELECT isactive FROM users WHERE userid = $1', [id]);
+            if (prevActiveRes.rows?.length) {
+                previousIsActive = prevActiveRes.rows[0].isactive === true;
+            }
+        } catch (preErr) {
+            console.warn('Could not read previous isActive for user', id, preErr.message);
+        }
+    }
 
     try {
         let result;
@@ -391,7 +470,45 @@ router.put('/users/:id', async (req, res) => {
             
             const fetchResult = await pool.query(fetchQuery, fetchParams);
             const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
-            res.status(200).json(Array.isArray(rows) ? rows[0] : rows);
+            const userObj = Array.isArray(rows) ? rows[0] : rows;
+
+            if (DB_TYPE === 'postgresql' && scopesPayload !== undefined) {
+                try {
+                    await orgScope.replaceUserOrganizationScopes(id, Array.isArray(scopesPayload) ? scopesPayload : []);
+                } catch (scopeErr) {
+                    console.error('Error updating organization scopes:', scopeErr);
+                }
+            }
+
+            // Self-service registration stores ministry / agency on `users` while pending; scopes are not
+            // created until activation. The UI always sends organizationScopes (often []), so we cannot
+            // rely on scopesPayload === undefined. After update, if user just became active and still
+            // has no scope rows, seed from profile (admins can add more later in User Management).
+            const becameActive =
+                DB_TYPE === 'postgresql'
+                && previousIsActive === false
+                && userObj.isActive === true;
+            if (becameActive) {
+                try {
+                    let scopesNow = await orgScope.fetchOrganizationScopesForUser(id);
+                    if (!scopesNow.length) {
+                        await orgScope.syncOrganizationScopesFromUserProfile(id, { onlyIfEmpty: true });
+                    }
+                } catch (scopeErr) {
+                    console.warn('syncOrganizationScopesFromUserProfile (user activation):', scopeErr.message);
+                }
+            }
+
+            let organizationScopes = [];
+            if (DB_TYPE === 'postgresql') {
+                try {
+                    organizationScopes = await orgScope.fetchOrganizationScopesForUser(id);
+                } catch (e) {
+                    console.warn('fetchOrganizationScopesForUser after update:', e.message);
+                }
+            }
+
+            res.status(200).json({ ...userObj, organizationScopes });
         } else {
             res.status(404).json({ message: 'User not found' });
         }
@@ -720,13 +837,51 @@ router.get('/privileges/:id', async (req, res) => {
  * @description Create a new privilege in the privileges table.
  */
 router.post('/privileges', async (req, res) => {
-    const { privilegeName, description } = req.body;
+    // Normalize body (express may deliver object, or nested/odd shapes from proxies)
+    let body = req.body;
+    if (body == null) {
+        body = {};
+    } else if (typeof body === 'string') {
+        try {
+            body = JSON.parse(body);
+        } catch (e) {
+            return res.status(400).json({
+                error: 'Invalid JSON body',
+                hint: 'Send a JSON object: { "privilegeName": "…", "description": "…" }',
+            });
+        }
+    }
+    if (typeof body !== 'object' || Array.isArray(body)) {
+        return res.status(400).json({
+            error: 'Request body must be a JSON object with privilegeName',
+            hint: 'Example: { "privilegeName": "project.read", "description": "..." }',
+        });
+    }
 
-    // Better error message for debugging
+    const rawName =
+        body.privilegeName ??
+        body.privilege_name ??
+        body.name ??
+        body.PrivilegeName ??
+        body.privilegename;
+    let privilegeName = '';
+    if (rawName != null && typeof rawName !== 'object') {
+        privilegeName = String(rawName).trim();
+    }
+    const descRaw = body.description ?? body.desc;
+    const description =
+        descRaw != null && typeof descRaw !== 'object'
+            ? String(descRaw).trim()
+            : '';
+
     if (!privilegeName) {
-        console.error('Privilege creation failed: Missing privilegeName in request body');
-        console.error('Request body:', JSON.stringify(req.body));
-        return res.status(400).json({ error: 'Privilege name is required', received: req.body });
+        console.error('Privilege creation failed: missing privilegeName');
+        console.error('Content-Type:', req.headers['content-type'], 'body keys:', Object.keys(body));
+        return res.status(400).json({
+            error: 'Privilege name is required',
+            hint: 'Include "privilegeName" in the JSON body (e.g. project.read_all).',
+            receivedKeys: Object.keys(body),
+        });
     }
 
     try {
@@ -736,9 +891,14 @@ router.post('/privileges', async (req, res) => {
         if (DB_TYPE === 'postgresql') {
             const insertResult = await pool.query(
                 'INSERT INTO privileges (privilegename, description, createdat, updatedat, voided) VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false) RETURNING privilegeid',
-                [privilegeName, description || null]
+                [privilegeName, description !== '' ? description : null]
             );
-            insertedPrivilegeId = insertResult.rows[0].privilegeid;
+            const retRow = insertResult.rows && insertResult.rows[0];
+            insertedPrivilegeId = retRow && (retRow.privilegeid ?? retRow.privilegeId);
+            if (insertedPrivilegeId == null) {
+                console.error('Privilege INSERT RETURNING missing id:', insertResult.rows);
+                return res.status(500).json({ message: 'Error creating privilege', error: 'Insert succeeded but no id returned' });
+            }
         } else {
             const newPrivilege = {
                 privilegeName,
@@ -780,7 +940,19 @@ router.post('/privileges', async (req, res) => {
     } catch (error) {
         console.error('Error creating privilege:', error);
         if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
-            return res.status(400).json({ error: 'Privilege with that name already exists.' });
+            const detail = error.detail || error.message || '';
+            const isPkSequenceOutOfSync =
+                /privilegeid\)=\(\d+\)\s+already exists/i.test(detail) ||
+                (detail.includes('privilegeid') && detail.includes('already exists'));
+            return res.status(400).json({
+                error: isPkSequenceOutOfSync
+                    ? 'Privilege ID sequence is out of sync with the table (duplicate primary key).'
+                    : 'Privilege with that name already exists (or duplicate key).',
+                detail,
+                ...(isPkSequenceOutOfSync && {
+                    hint: 'Run: scripts/migration/fix-privileges-privilegeid-sequence.sql (sets privileges_privilegeid_seq to MAX(privilegeid)).',
+                }),
+            });
         }
         res.status(500).json({ message: 'Error creating privilege', error: error.message });
     }
@@ -981,8 +1153,9 @@ router.get('/role_privileges/:roleId/:privilegeId', async (req, res) => {
  * @body {number} privilegeId - The ID of the privilege.
  */
 router.post('/role_privileges', async (req, res) => {
-    const { roleId, privilegeId } = req.body;
-    if (!roleId || !privilegeId) {
+    const roleId = req.body.roleId ?? req.body.role_id;
+    const privilegeId = req.body.privilegeId ?? req.body.privilege_id;
+    if (roleId == null || privilegeId == null || roleId === '' || privilegeId === '') {
         return res.status(400).json({ message: 'roleId and privilegeId are required.' });
     }
     

@@ -276,7 +276,7 @@ const OperationsDashboardPage = () => {
             variant="outlined"
             size="small"
             startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-            onClick={() => navigate('/system-dashboard')}
+            onClick={() => navigate('/summary-statistics')}
             sx={{
               borderColor: colors.blueAccent[500],
               color: colors.blueAccent[500],
@@ -290,7 +290,7 @@ const OperationsDashboardPage = () => {
               },
             }}
           >
-            Executive Dashboard
+            Summary Statistics
           </Button>
         </Box>
 

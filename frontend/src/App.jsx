@@ -82,6 +82,7 @@ import JobsImpactDashboardPage from './pages/JobsImpactDashboardPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
 import ProjectByStatusDashboardPage from './pages/ProjectByStatusDashboardPage';
 import ReportingDashboardPage from './pages/ReportingDashboardPage';
+import ProjectOrganizationDashboardPage from './pages/ProjectOrganizationDashboardPage';
  
 import ReportingView from './components/ReportingView';
 import RegionalReportsView from './components/RegionalReportsView';
@@ -95,7 +96,7 @@ import { modernTheme } from './theme/modernTheme';
 // Add CentralImportPage for unified import hub
 import CentralImportPage from './pages/CentralImportPage';
 
-// Define your routes with basename for /impes path
+// Define routes at domain root ("/")
 const router = createBrowserRouter([
   {
     path: '/',
@@ -110,8 +111,12 @@ const router = createBrowserRouter([
         element: <DashboardLandingPage />,
       },
       {
-        path: 'system-dashboard',
+        path: 'summary-statistics',
         element: <SystemDashboardPage />,
+      },
+      {
+        path: 'system-dashboard',
+        element: <Navigate to="/summary-statistics" replace />,
       },
       {
         path: 'operations-dashboard',
@@ -301,6 +306,10 @@ const router = createBrowserRouter([
         path: 'project-analytics',
         element: <ProjectAnalyticsPage />,
       },
+      {
+        path: 'projects-by-organization',
+        element: <ProjectOrganizationDashboardPage />,
+      },
     ],
   },
   {
@@ -311,9 +320,7 @@ const router = createBrowserRouter([
     path: '/register',
     element: <Register />,
   },
-], {
-  basename: '/impes'  // Add this basename configuration
-});
+]);
 
 function App() {
   // ✨ Using the new simplified modern theme - no more mode switching!

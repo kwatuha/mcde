@@ -3,11 +3,11 @@ import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Paper, CircularProgress, IconButton,
   Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, Stack, useTheme,
-  OutlinedInput, Chip, ListSubheader, Checkbox, ListItemText, Avatar,
+  Chip, Checkbox, Avatar, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails,
   DialogContentText, InputAdornment, Grid, Autocomplete,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import apiService from '../api/userService';
 import apiServiceMain from '../api';
@@ -33,6 +33,81 @@ const snakeToCamelCase = (obj) => {
   return newObj;
 };
 
+/** Strings from user_organization_scope rows (and legacy user fields) for global search */
+function organizationScopesToSearchStrings(scopes) {
+  if (!Array.isArray(scopes) || scopes.length === 0) return [];
+  const parts = [];
+  for (const s of scopes) {
+    if (!s || typeof s !== 'object') continue;
+    const ministry = s.ministry;
+    const sd = s.stateDepartment ?? s.state_department ?? '';
+    const agencyName = s.agencyName ?? s.agency_name ?? '';
+    const aid = s.agencyId ?? s.agency_id;
+    if (ministry) parts.push(String(ministry));
+    if (sd) parts.push(String(sd));
+    if (agencyName) parts.push(String(agencyName));
+    if (aid != null && aid !== '') parts.push(String(aid));
+    const st = s.scopeType ?? s.scope_type;
+    if (st) parts.push(String(st));
+  }
+  return parts;
+}
+
+/** Primary organization bucket for grouping (profile fields, then first scope row). */
+function getUserOrgGroupInfo(user) {
+  const agencyName = (user.agencyName || user.agency_name || '').trim();
+  const ministry = (user.ministry || '').trim();
+  const stateDepartment = (user.stateDepartment || user.state_department || '').trim();
+  const agencyId = user.agencyId ?? user.agency_id;
+
+  if (agencyName || agencyId != null) {
+    const label = agencyName || (agencyId != null ? `Agency #${agencyId}` : 'Agency');
+    const subtitle = [ministry, stateDepartment].filter(Boolean).join(' · ');
+    return {
+      key: `agency:${agencyId ?? agencyName}`,
+      label: subtitle ? `${label} — ${subtitle}` : label,
+      sortTier: 0,
+    };
+  }
+  if (ministry && stateDepartment) {
+    return {
+      key: `dept:${ministry}|${stateDepartment}`,
+      label: `${ministry} / ${stateDepartment}`,
+      sortTier: 1,
+    };
+  }
+  if (ministry) {
+    return {
+      key: `ministry:${ministry}`,
+      label: `${ministry} (ministry only on profile)`,
+      sortTier: 2,
+    };
+  }
+
+  const scopes = user.organizationScopes;
+  if (Array.isArray(scopes) && scopes.length > 0) {
+    const s = scopes[0];
+    const st = s.scopeType || s.scope_type;
+    if (st === 'AGENCY') {
+      const an = (s.agencyName || s.agency_name || '').trim();
+      const aid = s.agencyId ?? s.agency_id;
+      const label = an || (aid != null ? `Agency #${aid}` : 'Agency (scope)');
+      return { key: `scope-a:${aid ?? label}`, label: `${label} (org access)`, sortTier: 0 };
+    }
+    if (st === 'STATE_DEPARTMENT_ALL') {
+      const m = (s.ministry || '').trim();
+      const sd = (s.stateDepartment || s.state_department || '').trim();
+      return { key: `scope-sd:${m}|${sd}`, label: `${m} / ${sd} (state dept access)`, sortTier: 1 };
+    }
+    if (st === 'MINISTRY_ALL') {
+      const m = (s.ministry || '').trim();
+      return { key: `scope-m:${m}`, label: `${m} (ministry access)`, sortTier: 2 };
+    }
+  }
+
+  return { key: 'unassigned', label: 'No organization assigned', sortTier: 99 };
+}
+
 
 function UserManagementPage() {
   const { user, logout, hasPrivilege } = useAuth();
@@ -50,6 +125,8 @@ function UserManagementPage() {
   
   // Global search state
   const [globalSearch, setGlobalSearch] = useState('');
+  /** 'all' | 'byOrganization' */
+  const [userListView, setUserListView] = useState('all');
 
   // User Management States
   const [openUserDialog, setOpenUserDialog] = useState(false);
@@ -75,6 +152,24 @@ function UserManagementPage() {
   const [filteredStateDepartments, setFilteredStateDepartments] = useState([]);
   const [ministries, setMinistries] = useState([]);
   const [loadingAgencies, setLoadingAgencies] = useState(false);
+
+  /** Effective organization access (many rows: agency / whole ministry / whole state dept). */
+  const [organizationScopes, setOrganizationScopes] = useState([]);
+  const [newScopeType, setNewScopeType] = useState('AGENCY');
+  const [newScopeAgency, setNewScopeAgency] = useState(null);
+  const [newScopeMinistry, setNewScopeMinistry] = useState(null);
+  const [newScopeStateDept, setNewScopeStateDept] = useState(null);
+
+  /** Standalone dialog: assign org scope without opening full edit form */
+  const [openStandaloneOrgDialog, setOpenStandaloneOrgDialog] = useState(false);
+  const [standaloneOrgUserId, setStandaloneOrgUserId] = useState(null);
+  const [standaloneOrgUsername, setStandaloneOrgUsername] = useState('');
+  const [standaloneScopes, setStandaloneScopes] = useState([]);
+  const [standaloneNewScopeType, setStandaloneNewScopeType] = useState('AGENCY');
+  const [standaloneNewAgency, setStandaloneNewAgency] = useState(null);
+  const [standaloneNewMinistry, setStandaloneNewMinistry] = useState(null);
+  const [standaloneNewStateDept, setStandaloneNewStateDept] = useState(null);
+  const [standaloneSaving, setStandaloneSaving] = useState(false);
 
   // View User Details Dialog State
   const [openViewDetailsDialog, setOpenViewDetailsDialog] = useState(false);
@@ -129,10 +224,6 @@ function UserManagementPage() {
   const [privilegeToDeleteId, setPrivilegeToDeleteId] = useState(null);
   const [privilegeToDeleteName, setPrivilegeToDeleteName] = useState('');
   const [privilegeFormErrors, setPrivilegeFormErrors] = useState({});
-
-  // New state for grouped privileges for the multi-select dropdown
-  const [groupedPrivileges, setGroupedPrivileges] = useState({});
-
 
   // --- Fetching Data ---
 
@@ -215,28 +306,26 @@ function UserManagementPage() {
     try {
       if (hasPrivilege('privilege.read_all')) {
         const data = await apiService.getPrivileges();
+        const list = Array.isArray(data) ? data : [];
 
-        const uniquePrivileges = Array.from(new Map(data.map(p => [p.privilegeId, p])).values());
-        
+        const normalized = list.map((p) => {
+          const privilegeId = p.privilegeId ?? p.privilege_id ?? p.privilegeid;
+          const privilegeName = String(
+            p.privilegeName ?? p.privilege_name ?? p.privilegename ?? ''
+          ).trim();
+          return { ...p, privilegeId, privilegeName };
+        }).filter((p) => p.privilegeId != null && String(p.privilegeId) !== '');
+
+        const uniquePrivileges = Array.from(
+          new Map(normalized.map((p) => [String(p.privilegeId), p])).values()
+        );
+        uniquePrivileges.sort((a, b) =>
+          (a.privilegeName || '').localeCompare(b.privilegeName || '', undefined, { sensitivity: 'base' })
+        );
+
         setPrivileges(uniquePrivileges);
-
-        const grouped = uniquePrivileges.reduce((acc, privilege) => {
-            const type = privilege.privilegeName.split('.')[0];
-            if (!acc[type]) {
-                acc[type] = [];
-            }
-            acc[type].push(privilege);
-            return acc;
-        }, {});
-        const sortedGrouped = Object.keys(grouped).sort().reduce((acc, key) => {
-            acc[key] = grouped[key].sort((a, b) => a.privilegeName.localeCompare(b.privilegeName));
-            return acc;
-        }, {});
-        setGroupedPrivileges(sortedGrouped);
-
       } else {
         setPrivileges([]);
-        setGroupedPrivileges({});
         console.warn("User does not have 'privilege.read_all' privilege.");
       }
     } catch (err) {
@@ -356,6 +445,11 @@ function UserManagementPage() {
         return;
     }
     setCurrentUserToEdit(null);
+    setOrganizationScopes([]);
+    setNewScopeType('AGENCY');
+    setNewScopeAgency(null);
+    setNewScopeMinistry(null);
+    setNewScopeStateDept(null);
     setUserFormData({
       username: '', email: '', phoneNumber: '', password: '', confirmPassword: '', firstName: '', lastName: '',
       idNumber: '', employeeNumber: '',
@@ -365,15 +459,22 @@ function UserManagementPage() {
       agencyId: '',
     });
     setUserFormErrors({});
+    setOpenStandaloneOrgDialog(false);
     setOpenUserDialog(true);
   };
 
-  const handleOpenEditUserDialog = (userItem) => {
+  const handleOpenEditUserDialog = async (userItem) => {
     if (!hasPrivilege('user.update')) {
         setSnackbar({ open: true, message: 'Permission denied to edit users.', severity: 'error' });
         return;
     }
+    setOpenStandaloneOrgDialog(false);
     setCurrentUserToEdit(userItem);
+    setOrganizationScopes([]);
+    setNewScopeType('AGENCY');
+    setNewScopeAgency(null);
+    setNewScopeMinistry(null);
+    setNewScopeStateDept(null);
     setUserFormData({
       username: userItem.username || '',
       email: userItem.email || '',
@@ -391,17 +492,218 @@ function UserManagementPage() {
     });
     setUserFormErrors({});
     setOpenUserDialog(true);
+    try {
+      const full = await apiService.getUserById(userItem.userId);
+      setOrganizationScopes(Array.isArray(full.organizationScopes) ? full.organizationScopes : []);
+    } catch (err) {
+      console.warn('Could not load organization scopes:', err);
+    }
+  };
+
+  const standaloneScopeStateDepartments = useMemo(() => {
+    if (!standaloneNewMinistry) return [];
+    return [...new Set(
+      agencies
+        .filter((a) => a.ministry && a.ministry.toLowerCase() === String(standaloneNewMinistry).toLowerCase())
+        .map((a) => a.state_department || a.stateDepartment)
+        .filter(Boolean),
+    )].sort();
+  }, [agencies, standaloneNewMinistry]);
+
+  const handleOpenStandaloneOrgDialog = async (row) => {
+    if (!hasPrivilege('user.update')) {
+      setSnackbar({ open: true, message: 'Permission denied to edit organization access.', severity: 'error' });
+      return;
+    }
+    if (openUserDialog) {
+      handleCloseUserDialog();
+    }
+    setStandaloneOrgUserId(row.userId);
+    setStandaloneOrgUsername(row.username || '');
+    setStandaloneNewScopeType('AGENCY');
+    setStandaloneNewAgency(null);
+    setStandaloneNewMinistry(null);
+    setStandaloneNewStateDept(null);
+    setStandaloneScopes([]);
+    setOpenStandaloneOrgDialog(true);
+    try {
+      const full = await apiService.getUserById(row.userId);
+      setStandaloneScopes(Array.isArray(full.organizationScopes) ? full.organizationScopes : []);
+    } catch (err) {
+      console.warn('Could not load organization scopes:', err);
+      setSnackbar({ open: true, message: 'Could not load organization scopes for this user.', severity: 'error' });
+    }
+  };
+
+  const handleCloseStandaloneOrgDialog = () => {
+    setOpenStandaloneOrgDialog(false);
+    setStandaloneOrgUserId(null);
+    setStandaloneOrgUsername('');
+    setStandaloneScopes([]);
+    setStandaloneSaving(false);
+  };
+
+  const handleAddStandaloneScope = () => {
+    if (standaloneNewScopeType === 'AGENCY') {
+      if (!standaloneNewAgency) {
+        setSnackbar({ open: true, message: 'Select an agency to add.', severity: 'warning' });
+        return;
+      }
+      const aid = standaloneNewAgency.id ?? standaloneNewAgency.agencyId;
+      const name = standaloneNewAgency.agency_name || standaloneNewAgency.agencyName || '';
+      if (standaloneScopes.some((x) => x.scopeType === 'AGENCY' && Number(x.agencyId) === Number(aid))) {
+        setSnackbar({ open: true, message: 'This agency is already in the list.', severity: 'info' });
+        return;
+      }
+      setStandaloneScopes((prev) => [...prev, { scopeType: 'AGENCY', agencyId: aid, agencyName: name }]);
+    } else if (standaloneNewScopeType === 'MINISTRY_ALL') {
+      const m = (standaloneNewMinistry || '').trim();
+      if (!m) {
+        setSnackbar({ open: true, message: 'Select or enter a ministry.', severity: 'warning' });
+        return;
+      }
+      if (standaloneScopes.some((x) => x.scopeType === 'MINISTRY_ALL' && (x.ministry || '').toLowerCase() === m.toLowerCase())) {
+        setSnackbar({ open: true, message: 'This ministry is already in the list.', severity: 'info' });
+        return;
+      }
+      setStandaloneScopes((prev) => [...prev, { scopeType: 'MINISTRY_ALL', ministry: m }]);
+    } else {
+      const m = (standaloneNewMinistry || '').trim();
+      const sd = (standaloneNewStateDept || '').trim();
+      if (!m || !sd) {
+        setSnackbar({ open: true, message: 'Select ministry and state department.', severity: 'warning' });
+        return;
+      }
+      if (standaloneScopes.some(
+        (x) => x.scopeType === 'STATE_DEPARTMENT_ALL'
+          && (x.ministry || '').toLowerCase() === m.toLowerCase()
+          && (x.stateDepartment || x.state_department || '').toLowerCase() === sd.toLowerCase(),
+      )) {
+        setSnackbar({ open: true, message: 'This state department scope is already in the list.', severity: 'info' });
+        return;
+      }
+      setStandaloneScopes((prev) => [...prev, { scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+    }
+    setStandaloneNewAgency(null);
+  };
+
+  const handleRemoveStandaloneScope = (index) => {
+    setStandaloneScopes((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveStandaloneOrgScopes = async () => {
+    if (!standaloneOrgUserId) return;
+    setStandaloneSaving(true);
+    try {
+      const payload = standaloneScopes.map((s) => {
+        if (s.scopeType === 'AGENCY') return { scopeType: 'AGENCY', agencyId: s.agencyId };
+        if (s.scopeType === 'MINISTRY_ALL') return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
+        return {
+          scopeType: 'STATE_DEPARTMENT_ALL',
+          ministry: s.ministry,
+          stateDepartment: s.stateDepartment || s.state_department,
+        };
+      });
+      await apiService.updateUser(standaloneOrgUserId, { organizationScopes: payload });
+      setSnackbar({ open: true, message: 'Organization access updated.', severity: 'success' });
+      handleCloseStandaloneOrgDialog();
+      fetchUsers(showPendingOnly);
+    } catch (err) {
+      console.error(err);
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save organization access.',
+        severity: 'error',
+      });
+    } finally {
+      setStandaloneSaving(false);
+    }
   };
 
   const handleCloseUserDialog = () => {
     setOpenUserDialog(false);
     setCurrentUserToEdit(null);
     setUserFormErrors({});
+    setOrganizationScopes([]);
   };
 
-  const handleOpenViewDetails = (userRow) => {
+  const scopeRowLabel = (s) => {
+    if (!s || !s.scopeType) return '';
+    if (s.scopeType === 'AGENCY') {
+      const name = s.agencyName || 'Agency';
+      return `${name} (agency #${s.agencyId})`;
+    }
+    if (s.scopeType === 'MINISTRY_ALL') return `All agencies in ministry: ${s.ministry || '—'}`;
+    return `All agencies in: ${s.ministry || '—'} / ${s.stateDepartment || '—'}`;
+  };
+
+  const handleAddOrganizationScope = () => {
+    if (newScopeType === 'AGENCY') {
+      if (!newScopeAgency) {
+        setSnackbar({ open: true, message: 'Select an agency to add.', severity: 'warning' });
+        return;
+      }
+      const aid = newScopeAgency.id ?? newScopeAgency.agencyId;
+      const name = newScopeAgency.agency_name || newScopeAgency.agencyName || '';
+      if (organizationScopes.some((x) => x.scopeType === 'AGENCY' && Number(x.agencyId) === Number(aid))) {
+        setSnackbar({ open: true, message: 'This agency is already in the list.', severity: 'info' });
+        return;
+      }
+      setOrganizationScopes((prev) => [...prev, { scopeType: 'AGENCY', agencyId: aid, agencyName: name }]);
+    } else if (newScopeType === 'MINISTRY_ALL') {
+      const m = (newScopeMinistry || '').trim();
+      if (!m) {
+        setSnackbar({ open: true, message: 'Select or enter a ministry.', severity: 'warning' });
+        return;
+      }
+      if (organizationScopes.some((x) => x.scopeType === 'MINISTRY_ALL' && (x.ministry || '').toLowerCase() === m.toLowerCase())) {
+        setSnackbar({ open: true, message: 'This ministry is already in the list.', severity: 'info' });
+        return;
+      }
+      setOrganizationScopes((prev) => [...prev, { scopeType: 'MINISTRY_ALL', ministry: m }]);
+    } else {
+      const m = (newScopeMinistry || '').trim();
+      const sd = (newScopeStateDept || '').trim();
+      if (!m || !sd) {
+        setSnackbar({ open: true, message: 'Select ministry and state department.', severity: 'warning' });
+        return;
+      }
+      if (organizationScopes.some(
+        (x) => x.scopeType === 'STATE_DEPARTMENT_ALL'
+          && (x.ministry || '').toLowerCase() === m.toLowerCase()
+          && (x.stateDepartment || x.state_department || '').toLowerCase() === sd.toLowerCase(),
+      )) {
+        setSnackbar({ open: true, message: 'This state department scope is already in the list.', severity: 'info' });
+        return;
+      }
+      setOrganizationScopes((prev) => [...prev, { scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+    }
+    setNewScopeAgency(null);
+  };
+
+  const handleRemoveOrganizationScope = (index) => {
+    setOrganizationScopes((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const scopeBuilderStateDepartments = useMemo(() => {
+    if (!newScopeMinistry) return [];
+    return [...new Set(
+      agencies
+        .filter((a) => a.ministry && a.ministry.toLowerCase() === String(newScopeMinistry).toLowerCase())
+        .map((a) => a.state_department || a.stateDepartment)
+        .filter(Boolean),
+    )].sort();
+  }, [agencies, newScopeMinistry]);
+
+  const handleOpenViewDetails = async (userRow) => {
     setViewDetailsUser(userRow);
     setOpenViewDetailsDialog(true);
+    try {
+      const full = await apiService.getUserById(userRow.userId);
+      setViewDetailsUser(full);
+    } catch (err) {
+      console.warn('Could not load full user for details:', err);
+    }
   };
 
   const handleCloseViewDetails = () => {
@@ -457,7 +759,20 @@ function UserManagementPage() {
         ...userFormData,
         roleId: selectedRole ? selectedRole.roleId : null,
         agency_id: userFormData.agencyId || null,
-        state_department: userFormData.stateDepartment || null
+        state_department: userFormData.stateDepartment || null,
+        organizationScopes: organizationScopes.map((s) => {
+          if (s.scopeType === 'AGENCY') {
+            return { scopeType: 'AGENCY', agencyId: s.agencyId };
+          }
+          if (s.scopeType === 'MINISTRY_ALL') {
+            return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
+          }
+          return {
+            scopeType: 'STATE_DEPARTMENT_ALL',
+            ministry: s.ministry,
+            stateDepartment: s.stateDepartment || s.state_department,
+          };
+        }),
       };
       
       // Remove fields that backend doesn't expect
@@ -631,6 +946,7 @@ function UserManagementPage() {
       return;
     }
     fetchRoles();
+    fetchPrivileges();
     setOpenRoleManagementDialog(true);
   };
 
@@ -646,6 +962,8 @@ function UserManagementPage() {
     setCurrentRoleToEdit(null);
     setRoleFormData({ roleName: '', description: '', privilegeIds: [] });
     setRoleFormErrors({});
+    setInitialRolePrivilegeIds([]);
+    fetchPrivileges();
     setOpenRoleDialog(true);
   };
 
@@ -655,6 +973,7 @@ function UserManagementPage() {
       return;
     }
     setCurrentRoleToEdit(role);
+    fetchPrivileges();
     setRoleFormData({
       roleName: role.roleName || '',
       description: role.description || '',
@@ -664,7 +983,10 @@ function UserManagementPage() {
 
     try {
       const rolePrivileges = await apiService.getRolePrivileges(role.roleId);
-      const currentPrivilegeIds = rolePrivileges.map(rp => String(rp.privilegeId));
+      const rows = Array.isArray(rolePrivileges) ? rolePrivileges : [];
+      const currentPrivilegeIds = [...new Set(
+        rows.map((rp) => rp.privilegeId ?? rp.privilege_id).filter((id) => id != null).map((id) => String(id))
+      )];
       setRoleFormData(prev => ({ ...prev, privilegeIds: currentPrivilegeIds }));
       setInitialRolePrivilegeIds(currentPrivilegeIds);
     } catch (err) {
@@ -684,11 +1006,6 @@ function UserManagementPage() {
   const handleRoleFormChange = (e) => {
     const { name, value } = e.target;
     setRoleFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleRolePrivilegeMultiSelectChange = (e) => {
-    const { name, value } = e.target;
-    setRoleFormData(prev => ({ ...prev, [name]: typeof value === 'string' ? value.split(',') : value }));
   };
 
   const validateRoleForm = () => {
@@ -897,7 +1214,8 @@ function UserManagementPage() {
 
   const validatePrivilegeForm = () => {
     let errors = {};
-    if (!privilegeFormData.privilegeName.trim()) errors.privilegeName = 'Privilege Name is required.';
+    const name = (privilegeFormData.privilegeName != null && String(privilegeFormData.privilegeName).trim()) || '';
+    if (!name) errors.privilegeName = 'Privilege Name is required.';
     setPrivilegeFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -948,8 +1266,12 @@ function UserManagementPage() {
         setSnackbar({ open: true, message: 'Privilege created successfully!', severity: 'success' });
       }
       handleClosePrivilegeDialog();
-      fetchPrivileges();
-      fetchRoles();
+      await fetchPrivileges();
+      try {
+        await fetchRoles();
+      } catch (e) {
+        console.warn('fetchRoles after privilege save:', e);
+      }
     } catch (err) {
       console.error("Submit privilege error:", err);
       // The axios interceptor rejects with error.response.data directly, so err.message should have the error
@@ -1013,6 +1335,7 @@ function UserManagementPage() {
 
     const query = globalSearch.toLowerCase().trim();
     return users.filter(user => {
+      const scopeStrings = organizationScopesToSearchStrings(user.organizationScopes);
       const searchableFields = [
         user.userId?.toString() || '',
         user.username || '',
@@ -1025,7 +1348,10 @@ function UserManagementPage() {
         user.isActive ? 'enabled' : 'disabled',
         user.ministry || '',
         user.stateDepartment || user.state_department || '',
-        user.agencyName || '',
+        user.agencyName || user.agency_name || '',
+        user.agencyId != null && user.agencyId !== '' ? String(user.agencyId) : '',
+        user.agency_id != null && user.agency_id !== '' ? String(user.agency_id) : '',
+        ...scopeStrings,
       ];
 
       return searchableFields.some(field => 
@@ -1033,6 +1359,62 @@ function UserManagementPage() {
       );
     });
   }, [users, globalSearch]);
+
+  const usersByOrganization = useMemo(() => {
+    const groups = new Map();
+    for (const u of filteredUsers) {
+      const { key, label, sortTier } = getUserOrgGroupInfo(u);
+      if (!groups.has(key)) {
+        groups.set(key, { key, label, sortTier, users: [] });
+      }
+      groups.get(key).users.push(u);
+    }
+    for (const g of groups.values()) {
+      g.users.sort((a, b) =>
+        String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' })
+      );
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.sortTier !== b.sortTier) return a.sortTier - b.sortTier;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+  }, [filteredUsers]);
+
+  const activeRoleNameSet = useMemo(() => {
+    return new Set(
+      (roles || [])
+        .map((r) => String(r.roleName || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+  }, [roles]);
+
+  const usersByRole = useMemo(() => {
+    const groups = new Map();
+    for (const u of filteredUsers) {
+      const rawRole = String(u.role || '').trim();
+      const rawRoleKey = rawRole.toLowerCase();
+      // Exclude users assigned to voided roles from By Role view.
+      // `roles` list is fetched from active (non-voided) roles only.
+      if (rawRole && activeRoleNameSet.size > 0 && !activeRoleNameSet.has(rawRoleKey)) {
+        continue;
+      }
+      const label = rawRole || 'No role assigned';
+      const key = `role:${label.toLowerCase()}`;
+      if (!groups.has(key)) {
+        groups.set(key, { key, label, sortTier: rawRole ? 0 : 99, users: [] });
+      }
+      groups.get(key).users.push(u);
+    }
+    for (const g of groups.values()) {
+      g.users.sort((a, b) =>
+        String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' })
+      );
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.sortTier !== b.sortTier) return a.sortTier - b.sortTier;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+  }, [filteredUsers, activeRoleNameSet]);
 
   // Key columns only: avoid horizontal scroll; full details in View details dialog
   const userColumns = [
@@ -1068,7 +1450,7 @@ function UserManagementPage() {
       field: "role",
       headerName: "Role",
       flex: 1,
-      minWidth: 110,
+      minWidth: 170,
       renderCell: ({ row: { role } }) => {
         const roleColors = {
           'admin': colors.redAccent[600],
@@ -1079,10 +1461,11 @@ function UserManagementPage() {
         };
         return (
           <Box
-            width="75%"
+            width="fit-content"
+            maxWidth="100%"
             m="0 auto"
             p="6px 12px"
-            display="flex"
+            display="inline-flex"
             justifyContent="center"
             alignItems="center"
             backgroundColor={roleColors[role?.toLowerCase()] || colors.grey[600]}
@@ -1142,7 +1525,7 @@ function UserManagementPage() {
     {
       field: "actions",
       headerName: "Actions",
-      width: 160,
+      width: 208,
       sortable: false,
       filterable: false,
       headerAlign: 'center',
@@ -1169,14 +1552,14 @@ function UserManagementPage() {
                 size="small"
                 sx={{
                   color: colors.grey[100],
-                  backgroundColor: colors.blueAccent[700],
-                  '&:hover': { backgroundColor: colors.blueAccent[600], transform: 'scale(1.1)' },
+                  backgroundColor: colors.purple?.[700] || colors.blueAccent[800],
+                  '&:hover': { backgroundColor: colors.purple?.[600] || colors.blueAccent[700], transform: 'scale(1.1)' },
                   transition: 'all 0.2s ease'
                 }}
-                onClick={() => handleOpenEditUserDialog(params.row)}
-                title="Edit User"
+                onClick={() => handleOpenStandaloneOrgDialog(params.row)}
+                title="Organization access — which agencies & ministries this user may see"
               >
-                <EditIcon fontSize="small" />
+                <AccountTreeIcon fontSize="small" />
               </IconButton>
             )}
             {hasPrivilege('user.update') && (
@@ -1306,9 +1689,31 @@ function UserManagementPage() {
       {/* Compact Header with Search and Actions */}
       <Box sx={{ mb: 1.5 }}>
         {/* Title Row */}
-        <Typography variant="h5" component="h1" sx={{ color: colors.grey[100], fontWeight: 700, mb: 1, fontSize: '1.35rem' }}>
+        <Typography variant="h5" component="h1" sx={{ color: colors.grey[100], fontWeight: 700, mb: 0.5, fontSize: '1.35rem' }}>
           User Management
         </Typography>
+        <Tabs
+          value={userListView}
+          onChange={(_, v) => setUserListView(v)}
+          sx={{
+            mb: 1,
+            minHeight: 42,
+            '& .MuiTab-root': {
+              color: colors.grey[400],
+              minHeight: 42,
+              py: 0.75,
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              textTransform: 'none',
+            },
+            '& .Mui-selected': { color: `${colors.greenAccent[400]} !important` },
+            '& .MuiTabs-indicator': { backgroundColor: colors.greenAccent[400] },
+          }}
+        >
+          <Tab value="all" icon={<ViewListIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="All users" />
+          <Tab value="byOrganization" icon={<HubIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="By organization" />
+          <Tab value="byRole" icon={<AdminPanelSettingsIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="By role" />
+        </Tabs>
 
         {/* Search Bar and Action Buttons Row */}
         <Paper 
@@ -1324,7 +1729,7 @@ function UserManagementPage() {
               <TextField
                 fullWidth
                 size="small"
-                placeholder="Search users by username, email, name, role, or status..."
+                placeholder="Search users by name, email, role, ministry, agency, state department, or org access…"
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
                 InputProps={{
@@ -1445,6 +1850,169 @@ function UserManagementPage() {
         <Alert severity="info">
           No users found matching "{globalSearch}". Try a different search term.
         </Alert>
+      ) : userListView === 'byOrganization' || userListView === 'byRole' ? (
+        <Box
+          mt={1.5}
+          sx={{
+            height: 'calc(100vh - 220px)',
+            minHeight: 320,
+            overflow: 'auto',
+            pr: 0.5,
+          }}
+        >
+          <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block', mb: 1 }}>
+            {userListView === 'byRole'
+              ? 'Expand a role to see users assigned to it. Search above still filters this list.'
+              : 'Expand a section to see users in that organization. Search above still filters this list.'}
+          </Typography>
+          {(userListView === 'byRole' ? usersByRole : usersByOrganization).map((g, index) => (
+            <Accordion
+              key={g.key}
+              defaultExpanded={index === 0}
+              disableGutters
+              sx={{
+                mb: 1,
+                backgroundColor: colors.primary[400],
+                borderRadius: '8px !important',
+                overflow: 'hidden',
+                border: `1px solid ${theme.palette.divider}`,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                '&:before': { display: 'none' },
+              }}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: colors.grey[200] }} />}>
+                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ width: '100%', pr: 1 }}>
+                  {userListView === 'byRole' ? (
+                    <AdminPanelSettingsIcon sx={{ color: colors.greenAccent[400], flexShrink: 0 }} />
+                  ) : (
+                    <AccountTreeIcon sx={{ color: colors.greenAccent[400], flexShrink: 0 }} />
+                  )}
+                  <Typography sx={{ flex: 1, fontWeight: 600, color: colors.grey[100], fontSize: '0.95rem' }}>
+                    {g.label}
+                  </Typography>
+                  <Chip
+                    label={`${g.users.length} user${g.users.length !== 1 ? 's' : ''}`}
+                    size="small"
+                    sx={{ backgroundColor: colors.blueAccent[700], color: colors.grey[100], fontWeight: 700 }}
+                  />
+                </Stack>
+              </AccordionSummary>
+              <AccordionDetails
+                sx={{
+                  backgroundColor: 'transparent',
+                  pt: 0.75,
+                  px: 1.25,
+                  pb: 1.25,
+                }}
+              >
+                <Stack spacing={0.75}>
+                  {g.users.map((row) => {
+                    const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim() || '—';
+                    const isCurrentUser = row.userId === user.id;
+                    const canToggle = hasPrivilege('user.update') && row.userId !== user.id;
+                    return (
+                      <Paper
+                        key={row.userId}
+                        elevation={0}
+                        sx={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          gap: 1,
+                          py: 1,
+                          px: 1.5,
+                          backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : '#ffffff',
+                          border: `1px solid ${theme.palette.divider}`,
+                          borderRadius: 1,
+                          boxShadow: 'none',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            borderColor: colors.blueAccent[600],
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+                          },
+                        }}
+                      >
+                        <Box sx={{ flex: '1 1 140px', minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 600, color: colors.greenAccent[300], fontSize: '0.85rem' }} noWrap>
+                            {row.username}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block' }} noWrap>
+                            {fullName}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ flex: '1 1 160px', color: colors.grey[200], fontSize: '0.8rem', minWidth: 0 }} noWrap>
+                          {row.email}
+                        </Typography>
+                        <Chip
+                          label={row.role || '—'}
+                          size="small"
+                          sx={{
+                            flexShrink: 0,
+                            height: 22,
+                            fontSize: '0.7rem',
+                            textTransform: 'capitalize',
+                            width: 'fit-content',
+                            maxWidth: 'none',
+                            '& .MuiChip-label': { px: 1.1 },
+                          }}
+                        />
+                        <Box
+                          onClick={() => { if (canToggle) handleToggleUserStatus(row.userId, row.username, row.isActive); }}
+                          sx={{
+                            cursor: canToggle ? 'pointer' : 'default',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            px: 1,
+                            py: 0.25,
+                            borderRadius: '6px',
+                            backgroundColor: row.isActive ? colors.greenAccent[700] : colors.redAccent[700],
+                          }}
+                          title={canToggle ? `Click to ${row.isActive ? 'disable' : 'enable'}` : row.isActive ? 'Active' : 'Disabled'}
+                        >
+                          {row.isActive ? (
+                            <CheckCircleIcon sx={{ color: colors.grey[100], fontSize: '16px' }} />
+                          ) : (
+                            <BlockIcon sx={{ color: colors.grey[100], fontSize: '16px' }} />
+                          )}
+                          <Typography sx={{ color: colors.grey[100], fontSize: '0.75rem', fontWeight: 600 }}>
+                            {row.isActive ? 'Active' : 'Disabled'}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, ml: { xs: 0, sm: 'auto' } }}>
+                          <IconButton size="small" sx={{ color: colors.grey[100] }} onClick={() => handleOpenViewDetails(row)} title="View details">
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                          {hasPrivilege('user.update') && user.id !== row.userId && (
+                            <IconButton
+                              size="small"
+                              sx={{ color: colors.blueAccent[400] }}
+                              onClick={() => handleOpenResetPasswordDialog(row.userId, row.username)}
+                              title="Reset password"
+                            >
+                              <LockResetIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                          {hasPrivilege('user.delete') && (
+                            <IconButton
+                              size="small"
+                              disabled={isCurrentUser}
+                              sx={{ color: colors.redAccent[400] }}
+                              onClick={() => !isCurrentUser && handleOpenDeleteConfirmDialog(row.userId, row.username)}
+                              title="Delete"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </Box>
       ) : (
         <Box
           mt={1.5}
@@ -1705,6 +2273,18 @@ function UserManagementPage() {
                   <DetailRow label="State Dept." value={u.stateDepartment || u.state_department} />
                   <DetailRow label="Agency" value={u.agencyName} />
                 </Grid>
+                {Array.isArray(u.organizationScopes) && u.organizationScopes.length > 0 && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
+                      Organization access scope
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                      {u.organizationScopes.map((s, idx) => (
+                        <Chip key={`vd-${idx}-${s.scopeType}-${s.agencyId || s.ministry || ''}`} label={scopeRowLabel(s)} size="small" sx={{ fontWeight: 600 }} />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
               </Box>
             );
           })()}
@@ -1729,13 +2309,15 @@ function UserManagementPage() {
       </Dialog>
 
       {/* Create/Edit User Dialog */}
-      <Dialog open={openUserDialog} onClose={handleCloseUserDialog} fullWidth maxWidth="sm">
+      <Dialog open={openUserDialog} onClose={handleCloseUserDialog} fullWidth maxWidth="md" scroll="paper">
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white', fontWeight: 700, fontSize: '1.25rem' }}>
           {currentUserToEdit ? 'Edit User' : 'Add New User'}
         </DialogTitle>
         <DialogContent 
           dividers 
           sx={{ 
+            maxHeight: { xs: '80vh', sm: '85vh' },
+            overflowY: 'auto',
             backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : '#f9fafb',
             '& .MuiFormLabel-root': {
               color: theme.palette.mode === 'dark' ? colors.grey[100] : '#374151',
@@ -1754,6 +2336,10 @@ function UserManagementPage() {
             },
           }}
         >
+          <Alert severity="info" icon={<AccountTreeIcon />} sx={{ mb: 2 }}>
+            <strong>Organization access</strong> is configured below (scroll down) or use the purple tree icon in the user table for a dedicated window.
+            Empty list on create uses the primary agency as the only scope.
+          </Alert>
           <TextField 
             autoFocus 
             margin="dense" 
@@ -2099,10 +2685,218 @@ function UserManagementPage() {
               />
             )}
           />
+
+          <Typography id="user-org-scope-section" variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1, mt: 1 }}>
+            Organization access (projects &amp; directories)
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
+            Users without the national bypass privilege only see projects and agencies matching these rules. If the list is empty on create, the primary agency above is used as a single-agency scope.
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
+              <InputLabel>Scope type</InputLabel>
+              <Select
+                label="Scope type"
+                value={newScopeType}
+                onChange={(e) => {
+                  setNewScopeType(e.target.value);
+                  setNewScopeAgency(null);
+                  setNewScopeMinistry(null);
+                  setNewScopeStateDept(null);
+                }}
+              >
+                <MenuItem value="AGENCY">Specific agency</MenuItem>
+                <MenuItem value="MINISTRY_ALL">All agencies in a ministry</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">All agencies in a state department</MenuItem>
+              </Select>
+            </FormControl>
+            {newScopeType === 'AGENCY' && (
+              <Autocomplete
+                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={agencies}
+                value={newScopeAgency}
+                onChange={(_, v) => setNewScopeAgency(v)}
+                getOptionLabel={(o) => o.agency_name || o.agencyName || ''}
+                loading={loadingAgencies}
+                renderInput={(params) => <TextField {...params} label="Agency" margin="dense" size="small" />}
+              />
+            )}
+            {newScopeType === 'MINISTRY_ALL' && (
+              <Autocomplete
+                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={ministries}
+                value={newScopeMinistry}
+                onChange={(_, v) => setNewScopeMinistry(v)}
+                renderInput={(params) => <TextField {...params} label="Ministry" margin="dense" size="small" />}
+              />
+            )}
+            {newScopeType === 'STATE_DEPARTMENT_ALL' && (
+              <>
+                <Autocomplete
+                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                  options={ministries}
+                  value={newScopeMinistry}
+                  onChange={(_, v) => {
+                    setNewScopeMinistry(v);
+                    setNewScopeStateDept(null);
+                  }}
+                  renderInput={(params) => <TextField {...params} label="Ministry" margin="dense" size="small" />}
+                />
+                <Autocomplete
+                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                  options={scopeBuilderStateDepartments}
+                  value={newScopeStateDept}
+                  onChange={(_, v) => setNewScopeStateDept(v)}
+                  disabled={!newScopeMinistry}
+                  renderInput={(params) => <TextField {...params} label="State department" margin="dense" size="small" />}
+                />
+              </>
+            )}
+            <Button variant="outlined" size="small" onClick={handleAddOrganizationScope} sx={{ height: 40 }}>
+              Add scope
+            </Button>
+          </Stack>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+            {organizationScopes.map((s, idx) => (
+              <Chip
+                key={`${s.scopeType}-${idx}-${s.agencyId || s.ministry || ''}`}
+                label={scopeRowLabel(s)}
+                onDelete={() => handleRemoveOrganizationScope(idx)}
+                size="small"
+                sx={{ fontWeight: 600 }}
+              />
+            ))}
+            {organizationScopes.length === 0 && (
+              <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
+                No extra scopes yet{!currentUserToEdit ? ' — primary agency will be used by default' : ''}.
+              </Typography>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>
           <Button onClick={handleCloseUserDialog} color="primary" variant="outlined">Cancel</Button>
           <Button onClick={handleUserSubmit} color="primary" variant="contained">{currentUserToEdit ? 'Update User' : 'Create User'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Organization access only (no full user form) */}
+      <Dialog
+        open={openStandaloneOrgDialog}
+        onClose={handleCloseStandaloneOrgDialog}
+        fullWidth
+        maxWidth="md"
+        scroll="paper"
+      >
+        <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AccountTreeIcon />
+          Organization access
+          {standaloneOrgUsername ? (
+            <Typography component="span" variant="subtitle1" sx={{ fontWeight: 600, ml: 0.5, opacity: 0.95 }}>
+              — {standaloneOrgUsername}
+            </Typography>
+          ) : null}
+        </DialogTitle>
+        <DialogContent
+          dividers
+          sx={{
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : '#f9fafb',
+            pt: 2,
+          }}
+        >
+          <Typography variant="body2" sx={{ mb: 2, color: colors.grey[200] }}>
+            Define which agencies, state departments, or whole ministries this user may access for projects and agency lists.
+            Users with the <strong>organization.scope_bypass</strong> privilege are not restricted. An empty list falls back to the user&apos;s primary agency on file.
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
+              <InputLabel>Scope type</InputLabel>
+              <Select
+                label="Scope type"
+                value={standaloneNewScopeType}
+                onChange={(e) => {
+                  setStandaloneNewScopeType(e.target.value);
+                  setStandaloneNewAgency(null);
+                  setStandaloneNewMinistry(null);
+                  setStandaloneNewStateDept(null);
+                }}
+              >
+                <MenuItem value="AGENCY">Specific agency</MenuItem>
+                <MenuItem value="MINISTRY_ALL">All agencies in a ministry</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">All agencies in a state department</MenuItem>
+              </Select>
+            </FormControl>
+            {standaloneNewScopeType === 'AGENCY' && (
+              <Autocomplete
+                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={agencies}
+                value={standaloneNewAgency}
+                onChange={(_, v) => setStandaloneNewAgency(v)}
+                getOptionLabel={(o) => o.agency_name || o.agencyName || ''}
+                loading={loadingAgencies}
+                renderInput={(params) => <TextField {...params} label="Agency" margin="dense" size="small" />}
+              />
+            )}
+            {standaloneNewScopeType === 'MINISTRY_ALL' && (
+              <Autocomplete
+                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={ministries}
+                value={standaloneNewMinistry}
+                onChange={(_, v) => setStandaloneNewMinistry(v)}
+                renderInput={(params) => <TextField {...params} label="Ministry" margin="dense" size="small" />}
+              />
+            )}
+            {standaloneNewScopeType === 'STATE_DEPARTMENT_ALL' && (
+              <>
+                <Autocomplete
+                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                  options={ministries}
+                  value={standaloneNewMinistry}
+                  onChange={(_, v) => {
+                    setStandaloneNewMinistry(v);
+                    setStandaloneNewStateDept(null);
+                  }}
+                  renderInput={(params) => <TextField {...params} label="Ministry" margin="dense" size="small" />}
+                />
+                <Autocomplete
+                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                  options={standaloneScopeStateDepartments}
+                  value={standaloneNewStateDept}
+                  onChange={(_, v) => setStandaloneNewStateDept(v)}
+                  disabled={!standaloneNewMinistry}
+                  renderInput={(params) => <TextField {...params} label="State department" margin="dense" size="small" />}
+                />
+              </>
+            )}
+            <Button variant="outlined" size="small" onClick={handleAddStandaloneScope} sx={{ height: 40 }}>
+              Add scope
+            </Button>
+          </Stack>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+            {standaloneScopes.map((s, idx) => (
+              <Chip
+                key={`st-${idx}-${s.scopeType}-${s.agencyId || s.ministry || ''}`}
+                label={scopeRowLabel(s)}
+                onDelete={() => handleRemoveStandaloneScope(idx)}
+                size="small"
+                sx={{ fontWeight: 600 }}
+              />
+            ))}
+            {standaloneScopes.length === 0 && (
+              <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
+                No explicit scopes — primary agency on the user record applies when the database has no rows here.
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, py: 1.5, backgroundColor: colors.primary[400] }}>
+          <Button onClick={handleCloseStandaloneOrgDialog} color="inherit" disabled={standaloneSaving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSaveStandaloneOrgScopes} color="primary" variant="contained" disabled={standaloneSaving || !standaloneOrgUserId}>
+            {standaloneSaving ? 'Saving…' : 'Save access'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -2603,7 +3397,13 @@ function UserManagementPage() {
       </Dialog>
 
       {/* Role Management Dialog */}
-      <Dialog open={openRoleManagementDialog} onClose={handleCloseRoleManagementDialog} fullWidth maxWidth="md">
+      <Dialog
+        open={openRoleManagementDialog}
+        onClose={handleCloseRoleManagementDialog}
+        fullWidth
+        maxWidth="md"
+        disableEnforceFocus={openRoleDialog}
+      >
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white' }}>
           Role Management
         </DialogTitle>
@@ -2658,43 +3458,65 @@ function UserManagementPage() {
       </Dialog>
       
       {/* Create/Edit Role Dialog */}
-      <Dialog open={openRoleDialog} onClose={handleCloseRoleDialog} fullWidth maxWidth="sm">
+      <Dialog open={openRoleDialog} onClose={handleCloseRoleDialog} fullWidth maxWidth="sm" disableEnforceFocus>
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white' }}>
           {currentRoleToEdit ? 'Edit Role' : 'Add New Role'}
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: colors.primary[400] }}>
-          <TextField autoFocus margin="dense" name="roleName" label="Role Name" type="text" fullWidth variant="outlined" value={roleFormData.roleName} onChange={handleRoleFormChange} error={!!roleFormErrors.roleName} helperText={roleFormErrors.roleName} disabled={!!currentRoleToEdit} sx={{ mb: 2 }} />
+          <TextField autoFocus={!currentRoleToEdit} margin="dense" name="roleName" label="Role Name" type="text" fullWidth variant="outlined" value={roleFormData.roleName} onChange={handleRoleFormChange} error={!!roleFormErrors.roleName} helperText={roleFormErrors.roleName} disabled={!!currentRoleToEdit} sx={{ mb: 2 }} />
           <TextField margin="dense" name="description" label="Description" type="text" fullWidth variant="outlined" value={roleFormData.description} onChange={handleRoleFormChange} sx={{ mb: 2 }} />
-          <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 120 }}>
-            <InputLabel id="privileges-label">Privileges</InputLabel>
-            <Select
-              labelId="privileges-label"
-              id="privileges-select"
-              name="privilegeIds"
-              multiple
-              value={roleFormData.privilegeIds}
-              onChange={handleRolePrivilegeMultiSelectChange}
-              input={<OutlinedInput id="select-multiple-chip" label="Privileges" />}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => {
-                    const privilege = privileges.find(p => String(p.privilegeId) === value);
-                    return <Chip key={value} label={privilege ? privilege.privilegeName : value} />;
-                  })}
-                </Box>
-              )}
-            >
-              {Object.keys(groupedPrivileges).map((groupName) => [
-                <ListSubheader key={groupName}>{groupName}</ListSubheader>,
-                groupedPrivileges[groupName].map((privilege) => (
-                  <MenuItem key={privilege.privilegeId} value={String(privilege.privilegeId)}>
-                    <Checkbox checked={roleFormData.privilegeIds.indexOf(String(privilege.privilegeId)) > -1} />
-                    <ListItemText primary={privilege.privilegeName} />
-                  </MenuItem>
-                ))
-              ])}
-            </Select>
-          </FormControl>
+          <Autocomplete
+            multiple
+            disableCloseOnSelect
+            options={privileges}
+            groupBy={(option) => {
+              const name = option.privilegeName || '';
+              const dot = name.indexOf('.');
+              return dot === -1 ? (name || 'Other') : name.slice(0, dot);
+            }}
+            getOptionLabel={(option) => option.privilegeName || String(option.privilegeId ?? '')}
+            isOptionEqualToValue={(a, b) => String(a.privilegeId) === String(b.privilegeId)}
+            value={privileges.filter((p) => roleFormData.privilegeIds.includes(String(p.privilegeId)))}
+            onChange={(event, newValue) => {
+              setRoleFormData((prev) => ({
+                ...prev,
+                privilegeIds: newValue.map((p) => String(p.privilegeId)),
+              }));
+            }}
+            filterOptions={(opts, state) => {
+              const q = state.inputValue.trim().toLowerCase();
+              if (!q) return opts;
+              return opts.filter((o) => {
+                const name = (o.privilegeName || '').toLowerCase();
+                const desc = String(o.description ?? '').toLowerCase();
+                const prefix = name.includes('.') ? name.slice(0, name.indexOf('.')).toLowerCase() : name;
+                return name.includes(q) || desc.includes(q) || prefix.includes(q);
+              });
+            }}
+            renderOption={(props, option, { selected }) => {
+              const { key, ...otherProps } = props;
+              return (
+                <li key={key} {...otherProps}>
+                  <Checkbox style={{ marginRight: 8 }} checked={selected} size="small" />
+                  {option.privilegeName}
+                </li>
+              );
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                margin="dense"
+                label="Privileges"
+                placeholder="Type to search, then pick from the list"
+                helperText="Search filters by name, prefix, or description"
+              />
+            )}
+            ListboxProps={{ style: { maxHeight: 360 } }}
+            slotProps={{
+              popper: { sx: { zIndex: (t) => t.zIndex.modal + 2 } },
+            }}
+            sx={{ mb: 1 }}
+          />
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>
           <Button onClick={handleCloseRoleDialog} color="primary" variant="outlined">Cancel</Button>
@@ -2703,7 +3525,13 @@ function UserManagementPage() {
       </Dialog>
 
       {/* Privilege Management Dialog */}
-      <Dialog open={openPrivilegeManagementDialog} onClose={handleClosePrivilegeManagementDialog} fullWidth maxWidth="md">
+      <Dialog
+        open={openPrivilegeManagementDialog}
+        onClose={handleClosePrivilegeManagementDialog}
+        fullWidth
+        maxWidth="md"
+        disableEnforceFocus={openPrivilegeDialog}
+      >
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white' }}>
           Privilege Management
         </DialogTitle>
@@ -2767,8 +3595,8 @@ function UserManagementPage() {
           <TextField margin="dense" name="description" label="Description" type="text" fullWidth variant="outlined" value={privilegeFormData.description} onChange={handlePrivilegeFormChange} sx={{ mb: 2 }} />
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>
-          <Button onClick={handleClosePrivilegeDialog} color="primary" variant="outlined" disabled={loading}>Cancel</Button>
-          <Button onClick={handlePrivilegeSubmit} color="primary" variant="contained" disabled={loading}>
+          <Button type="button" onClick={handleClosePrivilegeDialog} color="primary" variant="outlined" disabled={loading}>Cancel</Button>
+          <Button type="button" onClick={handlePrivilegeSubmit} color="primary" variant="contained" disabled={loading}>
             {loading ? 'Saving...' : (currentPrivilegeToEdit ? 'Update Privilege' : 'Create Privilege')}
           </Button>
         </DialogActions>

@@ -14,6 +14,7 @@ import {
   People as PeopleIcon
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext.jsx';
+import { isAdmin } from '../utils/privilegeUtils.js';
 import apiService from '../api';
 
 const PersonalDashboard = () => {
@@ -33,7 +34,7 @@ const PersonalDashboard = () => {
   const [loadingUsers, setLoadingUsers] = useState(false);
   
   // Check if user can approve users
-  const canApproveUsers = user?.roleName === 'admin' || hasPrivilege('user.update') || hasPrivilege('user.approve');
+  const canApproveUsers = isAdmin(user) || hasPrivilege('user.update') || hasPrivilege('user.approve');
 const fetchData = useCallback(async () => {
   console.log("Starting fetchData...");
   setLoading(true);

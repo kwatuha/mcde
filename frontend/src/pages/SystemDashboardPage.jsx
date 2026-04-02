@@ -9,6 +9,7 @@ import {
   LinearProgress,
   useTheme,
   Divider,
+  Stack,
   FormControl,
   InputLabel,
   Select,
@@ -23,6 +24,7 @@ import {
   ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
 import sectorsService from '../api/sectorsService';
+import projectService from '../api/projectService';
 import {
   Assessment as AssessmentIcon,
   Work as WorkIcon,
@@ -259,6 +261,13 @@ const SystemDashboardPage = () => {
   });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [sectors, setSectors] = useState([]);
+  const [jobsSnapshot, setJobsSnapshot] = useState({
+    summary: SAMPLE_JOBS_SUMMARY,
+    byCategory: SAMPLE_JOBS_BY_CATEGORY.map((row) => ({
+      name: row.category_name,
+      value: row.jobs_count,
+    })),
+  });
 
   useEffect(() => {
     const fetchSectors = async () => {
@@ -270,6 +279,29 @@ const SystemDashboardPage = () => {
       }
     };
     fetchSectors();
+  }, []);
+
+  useEffect(() => {
+    const fetchJobsSnapshot = async () => {
+      try {
+        const data = await projectService.analytics.getJobsSnapshot();
+        if (data && data.summary) {
+          setJobsSnapshot({
+            summary: {
+              totalJobs: Number(data.summary.totalJobs) || 0,
+              totalMale: Number(data.summary.totalMale) || 0,
+              totalFemale: Number(data.summary.totalFemale) || 0,
+              totalDirectJobs: Number(data.summary.totalDirectJobs) || 0,
+              totalIndirectJobs: Number(data.summary.totalIndirectJobs) || 0,
+            },
+            byCategory: Array.isArray(data.byCategory) ? data.byCategory : [],
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching jobs snapshot:', error);
+      }
+    };
+    fetchJobsSnapshot();
   }, []);
 
   const filteredProjects = useMemo(() => {
@@ -290,7 +322,7 @@ const SystemDashboardPage = () => {
     sitesByStatusChartData,
     projectsByFinancialYear,
     projectsByConstituency,
-    projectsBySubcounty,
+    projectsByCounty,
     projectsByDirectorate,
     projectsByBudgetSource,
     overallProgress,
@@ -311,7 +343,7 @@ const SystemDashboardPage = () => {
       absorptionRate,
       departments: distinctDepartments.size,
       wards: distinctWards.size,
-      jobs: SAMPLE_JOBS_SUMMARY.totalJobs,
+      jobs: jobsSnapshot.summary.totalJobs,
       sites: SAMPLE_SITES.length,
     };
 
@@ -327,7 +359,7 @@ const SystemDashboardPage = () => {
       color: STATUS_COLORS[name] || '#64748b',
     }));
 
-    // Absorption by sector (using sector field, fallback to department)
+    // Disbursement by sector (using sector field, fallback to department)
     const sectorMap = new Map();
     const sectorAliasMap = new Map();
     sectors.forEach((sector) => {
@@ -355,9 +387,15 @@ const SystemDashboardPage = () => {
     });
 
     // Jobs by category
-    const jobsChart = SAMPLE_JOBS_BY_CATEGORY.map((j, index) => ({
-      name: j.category_name,
-      value: j.jobs_count,
+    const jobsCategorySource = jobsSnapshot.byCategory.length > 0
+      ? jobsSnapshot.byCategory
+      : SAMPLE_JOBS_BY_CATEGORY.map((j) => ({
+          name: j.category_name,
+          value: j.jobs_count,
+        }));
+    const jobsChart = jobsCategorySource.map((j, index) => ({
+      name: j.name,
+      value: j.value,
       color: ['#3b82f6', '#22c55e', '#f97316'][index % 3],
     }));
 
@@ -393,13 +431,13 @@ const SystemDashboardPage = () => {
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
 
-    // Projects by Sub-county
-    const subcountyMap = new Map();
+    // Projects by County
+    const countyMap = new Map();
     filteredProjects.forEach((p) => {
-      const key = p['sub-county'] || 'Unknown';
-      subcountyMap.set(key, (subcountyMap.get(key) || 0) + 1);
+      const key = p.County || 'Unknown';
+      countyMap.set(key, (countyMap.get(key) || 0) + 1);
     });
-    const subcountyChart = Array.from(subcountyMap.entries())
+    const countyChart = Array.from(countyMap.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
 
@@ -449,13 +487,54 @@ const SystemDashboardPage = () => {
       sitesByStatusChartData: sitesChart,
       projectsByFinancialYear: fyChart,
       projectsByConstituency: constituencyChart,
-      projectsBySubcounty: subcountyChart,
+      projectsByCounty: countyChart,
       projectsByDirectorate: directorateChart,
       projectsByBudgetSource: budgetSourceChart,
       overallProgress: avgProgress,
       projectsByTimeline: timelineChart,
     };
-  }, [filteredProjects, sectors]);
+  }, [filteredProjects, sectors, jobsSnapshot]);
+
+  const executiveBrief = useMemo(() => {
+    const riskStatuses = new Set(['Delayed', 'Stalled', 'Suspended']);
+    const pipelineStatuses = new Set(['Not Started', 'Under Procurement']);
+    const progressStatuses = new Set(['In Progress', 'Ongoing', 'Completed']);
+
+    const atRiskProjects = filteredProjects.filter((p) => riskStatuses.has(p.Status || ''));
+    const pipelineProjects = filteredProjects.filter((p) => pipelineStatuses.has(p.Status || ''));
+    const onTrackProjects = filteredProjects.filter((p) => progressStatuses.has(p.Status || ''));
+    const completedProjects = filteredProjects.filter((p) => (p.Status || '') === 'Completed');
+
+    const totalProjects = Math.max(filteredProjects.length, 1);
+    const deliveryHealth = Math.round((onTrackProjects.length / totalProjects) * 100);
+    const completionRate = Math.round((completedProjects.length / totalProjects) * 100);
+
+    const disbursementGap = Math.max(0, (kpis.totalBudget || 0) - (kpis.totalDisbursed || 0));
+    const directJobsShare = jobsSnapshot.summary.totalJobs
+      ? Math.round((jobsSnapshot.summary.totalDirectJobs / jobsSnapshot.summary.totalJobs) * 100)
+      : 0;
+    const femaleJobsShare = jobsSnapshot.summary.totalJobs
+      ? Math.round((jobsSnapshot.summary.totalFemale / jobsSnapshot.summary.totalJobs) * 100)
+      : 0;
+
+    const topConstituency = projectsByConstituency?.[0];
+    const topCounty = projectsByCounty?.[0];
+    const topSector = [...(absorptionBySector || [])]
+      .sort((a, b) => (b.contracted || 0) - (a.contracted || 0))[0];
+
+    return {
+      deliveryHealth,
+      completionRate,
+      atRiskCount: atRiskProjects.length,
+      pipelineCount: pipelineProjects.length,
+      disbursementGap,
+      directJobsShare,
+      femaleJobsShare,
+      topConstituency,
+      topCounty,
+      topSector,
+    };
+  }, [filteredProjects, kpis.totalBudget, kpis.totalDisbursed, projectsByConstituency, projectsByCounty, absorptionBySector, jobsSnapshot]);
 
   return (
     <Box
@@ -492,7 +571,7 @@ const SystemDashboardPage = () => {
                 lineHeight: 1.2,
               }}
             >
-              Executive Dashboard
+              Summary Statistics
             </Typography>
             <Typography
               variant="body2"
@@ -553,28 +632,13 @@ const SystemDashboardPage = () => {
               }}
               onClick={() => navigate('/jobs-dashboard')}
             />
-            <Chip
-              label="Operations"
-              size="small"
-              sx={{
-                bgcolor: colors.blueAccent[600],
-                color: 'white',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.7rem',
-                height: 24,
-                '&:hover': { bgcolor: colors.blueAccent[700], transform: 'scale(1.05)' },
-                transition: 'all 0.2s ease',
-              }}
-              onClick={() => navigate('/operations-dashboard')}
-            />
           </Box>
         </Box>
 
         {/* Filters - Collapsible at Top */}
         <Card
           sx={{
-            borderRadius: 2,
+            borderRadius: '8px',
             bgcolor: theme.palette.mode === 'dark' ? colors.primary[400] : '#ffffff',
             mb: 1,
             border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
@@ -698,11 +762,11 @@ const SystemDashboardPage = () => {
       </Box>
 
       {/* KPI strip */}
-      <Grid container spacing={2.5} mb={3}>
+      <Grid container spacing={1.25} mb={1.5}>
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -711,10 +775,11 @@ const SystemDashboardPage = () => {
                 ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(104, 112, 250, 0.1)'
                 : '0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              height: '100%',
               position: 'relative',
               overflow: 'hidden',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
                   ? '0 12px 40px rgba(104, 112, 250, 0.3), 0 0 0 1px rgba(104, 112, 250, 0.2)'
                   : '0 8px 30px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.08)',
@@ -730,15 +795,15 @@ const SystemDashboardPage = () => {
               },
             }}
           >
-            <CardContent sx={{ p: 2.5 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <CardContent sx={{ p: 1.2, minHeight: 112, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
                 <Typography
                   variant="subtitle2"
                   sx={{
                     color: colors.grey[300],
                     fontWeight: 600,
                     textTransform: 'uppercase',
-                    fontSize: '0.7rem',
+                    fontSize: '0.62rem',
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -746,13 +811,13 @@ const SystemDashboardPage = () => {
                 </Typography>
                 <Box
                   sx={{
-                    p: 1.2,
-                    borderRadius: 2,
+                    p: 0.5,
+                    borderRadius: 1.5,
                     background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
                     boxShadow: `0 4px 12px ${colors.blueAccent[700]}40`,
                   }}
                 >
-                  <AssessmentIcon sx={{ color: 'white', fontSize: 22 }} />
+                  <AssessmentIcon sx={{ color: 'white', fontSize: 15 }} />
                 </Box>
               </Box>
               <Typography
@@ -761,7 +826,7 @@ const SystemDashboardPage = () => {
                   color: colors.grey[100],
                   fontWeight: 800,
                   mb: 0.5,
-                  fontSize: { xs: '1.75rem', md: '2rem' },
+                  fontSize: { xs: '1.2rem', md: '1.35rem' },
                 }}
               >
                 {kpis.totalProjects}
@@ -770,7 +835,8 @@ const SystemDashboardPage = () => {
                 variant="caption"
                 sx={{
                   color: colors.grey[400],
-                  fontSize: '0.8rem',
+                  fontSize: '0.68rem',
+                  display: { xs: 'none', md: 'flex' },
                   display: 'flex',
                   alignItems: 'center',
                   gap: 0.5,
@@ -785,21 +851,22 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
               border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
-                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(76, 206, 172, 0.1)'
+                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(104, 112, 250, 0.1)'
                 : '0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              height: '100%',
               position: 'relative',
               overflow: 'hidden',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(76, 206, 172, 0.3), 0 0 0 1px rgba(76, 206, 172, 0.2)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3), 0 0 0 1px rgba(104, 112, 250, 0.2)'
                   : '0 8px 30px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.08)',
               },
               '&::before': {
@@ -809,19 +876,19 @@ const SystemDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.greenAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
             }}
           >
-            <CardContent sx={{ p: 2.5 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <CardContent sx={{ p: 1.2, minHeight: 112, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
                 <Typography
                   variant="subtitle2"
                   sx={{
                     color: colors.grey[300],
                     fontWeight: 600,
                     textTransform: 'uppercase',
-                    fontSize: '0.7rem',
+                    fontSize: '0.62rem',
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -829,13 +896,13 @@ const SystemDashboardPage = () => {
                 </Typography>
                 <Box
                   sx={{
-                    p: 1.2,
-                    borderRadius: 2,
-                    background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.greenAccent[400]})`,
-                    boxShadow: `0 4px 12px ${colors.greenAccent[700]}40`,
+                    p: 0.5,
+                    borderRadius: 1.5,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 4px 12px ${colors.blueAccent[700]}40`,
                   }}
                 >
-                  <AttachMoneyIcon sx={{ color: 'white', fontSize: 22 }} />
+                  <AttachMoneyIcon sx={{ color: 'white', fontSize: 15 }} />
                 </Box>
               </Box>
               <Typography
@@ -844,7 +911,7 @@ const SystemDashboardPage = () => {
                   color: colors.grey[100],
                   fontWeight: 800,
                   mb: 0.5,
-                  fontSize: { xs: '1.25rem', md: '1.5rem' },
+                  fontSize: { xs: '0.95rem', md: '1.1rem' },
                 }}
               >
                 {formatCurrency(kpis.totalBudget)}
@@ -853,7 +920,8 @@ const SystemDashboardPage = () => {
                 variant="caption"
                 sx={{
                   color: colors.grey[400],
-                  fontSize: '0.8rem',
+                  fontSize: '0.68rem',
+                  display: { xs: 'none', md: 'block' },
                 }}
               >
                 Across all imported projects
@@ -865,21 +933,22 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.yellowAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
-                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(245, 158, 11, 0.1)'
+                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(104, 112, 250, 0.1)'
                 : '0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              height: '100%',
               position: 'relative',
               overflow: 'hidden',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(245, 158, 11, 0.3), 0 0 0 1px rgba(245, 158, 11, 0.2)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3), 0 0 0 1px rgba(104, 112, 250, 0.2)'
                   : '0 8px 30px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.08)',
               },
               '&::before': {
@@ -889,33 +958,33 @@ const SystemDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.yellowAccent[500]}, ${colors.yellowAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
             }}
           >
-            <CardContent sx={{ p: 2.5 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <CardContent sx={{ p: 1.2, minHeight: 112, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
                 <Typography
                   variant="subtitle2"
                   sx={{
                     color: colors.grey[300],
                     fontWeight: 600,
                     textTransform: 'uppercase',
-                    fontSize: '0.7rem',
+                    fontSize: '0.62rem',
                     letterSpacing: '0.5px',
                   }}
                 >
-                  Absorption Rate
+                  Disbursement Rate
                 </Typography>
                 <Box
                   sx={{
-                    p: 1.2,
-                    borderRadius: 2,
-                    background: `linear-gradient(135deg, ${colors.yellowAccent[600]}, ${colors.yellowAccent[400]})`,
-                    boxShadow: `0 4px 12px ${colors.yellowAccent[700]}40`,
+                    p: 0.5,
+                    borderRadius: 1.5,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 4px 12px ${colors.blueAccent[700]}40`,
                   }}
                 >
-                  <TimelineIcon sx={{ color: 'white', fontSize: 22 }} />
+                  <TimelineIcon sx={{ color: 'white', fontSize: 15 }} />
                 </Box>
               </Box>
               <Typography
@@ -923,8 +992,8 @@ const SystemDashboardPage = () => {
                 sx={{
                   color: colors.grey[100],
                   fontWeight: 800,
-                  mb: 1.5,
-                  fontSize: { xs: '1.75rem', md: '2rem' },
+                  mb: 1,
+                  fontSize: { xs: '1.2rem', md: '1.35rem' },
                 }}
               >
                 {kpis.absorptionRate}%
@@ -933,10 +1002,10 @@ const SystemDashboardPage = () => {
                 variant="determinate"
                 value={kpis.absorptionRate}
                 sx={{
-                  height: 8,
+                  height: 5,
                   borderRadius: 10,
                   bgcolor: colors.primary[300],
-                  mb: 1,
+                  mb: 0.75,
                   '& .MuiLinearProgress-bar': {
                     borderRadius: 10,
                     background:
@@ -953,10 +1022,11 @@ const SystemDashboardPage = () => {
                 variant="caption"
                 sx={{
                   color: colors.grey[400],
-                  fontSize: '0.8rem',
+                  fontSize: '0.68rem',
+                  display: { xs: 'none', md: 'block' },
                 }}
               >
-                Disbursed vs. contracted
+                Budget / Disbursed
               </Typography>
             </CardContent>
           </Card>
@@ -965,21 +1035,22 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.purpleAccent?.[700] || colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
-                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(168, 85, 247, 0.1)'
+                ? '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(104, 112, 250, 0.1)'
                 : '0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              height: '100%',
               position: 'relative',
               overflow: 'hidden',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(168, 85, 247, 0.3), 0 0 0 1px rgba(168, 85, 247, 0.2)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3), 0 0 0 1px rgba(104, 112, 250, 0.2)'
                   : '0 8px 30px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.08)',
               },
               '&::before': {
@@ -989,19 +1060,19 @@ const SystemDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.blueAccent[500]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
             }}
           >
-            <CardContent sx={{ p: 2.5 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <CardContent sx={{ p: 1.2, minHeight: 112, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
                 <Typography
                   variant="subtitle2"
                   sx={{
                     color: colors.grey[300],
                     fontWeight: 600,
                     textTransform: 'uppercase',
-                    fontSize: '0.7rem',
+                    fontSize: '0.62rem',
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -1009,13 +1080,13 @@ const SystemDashboardPage = () => {
                 </Typography>
                 <Box
                   sx={{
-                    p: 1.2,
-                    borderRadius: 2,
-                    background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.blueAccent[500]})`,
-                    boxShadow: `0 4px 12px ${colors.greenAccent[700]}40`,
+                    p: 0.5,
+                    borderRadius: 1.5,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 4px 12px ${colors.blueAccent[700]}40`,
                   }}
                 >
-                  <TrendingUpIcon sx={{ color: 'white', fontSize: 22 }} />
+                  <TrendingUpIcon sx={{ color: 'white', fontSize: 15 }} />
                 </Box>
               </Box>
               <Typography
@@ -1023,8 +1094,8 @@ const SystemDashboardPage = () => {
                 sx={{
                   color: colors.grey[100],
                   fontWeight: 800,
-                  mb: 1.5,
-                  fontSize: { xs: '1.75rem', md: '2rem' },
+                  mb: 1,
+                  fontSize: { xs: '1.2rem', md: '1.35rem' },
                 }}
               >
                 {overallProgress}%
@@ -1033,10 +1104,10 @@ const SystemDashboardPage = () => {
                 variant="determinate"
                 value={overallProgress}
                 sx={{
-                  height: 8,
+                  height: 5,
                   borderRadius: 10,
                   bgcolor: colors.primary[300],
-                  mb: 1,
+                  mb: 0.75,
                   '& .MuiLinearProgress-bar': {
                     borderRadius: 10,
                     background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.blueAccent[400]})`,
@@ -1048,11 +1119,96 @@ const SystemDashboardPage = () => {
                 variant="caption"
                 sx={{
                   color: colors.grey[400],
-                  fontSize: '0.8rem',
+                  fontSize: '0.68rem',
+                  display: { xs: 'none', md: 'block' },
                 }}
               >
                 Average completion across projects
               </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Executive briefing strip */}
+      <Grid container spacing={2} sx={{ mb: 2.5 }}>
+        <Grid item xs={12} md={7}>
+          <Card
+            sx={{
+              borderRadius: '8px',
+              background: theme.palette.mode === 'dark'
+                ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
+                : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
+            }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Typography sx={{ color: colors.grey[100], fontWeight: 700, mb: 1.2, fontSize: '0.95rem' }}>
+                Executive Briefing
+              </Typography>
+              <Box display="flex" gap={0.8} flexWrap="wrap" mb={1.2}>
+                <Chip size="small" label={`Delivery health: ${executiveBrief.deliveryHealth}%`} sx={{ bgcolor: colors.greenAccent[700], color: 'white', fontWeight: 700 }} />
+                <Chip size="small" label={`Completed: ${executiveBrief.completionRate}%`} sx={{ bgcolor: colors.blueAccent[700], color: 'white', fontWeight: 700 }} />
+                <Chip size="small" label={`At risk: ${executiveBrief.atRiskCount}`} sx={{ bgcolor: colors.redAccent[700], color: 'white', fontWeight: 700 }} />
+                <Chip size="small" label={`Pipeline: ${executiveBrief.pipelineCount}`} sx={{ bgcolor: colors.orange[700], color: 'white', fontWeight: 700 }} />
+              </Box>
+              <Box sx={{ mb: 1 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.4}>
+                  <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
+                    Budget / Disbursed
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.72rem' }}>
+                    {kpis.absorptionRate}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={kpis.absorptionRate}
+                  sx={{
+                    height: 7,
+                    borderRadius: 8,
+                    bgcolor: colors.primary[300],
+                    '& .MuiLinearProgress-bar': {
+                      background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.greenAccent[500]})`,
+                    },
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
+                Disbursement gap: <strong>{formatCurrency(executiveBrief.disbursementGap)}</strong> pending against current allocated budget.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={5}>
+          <Card
+            sx={{
+              borderRadius: '8px',
+              background: theme.palette.mode === 'dark'
+                ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
+                : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
+            }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Typography sx={{ color: colors.grey[100], fontWeight: 700, mb: 1.2, fontSize: '0.95rem' }}>
+                Cross-Dashboard Highlights
+              </Typography>
+              <Stack spacing={0.9}>
+                <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
+                  Top constituency: <strong>{executiveBrief.topConstituency?.name || 'N/A'}</strong> ({executiveBrief.topConstituency?.value || 0} projects)
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
+                  Top county: <strong>{executiveBrief.topCounty?.name || 'N/A'}</strong> ({executiveBrief.topCounty?.value || 0} projects)
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
+                  Largest sector envelope: <strong>{executiveBrief.topSector?.name || 'N/A'}</strong> ({formatCurrency(executiveBrief.topSector?.contracted || 0)})
+                </Typography>
+                <Box display="flex" gap={0.8} flexWrap="wrap" mt={0.2}>
+                  <Chip size="small" label={`Direct jobs: ${executiveBrief.directJobsShare}%`} sx={{ bgcolor: colors.greenAccent[700], color: 'white', fontWeight: 700 }} />
+                  <Chip size="small" label={`Female jobs: ${executiveBrief.femaleJobsShare}%`} sx={{ bgcolor: colors.purpleAccent ? colors.purpleAccent[500] : colors.blueAccent[700], color: 'white', fontWeight: 700 }} />
+                </Box>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>
@@ -1064,7 +1220,7 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} md={4}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1157,11 +1313,11 @@ const SystemDashboardPage = () => {
           </Card>
         </Grid>
 
-        {/* Absorption by department */}
+        {/* Disbursement by department */}
         <Grid item xs={12} md={4}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1199,7 +1355,7 @@ const SystemDashboardPage = () => {
                       fontSize: '1.1rem',
                     }}
                   >
-                    Absorption by Sector
+                    Disbursement by Sector
                   </Typography>
                   <Typography
                     variant="caption"
@@ -1208,7 +1364,7 @@ const SystemDashboardPage = () => {
                       fontSize: '0.75rem',
                     }}
                   >
-                    Contracted vs. disbursed (sample data)
+                    Allocated vs. disbursed (sample data)
                   </Typography>
                 </Box>
               </Box>
@@ -1267,7 +1423,7 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} md={4}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1314,7 +1470,7 @@ const SystemDashboardPage = () => {
                       fontSize: '0.75rem',
                     }}
                   >
-                    From Jobs feature (sample summary)
+                    From Jobs feature (database summary)
                   </Typography>
                 </Box>
               </Box>
@@ -1328,13 +1484,13 @@ const SystemDashboardPage = () => {
                     fontSize: { xs: '1.5rem', md: '1.75rem' },
                   }}
                 >
-                  {SAMPLE_JOBS_SUMMARY.totalJobs} jobs
+                  {jobsSnapshot.summary.totalJobs} jobs
                 </Typography>
                 <Box display="flex" gap={1} mt={1} flexWrap="wrap">
                   <Chip
                     size="small"
                     icon={<GroupIcon sx={{ fontSize: 14 }} />}
-                    label={`Male: ${SAMPLE_JOBS_SUMMARY.totalMale}`}
+                    label={`Male: ${jobsSnapshot.summary.totalMale}`}
                     sx={{
                       bgcolor: colors.blueAccent[600],
                       color: 'white',
@@ -1346,7 +1502,7 @@ const SystemDashboardPage = () => {
                   <Chip
                     size="small"
                     icon={<GroupIcon sx={{ fontSize: 14 }} />}
-                    label={`Female: ${SAMPLE_JOBS_SUMMARY.totalFemale}`}
+                    label={`Female: ${jobsSnapshot.summary.totalFemale}`}
                     sx={{
                       bgcolor: colors.purpleAccent ? colors.purpleAccent[500] : colors.greenAccent[600],
                       color: 'white',
@@ -1358,7 +1514,7 @@ const SystemDashboardPage = () => {
                   <Chip
                     size="small"
                     icon={<GroupIcon sx={{ fontSize: 14 }} />}
-                    label={`Direct: ${SAMPLE_JOBS_SUMMARY.totalDirectJobs}`}
+                    label={`Direct: ${jobsSnapshot.summary.totalDirectJobs}`}
                     sx={{
                       bgcolor: colors.greenAccent[600],
                       color: 'white',
@@ -1370,7 +1526,7 @@ const SystemDashboardPage = () => {
                   <Chip
                     size="small"
                     icon={<GroupIcon sx={{ fontSize: 14 }} />}
-                    label={`Indirect: ${SAMPLE_JOBS_SUMMARY.totalIndirectJobs}`}
+                    label={`Indirect: ${jobsSnapshot.summary.totalIndirectJobs}`}
                     sx={{
                       bgcolor: colors.yellowAccent ? colors.yellowAccent[600] : colors.blueAccent[500],
                       color: 'white',
@@ -1446,7 +1602,7 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} md={12}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1545,7 +1701,7 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1641,7 +1797,7 @@ const SystemDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',

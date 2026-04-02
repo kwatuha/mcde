@@ -20,6 +20,7 @@ import { SidebarProvider, useSidebar } from '../context/SidebarContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme } from "@mui/material";
+import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
 // ✨ Removed old theme system imports
 import Topbar from "./Topbar.jsx";
 import Sidebar from "./Sidebar.jsx";
@@ -48,6 +49,8 @@ function MainLayoutContent() {
   }
   
   const { token, user, logout, loading } = authContext || {};
+  const isAdminLike = isAdmin(user);
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const navigate = useNavigate();
   const location = useLocation();
   const { isCollapsed } = useSidebar();
@@ -64,10 +67,15 @@ function MainLayoutContent() {
   };
   
   useEffect(() => {
-    if (user && user.roleName === 'contractor' && location.pathname !== ROUTES.CONTRACTOR_DASHBOARD) {
+    if (user && normalizedRole === 'contractor' && location.pathname !== ROUTES.CONTRACTOR_DASHBOARD) {
         navigate(ROUTES.CONTRACTOR_DASHBOARD, { replace: true });
+        return;
     }
-  }, [location.pathname, user, navigate]);
+    const isExecutiveViewer = normalizedRole === 'executive_viewer' || normalizedRole === 'project_lead';
+    if (isExecutiveViewer && (location.pathname === ROUTES.DASHBOARD || location.pathname === '/dashboard')) {
+      navigate(ROUTES.SYSTEM_DASHBOARD, { replace: true });
+    }
+  }, [location.pathname, user, normalizedRole, navigate]);
 
   // Show loading state while auth is initializing
   if (loading) {
@@ -113,7 +121,7 @@ function MainLayoutContent() {
             
             <Box sx={{ display: 'flex', alignItems: 'center', minWidth: '180px' }}>
               <Typography variant="h6" noWrap component="div" sx={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em' }}>
-                GPRP
+                GPRIS
               </Typography>
             </Box>
             
@@ -173,7 +181,7 @@ function MainLayoutContent() {
           }}
         >
           {/* Ribbon-style top menu (experimental) */}
-          <RibbonMenu isAdmin={user?.roleName === 'admin'} />
+          <RibbonMenu isAdmin={isAdminLike} />
           <Box sx={{ 
             flex: 1,
             p: { xs: 0.75, sm: 1, md: 1.25 },

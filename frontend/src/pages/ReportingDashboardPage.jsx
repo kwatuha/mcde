@@ -433,7 +433,7 @@ const ReportingDashboardPage = () => {
                   dataKey="absorptionRate" 
                   stroke="#eab308" 
                   strokeWidth={2}
-                  name="% Absorption Rate"
+                  name="% Disbursement Rate"
                   dot={{ r: 4 }}
                 />
               </ComposedChart>

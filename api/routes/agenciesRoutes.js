@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const orgScope = require('../services/organizationScopeService');
+const privilege = require('../middleware/privilegeMiddleware');
 const multer = require('multer');
 let csv;
 try {
@@ -10,6 +12,8 @@ try {
 }
 const fs = require('fs');
 const path = require('path');
+
+const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -75,6 +79,19 @@ router.get('/', async (req, res) => {
             aliasColumnExists = false;
         }
 
+        const scopeUserId = getScopeUserId(req.user);
+        const scopePrivileges = req.user?.privileges || [];
+        let agencyScopeSql = '';
+        const agencyScopeParams = [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (scopeUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(scopePrivileges) && await orgScope.organizationScopeTableExists()) {
+            let scopeFrag = orgScope.buildAgenciesScopeFragment();
+            let pnum = 1;
+            scopeFrag = scopeFrag.replace(/\?/g, () => `$${pnum++}`);
+            agencyScopeSql = ` AND ${scopeFrag}`;
+            agencyScopeParams.push(...orgScope.projectScopeParamTriple(scopeUserId));
+        }
+
         let query = `
             SELECT 
                 id,
@@ -85,18 +102,19 @@ router.get('/', async (req, res) => {
                 created_at,
                 updated_at
             FROM agencies
-            WHERE voided = false
+            WHERE voided = false${agencyScopeSql}
         `;
-        const params = [];
+        const params = [...agencyScopeParams];
 
         if (search) {
+            const next = params.length + 1;
             const searchConditions = [
-                `agency_name ILIKE $${params.length + 1}`,
-                `ministry ILIKE $${params.length + 1}`,
-                `state_department ILIKE $${params.length + 1}`
+                `agency_name ILIKE $${next}`,
+                `ministry ILIKE $${next}`,
+                `state_department ILIKE $${next}`
             ];
             if (aliasColumnExists) {
-                searchConditions.push(`alias ILIKE $${params.length + 1}`);
+                searchConditions.push(`alias ILIKE $${next}`);
             }
             query += ` AND (${searchConditions.join(' OR ')})`;
             params.push(`%${search}%`);
@@ -106,16 +124,17 @@ router.get('/', async (req, res) => {
         params.push(limit, offset);
 
         // Get total count for pagination
-        let countQuery = 'SELECT COUNT(*) as total FROM agencies WHERE voided = false';
-        const countParams = [];
+        let countQuery = 'SELECT COUNT(*) as total FROM agencies WHERE voided = false' + agencyScopeSql;
+        const countParams = [...agencyScopeParams];
         if (search) {
+            const next = countParams.length + 1;
             const searchConditions = [
-                'agency_name ILIKE $1',
-                'ministry ILIKE $1',
-                'state_department ILIKE $1'
+                `agency_name ILIKE $${next}`,
+                `ministry ILIKE $${next}`,
+                `state_department ILIKE $${next}`
             ];
             if (aliasColumnExists) {
-                searchConditions.push('alias ILIKE $1');
+                searchConditions.push(`alias ILIKE $${next}`);
             }
             countQuery += ` AND (${searchConditions.join(' OR ')})`;
             countParams.push(`%${search}%`);

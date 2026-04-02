@@ -1,3 +1,6 @@
+# Local copy of live server nginx site (from scripts/sync-remote-nginx-gprs.sh pull)
+nginx/gprs.sites-available.working
+
 # Environment variables
 .env
 .env.local

@@ -60,7 +60,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 import { useSidebar } from '../context/SidebarContext.jsx';
 import { ROUTES } from '../configs/appConfig.js';
-import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
+import { getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
+import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
 import logo from '../assets/logo.png';
 import userProfilePicture from '../assets/user.png';
 
@@ -271,6 +272,8 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   
   const [selected, setSelected] = useState(location.pathname);
   const previousPathnameRef = useRef(location.pathname);
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const isAdminLike = isAdmin(user);
   
   // Memoize setSelected to prevent Item components from re-rendering unnecessarily
   const stableSetSelected = useCallback((value) => {
@@ -282,8 +285,8 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   
   // Get filtered menu categories
   const menuCategories = useMemo(() => {
-    return getFilteredMenuCategories(user?.roleName === 'admin', hasPrivilege, user);
-  }, [hasPrivilege, user]);
+    return getFilteredMenuCategories(isAdminLike, hasPrivilege, user);
+  }, [hasPrivilege, user, isAdminLike]);
   
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
@@ -302,7 +305,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
         // If both permission and roles are specified, user needs EITHER permission OR role (OR logic)
         if (submenu.permission && submenu.roles) {
           const hasPermission = hasPrivilege && hasPrivilege(submenu.permission);
-          const hasRole = user && submenu.roles.includes(user.roleName);
+          const hasRole = hasConfiguredRole(user, submenu.roles);
           // Show if user has permission OR role
           return hasPermission || hasRole;
         }
@@ -313,7 +316,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
         }
         
         // Check role-based visibility (if only roles are specified)
-        if (submenu.roles && user && !submenu.roles.includes(user.roleName)) {
+        if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) {
           return false;
         }
         
@@ -373,7 +376,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
     { title: "User Management", to: ROUTES.USER_MANAGEMENT, icon: <GroupIcon /> },
     // { title: "Workflow Management", to: ROUTES.WORKFLOW_MANAGEMENT, icon: <AccountTreeIcon />, privilege: () => hasPrivilege('project_workflow.read') },
     // { title: "Approval Levels", to: ROUTES.APPROVAL_LEVELS_MANAGEMENT, icon: <SettingsIcon />, privilege: () => hasPrivilege('approval_levels.read') },
-    // { title: "Feedback Management", to: ROUTES.FEEDBACK_MANAGEMENT, icon: <Comment />, privilege: () => hasPrivilege('feedback.respond') || user?.roleName === 'admin' },
+    // { title: "Feedback Management", to: ROUTES.FEEDBACK_MANAGEMENT, icon: <Comment />, privilege: () => hasPrivilege('feedback.respond') || isAdminLike },
     // { title: "Metadata Management", to: ROUTES.METADATA_MANAGEMENT, icon: <SettingsIcon /> }, // Hidden
     { title: "Contractor Management", to: ROUTES.CONTRACTOR_MANAGEMENT, icon: <BusinessIcon /> },
     // { title: "Proposed Projects", to: ROUTES.COUNTY_PROPOSED_PROJECTS, icon: <AssignmentIcon /> },
@@ -388,14 +391,14 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
 
   // Get all items for search
   const allItems = useMemo(() => {
-    if (user?.roleName === 'contractor') {
+    if (normalizedRole === 'contractor') {
       return contractorItems;
     }
-    if (user?.roleName === 'admin') {
+    if (isAdminLike) {
       return [...dashboardItems, ...reportingItems, ...managementItems, ...adminItems];
     }
     return [...dashboardItems, ...reportingItems, ...managementItems];
-  }, [user?.roleName]);
+  }, [normalizedRole, isAdminLike]);
 
   // Sidebar width based on collapsed state
   const expandedWidth = 200; // Width with labels

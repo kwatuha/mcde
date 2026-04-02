@@ -86,7 +86,7 @@ const ProjectGanttChart = ({ milestones = [], activities = [], projectName = 'Pr
     // Drawing functions
     const drawGrid = () => {
       ctx.fillStyle = '#333';
-      ctx.font = '12px Inter, sans-serif';
+      ctx.font = '12px Montserrat, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
@@ -152,14 +152,14 @@ const ProjectGanttChart = ({ milestones = [], activities = [], projectName = 'Pr
           }
           
           ctx.fillStyle = getProjectStatusTextColor(task.status) || '#fff';
-          ctx.font = 'bold 11px Inter, sans-serif';
+          ctx.font = 'bold 11px Montserrat, sans-serif';
           ctx.textAlign = 'center';
           const dateText = `${startDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`;
           if (barWidth > 80) ctx.fillText(dateText, barX + barWidth / 2, barY + barHeight / 2 + 1);
         }
 
         ctx.fillStyle = '#333';
-        ctx.font = '13px Inter, sans-serif';
+        ctx.font = '13px Montserrat, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         const taskLabel = task.taskName.length > 25 ? task.taskName.substring(0, 22) + '...' : task.taskName;
@@ -188,13 +188,13 @@ const ProjectGanttChart = ({ milestones = [], activities = [], projectName = 'Pr
           ctx.fill();
 
           ctx.fillStyle = '#666';
-          ctx.font = '10px Inter, sans-serif';
+          ctx.font = '10px Montserrat, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText(milestoneDate.toLocaleDateString(), milestoneX + barHeight / 2, milestoneY + barHeight + 10);
         }
 
         ctx.fillStyle = '#333';
-        ctx.font = '13px Inter, sans-serif';
+        ctx.font = '13px Montserrat, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         const milestoneLabel = milestone.milestoneName.length > 25 ? milestone.milestoneName.substring(0, 22) + '...' : milestone.milestoneName;
@@ -218,7 +218,7 @@ const ProjectGanttChart = ({ milestones = [], activities = [], projectName = 'Pr
         ctx.setLineDash([]);
         
         ctx.fillStyle = '#dc2626';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = '12px Montserrat, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Today', todayX, initialY - 25);
       }

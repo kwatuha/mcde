@@ -21,12 +21,7 @@
           "route": "JOBS_DASHBOARD"
         },
         {
-          "title": "Operations Dashboard",
-          "icon": "AssessmentIcon",
-          "route": "OPERATIONS_DASHBOARD"
-        },
-        {
-          "title": "Executive Dashboard",
+          "title": "Summary Statistics",
           "icon": "AnalyticsIcon",
           "route": "SYSTEM_DASHBOARD"
         },
@@ -52,6 +47,13 @@
           "icon": "AnalyticsIcon",
           "route": "PROJECT_ANALYTICS",
           "hidden": true
+        },
+        {
+          "title": "Projects by Organization",
+          "icon": "AnalyticsIcon",
+          "route": "PROJECTS_BY_ORGANIZATION",
+          "permission": "organization.scope_bypass",
+          "roles": ["admin", "super_admin", "super admin", "administrator"]
         }
       ]
     },

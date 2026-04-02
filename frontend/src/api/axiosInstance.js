@@ -52,8 +52,7 @@ axiosInstance.interceptors.response.use(
             localStorage.removeItem('jwtToken');
             
             // If we're not already on the login page, redirect to login
-            // Use the full path with basename /impes
-            const loginPath = '/impes/login';
+            const loginPath = '/login';
             if (window.location.pathname !== loginPath && !window.location.pathname.endsWith('/login')) {
                 window.location.href = loginPath;
             }

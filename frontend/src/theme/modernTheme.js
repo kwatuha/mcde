@@ -148,7 +148,7 @@ export const modernTheme = createTheme({
   
   typography: {
     fontFamily: [
-      'Inter',
+      'Montserrat',
       'Roboto',
       '-apple-system',
       'BlinkMacSystemFont',

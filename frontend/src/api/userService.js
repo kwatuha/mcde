@@ -180,7 +180,16 @@ const userService = {
 
   createPrivilege: async (privilegeData) => {
     try {
-      const response = await axiosInstance.post('/users/privileges', privilegeData);
+      const payload = {
+        privilegeName: privilegeData?.privilegeName != null ? String(privilegeData.privilegeName).trim() : '',
+        description:
+          privilegeData?.description != null && String(privilegeData.description).trim() !== ''
+            ? String(privilegeData.description).trim()
+            : '',
+      };
+      const response = await axiosInstance.post('/users/privileges', payload, {
+        headers: { 'Content-Type': 'application/json' },
+      });
       if (!response.data) {
         throw new Error('No data returned from privilege creation');
       }
@@ -231,9 +240,14 @@ const userService = {
   },
 
   // --- Role Privilege Management API Calls (kemri_role_privileges) ---
-  getRolePrivileges: async () => {
+  /** @param {string|number} [roleId] If set, only links for that role are returned (required for edit-role UI). */
+  getRolePrivileges: async (roleId) => {
     try {
-      const response = await axiosInstance.get('/users/role_privileges');
+      const params = {};
+      if (roleId != null && roleId !== '') {
+        params.roleId = roleId;
+      }
+      const response = await axiosInstance.get('/users/role_privileges', { params });
       return response.data;
     } catch (error) {
       console.error('Error fetching role privileges:', error);
@@ -253,7 +267,10 @@ const userService = {
 
   createRolePrivilege: async (roleId, privilegeId) => {
     try {
-      const response = await axiosInstance.post('/users/role_privileges', { role_id: roleId, privilege_id: privilegeId });
+      const response = await axiosInstance.post('/users/role_privileges', {
+        roleId: Number(roleId),
+        privilegeId: Number(privilegeId),
+      });
       return response.data;
     } catch (error) {
       console.error('Error creating role privilege:', error);

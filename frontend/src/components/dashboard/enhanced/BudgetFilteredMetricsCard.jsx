@@ -17,6 +17,7 @@ import {
 import { tokens } from '../../../pages/dashboard/theme';
 import FilteredDashboardComponent from '../FilteredDashboardComponent';
 import projectService from '../../../api/projectService';
+import { isAdmin } from '../../../utils/privilegeUtils.js';
 
 /**
  * Budget Filtered Metrics Card - Shows budget metrics filtered by user's budget access limits
@@ -188,7 +189,7 @@ const fetchBudgetMetricsData = async (user, accessConfig) => {
     } else if (accessConfig?.userWards?.length > 0) {
       // User has ward assignments
       projects = await projectService.getProjectsByWards(accessConfig.userWards);
-    } else if (user.roleName === 'admin') {
+    } else if (isAdmin(user)) {
       // Admin sees all projects
       projects = await projectService.getAllProjects();
     }

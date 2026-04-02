@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { tokens } from '../pages/dashboard/theme';
 import DatabaseDrivenTabbedDashboard from './DatabaseDrivenTabbedDashboard';
+import { normalizeRoleName } from '../utils/privilegeUtils.js';
 
 const DatabaseDashboardTest = () => {
   const theme = useTheme();
@@ -38,6 +39,7 @@ const DatabaseDashboardTest = () => {
   };
 
   const [currentUser, setCurrentUser] = useState(testUsers.admin);
+  const isSelectedUserAdmin = normalizeRoleName(currentUser?.role) === 'admin';
 
   // Mock dashboard data
   const mockDashboardData = {
@@ -94,12 +96,12 @@ const DatabaseDashboardTest = () => {
           
           <Box display="flex" gap={2} mb={2}>
             <Button
-              variant={currentUser.role === 'admin' ? 'contained' : 'outlined'}
+              variant={isSelectedUserAdmin ? 'contained' : 'outlined'}
               onClick={() => handleSwitchUser('admin')}
               sx={{ 
-                bgcolor: currentUser.role === 'admin' ? colors.redAccent?.[500] : 'transparent',
+                bgcolor: isSelectedUserAdmin ? colors.redAccent?.[500] : 'transparent',
                 borderColor: colors.redAccent?.[500],
-                color: currentUser.role === 'admin' ? 'white' : colors.redAccent?.[500]
+                color: isSelectedUserAdmin ? 'white' : colors.redAccent?.[500]
               }}
             >
               Admin User
@@ -170,7 +172,7 @@ const DatabaseDashboardTest = () => {
           <Alert severity="info" sx={{ mb: 3 }}>
             <Typography variant="body2">
               This dashboard is now driven by database configuration. 
-              {currentUser.role === 'admin' && ' Admin users see all tabs: Overview, Projects, Collaboration, Analytics.'}
+              {isSelectedUserAdmin && ' Admin users see all tabs: Overview, Projects, Collaboration, Analytics.'}
               {currentUser.role === 'contractor' && ' Contractor users see: Overview, Projects, Payments.'}
             </Typography>
           </Alert>

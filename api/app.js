@@ -67,8 +67,9 @@ const io = new Server(server, {
 // Handle preflight requests
 app.options('*', cors(corsOptions));
 
-// Increase JSON payload limit for large imports (metadata mapping checks)
-app.use(express.json({ limit: '50mb' }));
+// Increase JSON payload limit for large imports (metadata mapping checks).
+// strict: false allows any JSON value as root (some proxies/clients send odd payloads; avoids spurious 400 from body-parser).
+app.use(express.json({ limit: '50mb', strict: false }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

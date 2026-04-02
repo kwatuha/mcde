@@ -1,4 +1,18 @@
 import menuConfig from './menuConfig.json';
+import { normalizeRoleName } from '../utils/privilegeUtils.js';
+
+const ADMIN_ROLE_NAMES = new Set(['admin', 'mda_ict_admin', 'super_admin', 'administrator', 'ict_admin']);
+const EXECUTIVE_VIEWER_ROLE_NAMES = new Set(['executive_viewer', 'project_lead']);
+
+export const hasConfiguredRole = (user, roles) => {
+  if (!user || !Array.isArray(roles) || roles.length === 0) return false;
+  const userRole = normalizeRoleName(user.roleName || user.role);
+  const required = roles.map((r) => normalizeRoleName(r));
+  if (required.includes(userRole)) return true;
+  // Treat admin aliases as equivalent when a menu entry asks for any admin-like role.
+  if (ADMIN_ROLE_NAMES.has(userRole) && required.some((r) => ADMIN_ROLE_NAMES.has(r))) return true;
+  return false;
+};
 
 // Icon mapping for Material-UI icons
 export const ICON_MAP = {
@@ -35,7 +49,7 @@ export const getIconComponent = (iconName) => {
 
 // Filter menu categories based on user permissions and admin status
 export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, user = null) => {
-  return menuConfig.menuCategories.filter(category => {
+  const categories = menuConfig.menuCategories.filter(category => {
     // Filter out admin-only categories if user is not admin
     if (category.adminOnly && !isAdmin) {
       return false;
@@ -52,7 +66,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
       // If both permission and roles are specified, user needs EITHER permission OR role (OR logic)
       if (submenu.permission && submenu.roles) {
         const hasPermission = hasPrivilege && hasPrivilege(submenu.permission);
-        const hasRole = user && submenu.roles.includes(user.roleName);
+        const hasRole = hasConfiguredRole(user, submenu.roles);
         // Show if user has permission OR role
         return hasPermission || hasRole;
       }
@@ -63,13 +77,40 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
       }
       
       // Check role-based visibility (if only roles are specified)
-      if (submenu.roles && user && !submenu.roles.includes(user.roleName)) {
+      if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) {
         return false;
       }
       
       return true;
     })
   }));
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
+  if (!isExecutiveViewer) {
+    return categories;
+  }
+
+  // Executive Viewer: only Dashboard category and selected dashboard views.
+  const allowedDashboardRoutes = [
+    'SYSTEM_DASHBOARD',
+    'PROJECT_BY_STATUS_DASHBOARD',
+    'FINANCE_DASHBOARD',
+    'JOBS_DASHBOARD',
+  ];
+  const allowedSet = new Set(allowedDashboardRoutes);
+  return categories
+    .filter((category) => category.id === 'dashboard')
+    .map((category) => {
+      const filteredSubmenus = (category.submenus || [])
+        .filter((submenu) => !submenu.hidden && allowedSet.has(submenu.route))
+        .sort(
+          (a, b) =>
+            allowedDashboardRoutes.indexOf(a.route) - allowedDashboardRoutes.indexOf(b.route)
+        );
+      return { ...category, submenus: filteredSubmenus };
+    })
+    .filter((category) => (category.submenus || []).length > 0);
 };
 
 // Get menu configuration

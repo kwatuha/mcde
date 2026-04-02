@@ -15,6 +15,12 @@ import {
   MenuItem,
   Collapse,
   IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import {
   AttachMoney as AttachMoneyIcon,
@@ -30,9 +36,6 @@ import {
 } from '@mui/icons-material';
 import {
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   Tooltip as RechartsTooltip,
   Legend,
   BarChart,
@@ -169,7 +172,7 @@ const FinanceDashboardPage = () => {
       }
     });
 
-    // Absorption by Sector
+    // Disbursement by Sector
     const sectorMap = new Map();
     filteredProjects.forEach((p) => {
       // Try to get sector from various possible fields
@@ -191,7 +194,7 @@ const FinanceDashboardPage = () => {
       };
     });
 
-    // Absorption by Financial Year
+    // Disbursement by Financial Year
     const fyMap = new Map();
     filteredProjects.forEach((p) => {
       const key = p.financialYear || 'Unknown';
@@ -226,7 +229,7 @@ const FinanceDashboardPage = () => {
       color: row.source === 'County Revenue' ? '#3b82f6' : row.source === 'National Government' ? '#22c55e' : '#f97316',
     }));
 
-    // Top Under-Absorbing Projects
+    // Top Under-Disbursed Projects
     const underAbsorbing = filteredProjects.filter((p) => {
       const rate = p.budget > 0 ? (p.Disbursed / p.budget) * 100 : 0;
       return rate < 70;
@@ -307,14 +310,14 @@ const FinanceDashboardPage = () => {
                 lineHeight: 1.4,
               }}
             >
-              Financial performance analysis: Track budget allocation, absorption rates, funding sources, and identify under-performing projects.
+              Financial performance analysis: Track budget allocation, disbursement rates, funding sources, and identify under-performing projects.
             </Typography>
           </Box>
           <Button
             variant="outlined"
             size="small"
             startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-            onClick={() => navigate('/system-dashboard')}
+            onClick={() => navigate('/summary-statistics')}
             sx={{
               borderColor: colors.yellowAccent[500],
               color: colors.yellowAccent[500],
@@ -328,14 +331,14 @@ const FinanceDashboardPage = () => {
               },
             }}
           >
-            Executive Dashboard
+            Summary Statistics
           </Button>
         </Box>
 
         {/* Filters - Collapsible at Top */}
         <Card
           sx={{
-            borderRadius: 2,
+            borderRadius: '8px',
             bgcolor: theme.palette.mode === 'dark' ? colors.primary[400] : '#ffffff',
             mb: 1,
             border: `1px solid ${theme.palette.mode === 'dark' ? colors.yellowAccent[700] : 'rgba(0,0,0,0.08)'}`,
@@ -465,11 +468,11 @@ const FinanceDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 4px 16px rgba(0,0,0,0.3)'
                 : '0 2px 12px rgba(0,0,0,0.06)',
@@ -477,7 +480,7 @@ const FinanceDashboardPage = () => {
               '&:hover': {
                 transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 8px 24px rgba(76, 206, 172, 0.25)'
+                  ? '0 8px 24px rgba(104, 112, 250, 0.25)'
                   : '0 4px 20px rgba(0,0,0,0.1)',
               },
               '&::before': {
@@ -487,9 +490,10 @@ const FinanceDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.greenAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -510,8 +514,8 @@ const FinanceDashboardPage = () => {
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.greenAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.greenAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <AccountBalanceIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -545,7 +549,7 @@ const FinanceDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -555,7 +559,7 @@ const FinanceDashboardPage = () => {
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
                   ? '0 12px 40px rgba(104, 112, 250, 0.3)'
                   : '0 8px 30px rgba(0,0,0,0.12)',
@@ -570,6 +574,7 @@ const FinanceDashboardPage = () => {
                 background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -625,19 +630,19 @@ const FinanceDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.yellowAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 8px 32px rgba(0,0,0,0.4)'
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(245, 158, 11, 0.3)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3)'
                   : '0 8px 30px rgba(0,0,0,0.12)',
               },
               '&::before': {
@@ -647,9 +652,10 @@ const FinanceDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.yellowAccent[500]}, ${colors.yellowAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -664,14 +670,14 @@ const FinanceDashboardPage = () => {
                     letterSpacing: '0.5px',
                   }}
                 >
-                  Overall Absorption
+                  Overall Disbursement
                 </Typography>
                 <Box
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.yellowAccent[600]}, ${colors.yellowAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.yellowAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <TrendingUpIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -725,19 +731,19 @@ const FinanceDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.redAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 8px 32px rgba(0,0,0,0.4)'
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(219, 79, 74, 0.3)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3)'
                   : '0 8px 30px rgba(0,0,0,0.12)',
               },
               '&::before': {
@@ -747,9 +753,10 @@ const FinanceDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.redAccent[500]}, ${colors.redAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -764,14 +771,14 @@ const FinanceDashboardPage = () => {
                     letterSpacing: '0.5px',
                   }}
                 >
-                  Under-Absorbing
+                  Under-Disbursed
                 </Typography>
                 <Box
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.redAccent[600]}, ${colors.redAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.redAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <TrendingDownIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -796,7 +803,7 @@ const FinanceDashboardPage = () => {
                   fontSize: '0.7rem',
                 }}
               >
-                Projects below 70% absorption
+                Projects below 70% disbursement
               </Typography>
             </CardContent>
           </Card>
@@ -805,11 +812,11 @@ const FinanceDashboardPage = () => {
 
       {/* Charts Grid */}
       <Grid container spacing={2.5}>
-        {/* Absorption by Sector */}
+        {/* Disbursement by Sector */}
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -846,7 +853,7 @@ const FinanceDashboardPage = () => {
                       fontSize: '1.1rem',
                     }}
                   >
-                    Absorption by Sector
+                    Disbursement by Sector
                   </Typography>
                   <Typography
                     variant="caption"
@@ -894,11 +901,11 @@ const FinanceDashboardPage = () => {
           </Card>
         </Grid>
 
-        {/* Absorption by Financial Year */}
+        {/* Disbursement by Financial Year */}
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -935,7 +942,7 @@ const FinanceDashboardPage = () => {
                       fontSize: '1.1rem',
                     }}
                   >
-                    Absorption by Financial Year
+                    Disbursement by Financial Year
                   </Typography>
                   <Typography
                     variant="caption"
@@ -997,7 +1004,7 @@ const FinanceDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1047,54 +1054,88 @@ const FinanceDashboardPage = () => {
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ height: 320, mt: 1 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={financialData.sourceChart}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      innerRadius={40}
-                      paddingAngle={3}
-                      dataKey="budget"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      labelLine={false}
-                    >
-                      {financialData.sourceChart.map((entry, index) => (
-                        <Cell
-                          key={`source-${index}`}
-                          fill={entry.color}
-                          stroke={theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff'}
-                          strokeWidth={2}
-                        />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip
-                      formatter={(value) => formatCurrency(value)}
-                      contentStyle={{
-                        background: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
-                        border: `1px solid ${colors.blueAccent[700]}`,
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                      }}
-                    />
-                    <Legend
-                      wrapperStyle={{ paddingTop: '20px' }}
-                      iconType="circle"
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+              <Box sx={{ mt: 1 }}>
+                <TableContainer
+                  sx={{
+                    maxHeight: 320,
+                    border: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}`,
+                    borderRadius: '8px',
+                  }}
+                >
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>
+                          Source
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                          Allocated
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                          Disbursed
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                          Disbursement
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                          Share
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {[...financialData.sourceChart]
+                        .sort((a, b) => (b.budget || 0) - (a.budget || 0))
+                        .map((row, index) => {
+                          const share = financialData.totalBudget > 0 ? Math.round(((row.budget || 0) / financialData.totalBudget) * 100) : 0;
+                          return (
+                            <TableRow
+                              key={`${row.name}-${index}`}
+                              sx={{
+                                '&:nth-of-type(odd)': {
+                                  bgcolor: theme.palette.mode === 'dark' ? `${colors.primary[500]}44` : '#f9fafb',
+                                },
+                              }}
+                            >
+                              <TableCell sx={{ color: colors.grey[100], fontWeight: 600 }}>
+                                {row.name}
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: colors.grey[100] }}>
+                                {formatCurrency(row.budget)}
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: colors.grey[100] }}>
+                                {formatCurrency(row.disbursed)}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Chip
+                                  size="small"
+                                  label={`${row.absorption}%`}
+                                  sx={{
+                                    bgcolor: row.absorption >= 70 ? colors.greenAccent[600] : colors.orange[600],
+                                    color: 'white',
+                                    fontWeight: 700,
+                                    minWidth: 62,
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: colors.grey[100], fontWeight: 600 }}>
+                                {share}%
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Box>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Top Under-Absorbing Projects */}
+        {/* Top Under-Disbursed Projects */}
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 4,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1131,7 +1172,7 @@ const FinanceDashboardPage = () => {
                       fontSize: '1.1rem',
                     }}
                   >
-                    Under-Absorbing Projects
+                    Under-Disbursed Projects
                   </Typography>
                   <Typography
                     variant="caption"
@@ -1140,42 +1181,60 @@ const FinanceDashboardPage = () => {
                       fontSize: '0.75rem',
                     }}
                   >
-                    Projects with absorption below 70%
+                    Projects with disbursement below 70%
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ height: 320, mt: 1 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={financialData.underAbsorbing} margin={{ top: 10, right: 10, left: -20, bottom: 60 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}
-                    />
-                    <XAxis
-                      dataKey="name"
-                      angle={-30}
-                      textAnchor="end"
-                      interval={0}
-                      height={80}
-                      tick={{ fill: colors.grey[300], fontSize: 9 }}
-                    />
-                    <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} />
-                    <RechartsTooltip
-                      formatter={(value, name) => {
-                        if (name === 'absorption') return `${value}%`;
-                        return formatCurrency(value);
-                      }}
-                      contentStyle={{
-                        background: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
-                        border: `1px solid ${colors.redAccent[700]}`,
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="absorption" name="Absorption %" fill={colors.redAccent[500]} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <Box sx={{ mt: 1 }}>
+                {financialData.underAbsorbing.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: colors.grey[300], py: 2 }}>
+                    No under-disbursed projects for the selected filters.
+                  </Typography>
+                ) : (
+                  <TableContainer
+                    sx={{
+                      maxHeight: 320,
+                      border: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}`,
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursement</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursed</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Gap</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {financialData.underAbsorbing.map((row) => (
+                          <TableRow key={row.name} hover>
+                            <TableCell sx={{ maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                              {row.name}
+                            </TableCell>
+                            <TableCell align="right">
+                              <Chip
+                                size="small"
+                                label={`${row.absorption}%`}
+                                sx={{
+                                  bgcolor: row.absorption < 40 ? colors.redAccent[700] : colors.yellowAccent[700],
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  minWidth: 60,
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell align="right">{formatCurrency(row.budget)}</TableCell>
+                            <TableCell align="right">{formatCurrency(row.disbursed)}</TableCell>
+                            <TableCell align="right">{formatCurrency(Math.max(0, (row.budget || 0) - (row.disbursed || 0)))}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
               </Box>
             </CardContent>
           </Card>

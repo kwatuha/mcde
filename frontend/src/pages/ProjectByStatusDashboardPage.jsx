@@ -300,9 +300,10 @@ const STATUS_COLORS = {
   'Ongoing': '#2563eb',
   'Not Started': '#9ca3af',
   'Delayed': '#f97316',
-  'Stalled': '#dc2626',
+  'Stalled': '#f59e0b',
   'Under Procurement': '#9c27b0',
-  'Suspended': '#f44336',
+  'Suspended': '#dc2626',
+  'Other': '#14b8a6',
 };
 
 
@@ -315,6 +316,7 @@ const STATUS_ICONS = {
   'Stalled': WarningIcon,
   'Under Procurement': HourglassIcon,
   'Suspended': PauseIcon,
+  'Other': AssessmentIcon,
 };
 
 const formatCurrency = (value) =>
@@ -462,6 +464,10 @@ const ProjectByStatusDashboardPage = () => {
       return isLight
         ? 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)'
         : `linear-gradient(135deg, ${colors.yellowAccent[800]}, ${colors.yellowAccent[700]})`;
+    } else if (statusLower.includes('other')) {
+      return isLight
+        ? 'linear-gradient(135deg, #14b8a6 0%, #2dd4bf 100%)'
+        : `linear-gradient(135deg, ${colors.greenAccent[800]}, ${colors.greenAccent[700]})`;
     }
     return isLight
       ? 'linear-gradient(135deg, #9e9e9e 0%, #bdbdbd 100%)'
@@ -478,6 +484,8 @@ const ProjectByStatusDashboardPage = () => {
       return isLight ? '#616161' : colors.grey[500];
     } else if (statusLower.includes('stalled') || statusLower.includes('delayed')) {
       return isLight ? '#f57c00' : colors.yellowAccent[500];
+    } else if (statusLower.includes('other')) {
+      return isLight ? '#0f766e' : colors.greenAccent[500];
     }
     return isLight ? '#616161' : colors.grey[500];
   };
@@ -593,26 +601,6 @@ const ProjectByStatusDashboardPage = () => {
               Track project status distribution, trends, and breakdowns across departments, directorates, and geographic regions.
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<AssessmentIcon sx={{ fontSize: 16 }} />}
-            onClick={() => navigate('/operations-dashboard')}
-            sx={{
-              borderColor: colors.blueAccent[500],
-              color: colors.blueAccent[500],
-              fontSize: '0.8rem',
-              py: 0.5,
-              px: 1.5,
-              minWidth: 'auto',
-              '&:hover': {
-                borderColor: colors.blueAccent[400],
-                bgcolor: colors.blueAccent[600] + '20',
-              },
-            }}
-          >
-            Operations
-          </Button>
         </Box>
 
         {/* Filters - Collapsible at Top */}
@@ -671,7 +659,7 @@ const ProjectByStatusDashboardPage = () => {
           <Collapse in={filtersExpanded}>
             <CardContent sx={{ p: 1.5, pt: 0, '&:last-child': { pb: 1.5 } }}>
               <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                <FormControl size="small" sx={{ minWidth: 120 }}>
+                <FormControl size="small" sx={{ flex: 1, minWidth: 140 }}>
                   <InputLabel sx={{ fontSize: '0.75rem' }}>Department</InputLabel>
                   <Select
                     value={filters.department}
@@ -687,7 +675,7 @@ const ProjectByStatusDashboardPage = () => {
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 120 }}>
+                <FormControl size="small" sx={{ flex: 1, minWidth: 140 }}>
                   <InputLabel sx={{ fontSize: '0.75rem' }}>Directorate</InputLabel>
                   <Select
                     value={filters.directorate}
@@ -703,7 +691,7 @@ const ProjectByStatusDashboardPage = () => {
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 110 }}>
+                <FormControl size="small" sx={{ flex: 1, minWidth: 140 }}>
                   <InputLabel sx={{ fontSize: '0.75rem' }}>Financial Year</InputLabel>
                   <Select
                     value={filters.financialYear}
@@ -719,7 +707,7 @@ const ProjectByStatusDashboardPage = () => {
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 100 }}>
+                <FormControl size="small" sx={{ flex: 1, minWidth: 140 }}>
                   <InputLabel sx={{ fontSize: '0.75rem' }}>Status</InputLabel>
                   <Select
                     value={filters.status}
@@ -774,7 +762,7 @@ const ProjectByStatusDashboardPage = () => {
         >
           <Grid container spacing={1} sx={{ display: 'flex', flexWrap: 'nowrap', pb: 1 }}>
             {/* Completed */}
-            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
               <Card 
                 onClick={() => handleStatusClick('Completed')}
                 sx={{ 
@@ -789,7 +777,7 @@ const ProjectByStatusDashboardPage = () => {
                   cursor: 'pointer',
                   borderRadius: '8px',
                   '&:hover': {
-                    transform: 'translateY(-2px) scale(1.02)',
+                    transform: 'translateY(-2px)',
                     boxShadow: isLight ? '0 4px 12px rgba(76, 175, 80, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                   }
                 }}
@@ -814,7 +802,7 @@ const ProjectByStatusDashboardPage = () => {
             </Grid>
 
             {/* Ongoing */}
-            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
               <Card 
                 onClick={() => handleStatusClick('Ongoing')}
                 sx={{ 
@@ -829,7 +817,7 @@ const ProjectByStatusDashboardPage = () => {
                   cursor: 'pointer',
                   borderRadius: '8px',
                   '&:hover': {
-                    transform: 'translateY(-2px) scale(1.02)',
+                    transform: 'translateY(-2px)',
                     boxShadow: isLight ? '0 4px 12px rgba(33, 150, 243, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                   }
                 }}
@@ -854,7 +842,7 @@ const ProjectByStatusDashboardPage = () => {
             </Grid>
 
             {/* Not started */}
-            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
               <Card 
                 onClick={() => handleStatusClick('Not started')}
                 sx={{ 
@@ -869,7 +857,7 @@ const ProjectByStatusDashboardPage = () => {
                   cursor: 'pointer',
                   borderRadius: '8px',
                   '&:hover': {
-                    transform: 'translateY(-2px) scale(1.02)',
+                    transform: 'translateY(-2px)',
                     boxShadow: isLight ? '0 4px 12px rgba(158, 158, 158, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                   }
                 }}
@@ -894,7 +882,7 @@ const ProjectByStatusDashboardPage = () => {
             </Grid>
 
             {/* Stalled */}
-            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
               <Card 
                 onClick={() => handleStatusClick('Stalled')}
                 sx={{ 
@@ -909,7 +897,7 @@ const ProjectByStatusDashboardPage = () => {
                   cursor: 'pointer',
                   borderRadius: '8px',
                   '&:hover': {
-                    transform: 'translateY(-2px) scale(1.02)',
+                    transform: 'translateY(-2px)',
                     boxShadow: isLight ? '0 4px 12px rgba(255, 152, 0, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                   }
                 }}
@@ -935,7 +923,7 @@ const ProjectByStatusDashboardPage = () => {
 
             {/* Under Procurement */}
             {statusStats['Under Procurement'] > 0 && (
-              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
                 <Card 
                   onClick={() => handleStatusClick('Under Procurement')}
                   sx={{ 
@@ -950,7 +938,7 @@ const ProjectByStatusDashboardPage = () => {
                     cursor: 'pointer',
                     borderRadius: '8px',
                     '&:hover': {
-                      transform: 'translateY(-2px) scale(1.02)',
+                      transform: 'translateY(-2px)',
                       boxShadow: isLight ? '0 4px 12px rgba(156, 39, 176, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                     }
                   }}
@@ -977,7 +965,7 @@ const ProjectByStatusDashboardPage = () => {
 
             {/* Suspended */}
             {statusStats['Suspended'] > 0 && (
-              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '0 0 auto' }}>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
                 <Card 
                   onClick={() => handleStatusClick('Suspended')}
                   sx={{ 
@@ -992,7 +980,7 @@ const ProjectByStatusDashboardPage = () => {
                     cursor: 'pointer',
                     borderRadius: '8px',
                     '&:hover': {
-                      transform: 'translateY(-2px) scale(1.02)',
+                      transform: 'translateY(-2px)',
                       boxShadow: isLight ? '0 4px 12px rgba(244, 67, 54, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.25)',
                     }
                   }}
@@ -1043,7 +1031,7 @@ const ProjectByStatusDashboardPage = () => {
               },
             }}
           >
-            <CardContent sx={{ p: 1.5, pb: 0.5, '&:last-child': { pb: 0.5 } }}>
+            <CardContent sx={{ p: 1.5, pb: 0.5, border: 0, outline: 0, boxShadow: 'none', '&:last-child': { pb: 0.5 } }}>
               <Box display="flex" alignItems="center" gap={1} mb={0.75}>
                 <Box
                   sx={{
@@ -1235,7 +1223,6 @@ const ProjectByStatusDashboardPage = () => {
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 8px 32px rgba(0,0,0,0.4)'
                 : '0 4px 20px rgba(0,0,0,0.08)',
@@ -1320,7 +1307,7 @@ const ProjectByStatusDashboardPage = () => {
       </Box>
 
       {/* Detailed Status Table — full width */}
-      <Box sx={{ width: '100%' }}>
+      <Box sx={{ width: '100%', mt: '1.5rem' }}>
           <Card
             sx={{
               borderRadius: 4,
@@ -1335,197 +1322,39 @@ const ProjectByStatusDashboardPage = () => {
           >
             <CardContent sx={{ p: 1.5, pb: 0.5, '&:last-child': { pb: 0.5 } }}>
               <Box display="flex" alignItems="center" gap={1} mb={0.75}>
-                <Box
-                  sx={{
-                    p: 0.75,
-                    borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
-                  }}
-                >
+                <Box sx={{ p: 0.75, borderRadius: 1.5, background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})` }}>
                   <AssessmentIcon sx={{ color: 'white', fontSize: 18 }} />
                 </Box>
                 <Box>
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      color: colors.grey[100],
-                      fontWeight: 700,
-                      fontSize: '1rem',
-                    }}
-                  >
+                  <Typography variant="subtitle1" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '1rem' }}>
                     Status Summary Table
                   </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: colors.grey[400],
-                      fontSize: '0.7rem',
-                    }}
-                  >
+                  <Typography variant="caption" sx={{ color: colors.grey[400], fontSize: '0.7rem' }}>
                     Detailed breakdown by status
                   </Typography>
                 </Box>
               </Box>
-              <TableContainer 
-                component={Paper} 
-                sx={{ 
-                  bgcolor: 'transparent', 
-                  boxShadow: 'none',
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  border: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`,
-                }}
-              >
+              <TableContainer component={Paper} sx={{ bgcolor: 'transparent', boxShadow: 'none', borderRadius: 2, overflow: 'hidden', border: 0 }}>
                 <Table sx={{ minWidth: 650 }}>
                   <TableHead>
-                    <TableRow
-                      sx={{
-                        background: theme.palette.mode === 'dark'
-                          ? `linear-gradient(135deg, ${colors.blueAccent[800]} 0%, ${colors.blueAccent[700]} 100%)`
-                          : `linear-gradient(135deg, ${colors.blueAccent[50]} 0%, ${colors.greenAccent[50]} 100%)`,
-                        '& th': {
-                          borderBottom: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[200]}`,
-                          py: 1.5,
-                          px: 2,
-                        },
-                      }}
-                    >
-                      <TableCell sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Status
-                      </TableCell>
-                      <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Projects
-                      </TableCell>
-                      <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Percentage
-                      </TableCell>
-                      <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Budget
-                      </TableCell>
-                      <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Disbursed
-                      </TableCell>
-                      <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[800], fontWeight: 700, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Absorption
-                      </TableCell>
+                    <TableRow sx={{ '& th': { color: theme.palette.mode === 'dark' ? '#ffffff' : '#1f2937', fontWeight: 800 } }}>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="right">Projects</TableCell>
+                      <TableCell align="right">Percentage</TableCell>
+                      <TableCell align="right">Budget</TableCell>
+                      <TableCell align="right">Disbursed</TableCell>
+                      <TableCell align="right">Disbursement</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {statusData.statusChart.map((status, index) => (
-                      <TableRow 
-                        key={status.name} 
-                        hover
-                        sx={{
-                          backgroundColor: index % 2 === 0
-                            ? (theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)')
-                            : 'transparent',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            backgroundColor: theme.palette.mode === 'dark'
-                              ? 'rgba(255, 255, 255, 0.08)'
-                              : 'rgba(0, 0, 0, 0.05)',
-                            transform: 'translateX(4px)',
-                            boxShadow: theme.palette.mode === 'dark'
-                              ? '0 2px 8px rgba(0,0,0,0.3)'
-                              : '0 2px 8px rgba(0,0,0,0.1)',
-                          },
-                          '& td': {
-                            borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`,
-                            py: 1.5,
-                            px: 2,
-                          },
-                        }}
-                      >
-                        <TableCell>
-                          <Chip
-                            label={status.name}
-                            size="small"
-                            sx={{
-                              bgcolor: status.color,
-                              color: 'white',
-                              fontWeight: 600,
-                              fontSize: '0.75rem',
-                              height: 24,
-                              boxShadow: `0 2px 4px rgba(0,0,0,0.2)`,
-                              '&:hover': {
-                                boxShadow: `0 4px 8px rgba(0,0,0,0.3)`,
-                                transform: 'scale(1.05)',
-                              },
-                              transition: 'all 0.2s ease',
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell align="right" sx={{ 
-                          color: theme.palette.text.primary, 
-                          fontWeight: 700, 
-                          fontSize: '0.9rem' 
-                        }}>
-                          {status.count}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Box
-                            component="span"
-                            sx={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 0.5,
-                              px: 1.5,
-                              py: 0.5,
-                              borderRadius: 1,
-                              bgcolor: theme.palette.mode === 'dark' 
-                                ? 'rgba(255,255,255,0.25)' 
-                                : 'rgba(0,0,0,0.15)',
-                              color: theme.palette.text.primary,
-                              fontWeight: 700,
-                              fontSize: '0.875rem',
-                              border: theme.palette.mode === 'dark'
-                                ? `1px solid rgba(255,255,255,0.15)`
-                                : `1px solid rgba(0,0,0,0.15)`,
-                            }}
-                          >
-                            {status.percentage}%
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right" sx={{ 
-                          color: theme.palette.text.primary, 
-                          fontSize: '0.875rem', 
-                          fontFamily: 'monospace', 
-                          fontWeight: 700 
-                        }}>
-                          {formatCurrency(status.budget)}
-                        </TableCell>
-                        <TableCell align="right" sx={{ 
-                          color: theme.palette.text.primary, 
-                          fontSize: '0.875rem', 
-                          fontFamily: 'monospace', 
-                          fontWeight: 700 
-                        }}>
-                          {formatCurrency(status.disbursed)}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Box
-                            component="span"
-                            sx={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 0.5,
-                              px: 1.5,
-                              py: 0.5,
-                              borderRadius: 1.5,
-                              fontWeight: 700,
-                              fontSize: '0.875rem',
-                              bgcolor: status.absorptionRate >= 80
-                                ? (theme.palette.mode === 'dark' ? colors.greenAccent[700] : colors.greenAccent[500])
-                                : status.absorptionRate >= 50
-                                ? (theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500])
-                                : (theme.palette.mode === 'dark' ? colors.redAccent[700] : colors.redAccent[500]),
-                              color: 'white',
-                              boxShadow: `0 2px 4px rgba(0,0,0,0.2)`,
-                            }}
-                          >
-                            {status.absorptionRate}%
-                          </Box>
-                        </TableCell>
+                      <TableRow key={status.name} sx={{ backgroundColor: index % 2 === 0 ? (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)') : 'transparent' }}>
+                        <TableCell><Chip label={status.name} size="small" sx={{ bgcolor: status.color, color: 'white', fontWeight: 700 }} /></TableCell>
+                        <TableCell align="right">{status.count}</TableCell>
+                        <TableCell align="right">{status.percentage}%</TableCell>
+                        <TableCell align="right">{formatCurrency(status.budget)}</TableCell>
+                        <TableCell align="right">{formatCurrency(status.disbursed)}</TableCell>
+                        <TableCell align="right">{status.absorptionRate}%</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1623,122 +1452,24 @@ const ProjectByStatusDashboardPage = () => {
               <Table stickyHeader>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Project Name
-                    </TableCell>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Status
-                    </TableCell>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Department
-                    </TableCell>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Directorate
-                    </TableCell>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Budget
-                    </TableCell>
-                    <TableCell sx={{ 
-                      fontWeight: 700, 
-                      bgcolor: isLight ? colors.grey[50] : colors.primary[600],
-                      color: isLight ? colors.grey[900] : colors.grey[100],
-                    }}>
-                      Actions
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Project Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Department</TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Directorate</TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Budget</TableCell>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: isLight ? colors.grey[50] : colors.primary[600], color: isLight ? colors.grey[900] : colors.grey[100] }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {statusProjects.map((project) => (
-                    <TableRow 
-                      key={project.id || project.projectName} 
-                      hover
-                      sx={{
-                        '&:nth-of-type(even)': {
-                          bgcolor: isLight ? colors.grey[25] : colors.primary[500],
-                        },
-                        '&:hover': {
-                          bgcolor: isLight ? colors.blueAccent[50] : colors.blueAccent[800],
-                        }
-                      }}
-                    >
+                  {statusProjects.map((project, idx) => (
+                    <TableRow key={project.id || `${project.projectName}-${idx}`} hover>
+                      <TableCell><Typography variant="body2" sx={{ fontWeight: 500 }}>{project.projectName || project.project_name || 'Untitled Project'}</Typography></TableCell>
+                      <TableCell><Chip label={project.Status || project.status || 'Unknown'} size="small" sx={{ bgcolor: colors.blueAccent[700], color: 'white', fontSize: '0.7rem', fontWeight: 600 }} /></TableCell>
+                      <TableCell><Typography variant="body2">{project.department || project.departmentName || project.department_name || 'N/A'}</Typography></TableCell>
+                      <TableCell><Typography variant="body2">{project.directorate || project.directorateName || project.directorate_name || 'N/A'}</Typography></TableCell>
+                      <TableCell><Typography variant="body2" sx={{ fontWeight: 500 }}>{project.budget || project.costOfProject || project.cost_of_project ? formatCurrency(project.budget || project.costOfProject || project.cost_of_project) : 'N/A'}</Typography></TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {project.projectName || project.project_name || 'Untitled Project'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={project.Status || project.status || 'Unknown'}
-                          size="small"
-                          sx={{
-                            bgcolor: isLight 
-                              ? (project.Status?.toLowerCase().includes('completed') ? '#4caf50' :
-                                 project.Status?.toLowerCase().includes('ongoing') ? '#2196f3' :
-                                 project.Status?.toLowerCase().includes('stalled') ? '#ff9800' :
-                                 '#9e9e9e')
-                              : colors.blueAccent[700],
-                            color: 'white',
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {project.department || project.departmentName || project.department_name || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {project.directorate || project.directorateName || project.directorate_name || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {project.budget || project.costOfProject || project.cost_of_project 
-                            ? formatCurrency(project.budget || project.costOfProject || project.cost_of_project)
-                            : 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => {
-                            setStatusModalOpen(false);
-                            navigate(`${ROUTES.PROJECTS}/${project.id || project.projectName}`);
-                          }}
-                          sx={{ 
-                            textTransform: 'none', 
-                            fontSize: '0.75rem',
-                            borderColor: colors.blueAccent[500],
-                            color: colors.blueAccent[600],
-                            '&:hover': {
-                              bgcolor: colors.blueAccent[50],
-                              borderColor: colors.blueAccent[600],
-                            }
-                          }}
-                        >
+                        <Button size="small" variant="outlined" onClick={() => { setStatusModalOpen(false); navigate(`${ROUTES.PROJECTS}/${project.id || project.projectName}`); }} sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: colors.blueAccent[500], color: colors.blueAccent[600] }}>
                           View Details
                         </Button>
                       </TableCell>

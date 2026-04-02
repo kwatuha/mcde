@@ -19,6 +19,7 @@ import {
 import { tokens } from '../../../pages/dashboard/theme';
 import FilteredDashboardComponent from '../FilteredDashboardComponent';
 import projectService from '../../../api/projectService';
+import { isAdmin } from '../../../utils/privilegeUtils.js';
 
 /**
  * Regional Projects Card - Shows projects filtered by user's ward/subcounty assignments
@@ -146,7 +147,7 @@ const fetchRegionalProjectsData = async (user, accessConfig) => {
     }
     
     // If admin or no specific assignments, return all projects
-    if (user.roleName === 'admin') {
+    if (isAdmin(user)) {
       const projects = await projectService.getAllProjects();
       return projects;
     }

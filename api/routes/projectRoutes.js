@@ -3,9 +3,13 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const pool = require('../config/db'); // Import the database connection pool
+const orgScope = require('../services/organizationScopeService');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const { addStatusFilter } = require('../utils/statusFilterHelper');
+const privilege = require('../middleware/privilegeMiddleware');
+
+const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
 
 // --- Consolidated Imports for All Sub-Routers ---
 const appointmentScheduleRoutes = require('./appointmentScheduleRoutes');
@@ -2441,6 +2445,325 @@ router.get('/directorate-counts', async (req, res) => {
 });
 
 /**
+ * @route GET /api/projects/organization-distribution
+ * @description Aggregated project distribution by organization level (ministry/state_department/agency)
+ * @query level - organization level: ministry | state_department | agency (default agency)
+ * @query status - optional project status filter
+ * @query limit - max rows (default 100, max 500)
+ */
+router.get('/organization-distribution', async (req, res) => {
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const level = String(req.query.level || 'agency').toLowerCase();
+        const status = req.query.status ? String(req.query.status) : '';
+        const limitRaw = parseInt(String(req.query.limit || 100), 10);
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 100;
+
+        const safeLevel = ['ministry', 'state_department', 'agency'].includes(level) ? level : 'agency';
+
+        const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
+        const queryParams = [];
+
+        // Enforce organization visibility unless user has bypass privilege.
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
+                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+            }
+        }
+
+        if (status) {
+            if (DB_TYPE === 'postgresql') {
+                whereConditions.push("p.progress->>'status' ILIKE ?");
+            } else {
+                whereConditions.push('p.status LIKE ?');
+            }
+            queryParams.push(`%${status}%`);
+        }
+
+        let sqlQuery = '';
+        if (DB_TYPE === 'postgresql') {
+            const ministryExpr = "COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned')";
+            const stateExpr = "COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')";
+            const agencyExpr = "COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned')";
+            let selectMinistry = `${ministryExpr} AS "ministry"`;
+            let selectState = `${stateExpr} AS "stateDepartment"`;
+            let selectAgency = `${agencyExpr} AS "agency"`;
+            let groupByExpr = `${ministryExpr}, ${stateExpr}, ${agencyExpr}`;
+
+            if (safeLevel === 'ministry') {
+                selectState = "'All' AS \"stateDepartment\"";
+                selectAgency = "'All' AS \"agency\"";
+                groupByExpr = ministryExpr;
+            } else if (safeLevel === 'state_department') {
+                selectAgency = "'All' AS \"agency\"";
+                groupByExpr = `${ministryExpr}, ${stateExpr}`;
+            }
+
+            sqlQuery = `
+                SELECT
+                    ${selectMinistry},
+                    ${selectState},
+                    ${selectAgency},
+                    COUNT(p.project_id)::int AS "projectCount",
+                    COALESCE(SUM(COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)), 0) AS "allocatedBudget",
+                    COALESCE(SUM(COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)), 0) AS "disbursedBudget"
+                FROM projects p
+                WHERE ${whereConditions.join(' AND ')}
+                GROUP BY ${groupByExpr}
+                ORDER BY "projectCount" DESC, "ministry", "stateDepartment", "agency"
+                LIMIT ${limit}
+            `;
+        } else {
+            // MySQL fallback (legacy schema lacks ministry/state_department on projects table)
+            const ministryExpr = "'Unassigned'";
+            const stateExpr = "'Unassigned'";
+            const agencyExpr = "COALESCE(NULLIF(TRIM(p.directorate), ''), 'Unassigned')";
+            const groupByExpr = agencyExpr;
+            sqlQuery = `
+                SELECT
+                    ${ministryExpr} AS ministry,
+                    ${stateExpr} AS stateDepartment,
+                    ${agencyExpr} AS agency,
+                    COUNT(p.id) AS projectCount,
+                    COALESCE(SUM(p.costOfProject), 0) AS allocatedBudget,
+                    COALESCE(SUM(p.paidOut), 0) AS disbursedBudget
+                FROM kemri_projects p
+                WHERE ${whereConditions.join(' AND ')}
+                GROUP BY ${groupByExpr}
+                ORDER BY projectCount DESC, agency
+                LIMIT ${limit}
+            `;
+        }
+
+        const result = await pool.execute(sqlQuery, queryParams);
+        const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
+        const data = Array.isArray(rows) ? rows : [rows];
+        res.status(200).json(data);
+    } catch (error) {
+        console.error('Error fetching project organization distribution:', error);
+        res.status(500).json({ message: 'Error fetching project organization distribution', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/organization-projects
+ * @description List projects for a selected organization bucket (for dashboard modal drill-down)
+ * @query ministry - optional exact ministry
+ * @query stateDepartment - optional exact state department
+ * @query agency - optional exact implementing agency
+ * @query limit - optional max rows (default 300, max 1000)
+ */
+router.get('/organization-projects', async (req, res) => {
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const ministry = req.query.ministry ? String(req.query.ministry).trim() : '';
+        const stateDepartment = req.query.stateDepartment ? String(req.query.stateDepartment).trim() : '';
+        const agency = req.query.agency ? String(req.query.agency).trim() : '';
+        const limitRaw = parseInt(String(req.query.limit || 300), 10);
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 1000)) : 300;
+
+        const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
+        const queryParams = [];
+
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
+                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+            }
+        }
+
+        if (ministry && ministry.toLowerCase() !== 'all') {
+            if (DB_TYPE === 'postgresql') {
+                whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+            } else {
+                whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+            }
+            queryParams.push(ministry);
+        }
+        if (stateDepartment && stateDepartment.toLowerCase() !== 'all') {
+            whereConditions.push("LOWER(TRIM(COALESCE(p.state_department, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+            queryParams.push(stateDepartment);
+        }
+        if (agency && agency.toLowerCase() !== 'all') {
+            const agencyColumn = DB_TYPE === 'postgresql' ? 'p.implementing_agency' : 'p.directorate';
+            whereConditions.push(`LOWER(TRIM(COALESCE(${agencyColumn}, ''))) = LOWER(TRIM(COALESCE(?, '')))`); 
+            queryParams.push(agency);
+        }
+
+        let sqlQuery = '';
+        if (DB_TYPE === 'postgresql') {
+            sqlQuery = `
+                SELECT
+                    p.project_id AS id,
+                    p.name AS "projectName",
+                    COALESCE(p.progress->>'status', 'Unknown') AS status,
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry,
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "stateDepartment",
+                    COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS agency,
+                    COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0) AS "allocatedBudget",
+                    COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0) AS "disbursedBudget",
+                    p.updated_at AS "updatedAt"
+                FROM projects p
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY p.updated_at DESC, p.project_id DESC
+                LIMIT ${limit}
+            `;
+        } else {
+            sqlQuery = `
+                SELECT
+                    p.id,
+                    p.projectName,
+                    COALESCE(p.status, 'Unknown') AS status,
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry,
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS stateDepartment,
+                    COALESCE(NULLIF(TRIM(p.directorate), ''), 'Unassigned') AS agency,
+                    COALESCE(p.costOfProject, 0) AS allocatedBudget,
+                    COALESCE(p.paidOut, 0) AS disbursedBudget,
+                    p.updatedAt
+                FROM kemri_projects p
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY p.updatedAt DESC, p.id DESC
+                LIMIT ${limit}
+            `;
+        }
+
+        const result = await pool.execute(sqlQuery, queryParams);
+        const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
+        res.status(200).json(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+        console.error('Error fetching organization projects:', error);
+        res.status(500).json({ message: 'Error fetching organization projects', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/jobs-snapshot
+ * @description Aggregated jobs totals and category breakdown for dashboard cards.
+ */
+router.get('/jobs-snapshot', async (req, res) => {
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
+        const queryParams = [];
+
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
+                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+            }
+        }
+
+        if (DB_TYPE === 'postgresql') {
+            const tableCheckQuery = `
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'project_jobs'
+                ) AS exists
+            `;
+            const tableCheck = await pool.query(tableCheckQuery);
+            const tableExists = tableCheck.rows?.[0]?.exists || false;
+            if (!tableExists) {
+                return res.status(200).json({
+                    summary: { totalJobs: 0, totalMale: 0, totalFemale: 0, totalDirectJobs: 0, totalIndirectJobs: 0 },
+                    byCategory: [],
+                });
+            }
+        }
+
+        const summaryQuery = DB_TYPE === 'postgresql'
+            ? `
+                SELECT
+                    COALESCE(SUM(j.jobs_count), 0)::int AS "totalJobs",
+                    COALESCE(SUM(j.male_count), 0)::int AS "totalMale",
+                    COALESCE(SUM(j.female_count), 0)::int AS "totalFemale",
+                    COALESCE(SUM(j.direct_jobs), 0)::int AS "totalDirectJobs",
+                    COALESCE(SUM(j.indirect_jobs), 0)::int AS "totalIndirectJobs"
+                FROM project_jobs j
+                INNER JOIN projects p ON p.project_id = j.project_id
+                WHERE j.voided = false AND ${whereConditions.join(' AND ')}
+            `
+            : `
+                SELECT
+                    COALESCE(SUM(j.jobs_count), 0) AS totalJobs,
+                    COALESCE(SUM(j.male_count), 0) AS totalMale,
+                    COALESCE(SUM(j.female_count), 0) AS totalFemale,
+                    COALESCE(SUM(j.direct_jobs), 0) AS totalDirectJobs,
+                    COALESCE(SUM(j.indirect_jobs), 0) AS totalIndirectJobs
+                FROM project_jobs j
+                INNER JOIN kemri_projects p ON p.id = j.project_id
+                WHERE (j.voided IS NULL OR j.voided = 0) AND ${whereConditions.join(' AND ')}
+            `;
+
+        const categoryQuery = DB_TYPE === 'postgresql'
+            ? `
+                SELECT
+                    COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized') AS name,
+                    COALESCE(SUM(j.jobs_count), 0)::int AS value
+                FROM project_jobs j
+                INNER JOIN projects p ON p.project_id = j.project_id
+                LEFT JOIN job_categories c ON c.id = j.category_id
+                WHERE j.voided = false AND ${whereConditions.join(' AND ')}
+                GROUP BY COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized')
+                ORDER BY value DESC, name ASC
+                LIMIT 10
+            `
+            : `
+                SELECT
+                    COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized') AS name,
+                    COALESCE(SUM(j.jobs_count), 0) AS value
+                FROM project_jobs j
+                INNER JOIN kemri_projects p ON p.id = j.project_id
+                LEFT JOIN job_categories c ON c.id = j.category_id
+                WHERE (j.voided IS NULL OR j.voided = 0) AND ${whereConditions.join(' AND ')}
+                GROUP BY COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized')
+                ORDER BY value DESC, name ASC
+                LIMIT 10
+            `;
+
+        const summaryResult = await pool.execute(summaryQuery, queryParams);
+        const categoryResult = await pool.execute(categoryQuery, queryParams);
+
+        const summaryRows = DB_TYPE === 'postgresql'
+            ? (summaryResult.rows || summaryResult)
+            : (Array.isArray(summaryResult) ? summaryResult[0] : summaryResult);
+        const categoryRows = DB_TYPE === 'postgresql'
+            ? (categoryResult.rows || categoryResult)
+            : (Array.isArray(categoryResult) ? categoryResult[0] : categoryResult);
+
+        const summary = (Array.isArray(summaryRows) ? summaryRows[0] : summaryRows) || {};
+        const byCategory = Array.isArray(categoryRows) ? categoryRows : [];
+
+        res.status(200).json({
+            summary: {
+                totalJobs: parseInt(summary.totalJobs, 10) || 0,
+                totalMale: parseInt(summary.totalMale, 10) || 0,
+                totalFemale: parseInt(summary.totalFemale, 10) || 0,
+                totalDirectJobs: parseInt(summary.totalDirectJobs, 10) || 0,
+                totalIndirectJobs: parseInt(summary.totalIndirectJobs, 10) || 0,
+            },
+            byCategory: byCategory.map((row) => ({
+                name: row.name || 'Uncategorized',
+                value: parseInt(row.value, 10) || 0,
+            })),
+        });
+    } catch (error) {
+        console.error('Error fetching jobs snapshot:', error);
+        res.status(500).json({ message: 'Error fetching jobs snapshot', error: error.message });
+    }
+});
+
+/**
  * @route GET /api/projects/funding-overview
  * @description Get funding overview by status
  */
@@ -2898,6 +3221,15 @@ router.get('/', async (req, res) => {
             whereConditions = ['p.voided = false'];
         } else {
             whereConditions = ['p.voided = 0'];
+        }
+
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        if (DB_TYPE === 'postgresql' && authUserId && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
+                queryParams = [...orgScope.projectScopeParamTriple(authUserId), ...queryParams];
+            }
         }
 
         // Location filters disabled for now (tables don't exist)
@@ -3705,7 +4037,7 @@ router.put('/:id/approval', async (req, res) => {
     }
     
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve');
     
     if (!isAdmin && !hasPrivilege) {
@@ -3912,7 +4244,7 @@ router.put('/:id/progress', async (req, res) => {
     }
     
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve');
     
     if (!isAdmin && !hasPrivilege) {
@@ -4058,8 +4390,19 @@ router.get('/:id', async (req, res) => {
     }
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
-        const query = GET_SINGLE_PROJECT_QUERY(DB_TYPE);
-        const result = await pool.execute(query, [id]);
+        let query = GET_SINGLE_PROJECT_QUERY(DB_TYPE);
+        let params = [id];
+
+               const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        if (DB_TYPE === 'postgresql' && authUserId && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                query = orgScope.appendSingleProjectScopeWhereClause(query);
+                params = orgScope.singleProjectScopeParams(id, authUserId);
+            }
+        }
+
+        const result = await pool.execute(query, params);
         const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
         const project = Array.isArray(rows) ? rows[0] : rows;
         if (project) {

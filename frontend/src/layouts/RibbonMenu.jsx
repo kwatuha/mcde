@@ -20,7 +20,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
+import { getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 
 // Icon mapping for Material-UI icons
@@ -145,7 +145,7 @@ export default function RibbonMenu({ isAdmin = false }) {
       if (userManagementSubmenu && !userManagementSubmenu.hidden) {
         // Check if user has access
         const hasPermission = !userManagementSubmenu.permission || (hasPrivilege && hasPrivilege(userManagementSubmenu.permission));
-        const hasRole = !userManagementSubmenu.roles || (user && userManagementSubmenu.roles.includes(user.roleName));
+        const hasRole = !userManagementSubmenu.roles || hasConfiguredRole(user, userManagementSubmenu.roles);
         if (hasPermission && hasRole) {
           return ROUTES.USER_MANAGEMENT;
         }
@@ -160,7 +160,7 @@ export default function RibbonMenu({ isAdmin = false }) {
       if (projectsRegistrySubmenu && !projectsRegistrySubmenu.hidden) {
         // Check if user has access
         const hasPermission = !projectsRegistrySubmenu.permission || (hasPrivilege && hasPrivilege(projectsRegistrySubmenu.permission));
-        const hasRole = !projectsRegistrySubmenu.roles || (user && projectsRegistrySubmenu.roles.includes(user.roleName));
+        const hasRole = !projectsRegistrySubmenu.roles || hasConfiguredRole(user, projectsRegistrySubmenu.roles);
         if (hasPermission && hasRole) {
           return ROUTES.PROJECTS;
         }
@@ -176,7 +176,7 @@ export default function RibbonMenu({ isAdmin = false }) {
       if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) continue;
       
       // Check roles
-      if (submenu.roles && user && !submenu.roles.includes(user.roleName)) continue;
+      if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) continue;
       
       // Return the route for the first accessible submenu
       if (submenu.route && ROUTES[submenu.route]) {

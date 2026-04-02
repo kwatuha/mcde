@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import dashboardConfigService from '../services/dashboardConfigService';
+import { isAdmin } from '../utils/privilegeUtils.js';
 
 // Hook for database-driven dashboard configuration
 export const useDatabaseDashboardConfig = (user) => {
@@ -39,7 +40,7 @@ export const useDatabaseDashboardConfig = (user) => {
       console.error('Error fetching dashboard config:', error);
       
       // Fallback configuration for admin users when database config is not available
-      if (user?.roleName === 'admin') {
+      if (isAdmin(user)) {
         console.log('Applying fallback admin dashboard configuration');
         const fallbackConfig = {
           loading: false,

@@ -98,10 +98,10 @@ const Login = () => {
                                     WebkitTextFillColor: 'transparent',
                                     letterSpacing: '-0.02em',
                                     mb: 0.5,
-                                    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif'
+                                    fontFamily: '"Montserrat", "Roboto", "Helvetica", "Arial", sans-serif'
                                 }}
                             >
-                                GPRP
+                                GPRIS
                             </Typography>
                             <Typography variant="subtitle1" sx={{ fontSize: '0.875rem', fontWeight: 500, color: '#64748b', letterSpacing: '0.05em', textTransform: 'none' }}>
                                 Government Projects Reporting Platform

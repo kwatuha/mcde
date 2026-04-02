@@ -150,7 +150,7 @@ function ProjectGanttChartPage() {
     // Drawing functions
     const drawGrid = () => {
         ctx.fillStyle = '#333';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = '12px Montserrat, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
@@ -202,14 +202,14 @@ function ProjectGanttChartPage() {
           ctx.fillStyle = getProjectStatusBackgroundColor(task.status) || '#4CAF50';
           ctx.fillRect(barX, barY, barWidth, barHeight);
           ctx.fillStyle = getProjectStatusTextColor(task.status) || '#fff';
-          ctx.font = 'bold 11px Inter, sans-serif';
+          ctx.font = 'bold 11px Montserrat, sans-serif';
           ctx.textAlign = 'center';
           const dateText = `${startDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`;
           if (barWidth > 80) ctx.fillText(dateText, barX + barWidth / 2, barY + barHeight / 2 + 1);
         }
 
         ctx.fillStyle = '#333';
-        ctx.font = '14px Inter, sans-serif';
+        ctx.font = '14px Montserrat, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(task.taskName, 10, barY + barHeight / 2);
@@ -235,13 +235,13 @@ function ProjectGanttChartPage() {
             ctx.fill();
 
             ctx.fillStyle = '#666';
-            ctx.font = '10px Inter, sans-serif';
+            ctx.font = '10px Montserrat, sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(milestoneDate.toLocaleDateString(), milestoneX + barHeight / 2, milestoneY + barHeight + 10);
         }
 
         ctx.fillStyle = '#333';
-        ctx.font = '14px Inter, sans-serif';
+        ctx.font = '14px Montserrat, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(milestone.milestoneName, 10, milestoneY + barHeight / 2);
@@ -298,7 +298,7 @@ function ProjectGanttChartPage() {
             ctx.setLineDash([]);
             
             ctx.fillStyle = '#dc2626';
-            ctx.font = '12px Inter, sans-serif';
+            ctx.font = '12px Montserrat, sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('Today', todayX, initialY - 25);
         }

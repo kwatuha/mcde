@@ -1,4 +1,4 @@
-# Server Specifications for Government Projects Reporting Platform (GPRP)
+# Server Specifications for Government Projects Reporting and Information System (GPRIS)
 
 ## Overview
 This document provides server specifications for optimal hosting of the Government Projects Reporting Platform, which consists of:

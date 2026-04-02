@@ -11,7 +11,7 @@ const privilege = require('../middleware/privilegeMiddleware');
  */
 router.get('/', auth, async (req, res) => {
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve') || 
                         req.user?.privileges?.includes('feedback.respond');
     
@@ -113,7 +113,7 @@ router.get('/', auth, async (req, res) => {
  */
 router.put('/:id/approval', auth, async (req, res) => {
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve');
     
     if (!isAdmin && !hasPrivilege) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import dataAccessService from '../../services/dataAccessService';
+import { isAdmin, normalizeRoleName } from '../../utils/privilegeUtils.js';
 
 /**
  * Enhanced Dashboard Component with Dynamic Data Filtering
@@ -107,9 +108,10 @@ const FilteredDashboardComponent = ({
       case 'user_role_specific':
         // Apply role-specific filtering logic
         return data.filter(item => {
-          if (user.roleName === 'admin') return true;
-          if (user.roleName === 'manager') return item.managerId === user.id;
-          if (user.roleName === 'contractor') return item.contractorId === user.id;
+          const roleName = normalizeRoleName(user.roleName || user.role);
+          if (isAdmin(user)) return true;
+          if (roleName === 'manager') return item.managerId === user.id;
+          if (roleName === 'contractor') return item.contractorId === user.id;
           return false;
         });
       

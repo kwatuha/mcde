@@ -199,9 +199,7 @@ const router = createBrowserRouter([
     path: '/register',
     element: <LazyRoute component={Register} />,
   },
-], {
-  basename: '/impes'
-});
+]);
 
 function App() {
   return (

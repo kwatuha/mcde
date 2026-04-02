@@ -4,6 +4,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db'); // Your database connection pool
+const orgScope = require('../services/organizationScopeService');
 
 require('dotenv').config(); // Load environment variables
 
@@ -119,9 +120,16 @@ router.post('/register', async (req, res) => {
             const roleRows = roleResult.rows || [];
             roleId = roleRows.length > 0 ? roleRows[0].roleid : null;
             
-            // If not found, try to get the first available role (excluding admin)
+            // If not found, try to get the first available non-admin-like role.
             if (!roleId) {
-                const fallbackResult = await pool.query('SELECT roleid FROM roles WHERE voided = false AND LOWER(name) != LOWER($1) ORDER BY roleid LIMIT 1', ['admin']);
+                const fallbackResult = await pool.query(
+                    `SELECT roleid
+                     FROM roles
+                     WHERE voided = false
+                       AND LOWER(TRIM(name)) NOT IN ('admin', 'mda ict admin', 'super admin', 'administrator', 'ict admin')
+                     ORDER BY roleid
+                     LIMIT 1`
+                );
                 const fallbackRows = fallbackResult.rows || [];
                 roleId = fallbackRows.length > 0 ? fallbackRows[0].roleid : null;
             }
@@ -133,9 +141,16 @@ router.post('/register', async (req, res) => {
             const roleRows = Array.isArray(roleResult) ? roleResult[0] : roleResult.rows || roleResult;
             roleId = Array.isArray(roleRows) && roleRows.length > 0 ? roleRows[0].roleId : null;
             
-            // If not found, try to get the first available role (excluding admin)
+            // If not found, try to get the first available non-admin-like role.
             if (!roleId) {
-                const fallbackResult = await pool.query('SELECT roleId FROM roles WHERE voided = 0 AND roleName != ? ORDER BY roleId LIMIT 1', ['admin']);
+                const fallbackResult = await pool.query(
+                    `SELECT roleId
+                     FROM roles
+                     WHERE voided = 0
+                       AND LOWER(TRIM(roleName)) NOT IN ('admin', 'mda ict admin', 'super admin', 'administrator', 'ict admin')
+                     ORDER BY roleId
+                     LIMIT 1`
+                );
                 const fallbackRows = Array.isArray(fallbackResult) ? fallbackResult[0] : fallbackResult.rows || fallbackResult;
                 roleId = Array.isArray(fallbackRows) && fallbackRows.length > 0 ? fallbackRows[0].roleId : null;
             }
@@ -225,6 +240,9 @@ router.post('/register', async (req, res) => {
         
         const insertResult = await pool.query(insertQuery, insertParams);
         const userId = DB_TYPE === 'postgresql' ? insertResult.rows[0].userid : insertResult.insertId;
+
+        // Organization scopes are created when the account is activated (PUT user isActive),
+        // not at registration — keeps pending users without scope rows until approved.
 
         // Return success message without token - user must wait for approval
         res.status(201).json({ 
@@ -317,6 +335,15 @@ router.post('/login', async (req, res) => {
 
         const userPrivileges = await getPrivilegesByRole(roleId);
 
+        let organizationScopes = [];
+        if (DB_TYPE === 'postgresql') {
+            try {
+                organizationScopes = await orgScope.fetchOrganizationScopesForUser(userId);
+            } catch (scopeErr) {
+                console.warn('fetchOrganizationScopesForUser (login):', scopeErr.message);
+            }
+        }
+
         const payload = {
             user: {
                 id: userId,
@@ -325,7 +352,8 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 roleId: roleId,
                 roleName: user.role,
-                privileges: userPrivileges
+                privileges: userPrivileges,
+                organizationScopes,
             }
         };
 

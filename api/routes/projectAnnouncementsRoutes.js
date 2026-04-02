@@ -287,7 +287,7 @@ router.put('/:id', auth, privilege(['project_announcements.update']), async (req
  */
 router.put('/:id/approval', auth, async (req, res) => {
     // Check if user is admin or has public_content.approve privilege
-    const isAdmin = req.user?.roleName === 'admin';
+    const isAdmin = privilege.isAdminLike(req.user);
     const hasPrivilege = req.user?.privileges?.includes('public_content.approve');
     
     if (!isAdmin && !hasPrivilege) {

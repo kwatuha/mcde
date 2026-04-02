@@ -381,10 +381,10 @@ const Register = () => {
                                     WebkitTextFillColor: 'transparent',
                                     letterSpacing: '-0.02em',
                                     mb: 0.5,
-                                    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif'
+                                    fontFamily: '"Montserrat", "Roboto", "Helvetica", "Arial", sans-serif'
                                 }}
                             >
-                                GPRP
+                                GPRIS
                             </Typography>
                             <Typography 
                                 variant="subtitle1" 

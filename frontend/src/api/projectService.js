@@ -126,6 +126,18 @@ const projectService = {
       const response = await axiosInstance.get('/projects/participants-per-project');
       return response.data;
     },
+    getOrganizationDistribution: async (filters = {}) => {
+      const response = await axiosInstance.get('/projects/organization-distribution', { params: filters });
+      return response.data;
+    },
+    getProjectsForOrganization: async (filters = {}) => {
+      const response = await axiosInstance.get('/projects/organization-projects', { params: filters });
+      return response.data;
+    },
+    getJobsSnapshot: async () => {
+      const response = await axiosInstance.get('/projects/jobs-snapshot');
+      return response.data;
+    },
   },
 
   // --- Task Management API Calls (kemri_tasks) ---

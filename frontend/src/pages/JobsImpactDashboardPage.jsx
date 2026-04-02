@@ -14,6 +14,12 @@ import {
   MenuItem,
   Collapse,
   IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import {
   Work as WorkIcon,
@@ -239,7 +245,7 @@ const JobsImpactDashboardPage = () => {
             variant="outlined"
             size="small"
             startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-            onClick={() => navigate('/system-dashboard')}
+            onClick={() => navigate('/summary-statistics')}
             sx={{
               borderColor: colors.greenAccent[500],
               color: colors.greenAccent[500],
@@ -253,14 +259,14 @@ const JobsImpactDashboardPage = () => {
               },
             }}
           >
-            Executive Dashboard
+            Summary Statistics
           </Button>
         </Box>
 
         {/* Filters - Collapsible at Top */}
         <Card
           sx={{
-            borderRadius: 2,
+            borderRadius: '8px',
             bgcolor: theme.palette.mode === 'dark' ? colors.primary[400] : '#ffffff',
             mb: 1,
             border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
@@ -372,11 +378,11 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 4px 16px rgba(0,0,0,0.3)'
                 : '0 2px 12px rgba(0,0,0,0.06)',
@@ -384,7 +390,7 @@ const JobsImpactDashboardPage = () => {
               '&:hover': {
                 transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 8px 24px rgba(76, 206, 172, 0.25)'
+                  ? '0 8px 24px rgba(104, 112, 250, 0.25)'
                   : '0 4px 20px rgba(0,0,0,0.1)',
               },
               '&::before': {
@@ -394,9 +400,10 @@ const JobsImpactDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.greenAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -417,8 +424,8 @@ const JobsImpactDashboardPage = () => {
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.greenAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.greenAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <WorkIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -452,11 +459,11 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 4px 16px rgba(0,0,0,0.3)'
                 : '0 2px 12px rgba(0,0,0,0.06)',
@@ -464,7 +471,7 @@ const JobsImpactDashboardPage = () => {
               '&:hover': {
                 transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 8px 24px rgba(76, 206, 172, 0.25)'
+                  ? '0 8px 24px rgba(104, 112, 250, 0.25)'
                   : '0 4px 20px rgba(0,0,0,0.1)',
               },
               '&::before': {
@@ -474,9 +481,10 @@ const JobsImpactDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.greenAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -497,8 +505,8 @@ const JobsImpactDashboardPage = () => {
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.greenAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.greenAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <PeopleIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -532,7 +540,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -542,7 +550,7 @@ const JobsImpactDashboardPage = () => {
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
                   ? '0 12px 40px rgba(104, 112, 250, 0.3)'
                   : '0 8px 30px rgba(0,0,0,0.12)',
@@ -557,6 +565,7 @@ const JobsImpactDashboardPage = () => {
                 background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -612,19 +621,19 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-              border: `1px solid ${theme.palette.mode === 'dark' ? (colors.purpleAccent?.[700] || colors.greenAccent[700]) : 'rgba(0,0,0,0.08)'}`,
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
               boxShadow: theme.palette.mode === 'dark'
                 ? '0 8px 32px rgba(0,0,0,0.4)'
                 : '0 4px 20px rgba(0,0,0,0.08)',
               transition: 'all 0.3s ease',
               '&:hover': {
-                transform: 'translateY(-4px)',
+                transform: 'translateY(-2px)',
                 boxShadow: theme.palette.mode === 'dark'
-                  ? '0 12px 40px rgba(168, 85, 247, 0.3)'
+                  ? '0 12px 40px rgba(104, 112, 250, 0.3)'
                   : '0 8px 30px rgba(0,0,0,0.12)',
               },
               '&::before': {
@@ -634,9 +643,10 @@ const JobsImpactDashboardPage = () => {
                 left: 0,
                 right: 0,
                 height: '4px',
-                background: `linear-gradient(90deg, ${colors.purpleAccent ? colors.purpleAccent[500] : colors.greenAccent[500]}, ${colors.purpleAccent ? colors.purpleAccent[300] : colors.greenAccent[300]})`,
+                background: `linear-gradient(90deg, ${colors.blueAccent[500]}, ${colors.blueAccent[300]})`,
               },
               position: 'relative',
+              height: '100%',
             }}
           >
             <CardContent sx={{ p: 1.5 }}>
@@ -657,8 +667,8 @@ const JobsImpactDashboardPage = () => {
                   sx={{
                     p: 0.75,
                     borderRadius: 1.5,
-                    background: `linear-gradient(135deg, ${colors.purpleAccent ? colors.purpleAccent[600] : colors.greenAccent[600]}, ${colors.purpleAccent ? colors.purpleAccent[400] : colors.greenAccent[400]})`,
-                    boxShadow: `0 2px 8px ${colors.purpleAccent ? colors.purpleAccent[700] : colors.greenAccent[700]}40`,
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]}, ${colors.blueAccent[400]})`,
+                    boxShadow: `0 2px 8px ${colors.blueAccent[700]}40`,
                   }}
                 >
                   <GroupIcon sx={{ color: 'white', fontSize: 18 }} />
@@ -696,7 +706,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -792,7 +802,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -888,7 +898,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12} md={6}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -976,7 +986,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1039,115 +1049,67 @@ const JobsImpactDashboardPage = () => {
                   </Typography>
                 </Box>
               ) : (
-                <Grid container spacing={2}>
-                  {topProjects.map((project, index) => (
-                    <Grid item xs={12} sm={6} md={4} lg={2} key={project.id || index}>
-                      <Card
-                        sx={{
-                          borderRadius: 2,
-                          background: theme.palette.mode === 'dark'
-                            ? `linear-gradient(135deg, ${colors.primary[500]} 0%, ${colors.primary[600]} 100%)`
-                            : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-                          border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : 'rgba(0,0,0,0.08)'}`,
-                          boxShadow: theme.palette.mode === 'dark'
-                            ? '0 4px 16px rgba(0,0,0,0.3)'
-                            : '0 2px 12px rgba(0,0,0,0.06)',
-                          transition: 'all 0.3s ease',
-                          height: '100%',
-                          '&:hover': {
-                            transform: 'translateY(-4px)',
-                            boxShadow: theme.palette.mode === 'dark'
-                              ? '0 8px 24px rgba(76, 206, 172, 0.25)'
-                              : '0 4px 20px rgba(0,0,0,0.1)',
-                          },
-                          position: 'relative',
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '4px',
-                            background: `linear-gradient(90deg, ${colors.greenAccent[500]}, ${colors.greenAccent[300]})`,
-                          },
-                        }}
-                      >
-                        <CardContent sx={{ p: 2 }}>
-                          <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1.5}>
-                            <Chip
-                              label={`#${index + 1}`}
-                              size="small"
-                              sx={{
-                                bgcolor: colors.greenAccent[600],
-                                color: 'white',
-                                fontWeight: 700,
-                                fontSize: '0.7rem',
-                                height: 20,
-                                minWidth: 32,
-                              }}
-                            />
-                            <Box
-                              sx={{
-                                p: 0.75,
-                                borderRadius: 1.5,
-                                background: `linear-gradient(135deg, ${colors.greenAccent[600]}, ${colors.greenAccent[400]})`,
-                              }}
-                            >
-                              <WorkIcon sx={{ color: 'white', fontSize: 16 }} />
-                            </Box>
-                          </Box>
-                          <Typography
-                            variant="subtitle2"
-                            sx={{
-                              color: colors.grey[100],
-                              fontWeight: 700,
-                              fontSize: '0.85rem',
-                              mb: 1,
-                              lineHeight: 1.3,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                              minHeight: 40,
-                            }}
-                          >
-                            {project.projectName || project.name || 'Unnamed Project'}
-                          </Typography>
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'baseline',
-                              gap: 0.5,
-                              mt: 1.5,
-                            }}
-                          >
-                            <Typography
-                              variant="h5"
-                              sx={{
-                                color: colors.greenAccent[500],
-                                fontWeight: 800,
-                                fontSize: '1.5rem',
-                                lineHeight: 1,
-                              }}
-                            >
-                              {project.jobsCount || 0}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: colors.grey[400],
-                                fontSize: '0.7rem',
-                                ml: 0.5,
-                              }}
-                            >
-                              jobs
-                            </Typography>
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
+                <TableContainer
+                  sx={{
+                    maxHeight: 360,
+                    border: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}`,
+                    borderRadius: '8px',
+                  }}
+                >
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, width: 70 }}>Rank</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>Jobs Created</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>Share</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(() => {
+                        const totalJobsAcrossTop = topProjects.reduce((sum, p) => sum + (Number(p.jobsCount) || 0), 0);
+                        return topProjects.map((project, index) => {
+                          const jobs = Number(project.jobsCount) || 0;
+                          const share = totalJobsAcrossTop > 0 ? Math.round((jobs / totalJobsAcrossTop) * 100) : 0;
+                          return (
+                            <TableRow key={project.id || index} hover>
+                              <TableCell>
+                                <Chip
+                                  label={`#${index + 1}`}
+                                  size="small"
+                                  sx={{
+                                    bgcolor: colors.greenAccent[600],
+                                    color: 'white',
+                                    fontWeight: 700,
+                                    minWidth: 40,
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ maxWidth: 420, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600 }}>
+                                {project.projectName || project.name || 'Unnamed Project'}
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 700, color: colors.greenAccent[500] }}>
+                                {jobs}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Chip
+                                  size="small"
+                                  label={`${share}%`}
+                                  sx={{
+                                    bgcolor: colors.blueAccent[600],
+                                    color: 'white',
+                                    fontWeight: 700,
+                                    minWidth: 56,
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                      })()}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </CardContent>
           </Card>
@@ -1157,7 +1119,7 @@ const JobsImpactDashboardPage = () => {
         <Grid item xs={12}>
           <Card
             sx={{
-              borderRadius: 2,
+              borderRadius: '8px',
               background: theme.palette.mode === 'dark'
                 ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
                 : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
@@ -1207,35 +1169,64 @@ const JobsImpactDashboardPage = () => {
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ height: 300, mt: 1 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.sectorChart} margin={{ top: 10, right: 10, left: -20, bottom: 40 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}
-                    />
-                    <XAxis
-                      dataKey="sectorDisplay"
-                      angle={-20}
-                      textAnchor="end"
-                      interval={0}
-                      height={60}
-                      tick={{ fill: colors.grey[300], fontSize: 11 }}
-                    />
-                    <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} />
-                    <RechartsTooltip
-                      contentStyle={{
-                        background: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
-                        border: `1px solid ${colors.blueAccent[700]}`,
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="direct" name="Direct Jobs" fill={colors.greenAccent[500]} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="indirect" name="Indirect Jobs" fill={colors.blueAccent[500]} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <Box sx={{ mt: 1 }}>
+                <TableContainer
+                  sx={{
+                    maxHeight: 320,
+                    border: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]}`,
+                    borderRadius: '8px',
+                    overflowX: 'auto',
+                  }}
+                >
+                  <Table size="small" stickyHeader sx={{ minWidth: 760 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>Sector</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, minWidth: 120 }}>Direct Jobs</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, minWidth: 120 }}>Indirect Jobs</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, minWidth: 100 }}>Total</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, minWidth: 90 }}>Share</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(() => {
+                        const rows = [...(chartData.sectorChart || [])].sort((a, b) => (b.total || 0) - (a.total || 0));
+                        const totalJobs = rows.reduce((sum, row) => sum + (row.total || 0), 0);
+                        return rows.map((row) => {
+                          const share = totalJobs > 0 ? Math.round(((row.total || 0) / totalJobs) * 100) : 0;
+                          return (
+                            <TableRow key={row.sector || row.sectorDisplay} hover>
+                              <TableCell sx={{ fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.grey[100] : '#1f2937' }}>
+                                {row.sectorDisplay || row.sector || 'Unknown'}
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.greenAccent[400] : colors.greenAccent[700], fontWeight: 700 }}>
+                                {row.direct || 0}
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[300] : colors.blueAccent[700], fontWeight: 700 }}>
+                                {row.indirect || 0}
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 700, color: theme.palette.mode === 'dark' ? colors.grey[100] : '#1f2937' }}>
+                                {row.total || 0}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Chip
+                                  size="small"
+                                  label={`${share}%`}
+                                  sx={{
+                                    bgcolor: colors.blueAccent[600],
+                                    color: 'white',
+                                    fontWeight: 700,
+                                    minWidth: 56,
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                      })()}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Box>
             </CardContent>
           </Card>
