@@ -420,7 +420,9 @@ router.post('/login', async (req, res) => {
             }
         };
         const normalizedRole = String(user.role || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
-        const forcePasswordChange = normalizedRole === 'super admin';
+        const isSuperAdmin = normalizedRole === 'super admin';
+        const isDefaultResetPassword = String(password || '').trim() === 'reset123';
+        const forcePasswordChange = isSuperAdmin || isDefaultResetPassword;
 
         jwt.sign(
             payload,

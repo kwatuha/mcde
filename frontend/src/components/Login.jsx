@@ -22,6 +22,7 @@ import AppFooter from './AppFooter.jsx';
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
@@ -151,7 +152,7 @@ const Login = () => {
                             fullWidth
                             label="Password"
                             id="password"
-                            type="password"
+                            type={showPassword ? 'text' : 'password'}
                             value={password}
                             onChange={(e) => e.target.value.length <= 50 ? setPassword(e.target.value) : null}
                             required
@@ -175,6 +176,19 @@ const Login = () => {
                             }}
                             variant="outlined"
                         />
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        size="small"
+                                        checked={showPassword}
+                                        onChange={(e) => setShowPassword(e.target.checked)}
+                                    />
+                                }
+                                label="Show password"
+                                sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+                            />
+                        </Box>
 
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                             <FormControlLabel
