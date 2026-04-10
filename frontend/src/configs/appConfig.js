@@ -46,6 +46,7 @@ export const ROUTES = {
     // Top-level routes
     LOGIN: '/login',
     FORCE_PASSWORD_CHANGE: '/force-password-change',
+    HELP_SUPPORT: '/help-support',
     DASHBOARD: '/',
     
     // NEW: Contractor-specific route

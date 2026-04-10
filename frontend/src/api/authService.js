@@ -40,58 +40,24 @@ const authService = {
   },
 
   /**
-   * Changes the password for the current user.
-   * @param {Object} passwordData - Object containing userId, currentPassword, and newPassword
-   * @param {string|number} passwordData.userId - The user's ID
+   * Changes the password for the authenticated user.
+   * @param {Object} passwordData - Object containing currentPassword and newPassword
    * @param {string} passwordData.currentPassword - The user's current password
    * @param {string} passwordData.newPassword - The new password
    * @returns {Promise<Object>} The response data from the change password endpoint
    */
   changePassword: async (passwordData) => {
     try {
-      console.log('Changing password with data:', { 
-        userId: passwordData.userId,
-        username: passwordData.username,
-        hasCurrentPassword: !!passwordData.currentPassword,
-        hasNewPassword: !!passwordData.newPassword
+      const response = await axiosInstance.post('/auth/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
       });
-      
-      // First, verify the current password by attempting a login
-      // This ensures the current password is correct before changing
-      if (passwordData.username) {
-        try {
-          // Verify current password by attempting login
-          const verifyResponse = await axiosInstance.post('/auth/login', {
-            username: passwordData.username,
-            password: passwordData.currentPassword
-          });
-          
-          if (!verifyResponse.data || !verifyResponse.data.token) {
-            throw new Error('Current password verification failed');
-          }
-        } catch (verifyError) {
-          if (verifyError.response?.status === 400) {
-            const error = new Error('Current password is incorrect');
-            error.response = { status: 401, data: { message: 'Current password is incorrect' } };
-            throw error;
-          }
-          throw verifyError;
-        }
-      }
-      
-      // If current password is verified, update the password
-      const response = await axiosInstance.put(`/users/users/${passwordData.userId}`, {
-        password: passwordData.newPassword
-      });
-      
-      console.log('Password change response:', response.data);
-      return { success: true, message: 'Password changed successfully', data: response.data };
+      return response.data;
     } catch (error) {
       console.error('Error changing password:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        statusText: error.response?.statusText
       });
       throw error;
     }

@@ -194,6 +194,11 @@ export default function RibbonMenu({ isAdmin = false }) {
     if (!selectedCategoryId) return;
     
     const currentPath = location.pathname;
+    const standaloneAllowedRoutes = new Set([ROUTES.HELP_SUPPORT]);
+    if (standaloneAllowedRoutes.has(currentPath)) {
+      manualSelectionRef.current = false;
+      return;
+    }
     
     // Get all routes for the selected category
     const category = menuCategories.find(cat => cat.id === selectedCategoryId);

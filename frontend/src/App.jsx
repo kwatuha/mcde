@@ -19,6 +19,7 @@ import UserManagementPage from './pages/UserManagementPage';
 import Login from './components/Login';
 import Register from './components/Register';
 import ForcePasswordChangePage from './pages/ForcePasswordChangePage';
+import HelpSupportPage from './pages/HelpSupportPage';
 
 // Import the StrategicPlanningPage
 import StrategicPlanningPage from './pages/StrategicPlanningPage';
@@ -301,6 +302,10 @@ const router = createBrowserRouter([
       {
         path: 'agencies',
         element: <AgenciesPage />,
+      },
+      {
+        path: 'help-support',
+        element: <HelpSupportPage />,
       },
       {
         path: 'budgets',

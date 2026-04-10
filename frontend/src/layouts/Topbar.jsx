@@ -12,6 +12,7 @@ import {
   Divider
 } from "@mui/material";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
@@ -23,9 +24,11 @@ import { useAuth } from '../context/AuthContext';
 import { usePageTitle } from '../context/PageTitleContext';
 import { useProfileModal } from '../context/ProfileModalContext';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { ROUTES } from '../configs/appConfig';
 
 const Topbar = () => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { pageTitle, pageSubtitle } = usePageTitle();
   const { openModal: openProfileModal } = useProfileModal();
@@ -54,6 +57,11 @@ const Topbar = () => {
 
   const handleChangePasswordClick = () => {
     setChangePasswordOpen(true);
+    handleClose();
+  };
+
+  const handleHelpSupportClick = () => {
+    navigate(ROUTES.HELP_SUPPORT);
     handleClose();
   };
 
@@ -190,7 +198,7 @@ const Topbar = () => {
           </MenuItem>
           
           {/* HELP */}
-          <MenuItem onClick={handleClose}>
+          <MenuItem onClick={handleHelpSupportClick}>
             <ListItemIcon>
               <HelpOutlineIcon fontSize="small" />
             </ListItemIcon>
@@ -228,7 +236,6 @@ const Topbar = () => {
         <ChangePasswordModal
           open={changePasswordOpen}
           onClose={() => setChangePasswordOpen(false)}
-          userId={user?.userId || user?.id}
         />
       </Box>
     </Box>

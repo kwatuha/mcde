@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db'); // Your database connection pool
 const orgScope = require('../services/organizationScopeService');
+const authenticate = require('../middleware/authenticate');
 
 require('dotenv').config(); // Load environment variables
 
@@ -440,6 +441,87 @@ router.post('/login', async (req, res) => {
     } catch (err) {
         console.error('Error during login:', err);
         res.status(500).json({ error: 'Server error during login.', details: err.message });
+    }
+});
+
+// @route   POST /auth/change-password
+// @desc    Change password for authenticated user
+// @access  Private
+router.post('/change-password', authenticate, async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    const authUserId = req.user?.id ?? req.user?.userId ?? req.user?.actualUserId;
+    const userId = parseInt(String(authUserId), 10);
+
+    if (!Number.isFinite(userId)) {
+        return res.status(401).json({ error: 'Invalid authentication context.' });
+    }
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Current password and new password are required.' });
+    }
+    if (String(newPassword).length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    }
+    if (String(currentPassword) === String(newPassword)) {
+        return res.status(400).json({ error: 'New password must be different from current password.' });
+    }
+
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        let query;
+        let params;
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                SELECT userid, passwordhash
+                FROM users
+                WHERE userid = $1 AND COALESCE(voided, false) = false
+                LIMIT 1
+            `;
+            params = [userId];
+        } else {
+            query = `
+                SELECT userId, passwordHash
+                FROM users
+                WHERE userId = ? AND voided = 0
+                LIMIT 1
+            `;
+            params = [userId];
+        }
+
+        const result = await pool.query(query, params);
+        const rows = DB_TYPE === 'postgresql' ? (result.rows || []) : (Array.isArray(result) ? result[0] : result) || [];
+        const row = Array.isArray(rows) ? rows[0] : rows;
+        if (!row) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        const existingHash = row.passwordhash || row.passwordHash;
+        if (!existingHash) {
+            return res.status(500).json({ error: 'User password not set.' });
+        }
+
+        const isMatch = await bcrypt.compare(String(currentPassword), existingHash);
+        if (!isMatch) {
+            return res.status(401).json({ error: 'Current password is incorrect.' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(String(newPassword), salt);
+        if (DB_TYPE === 'postgresql') {
+            await pool.query(
+                'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
+                [passwordHash, userId]
+            );
+        } else {
+            await pool.query(
+                'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ?',
+                [passwordHash, userId]
+            );
+        }
+
+        return res.status(200).json({ success: true, message: 'Password changed successfully.' });
+    } catch (err) {
+        console.error('Error changing password:', err);
+        return res.status(500).json({ error: 'Server error while changing password.', details: err.message });
     }
 });
 
