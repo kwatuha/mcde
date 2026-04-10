@@ -7,7 +7,7 @@ import {
   DialogContentText, InputAdornment, Grid, Autocomplete,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import apiService from '../api/userService';
 import apiServiceMain from '../api';
@@ -137,8 +137,8 @@ function UserManagementPage() {
     username: '',
     email: '',
     phoneNumber: '',
-    password: '',
-    confirmPassword: '',
+    password: 'reset123',
+    confirmPassword: 'reset123',
     firstName: '',
     lastName: '',
     idNumber: '',
@@ -149,6 +149,10 @@ function UserManagementPage() {
     agencyId: '',
   });
   const [userFormErrors, setUserFormErrors] = useState({});
+  const [showUserFormPasswords, setShowUserFormPasswords] = useState({
+    password: false,
+    confirmPassword: false,
+  });
   const [agencies, setAgencies] = useState([]);
   const [filteredAgencies, setFilteredAgencies] = useState([]);
   const [filteredStateDepartments, setFilteredStateDepartments] = useState([]);
@@ -471,7 +475,7 @@ function UserManagementPage() {
     setNewScopeMinistry(null);
     setNewScopeStateDept(null);
     setUserFormData({
-      username: '', email: '', phoneNumber: '', password: '', confirmPassword: '', firstName: '', lastName: '',
+      username: '', email: '', phoneNumber: '', password: 'reset123', confirmPassword: 'reset123', firstName: '', lastName: '',
       idNumber: '', employeeNumber: '',
       role: roles.length > 0 ? roles[0].roleName : '',
       ministry: '',
@@ -645,6 +649,14 @@ function UserManagementPage() {
     setCurrentUserToEdit(null);
     setUserFormErrors({});
     setOrganizationScopes([]);
+    setShowUserFormPasswords({ password: false, confirmPassword: false });
+  };
+
+  const toggleUserFormPasswordVisibility = (field) => {
+    setShowUserFormPasswords((prev) => ({
+      ...prev,
+      [field]: !prev[field],
+    }));
   };
 
   const scopeRowLabel = (s) => {
@@ -2642,13 +2654,22 @@ function UserManagementPage() {
                 margin="dense" 
                 name="password" 
                 label="Password" 
-                type="password" 
+                type={showUserFormPasswords.password ? 'text' : 'password'} 
                 fullWidth 
                 variant="outlined" 
                 value={userFormData.password} 
                 onChange={handleUserFormChange} 
                 error={!!userFormErrors.password} 
                 helperText={userFormErrors.password} 
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton edge="end" onClick={() => toggleUserFormPasswordVisibility('password')}>
+                        {showUserFormPasswords.password ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{ 
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
@@ -2661,13 +2682,22 @@ function UserManagementPage() {
                 margin="dense" 
                 name="confirmPassword" 
                 label="Confirm Password" 
-                type="password" 
+                type={showUserFormPasswords.confirmPassword ? 'text' : 'password'} 
                 fullWidth 
                 variant="outlined" 
                 value={userFormData.confirmPassword} 
                 onChange={handleUserFormChange} 
                 error={!!userFormErrors.confirmPassword} 
                 helperText={userFormErrors.confirmPassword} 
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton edge="end" onClick={() => toggleUserFormPasswordVisibility('confirmPassword')}>
+                        {showUserFormPasswords.confirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{ 
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
@@ -2683,13 +2713,22 @@ function UserManagementPage() {
                 margin="dense" 
                 name="password" 
                 label="New Password (leave blank to keep current)" 
-                type="password" 
+                type={showUserFormPasswords.password ? 'text' : 'password'} 
                 fullWidth 
                 variant="outlined" 
                 value={userFormData.password} 
                 onChange={handleUserFormChange} 
                 error={!!userFormErrors.password} 
                 helperText={userFormErrors.password} 
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton edge="end" onClick={() => toggleUserFormPasswordVisibility('password')}>
+                        {showUserFormPasswords.password ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{ 
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
@@ -2703,13 +2742,22 @@ function UserManagementPage() {
                   margin="dense" 
                   name="confirmPassword" 
                   label="Confirm New Password" 
-                  type="password" 
+                  type={showUserFormPasswords.confirmPassword ? 'text' : 'password'} 
                   fullWidth 
                   variant="outlined" 
                   value={userFormData.confirmPassword} 
                   onChange={handleUserFormChange} 
                   error={!!userFormErrors.confirmPassword} 
                   helperText={userFormErrors.confirmPassword} 
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton edge="end" onClick={() => toggleUserFormPasswordVisibility('confirmPassword')}>
+                          {showUserFormPasswords.confirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
                   sx={{ 
                     mb: 2,
                     '& .MuiOutlinedInput-root': {

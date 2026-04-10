@@ -118,11 +118,24 @@ router.get('/users/:id', async (req, res) => {
         let params;
         
         if (DB_TYPE === 'postgresql') {
+            let hasPhoneNumber = false;
+            try {
+                const colResult = await pool.query(`
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                      AND column_name = 'phone_number'
+                    LIMIT 1
+                `);
+                hasPhoneNumber = Array.isArray(colResult.rows) ? colResult.rows.length > 0 : !!colResult.rows;
+            } catch (colErr) {
+                console.warn('Warning: Failed to check for phone_number column on users table:', colErr.message);
+            }
             query = `
                 SELECT 
                     u.userid AS "userId", 
                     u.username, 
-                    u.email, 
+                    u.email${hasPhoneNumber ? ', u.phone_number AS "phoneNumber"' : ''}, 
                     u.firstname AS "firstName", 
                     u.lastname AS "lastName", 
                     u.id_number AS "idNumber", 
@@ -468,9 +481,22 @@ router.put('/users/:id', async (req, res) => {
             let fetchQuery;
             let fetchParams;
             if (DB_TYPE === 'postgresql') {
+                let hasPhoneNumber = false;
+                try {
+                    const colResult = await pool.query(`
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'users'
+                          AND column_name = 'phone_number'
+                        LIMIT 1
+                    `);
+                    hasPhoneNumber = Array.isArray(colResult.rows) ? colResult.rows.length > 0 : !!colResult.rows;
+                } catch (colErr) {
+                    console.warn('Warning: Failed to check for phone_number column on users table:', colErr.message);
+                }
                 fetchQuery = `
                     SELECT 
-                        u.userid AS "userId", u.username, u.email, u.firstname AS "firstName", u.lastname AS "lastName", 
+                        u.userid AS "userId", u.username, u.email${hasPhoneNumber ? ', u.phone_number AS "phoneNumber"' : ''}, u.firstname AS "firstName", u.lastname AS "lastName", 
                         u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                         u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive",
                         u.ministry, u.state_department AS "stateDepartment", u.agency_id AS "agencyId", a.agency_name AS "agencyName"

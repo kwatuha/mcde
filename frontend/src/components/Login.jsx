@@ -15,8 +15,11 @@ import {
     Link,
     Alert,
     CircularProgress,
-    Container
+    Container,
+    IconButton,
+    InputAdornment,
 } from '@mui/material';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import AppFooter from './AppFooter.jsx';
 
 const Login = () => {
@@ -175,20 +178,21 @@ const Login = () => {
                                 }
                             }}
                             variant="outlined"
+                            InputProps={{
+                                endAdornment: (
+                                    <InputAdornment position="end">
+                                        <IconButton
+                                            edge="end"
+                                            onClick={() => setShowPassword((prev) => !prev)}
+                                            disabled={loading}
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                        >
+                                            {showPassword ? <VisibilityOff /> : <Visibility />}
+                                        </IconButton>
+                                    </InputAdornment>
+                                ),
+                            }}
                         />
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                            <FormControlLabel
-                                control={
-                                    <Checkbox
-                                        size="small"
-                                        checked={showPassword}
-                                        onChange={(e) => setShowPassword(e.target.checked)}
-                                    />
-                                }
-                                label="Show password"
-                                sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
-                            />
-                        </Box>
 
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                             <FormControlLabel

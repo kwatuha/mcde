@@ -14,9 +14,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
-import SearchIcon from "@mui/icons-material/Search";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LockIcon from "@mui/icons-material/Lock";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -46,12 +44,6 @@ const Topbar = () => {
 
   const handleProfileClick = () => {
     openProfileModal();
-    handleClose();
-  };
-
-  const handleSettingsClick = () => {
-    // TODO: Implement settings modal or navigation
-    console.log('Settings clicked');
     handleClose();
   };
 
@@ -189,28 +181,12 @@ const Topbar = () => {
           transformOrigin={{ horizontal: 'right', vertical: 'top' }}
           anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         >
-          {/* SEARCH */}
-          <MenuItem onClick={handleClose}>
-            <ListItemIcon>
-              <SearchIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Search</ListItemText>
-          </MenuItem>
-          
           {/* HELP */}
           <MenuItem onClick={handleHelpSupportClick}>
             <ListItemIcon>
               <HelpOutlineIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>Help & Support</ListItemText>
-          </MenuItem>
-          
-          {/* SETTINGS */}
-          <MenuItem onClick={handleSettingsClick}>
-            <ListItemIcon>
-              <SettingsOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Settings</ListItemText>
           </MenuItem>
           
           <Divider />
