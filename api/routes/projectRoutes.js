@@ -3072,8 +3072,16 @@ router.get('/', async (req, res) => {
                 p.implementing_agency AS directorate,
                 (p.timeline->>'start_date')::date AS "startDate",
                 (p.timeline->>'expected_completion_date')::date AS "endDate",
-                (p.budget->>'allocated_amount_kes')::numeric AS "costOfProject",
-                (p.budget->>'disbursed_amount_kes')::numeric AS "paidOut",
+                CASE
+                    WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                    THEN (p.budget->>'allocated_amount_kes')::numeric
+                    ELSE NULL
+                END AS "costOfProject",
+                CASE
+                    WHEN (p.budget->>'disbursed_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                    THEN (p.budget->>'disbursed_amount_kes')::numeric
+                    ELSE NULL
+                END AS "paidOut",
                 p.budget->>'source' AS "budgetSource",
                 p.notes->>'objective' AS objective,
                 p.notes->>'expected_output' AS "expectedOutput",
@@ -3119,10 +3127,22 @@ router.get('/', async (req, res) => {
                 (p.is_public->>'revision_requested_by')::integer AS revision_requested_by,
                 (p.is_public->>'revision_requested_at')::timestamp AS revision_requested_at,
                 (p.is_public->>'revision_submitted_at')::timestamp AS revision_submitted_at,
-                (p.progress->>'percentage_complete')::numeric AS "overallProgress",
+                CASE
+                    WHEN (p.progress->>'percentage_complete') ~ '^[0-9]+(\\.[0-9]+)?$'
+                    THEN (p.progress->>'percentage_complete')::numeric
+                    ELSE NULL
+                END AS "overallProgress",
                 (p.budget->>'budget_id')::integer AS budgetId,
-                (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
-                (p.location->'geocoordinates'->>'lng')::numeric AS "longitude",
+                CASE
+                    WHEN (p.location->'geocoordinates'->>'lat') ~ '^[0-9.-]+(\\.[0-9]+)?$'
+                    THEN (p.location->'geocoordinates'->>'lat')::numeric
+                    ELSE NULL
+                END AS "latitude",
+                CASE
+                    WHEN (p.location->'geocoordinates'->>'lng') ~ '^[0-9.-]+(\\.[0-9]+)?$'
+                    THEN (p.location->'geocoordinates'->>'lng')::numeric
+                    ELSE NULL
+                END AS "longitude",
                 (p.public_engagement->>'feedback_enabled')::boolean AS "feedbackEnabled",
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
