@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControl,
   InputLabel,
   MenuItem,
@@ -29,10 +30,10 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import projectService from '../api/projectService';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isAdmin } from '../utils/privilegeUtils.js';
+import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/projectStatusColors';
 import { tokens } from './dashboard/theme';
 
 const LEVEL_OPTIONS = [
-  { value: 'agency', label: 'Agency' },
   { value: 'state_department', label: 'State Department' },
   { value: 'ministry', label: 'Ministry' },
 ];
@@ -47,7 +48,7 @@ export default function ProjectOrganizationDashboardPage() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const { user, hasPrivilege } = useAuth();
-  const [level, setLevel] = useState('agency');
+  const [level, setLevel] = useState('state_department');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [rows, setRows] = useState([]);
@@ -98,6 +99,11 @@ export default function ProjectOrganizationDashboardPage() {
     }))
   ), [rows, level]);
 
+  const formatKes = (value) => {
+    const n = Number(value || 0);
+    return `KES ${n.toLocaleString()}`;
+  };
+
   const handleOpenProjectsModal = async (row) => {
     const orgLabel = getOrgLabel(row, level);
     setSelectedOrgLabel(orgLabel);
@@ -110,9 +116,6 @@ export default function ProjectOrganizationDashboardPage() {
       if (row.ministry && row.ministry !== 'All') params.ministry = row.ministry;
       if (level !== 'ministry' && row.stateDepartment && row.stateDepartment !== 'All') {
         params.stateDepartment = row.stateDepartment;
-      }
-      if (level === 'agency' && row.agency && row.agency !== 'All') {
-        params.agency = row.agency;
       }
       const data = await projectService.analytics.getProjectsForOrganization(params);
       setSelectedProjects(Array.isArray(data) ? data : []);
@@ -139,7 +142,7 @@ export default function ProjectOrganizationDashboardPage() {
             Projects by Organization
           </Typography>
           <Typography variant="body2" sx={{ color: colors.grey[300] }}>
-            Understand distribution of projects across agencies, state departments, and ministries.
+            Understand distribution of projects across state departments and ministries.
           </Typography>
         </Box>
         <FormControl size="small" sx={{ minWidth: 220 }}>
@@ -277,8 +280,14 @@ export default function ProjectOrganizationDashboardPage() {
         </>
       )}
 
-      <Dialog open={openProjectsModal} onClose={() => setOpenProjectsModal(false)} fullWidth maxWidth="lg">
-        <DialogTitle sx={{ fontWeight: 700 }}>Projects: {selectedOrgLabel}</DialogTitle>
+      <Dialog open={openProjectsModal} onClose={() => setOpenProjectsModal(false)} fullWidth maxWidth="xl">
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+          Projects for Selected Organization
+          <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary', fontWeight: 500 }}>
+            {selectedOrgLabel}
+          </Typography>
+        </DialogTitle>
+        <Divider />
         <DialogContent dividers>
           {modalLoading ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>
@@ -290,31 +299,63 @@ export default function ProjectOrganizationDashboardPage() {
           ) : selectedProjects.length === 0 ? (
             <Alert severity="info">No projects found for this organization.</Alert>
           ) : (
-            <TableContainer sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
-              <Table size="small">
+            <TableContainer
+              sx={{
+                border: `1px solid ${theme.palette.divider}`,
+                borderRadius: 1.5,
+                maxHeight: 520,
+                backgroundColor: theme.palette.background.paper,
+              }}
+            >
+              <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
-                    <TableCell>ID</TableCell>
-                    <TableCell>Project Name</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Ministry</TableCell>
-                    <TableCell>State Department</TableCell>
-                    <TableCell>Agency</TableCell>
-                    <TableCell align="right">Allocated (KES)</TableCell>
-                    <TableCell align="right">Disbursed (KES)</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Project Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Ministry</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>State Department</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Agency</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated Budget</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursed Budget</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {selectedProjects.map((p) => (
-                    <TableRow key={p.id}>
+                  {selectedProjects.map((p, index) => (
+                    <TableRow
+                      key={p.id}
+                      hover
+                      sx={{
+                        '&:nth-of-type(odd)': {
+                          backgroundColor: theme.palette.mode === 'dark'
+                            ? 'rgba(255,255,255,0.02)'
+                            : 'rgba(0,0,0,0.015)',
+                        },
+                      }}
+                    >
                       <TableCell>{p.id}</TableCell>
-                      <TableCell>{p.projectName || '—'}</TableCell>
-                      <TableCell>{p.status || '—'}</TableCell>
+                      <TableCell sx={{ minWidth: 240, fontWeight: 600 }}>{p.projectName || '—'}</TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={p.status || 'Unknown'}
+                          sx={{
+                            fontWeight: 700,
+                            backgroundColor: getProjectStatusBackgroundColor(p.status),
+                            color: getProjectStatusTextColor(p.status),
+                            border: `1px solid ${theme.palette.divider}`,
+                          }}
+                        />
+                      </TableCell>
                       <TableCell>{p.ministry || '—'}</TableCell>
                       <TableCell>{p.stateDepartment || '—'}</TableCell>
                       <TableCell>{p.agency || '—'}</TableCell>
-                      <TableCell align="right">{Number(p.allocatedBudget || 0).toLocaleString()}</TableCell>
-                      <TableCell align="right">{Number(p.disbursedBudget || 0).toLocaleString()}</TableCell>
+                      <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatKes(p.allocatedBudget)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatKes(p.disbursedBudget)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

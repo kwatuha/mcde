@@ -2621,12 +2621,12 @@ router.get('/organization-projects', async (req, res) => {
                     COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "stateDepartment",
                     COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS agency,
                     CASE
-                        WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
                         THEN (p.budget->>'allocated_amount_kes')::numeric
                         ELSE 0
                     END AS "allocatedBudget",
                     CASE
-                        WHEN (p.budget->>'disbursed_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        WHEN (p.budget->>'disbursed_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
                         THEN (p.budget->>'disbursed_amount_kes')::numeric
                         ELSE 0
                     END AS "disbursedBudget",
