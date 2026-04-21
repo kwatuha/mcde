@@ -207,7 +207,7 @@ function UserManagementPage() {
 
   /** Effective organization access (many rows: agency / whole ministry / whole state dept). */
   const [organizationScopes, setOrganizationScopes] = useState([]);
-  const [newScopeType, setNewScopeType] = useState('AGENCY');
+  const [newScopeType, setNewScopeType] = useState('MINISTRY_ALL');
   const [newScopeAgency, setNewScopeAgency] = useState(null);
   const [newScopeMinistry, setNewScopeMinistry] = useState(null);
   const [newScopeStateDept, setNewScopeStateDept] = useState(null);
@@ -217,7 +217,7 @@ function UserManagementPage() {
   const [standaloneOrgUserId, setStandaloneOrgUserId] = useState(null);
   const [standaloneOrgUsername, setStandaloneOrgUsername] = useState('');
   const [standaloneScopes, setStandaloneScopes] = useState([]);
-  const [standaloneNewScopeType, setStandaloneNewScopeType] = useState('AGENCY');
+  const [standaloneNewScopeType, setStandaloneNewScopeType] = useState('MINISTRY_ALL');
   const [standaloneNewAgency, setStandaloneNewAgency] = useState(null);
   const [standaloneNewMinistry, setStandaloneNewMinistry] = useState(null);
   const [standaloneNewStateDept, setStandaloneNewStateDept] = useState(null);
@@ -542,7 +542,7 @@ function UserManagementPage() {
     }
     setCurrentUserToEdit(null);
     setOrganizationScopes([]);
-    setNewScopeType('AGENCY');
+    setNewScopeType('MINISTRY_ALL');
     setNewScopeAgency(null);
     setNewScopeMinistry(null);
     setNewScopeStateDept(null);
@@ -625,7 +625,7 @@ function UserManagementPage() {
     setOpenStandaloneOrgDialog(false);
     setCurrentUserToEdit(userItem);
     setOrganizationScopes([]);
-    setNewScopeType('AGENCY');
+    setNewScopeType('MINISTRY_ALL');
     setNewScopeAgency(null);
     setNewScopeMinistry(null);
     setNewScopeStateDept(null);
@@ -657,13 +657,25 @@ function UserManagementPage() {
 
   const standaloneScopeStateDepartments = useMemo(() => {
     if (!standaloneNewMinistry) return [];
-    return [...new Set(
-      agencies
-        .filter((a) => a.ministry && a.ministry.toLowerCase() === String(standaloneNewMinistry).toLowerCase())
-        .map((a) => a.state_department || a.stateDepartment)
-        .filter(Boolean),
-    )].sort();
-  }, [agencies, standaloneNewMinistry]);
+    const selectedMinistryNorm = normalizeOrgText(standaloneNewMinistry);
+    const row = ministriesHierarchy.find((m) =>
+      normalizeOrgText(m?.name) === selectedMinistryNorm ||
+      normalizeOrgText(m?.alias) === selectedMinistryNorm
+    );
+
+    let names = (row?.departments || [])
+      .map((d) => String(d?.name || d?.departmentName || '').trim())
+      .filter(Boolean);
+
+    if (names.length === 0) {
+      names = agencies
+        .filter((a) => normalizeOrgText(a?.ministry) === selectedMinistryNorm)
+        .map((a) => String(a?.state_department || a?.stateDepartment || '').trim())
+        .filter(Boolean);
+    }
+
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [agencies, ministriesHierarchy, standaloneNewMinistry]);
 
   const handleOpenStandaloneOrgDialog = async (row) => {
     if (!hasPrivilege('user.update')) {
@@ -675,7 +687,7 @@ function UserManagementPage() {
     }
     setStandaloneOrgUserId(row.userId);
     setStandaloneOrgUsername(row.username || '');
-    setStandaloneNewScopeType('AGENCY');
+    setStandaloneNewScopeType('MINISTRY_ALL');
     setStandaloneNewAgency(null);
     setStandaloneNewMinistry(null);
     setStandaloneNewStateDept(null);
@@ -699,29 +711,15 @@ function UserManagementPage() {
   };
 
   const handleAddStandaloneScope = () => {
-    if (standaloneNewScopeType === 'AGENCY') {
-      if (!standaloneNewAgency) {
-        setSnackbar({ open: true, message: 'Select an agency to add.', severity: 'warning' });
-        return;
-      }
-      const aid = standaloneNewAgency.id ?? standaloneNewAgency.agencyId;
-      const name = standaloneNewAgency.agency_name || standaloneNewAgency.agencyName || '';
-      if (standaloneScopes.some((x) => x.scopeType === 'AGENCY' && Number(x.agencyId) === Number(aid))) {
-        setSnackbar({ open: true, message: 'This agency is already in the list.', severity: 'info' });
-        return;
-      }
-      setStandaloneScopes((prev) => [...prev, { scopeType: 'AGENCY', agencyId: aid, agencyName: name }]);
+    if (standaloneNewScopeType === 'ALL_MINISTRIES') {
+      setStandaloneScopes([{ scopeType: 'ALL_MINISTRIES' }]);
     } else if (standaloneNewScopeType === 'MINISTRY_ALL') {
       const m = (standaloneNewMinistry || '').trim();
       if (!m) {
         setSnackbar({ open: true, message: 'Select or enter a ministry.', severity: 'warning' });
         return;
       }
-      if (standaloneScopes.some((x) => x.scopeType === 'MINISTRY_ALL' && (x.ministry || '').toLowerCase() === m.toLowerCase())) {
-        setSnackbar({ open: true, message: 'This ministry is already in the list.', severity: 'info' });
-        return;
-      }
-      setStandaloneScopes((prev) => [...prev, { scopeType: 'MINISTRY_ALL', ministry: m }]);
+      setStandaloneScopes([{ scopeType: 'MINISTRY_ALL', ministry: m }]);
     } else {
       const m = (standaloneNewMinistry || '').trim();
       const sd = (standaloneNewStateDept || '').trim();
@@ -729,15 +727,7 @@ function UserManagementPage() {
         setSnackbar({ open: true, message: 'Select ministry and state department.', severity: 'warning' });
         return;
       }
-      if (standaloneScopes.some(
-        (x) => x.scopeType === 'STATE_DEPARTMENT_ALL'
-          && (x.ministry || '').toLowerCase() === m.toLowerCase()
-          && (x.stateDepartment || x.state_department || '').toLowerCase() === sd.toLowerCase(),
-      )) {
-        setSnackbar({ open: true, message: 'This state department scope is already in the list.', severity: 'info' });
-        return;
-      }
-      setStandaloneScopes((prev) => [...prev, { scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+      setStandaloneScopes([{ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
     }
     setStandaloneNewAgency(null);
   };
@@ -751,14 +741,15 @@ function UserManagementPage() {
     setStandaloneSaving(true);
     try {
       const payload = standaloneScopes.map((s) => {
-        if (s.scopeType === 'AGENCY') return { scopeType: 'AGENCY', agencyId: s.agencyId };
+        if (s.scopeType === 'AGENCY') return null;
+        if (s.scopeType === 'ALL_MINISTRIES') return { scopeType: 'ALL_MINISTRIES' };
         if (s.scopeType === 'MINISTRY_ALL') return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
         return {
           scopeType: 'STATE_DEPARTMENT_ALL',
           ministry: s.ministry,
           stateDepartment: s.stateDepartment || s.state_department,
         };
-      });
+      }).filter(Boolean);
       await apiService.updateUser(standaloneOrgUserId, { organizationScopes: payload });
       setSnackbar({ open: true, message: 'Organization access updated.', severity: 'success' });
       handleCloseStandaloneOrgDialog();
@@ -796,36 +787,27 @@ function UserManagementPage() {
     if (!s || !s.scopeType) return '';
     if (s.scopeType === 'AGENCY') {
       const name = s.agencyName || 'Agency';
-      return `${name} (agency #${s.agencyId})`;
+      return `Legacy agency scope: ${name}`;
     }
-    if (s.scopeType === 'MINISTRY_ALL') return `All agencies in ministry: ${s.ministry || '—'}`;
-    return `All agencies in: ${s.ministry || '—'} / ${s.stateDepartment || '—'}`;
+    if (s.scopeType === 'ALL_MINISTRIES') return 'All Ministries';
+    if (s.scopeType === 'MINISTRY_ALL') {
+      const m = String(s.ministry || '').trim();
+      if (m === '*' || m.toUpperCase() === 'ALL') return 'All Ministries';
+      return `Ministry: ${m || '—'}`;
+    }
+    return `State Department: ${s.ministry || '—'} / ${s.stateDepartment || '—'}`;
   };
 
   const handleAddOrganizationScope = () => {
-    if (newScopeType === 'AGENCY') {
-      if (!newScopeAgency) {
-        setSnackbar({ open: true, message: 'Select an agency to add.', severity: 'warning' });
-        return;
-      }
-      const aid = newScopeAgency.id ?? newScopeAgency.agencyId;
-      const name = newScopeAgency.agency_name || newScopeAgency.agencyName || '';
-      if (organizationScopes.some((x) => x.scopeType === 'AGENCY' && Number(x.agencyId) === Number(aid))) {
-        setSnackbar({ open: true, message: 'This agency is already in the list.', severity: 'info' });
-        return;
-      }
-      setOrganizationScopes((prev) => [...prev, { scopeType: 'AGENCY', agencyId: aid, agencyName: name }]);
+    if (newScopeType === 'ALL_MINISTRIES') {
+      setOrganizationScopes([{ scopeType: 'ALL_MINISTRIES' }]);
     } else if (newScopeType === 'MINISTRY_ALL') {
       const m = (newScopeMinistry || '').trim();
       if (!m) {
-        setSnackbar({ open: true, message: 'Select or enter a ministry.', severity: 'warning' });
+        setSnackbar({ open: true, message: 'Select a ministry.', severity: 'warning' });
         return;
       }
-      if (organizationScopes.some((x) => x.scopeType === 'MINISTRY_ALL' && (x.ministry || '').toLowerCase() === m.toLowerCase())) {
-        setSnackbar({ open: true, message: 'This ministry is already in the list.', severity: 'info' });
-        return;
-      }
-      setOrganizationScopes((prev) => [...prev, { scopeType: 'MINISTRY_ALL', ministry: m }]);
+      setOrganizationScopes([{ scopeType: 'MINISTRY_ALL', ministry: m }]);
     } else {
       const m = (newScopeMinistry || '').trim();
       const sd = (newScopeStateDept || '').trim();
@@ -833,15 +815,7 @@ function UserManagementPage() {
         setSnackbar({ open: true, message: 'Select ministry and state department.', severity: 'warning' });
         return;
       }
-      if (organizationScopes.some(
-        (x) => x.scopeType === 'STATE_DEPARTMENT_ALL'
-          && (x.ministry || '').toLowerCase() === m.toLowerCase()
-          && (x.stateDepartment || x.state_department || '').toLowerCase() === sd.toLowerCase(),
-      )) {
-        setSnackbar({ open: true, message: 'This state department scope is already in the list.', severity: 'info' });
-        return;
-      }
-      setOrganizationScopes((prev) => [...prev, { scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+      setOrganizationScopes([{ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
     }
     setNewScopeAgency(null);
   };
@@ -852,13 +826,25 @@ function UserManagementPage() {
 
   const scopeBuilderStateDepartments = useMemo(() => {
     if (!newScopeMinistry) return [];
-    return [...new Set(
-      agencies
-        .filter((a) => a.ministry && a.ministry.toLowerCase() === String(newScopeMinistry).toLowerCase())
-        .map((a) => a.state_department || a.stateDepartment)
-        .filter(Boolean),
-    )].sort();
-  }, [agencies, newScopeMinistry]);
+    const selectedMinistryNorm = normalizeOrgText(newScopeMinistry);
+    const row = ministriesHierarchy.find((m) =>
+      normalizeOrgText(m?.name) === selectedMinistryNorm ||
+      normalizeOrgText(m?.alias) === selectedMinistryNorm
+    );
+
+    let names = (row?.departments || [])
+      .map((d) => String(d?.name || d?.departmentName || '').trim())
+      .filter(Boolean);
+
+    if (names.length === 0) {
+      names = agencies
+        .filter((a) => normalizeOrgText(a?.ministry) === selectedMinistryNorm)
+        .map((a) => String(a?.state_department || a?.stateDepartment || '').trim())
+        .filter(Boolean);
+    }
+
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [agencies, ministriesHierarchy, newScopeMinistry]);
 
   const handleOpenViewDetails = async (userRow) => {
     setViewDetailsUser(userRow);
@@ -1003,7 +989,10 @@ function UserManagementPage() {
         state_department: userFormData.stateDepartment || null,
         organizationScopes: organizationScopes.map((s) => {
           if (s.scopeType === 'AGENCY') {
-            return { scopeType: 'AGENCY', agencyId: s.agencyId };
+            return null;
+          }
+          if (s.scopeType === 'ALL_MINISTRIES') {
+            return { scopeType: 'ALL_MINISTRIES' };
           }
           if (s.scopeType === 'MINISTRY_ALL') {
             return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
@@ -1013,7 +1002,7 @@ function UserManagementPage() {
             ministry: s.ministry,
             stateDepartment: s.stateDepartment || s.state_department,
           };
-        }),
+        }).filter(Boolean),
       };
       
       // Remove fields that backend doesn't expect
@@ -3125,7 +3114,7 @@ function UserManagementPage() {
             Organization access (projects &amp; directories)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Users without the national bypass privilege only see projects and agencies matching these rules. If the list is empty on create, the primary agency above is used as a single-agency scope.
+            Choose one access mode: all ministries and departments, one ministry and all its departments, or one ministry and one specific department.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
@@ -3140,20 +3129,18 @@ function UserManagementPage() {
                   setNewScopeStateDept(null);
                 }}
               >
-                <MenuItem value="AGENCY">Specific agency</MenuItem>
-                <MenuItem value="MINISTRY_ALL">All agencies in a ministry</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">All agencies in a state department</MenuItem>
+                <MenuItem value="ALL_MINISTRIES">All Ministries</MenuItem>
+                <MenuItem value="MINISTRY_ALL">Ministry</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">State Department</MenuItem>
               </Select>
             </FormControl>
-            {newScopeType === 'AGENCY' && (
-              <Autocomplete
+            {newScopeType === 'ALL_MINISTRIES' && (
+              <TextField
+                size="small"
+                label="All Ministries"
+                value="Enabled"
+                disabled
                 sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={agencies}
-                value={newScopeAgency}
-                onChange={(_, v) => setNewScopeAgency(v)}
-                getOptionLabel={(o) => o.agency_name || o.agencyName || ''}
-                loading={loadingAgencies}
-                renderInput={(params) => <TextField {...params} label="Agency" margin="dense" size="small" />}
               />
             )}
             {newScopeType === 'MINISTRY_ALL' && (
@@ -3188,7 +3175,7 @@ function UserManagementPage() {
               </>
             )}
             <Button variant="outlined" size="small" onClick={handleAddOrganizationScope} sx={{ height: 40 }}>
-              Add scope
+              Apply access mode
             </Button>
           </Stack>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
@@ -3203,7 +3190,7 @@ function UserManagementPage() {
             ))}
             {organizationScopes.length === 0 && (
               <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
-                No extra scopes yet{!currentUserToEdit ? ' — primary agency will be used by default' : ''}.
+                No organization access rules added yet.
               </Typography>
             )}
           </Box>
@@ -3241,8 +3228,8 @@ function UserManagementPage() {
           }}
         >
           <Typography variant="body2" sx={{ mb: 2, color: colors.grey[200] }}>
-            Define which agencies, state departments, or whole ministries this user may access for projects and agency lists.
-            Users with the <strong>organization.scope_bypass</strong> privilege are not restricted. An empty list falls back to the user&apos;s primary agency on file.
+            Choose one access mode: all ministries and departments, one ministry and all its departments, or one ministry and one specific department.
+            Users with the <strong>organization.scope_bypass</strong> privilege are not restricted.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
@@ -3257,20 +3244,18 @@ function UserManagementPage() {
                   setStandaloneNewStateDept(null);
                 }}
               >
-                <MenuItem value="AGENCY">Specific agency</MenuItem>
-                <MenuItem value="MINISTRY_ALL">All agencies in a ministry</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">All agencies in a state department</MenuItem>
+                <MenuItem value="ALL_MINISTRIES">All Ministries</MenuItem>
+                <MenuItem value="MINISTRY_ALL">Ministry</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">State Department</MenuItem>
               </Select>
             </FormControl>
-            {standaloneNewScopeType === 'AGENCY' && (
-              <Autocomplete
+            {standaloneNewScopeType === 'ALL_MINISTRIES' && (
+              <TextField
+                size="small"
+                label="All Ministries"
+                value="Enabled"
+                disabled
                 sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={agencies}
-                value={standaloneNewAgency}
-                onChange={(_, v) => setStandaloneNewAgency(v)}
-                getOptionLabel={(o) => o.agency_name || o.agencyName || ''}
-                loading={loadingAgencies}
-                renderInput={(params) => <TextField {...params} label="Agency" margin="dense" size="small" />}
               />
             )}
             {standaloneNewScopeType === 'MINISTRY_ALL' && (
@@ -3305,7 +3290,7 @@ function UserManagementPage() {
               </>
             )}
             <Button variant="outlined" size="small" onClick={handleAddStandaloneScope} sx={{ height: 40 }}>
-              Add scope
+              Apply access mode
             </Button>
           </Stack>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
@@ -3320,7 +3305,7 @@ function UserManagementPage() {
             ))}
             {standaloneScopes.length === 0 && (
               <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
-                No explicit scopes — primary agency on the user record applies when the database has no rows here.
+                No explicit organization access rules configured.
               </Typography>
             )}
           </Box>

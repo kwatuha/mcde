@@ -53,6 +53,9 @@ function normalizeScopeInput(raw) {
         if (!Number.isFinite(n)) return null;
         return { scopeType: SCOPE_TYPES.AGENCY, agencyId: n, ministry: null, stateDepartment: null };
     }
+    if (scopeType === 'ALL_MINISTRIES') {
+        return { scopeType: SCOPE_TYPES.MINISTRY_ALL, agencyId: null, ministry: '*', stateDepartment: null };
+    }
     if (scopeType === SCOPE_TYPES.MINISTRY_ALL) {
         const ministry = (raw.ministry || '').trim();
         if (!ministry) return null;
@@ -308,19 +311,255 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                         LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(ag.agency_name, '')))
                         OR (
                             NULLIF(TRIM(COALESCE(${pa}.implementing_agency, '')), '') IS NULL
+                            AND NULLIF(TRIM(COALESCE(ag.ministry, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(ag.state_department, '')), '') IS NOT NULL
                             AND LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(ag.ministry, '')))
                             AND LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(ag.state_department, '')))
                         )
                     ))
                 OR (s.scope_type = 'MINISTRY_ALL'
-                    AND LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.ministry, ''))))
+                    AND (
+                        LOWER(TRIM(COALESCE(s.ministry, ''))) IN ('*', 'all')
+                        OR (
+                            NULLIF(TRIM(COALESCE(s.ministry, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(${pa}.ministry, '')), '') IS NOT NULL
+                            AND
+                            (
+                                LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.ministry, '')))
+                                OR regexp_replace(
+                                    regexp_replace(
+                                        regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                        '\\s*\\([^)]*\\)\\s*',
+                                        '',
+                                        'g'
+                                    ),
+                                    '\\m(and|the)\\M',
+                                    '',
+                                    'g'
+                                ) = regexp_replace(
+                                    regexp_replace(
+                                        regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                        '\\s*\\([^)]*\\)\\s*',
+                                        '',
+                                        'g'
+                                    ),
+                                    '\\m(and|the)\\M',
+                                    '',
+                                    'g'
+                                )
+                                OR regexp_replace(
+                                    regexp_replace(
+                                        regexp_replace(
+                                            regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                            '\\s*\\([^)]*\\)\\s*',
+                                            '',
+                                            'g'
+                                        ),
+                                        '\\m(and|the)\\M',
+                                        '',
+                                        'g'
+                                    ),
+                                    '[^a-z0-9]+',
+                                    '',
+                                    'g'
+                                ) LIKE '%' || regexp_replace(
+                                    regexp_replace(
+                                        regexp_replace(
+                                            regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                            '\\s*\\([^)]*\\)\\s*',
+                                            '',
+                                            'g'
+                                        ),
+                                        '\\m(and|the)\\M',
+                                        '',
+                                        'g'
+                                    ),
+                                    '[^a-z0-9]+',
+                                    '',
+                                    'g'
+                                ) || '%'
+                            )
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM ministries m
+                            WHERE COALESCE(m.voided, false) = false
+                              AND (
+                                    -- scope ministry resolves to this canonical ministry (name/alias token/normalized)
+                                    LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(m.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(m.alias, ''), ',')) AS ma(token)
+                                        WHERE LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(ma.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '[^a-z0-9]+', '', 'g')
+                                    OR regexp_replace(
+                                        regexp_replace(
+                                            regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                            '\\s*\\([^)]*\\)\\s*',
+                                            '',
+                                            'g'
+                                        ),
+                                        '\\m(and|the)\\M',
+                                        '',
+                                        'g'
+                                    ) = regexp_replace(
+                                        regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                    '[^a-z0-9]+',
+                                    '',
+                                    'g'
+                                )
+                            )
+                              AND (
+                                    -- project ministry resolves to same canonical ministry (name/alias token/normalized)
+                                    LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(m.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(m.alias, ''), ',')) AS mb(token)
+                                        WHERE LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(mb.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '[^a-z0-9]+', '', 'g')
+                                    OR regexp_replace(
+                                        regexp_replace(
+                                            regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                            '\\s*\\([^)]*\\)\\s*',
+                                            '',
+                                            'g'
+                                        ),
+                                        '\\m(and|the)\\M',
+                                        '',
+                                        'g'
+                                    ) = regexp_replace(
+                                        regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                        '\\m(and|the)\\M',
+                                        '',
+                                        'g'
+                                    )
+                                    OR regexp_replace(
+                                        regexp_replace(
+                                            regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                            '\\s*\\([^)]*\\)\\s*',
+                                            '',
+                                            'g'
+                                        ),
+                                        '[^a-z0-9]+',
+                                        '',
+                                        'g'
+                                    ) = regexp_replace(
+                                        regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '^ministry\\s+of\\s+', '', 'g'),
+                                        '[^a-z0-9]+',
+                                        '',
+                                        'g'
+                                    )
+                              )
+                        )
+                    ))
+                OR (s.scope_type = 'ALL_MINISTRIES')
                 OR (s.scope_type = 'STATE_DEPARTMENT_ALL'
-                    AND LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.ministry, '')))
-                    AND LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(s.state_department, ''))))
+                    AND (
+                        (
+                            NULLIF(TRIM(COALESCE(s.ministry, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(s.state_department, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(${pa}.ministry, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(${pa}.state_department, '')), '') IS NOT NULL
+                            AND
+                            LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.ministry, '')))
+                            AND LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(s.state_department, '')))
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM ministries m
+                            JOIN departments d ON d."ministryId" = m."ministryId" AND COALESCE(d.voided, false) = false
+                            WHERE COALESCE(m.voided, false) = false
+                              AND (
+                                    LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(m.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(m.alias, ''), ',')) AS ma(token)
+                                        WHERE LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(ma.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                              AND (
+                                    LOWER(TRIM(COALESCE(s.state_department, ''))) = LOWER(TRIM(COALESCE(d.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(d.alias, ''), ',')) AS da(token)
+                                        WHERE LOWER(TRIM(COALESCE(s.state_department, ''))) = LOWER(TRIM(COALESCE(da.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(s.state_department, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(d.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                              AND (
+                                    LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(m.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(m.alias, ''), ',')) AS mb(token)
+                                        WHERE LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(mb.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(m.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                              AND (
+                                    LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(d.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(d.alias, ''), ',')) AS db(token)
+                                        WHERE LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(db.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(d.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                        )
+                    ))
             )
         )
         OR (
-            NOT EXISTS (SELECT 1 FROM user_organization_scope s0 WHERE s0.user_id = ?)
+            NOT EXISTS (
+                SELECT 1
+                FROM user_organization_scope s0
+                LEFT JOIN agencies ag0 ON s0.agency_id = ag0.id AND COALESCE(ag0.voided, false) = false
+                WHERE s0.user_id = ?
+                  AND (
+                        (LOWER(TRIM(COALESCE(s0.scope_type, ''))) = 'agency' AND ag0.id IS NOT NULL)
+                        OR (
+                            LOWER(TRIM(COALESCE(s0.scope_type, ''))) = 'ministry_all'
+                            AND (
+                                LOWER(TRIM(COALESCE(s0.ministry, ''))) IN ('*', 'all')
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM ministries m0
+                                    WHERE COALESCE(m0.voided, false) = false
+                                      AND (
+                                            LOWER(TRIM(COALESCE(s0.ministry, ''))) = LOWER(TRIM(COALESCE(m0.name, '')))
+                                            OR LOWER(TRIM(COALESCE(s0.ministry, ''))) = LOWER(TRIM(COALESCE(m0.alias, '')))
+                                      )
+                                )
+                            )
+                        )
+                        OR (
+                            LOWER(TRIM(COALESCE(s0.scope_type, ''))) = 'state_department_all'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM ministries m0
+                                JOIN departments d0 ON d0."ministryId" = m0."ministryId" AND COALESCE(d0.voided, false) = false
+                                WHERE COALESCE(m0.voided, false) = false
+                                  AND (
+                                        LOWER(TRIM(COALESCE(s0.ministry, ''))) = LOWER(TRIM(COALESCE(m0.name, '')))
+                                        OR LOWER(TRIM(COALESCE(s0.ministry, ''))) = LOWER(TRIM(COALESCE(m0.alias, '')))
+                                  )
+                                  AND (
+                                        LOWER(TRIM(COALESCE(s0.state_department, ''))) = LOWER(TRIM(COALESCE(d0.name, '')))
+                                        OR LOWER(TRIM(COALESCE(s0.state_department, ''))) = LOWER(TRIM(COALESCE(d0.alias, '')))
+                                  )
+                            )
+                        )
+                        OR LOWER(TRIM(COALESCE(s0.scope_type, ''))) = 'all_ministries'
+                  )
+            )
             AND EXISTS (
                 SELECT 1
                 FROM users u
@@ -345,6 +584,8 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                                 LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(ag.agency_name, '')))
                                 OR (
                                     NULLIF(TRIM(COALESCE(${pa}.implementing_agency, '')), '') IS NULL
+                                    AND NULLIF(TRIM(COALESCE(ag.ministry, '')), '') IS NOT NULL
+                                    AND NULLIF(TRIM(COALESCE(ag.state_department, '')), '') IS NOT NULL
                                     AND LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(ag.ministry, '')))
                                     AND LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(ag.state_department, '')))
                                 )
@@ -392,14 +633,27 @@ function buildAgenciesScopeFragment() {
             AND (
                 (s.scope_type = 'AGENCY' AND s.agency_id = agencies.id)
                 OR (s.scope_type = 'MINISTRY_ALL'
-                    AND TRIM(COALESCE(agencies.ministry, '')) = TRIM(COALESCE(s.ministry, '')))
+                    AND (
+                        LOWER(TRIM(COALESCE(s.ministry, ''))) IN ('*', 'all')
+                        OR TRIM(COALESCE(agencies.ministry, '')) = TRIM(COALESCE(s.ministry, ''))
+                    ))
+                OR (s.scope_type = 'ALL_MINISTRIES')
                 OR (s.scope_type = 'STATE_DEPARTMENT_ALL'
                     AND TRIM(COALESCE(agencies.ministry, '')) = TRIM(COALESCE(s.ministry, ''))
                     AND TRIM(COALESCE(agencies.state_department, '')) = TRIM(COALESCE(s.state_department, '')))
             )
         )
         OR (
-            NOT EXISTS (SELECT 1 FROM user_organization_scope s0 WHERE s0.user_id = ?)
+            NOT EXISTS (
+                SELECT 1
+                FROM user_organization_scope s0
+                LEFT JOIN agencies ag0 ON s0.agency_id = ag0.id AND COALESCE(ag0.voided, false) = false
+                WHERE s0.user_id = ?
+                  AND (
+                        (LOWER(TRIM(COALESCE(s0.scope_type, ''))) = 'agency' AND ag0.id IS NOT NULL)
+                        OR LOWER(TRIM(COALESCE(s0.scope_type, ''))) IN ('ministry_all', 'state_department_all', 'all_ministries')
+                  )
+            )
             AND EXISTS (
                 SELECT 1 FROM users u
                 WHERE u.userid = ? AND COALESCE(u.voided, false) = false

@@ -57,6 +57,20 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 1,
   })}M`;
 
+const formatCurrencyAxisTick = (value) => {
+  const numeric = Number(value) || 0;
+  if (numeric >= 1_000_000_000) {
+    return `KES ${(numeric / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (numeric >= 1_000_000) {
+    return `KES ${(numeric / 1_000_000).toFixed(0)}M`;
+  }
+  if (numeric >= 1_000) {
+    return `KES ${(numeric / 1_000).toFixed(0)}K`;
+  }
+  return `KES ${numeric.toFixed(0)}`;
+};
+
 const STATUS_COUNT_UP_MS = 500;
 
 function useCountUp(endValue, durationMs = STATUS_COUNT_UP_MS) {
@@ -860,7 +874,11 @@ const FinanceDashboardPage = () => {
                       height={70}
                       tick={{ fill: colors.grey[300], fontSize: 11 }}
                     />
-                    <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} />
+                    <YAxis
+                      tick={{ fill: colors.grey[300], fontSize: 11 }}
+                      tickFormatter={formatCurrencyAxisTick}
+                      width={90}
+                    />
                     <RechartsTooltip
                       formatter={(value) => formatCurrency(value)}
                       contentStyle={{
@@ -939,7 +957,11 @@ const FinanceDashboardPage = () => {
                       dataKey="name"
                       tick={{ fill: colors.grey[300], fontSize: 11 }}
                     />
-                    <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} />
+                    <YAxis
+                      tick={{ fill: colors.grey[300], fontSize: 11 }}
+                      tickFormatter={formatCurrencyAxisTick}
+                      width={90}
+                    />
                     <RechartsTooltip
                       formatter={(value) => formatCurrency(value)}
                       contentStyle={{

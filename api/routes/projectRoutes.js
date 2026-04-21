@@ -2191,6 +2191,18 @@ router.get('/status-counts', async (req, res) => {
         ];
         const queryParams = [];
 
+        // Enforce organization visibility unless user is admin-like or has explicit bypass.
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
+                whereConditions.push(scopeFragPg);
+                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+            }
+        }
+
         if (finYearId) {
             if (DB_TYPE === 'postgresql') {
                 whereConditions.push(`(p.timeline->>'financial_year') = ${placeholder}${placeholderIndex}`);
@@ -2331,6 +2343,18 @@ router.get('/directorate-counts', async (req, res) => {
             DB_TYPE === 'postgresql' ? `p.implementing_agency IS NOT NULL` : 'p.directorate IS NOT NULL'
         ];
         const queryParams = [];
+
+        // Enforce organization visibility unless user is admin-like or has explicit bypass.
+        const authUserId = getScopeUserId(req.user);
+        const authPrivileges = req.user?.privileges || [];
+        const isAdminLike = privilege.isAdminLike(req.user);
+        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+            if (await orgScope.organizationScopeTableExists()) {
+                const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
+                whereConditions.push(scopeFragPg);
+                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+            }
+        }
 
         if (finYearId) {
             if (DB_TYPE === 'postgresql') {

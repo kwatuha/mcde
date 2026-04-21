@@ -152,6 +152,8 @@ const ProjectByStatusDashboardPage = () => {
   const [selectedStatus, setSelectedStatus] = useState(null);
   const [statusProjects, setStatusProjects] = useState([]);
   const [loadingStatusProjects, setLoadingStatusProjects] = useState(false);
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
   const [allProjects, setAllProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [projectsError, setProjectsError] = useState('');
@@ -401,6 +403,11 @@ const ProjectByStatusDashboardPage = () => {
     
     setStatusProjects(filtered);
     setLoadingStatusProjects(false);
+  };
+
+  const handleOpenProjectDetails = (project) => {
+    setSelectedProject(project);
+    setProjectDetailsOpen(true);
   };
 
   return (
@@ -1345,7 +1352,12 @@ const ProjectByStatusDashboardPage = () => {
                       <TableCell><Typography variant="body2">{project.directorate || project.directorateName || project.directorate_name || 'N/A'}</Typography></TableCell>
                       <TableCell><Typography variant="body2" sx={{ fontWeight: 500 }}>{project.budget || project.costOfProject || project.cost_of_project ? formatCurrency(project.budget || project.costOfProject || project.cost_of_project) : 'N/A'}</Typography></TableCell>
                       <TableCell>
-                        <Button size="small" variant="outlined" onClick={() => { setStatusModalOpen(false); navigate(`${ROUTES.PROJECTS}/${project.id || project.projectName}`); }} sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: colors.blueAccent[500], color: colors.blueAccent[600] }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleOpenProjectDetails(project)}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: colors.blueAccent[500], color: colors.blueAccent[600] }}
+                        >
                           View Details
                         </Button>
                       </TableCell>
@@ -1386,6 +1398,47 @@ const ProjectByStatusDashboardPage = () => {
               color: colors.grey[700],
             }}
           >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={projectDetailsOpen}
+        onClose={() => setProjectDetailsOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Project Details
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedProject ? (
+            <Box display="grid" gap={1.25}>
+              <Typography variant="body2"><strong>Name:</strong> {selectedProject.projectName || selectedProject.project_name || 'Untitled Project'}</Typography>
+              <Typography variant="body2"><strong>Status:</strong> {selectedProject.Status || selectedProject.status || 'Unknown'}</Typography>
+              <Typography variant="body2"><strong>Department:</strong> {selectedProject.department || selectedProject.departmentName || selectedProject.department_name || 'N/A'}</Typography>
+              <Typography variant="body2"><strong>Directorate:</strong> {selectedProject.directorate || selectedProject.directorateName || selectedProject.directorate_name || 'N/A'}</Typography>
+              <Typography variant="body2"><strong>Financial Year:</strong> {selectedProject.financialYear || selectedProject.financialYearName || 'N/A'}</Typography>
+              <Typography variant="body2"><strong>Allocated Budget:</strong> {formatCurrency(selectedProject.budget || selectedProject.costOfProject || selectedProject.cost_of_project || 0)}</Typography>
+              <Typography variant="body2"><strong>Disbursed:</strong> {formatCurrency(selectedProject.Disbursed || selectedProject.paidOut || selectedProject.disbursedBudget || 0)}</Typography>
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              const projectId = selectedProject?.id || selectedProject?.project_id;
+              if (projectId) {
+                navigate(`${ROUTES.PROJECTS}/${projectId}`);
+              }
+            }}
+            variant="contained"
+            sx={{ textTransform: 'none' }}
+          >
+            Open Full Project Page
+          </Button>
+          <Button onClick={() => setProjectDetailsOpen(false)} variant="outlined" sx={{ textTransform: 'none' }}>
             Close
           </Button>
         </DialogActions>
