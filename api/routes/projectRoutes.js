@@ -2593,21 +2593,33 @@ router.get('/organization-projects', async (req, res) => {
         }
 
         if (ministry && ministry.toLowerCase() !== 'all') {
-            if (DB_TYPE === 'postgresql') {
-                whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+            if (ministry.toLowerCase() === 'unassigned') {
+                whereConditions.push("NULLIF(TRIM(COALESCE(p.ministry, '')), '') IS NULL");
             } else {
-                whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                if (DB_TYPE === 'postgresql') {
+                    whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                } else {
+                    whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                }
+                queryParams.push(ministry);
             }
-            queryParams.push(ministry);
         }
         if (stateDepartment && stateDepartment.toLowerCase() !== 'all') {
-            whereConditions.push("LOWER(TRIM(COALESCE(p.state_department, ''))) = LOWER(TRIM(COALESCE(?, '')))");
-            queryParams.push(stateDepartment);
+            if (stateDepartment.toLowerCase() === 'unassigned') {
+                whereConditions.push("NULLIF(TRIM(COALESCE(p.state_department, '')), '') IS NULL");
+            } else {
+                whereConditions.push("LOWER(TRIM(COALESCE(p.state_department, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                queryParams.push(stateDepartment);
+            }
         }
         if (agency && agency.toLowerCase() !== 'all') {
             const agencyColumn = DB_TYPE === 'postgresql' ? 'p.implementing_agency' : 'p.directorate';
-            whereConditions.push(`LOWER(TRIM(COALESCE(${agencyColumn}, ''))) = LOWER(TRIM(COALESCE(?, '')))`); 
-            queryParams.push(agency);
+            if (agency.toLowerCase() === 'unassigned') {
+                whereConditions.push(`NULLIF(TRIM(COALESCE(${agencyColumn}, '')), '') IS NULL`);
+            } else {
+                whereConditions.push(`LOWER(TRIM(COALESCE(${agencyColumn}, ''))) = LOWER(TRIM(COALESCE(?, '')))`); 
+                queryParams.push(agency);
+            }
         }
 
         let sqlQuery = '';
