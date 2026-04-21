@@ -81,6 +81,33 @@ export const AuthProvider = ({ children }) => {
         loadUserFromToken();
     }, [logout]);
 
+    // Enforce automatic logout exactly when JWT expires (absolute session timeout).
+    useEffect(() => {
+        if (!token) return undefined;
+
+        let timeoutId;
+        try {
+            const decoded = jwtDecode(token);
+            const expMs = Number(decoded?.exp || 0) * 1000;
+            if (!Number.isFinite(expMs) || expMs <= Date.now()) {
+                logout();
+                return undefined;
+            }
+
+            const msUntilExpiry = expMs - Date.now();
+            timeoutId = setTimeout(() => {
+                logout();
+            }, msUntilExpiry);
+        } catch (error) {
+            console.error('Failed to decode token for expiry timer:', error);
+            logout();
+        }
+
+        return () => {
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [token, logout]);
+
     const contextValue = {
         token,
         user,
