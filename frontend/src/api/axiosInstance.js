@@ -44,7 +44,17 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
     (response) => response, // If response is successful, just return it
     (error) => {
-        console.error('API Response Error:', error.response || error.message);
+        const status = error?.response?.status;
+        const requestUrl = String(error?.config?.url || '');
+        const isLoginRequest = requestUrl.includes('/auth/login');
+        const isExpectedInvalidLogin = isLoginRequest && status === 400;
+
+        // Avoid noisy console errors for expected invalid-login attempts.
+        if (isExpectedInvalidLogin) {
+            console.info('Login attempt rejected: invalid credentials.');
+        } else {
+            console.error('API Response Error:', error.response || error.message);
+        }
         
         // Handle 401 Unauthorized errors (token expired or invalid)
         if (error.response && error.response.status === 401) {

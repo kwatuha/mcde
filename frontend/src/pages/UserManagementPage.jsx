@@ -148,6 +148,95 @@ function getUserOrgGroupInfo(user, options = {}) {
   return { key: 'unassigned', label: 'No organization assigned', sortTier: 99 };
 }
 
+function getUserAccessLevelGroups(user) {
+  const scopes = Array.isArray(user?.organizationScopes) ? user.organizationScopes : [];
+  const normalizedScopes = scopes
+    .map((s) => {
+      if (!s || typeof s !== 'object') return null;
+      const scopeType = String(s.scopeType || s.scope_type || '').trim().toUpperCase();
+      const ministry = String(s.ministry || '').trim();
+      const stateDepartment = String(s.stateDepartment || s.state_department || '').trim();
+      return { scopeType, ministry, stateDepartment };
+    })
+    .filter(Boolean);
+
+  const groups = [];
+  const seen = new Set();
+  const addGroup = (group) => {
+    if (!group || !group.key || seen.has(group.key)) return;
+    seen.add(group.key);
+    groups.push(group);
+  };
+
+  for (const s of normalizedScopes) {
+    if (s.scopeType === 'ALL_MINISTRIES') {
+      addGroup({
+        key: 'access:all-ministries',
+        label: 'All Ministries',
+        sortTier: 0,
+        description: 'Can access projects across all ministries',
+      });
+      continue;
+    }
+    if (s.scopeType === 'MINISTRY_ALL') {
+      const m = s.ministry || 'Unspecified Ministry';
+      addGroup({
+        key: `access:ministry:${m.toLowerCase()}`,
+        label: `Ministry Level: ${m}`,
+        sortTier: 1,
+        description: `Can access projects for ministry ${m}`,
+      });
+      continue;
+    }
+    if (s.scopeType === 'STATE_DEPARTMENT_ALL') {
+      const m = s.ministry || 'Unspecified Ministry';
+      const sd = s.stateDepartment || 'Unspecified State Department';
+      addGroup({
+        key: `access:state-department:${m.toLowerCase()}|${sd.toLowerCase()}`,
+        label: `State Department Level: ${sd}`,
+        sortTier: 2,
+        description: `Ministry: ${m}`,
+      });
+      continue;
+    }
+    if (s.scopeType === 'AGENCY') {
+      addGroup({
+        key: 'access:legacy-agency',
+        label: 'Legacy Agency Scope',
+        sortTier: 98,
+        description: 'Still mapped to old agency scope and may not see projects',
+      });
+    }
+  }
+
+  const hasNonAgencyScope = normalizedScopes.some((s) => s.scopeType && s.scopeType !== 'AGENCY');
+  const hasAgencyScope = normalizedScopes.some((s) => s.scopeType === 'AGENCY');
+  const hasProfileAgency = Boolean((user?.agencyName || user?.agency_name || '').trim() || user?.agencyId || user?.agency_id);
+  const hasProfileMinistryState = Boolean((user?.ministry || '').trim() || (user?.stateDepartment || user?.state_department || '').trim());
+
+  if (!hasNonAgencyScope && (hasAgencyScope || hasProfileAgency)) {
+    addGroup({
+      key: 'access:legacy-agency',
+      label: 'Legacy Agency Scope',
+      sortTier: 98,
+      description: 'Still mapped to old agency scope and may not see projects',
+    });
+  }
+
+  if (groups.length === 0) {
+    addGroup({
+      key: hasProfileMinistryState ? 'access:no-scope-profile-only' : 'access:no-scope',
+      label: hasProfileMinistryState ? 'No Scope Assigned (Profile Values Only)' : 'No Scope Assigned',
+      sortTier: 99,
+      description: hasProfileMinistryState
+        ? 'Has ministry/state profile values but no organization scope rows'
+        : 'No organization scope rows configured',
+    });
+  }
+
+  return groups;
+}
+
 
 function UserManagementPage() {
   const { user, logout, hasPrivilege } = useAuth();
@@ -169,7 +258,7 @@ function UserManagementPage() {
 
   // Global search state
   const [globalSearch, setGlobalSearch] = useState('');
-  /** 'all' | 'byOrganization' */
+  /** 'all' | 'byOrganization' | 'byAccessLevel' */
   const [userListView, setUserListView] = useState('all');
 
   // User Management States
@@ -1755,6 +1844,34 @@ function UserManagementPage() {
     });
   }, [filteredUsers, activeRoleNameSet]);
 
+  const usersByAccessLevel = useMemo(() => {
+    const groups = new Map();
+    for (const u of filteredUsers) {
+      const accessGroups = getUserAccessLevelGroups(u);
+      for (const g of accessGroups) {
+        if (!groups.has(g.key)) {
+          groups.set(g.key, {
+            key: g.key,
+            label: g.label,
+            sortTier: g.sortTier ?? 50,
+            description: g.description || '',
+            users: [],
+          });
+        }
+        groups.get(g.key).users.push(u);
+      }
+    }
+    for (const g of groups.values()) {
+      g.users.sort((a, b) =>
+        String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' })
+      );
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.sortTier !== b.sortTier) return a.sortTier - b.sortTier;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+  }, [filteredUsers]);
+
   // Key columns only: avoid horizontal scroll; full details in View details dialog
   const userColumns = [
     {
@@ -2103,6 +2220,7 @@ function UserManagementPage() {
         >
           <Tab value="all" icon={<ViewListIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="All users" />
           <Tab value="byOrganization" icon={<HubIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="By organization" />
+          <Tab value="byAccessLevel" icon={<AccountTreeIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="By access level" />
           <Tab value="byRole" icon={<AdminPanelSettingsIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="By role" />
           {isSuperAdmin && <Tab value="voided" icon={<BlockIcon sx={{ fontSize: '1.05rem' }} />} iconPosition="start" label="Voided users" />}
         </Tabs>
@@ -2312,7 +2430,7 @@ function UserManagementPage() {
         <Alert severity="info">
           No users found matching "{globalSearch}". Try a different search term.
         </Alert>
-      ) : userListView === 'byOrganization' || userListView === 'byRole' ? (
+      ) : userListView === 'byOrganization' || userListView === 'byRole' || userListView === 'byAccessLevel' ? (
         <Box
           mt={1.5}
           sx={{
@@ -2325,9 +2443,11 @@ function UserManagementPage() {
           <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block', mb: 1 }}>
             {userListView === 'byRole'
               ? 'Expand a role to see users assigned to it. Search above still filters this list.'
+              : userListView === 'byAccessLevel'
+              ? 'Users are grouped by effective access scope (all ministries, ministry, state department, legacy agency, no scope). Search above still filters this list.'
               : 'Grouped by ministry and state department (agency is not used as a section). Expand a section to see users. Search above still filters this list.'}
           </Typography>
-          {(userListView === 'byRole' ? usersByRole : usersByOrganization).map((g, index) => (
+          {(userListView === 'byRole' ? usersByRole : userListView === 'byAccessLevel' ? usersByAccessLevel : usersByOrganization).map((g, index) => (
             <Accordion
               key={g.key}
               defaultExpanded={index === 0}
@@ -2346,6 +2466,8 @@ function UserManagementPage() {
                 <Stack direction="row" alignItems="center" spacing={1.5} sx={{ width: '100%', pr: 1 }}>
                   {userListView === 'byRole' ? (
                     <AdminPanelSettingsIcon sx={{ color: colors.greenAccent[400], flexShrink: 0 }} />
+                  ) : userListView === 'byAccessLevel' ? (
+                    <AccountTreeIcon sx={{ color: colors.greenAccent[400], flexShrink: 0 }} />
                   ) : (
                     <AccountTreeIcon sx={{ color: colors.greenAccent[400], flexShrink: 0 }} />
                   )}
@@ -2368,6 +2490,11 @@ function UserManagementPage() {
                 }}
               >
                 <Stack spacing={0.75}>
+                  {userListView === 'byAccessLevel' && g.description && (
+                    <Typography variant="caption" sx={{ color: colors.grey[300], px: 0.5 }}>
+                      {g.description}
+                    </Typography>
+                  )}
                   {g.users.map((row) => {
                     const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim() || '—';
                     const isCurrentUser = row.userId === user.id;

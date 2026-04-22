@@ -248,9 +248,6 @@ const Login = () => {
                                 label="Remember me"
                                 sx={{ fontSize: '0.8rem', '& .MuiFormControlLabel-label': { fontSize: '0.8rem', color: micde.textSecondary, fontFamily: fontStack } }}
                             />
-                            <Link href="#" sx={{ fontSize: '0.8rem', textDecoration: 'none', color: micde.brand, fontWeight: 600, fontFamily: fontStack, '&:hover': { textDecoration: 'underline', color: micde.brandDark } }}>
-                                Forgot password?
-                            </Link>
                         </Box>
 
                         {error && (

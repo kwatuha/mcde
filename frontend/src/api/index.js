@@ -28,7 +28,8 @@ const publicApiService = {
       const response = await axiosInstance.get('/public/stats/overview', { params: filters });
       return response.data;
     } catch (error) {
-      console.error("Failed to fetch public stats overview:", error);
+      // Non-blocking for authenticated dashboards; keep as warning.
+      console.warn("Failed to fetch public stats overview:", error);
       throw error;
     }
   },

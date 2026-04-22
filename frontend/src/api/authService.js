@@ -20,7 +20,10 @@ const authService = {
       const response = await axiosInstance.post('/auth/login', { username, password });
       return response.data;
     } catch (error) {
-      console.error('Error during login:', error);
+      // Invalid credentials are expected sometimes; keep console clean.
+      if (error?.status !== 400) {
+        console.error('Error during login:', error);
+      }
       throw error;
     }
   },

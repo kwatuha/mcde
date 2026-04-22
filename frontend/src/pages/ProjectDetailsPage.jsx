@@ -966,6 +966,10 @@ function ProjectDetailsPage() {
 
     const handleSaveUpdates = async () => {
         if (!projectId) return;
+        if (!canModifyOrCreateProjects) {
+            setSnackbar({ open: true, message: 'You do not have permission to modify projects.', severity: 'error' });
+            return;
+        }
         setSavingUpdates(true);
         try {
             const payload = {
@@ -987,6 +991,10 @@ function ProjectDetailsPage() {
 
     const handleSaveFeedback = async () => {
         if (!projectId) return;
+        if (!canModifyOrCreateProjects) {
+            setSnackbar({ open: true, message: 'You do not have permission to modify projects.', severity: 'error' });
+            return;
+        }
         setSavingFeedback(true);
         try {
             const payload = {
@@ -1928,6 +1936,8 @@ function ProjectDetailsPage() {
     };
 
     const canApplyTemplate = !!projectCategory && checkUserPrivilege(user, 'project.apply_template');
+    const canModifyOrCreateProjects =
+        checkUserPrivilege(user, 'project.update') || checkUserPrivilege(user, 'project.create');
     
     // UPDATED: New logic for canReviewSubmissions
     /* SCOPE_DOWN: contractorId removed with contractor_users table. Re-enable second part when restoring. */
@@ -3742,6 +3752,7 @@ function ProjectDetailsPage() {
                                         <Button
                                             variant="contained"
                                             size="small"
+                                            disabled={!canModifyOrCreateProjects}
                                             onClick={async () => {
                                                 const errors = {};
                                                 if (!jobFormData.categoryId) {
@@ -4042,7 +4053,7 @@ function ProjectDetailsPage() {
                                     <Button
                                         variant="contained"
                                         onClick={handleSaveUpdates}
-                                        disabled={savingUpdates}
+                                        disabled={savingUpdates || !canModifyOrCreateProjects}
                                         startIcon={savingUpdates ? <CircularProgress size={18} /> : <UpdateIcon />}
                                     >
                                         {savingUpdates ? 'Saving…' : 'Save updates'}
@@ -4096,7 +4107,7 @@ function ProjectDetailsPage() {
                                     <Button
                                         variant="contained"
                                         onClick={handleSaveFeedback}
-                                        disabled={savingFeedback}
+                                        disabled={savingFeedback || !canModifyOrCreateProjects}
                                         startIcon={savingFeedback ? <CircularProgress size={18} /> : <FeedbackIcon />}
                                     >
                                         {savingFeedback ? 'Saving…' : 'Save feedback'}
@@ -4168,6 +4179,7 @@ function ProjectDetailsPage() {
                                     variant="contained"
                                     size="small"
                                     startIcon={<AddIcon />}
+                                    disabled={!canModifyOrCreateProjects}
                                     onClick={() => {
                                         setEditingSite(null);
                                         setSiteFormData({
@@ -4599,6 +4611,7 @@ function ProjectDetailsPage() {
                         </Button>
                         <Button
                             variant="contained"
+                            disabled={!canModifyOrCreateProjects}
                             onClick={async () => {
                                 const errors = {};
                                 if (!siteFormData.siteName.trim()) {
