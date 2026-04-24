@@ -3999,9 +3999,11 @@ router.get('/maps-data', async (req, res) => {
  */
 router.get('/', async (req, res) => {
     try {
+        const requestStart = Date.now();
         const {
             projectName, startDate, endDate, status, departmentId, sectionId,
-            finYearId, programId, subProgramId, countyId, subcountyId, wardId, categoryId, budgetId
+            finYearId, programId, subProgramId, countyId, subcountyId, wardId, categoryId, budgetId,
+            limit, offset
         } = req.query;
 
         // Get DB_TYPE first
@@ -4304,6 +4306,12 @@ router.get('/', async (req, res) => {
             }
         }
 
+        // Respect list pagination from frontend to avoid loading entire registry on initial mount.
+        const parsedLimit = Number.parseInt(limit, 10);
+        const parsedOffset = Number.parseInt(offset, 10);
+        const hasValidLimit = Number.isInteger(parsedLimit) && parsedLimit > 0;
+        const hasValidOffset = Number.isInteger(parsedOffset) && parsedOffset >= 0;
+
         // Build the final query (no location select clauses needed - already in BASE_PROJECT_SELECT as NULL)
         let query = `${BASE_PROJECT_SELECT} ${fromAndJoinClauses}`;
 
@@ -4312,6 +4320,14 @@ router.get('/', async (req, res) => {
         }
         // No GROUP BY needed since we're getting location data directly from JSONB, not using STRING_AGG
         query += ` ORDER BY ${DB_TYPE === 'postgresql' ? 'p.project_id' : 'p.id'}`;
+        if (hasValidLimit) {
+            query += ` LIMIT ?`;
+            queryParams.push(parsedLimit);
+        }
+        if (hasValidOffset) {
+            query += ` OFFSET ?`;
+            queryParams.push(parsedOffset);
+        }
 
         // Convert MySQL ? placeholders to PostgreSQL $1, $2, etc. if needed
         if (DB_TYPE === 'postgresql') {
@@ -4322,6 +4338,9 @@ router.get('/', async (req, res) => {
         // Use execute for PostgreSQL to handle placeholder conversion
         const result = await pool.execute(query, queryParams);
         const rows = DB_TYPE === 'postgresql' ? (result.rows || result) : (Array.isArray(result) ? result[0] : result);
+        console.log(
+            `[projects:list] rows=${Array.isArray(rows) ? rows.length : 0} limit=${hasValidLimit ? parsedLimit : 'none'} offset=${hasValidOffset ? parsedOffset : 0} durationMs=${Date.now() - requestStart}`
+        );
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching projects:', error);
