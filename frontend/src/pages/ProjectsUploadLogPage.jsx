@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  alpha,
   Alert,
   Box,
   Button,
@@ -11,6 +12,7 @@ import {
   DialogTitle,
   InputAdornment,
   Paper,
+  Stack,
   TablePagination,
   Table,
   TableBody,
@@ -19,14 +21,20 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import SearchIcon from '@mui/icons-material/Search';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import apiService from '../api';
 
 function ProjectsUploadLogPage() {
+  const theme = useTheme();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -139,6 +147,15 @@ function ProjectsUploadLogPage() {
     return filteredRows.slice(start, start + rowsPerPage);
   }, [filteredRows, page, rowsPerPage]);
 
+  const stats = useMemo(() => {
+    const withErrors = sortedRows.filter((r) => getRowComputed(r).mappingErrors).length;
+    return {
+      total: sortedRows.length,
+      withErrors,
+      clean: sortedRows.length - withErrors,
+    };
+  }, [sortedRows]);
+
   const handleDownload = async (row) => {
     const id = row?.id ?? row?.logId ?? row?.uploadLogId;
     if (!id) return;
@@ -231,7 +248,47 @@ function ProjectsUploadLogPage() {
         </Alert>
       ) : null}
 
-      <Paper elevation={1}>
+      <Paper
+        elevation={0}
+        sx={{
+          border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
+          borderRadius: 2,
+          overflow: 'hidden',
+          boxShadow: `0 10px 24px ${alpha(theme.palette.common.black, 0.05)}`,
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{
+            px: 2,
+            py: 1.5,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.04 : 0.12),
+          }}
+        >
+          <Chip
+            icon={<UploadFileIcon />}
+            variant="outlined"
+            color="primary"
+            label={`Total logs: ${stats.total}`}
+            size="small"
+          />
+          <Chip
+            icon={<WarningAmberIcon />}
+            variant="outlined"
+            color="warning"
+            label={`Needs attention: ${stats.withErrors}`}
+            size="small"
+          />
+          <Chip
+            icon={<CheckCircleOutlineIcon />}
+            variant="outlined"
+            color="success"
+            label={`Clean imports: ${stats.clean}`}
+            size="small"
+          />
+        </Stack>
         {loading ? (
           <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress />
@@ -239,17 +296,23 @@ function ProjectsUploadLogPage() {
         ) : (
           <TableContainer sx={{ maxHeight: '68vh' }}>
             <Table size="small">
-              <TableHead>
+              <TableHead
+                sx={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2,
+                  bgcolor: theme.palette.background.paper,
+                }}
+              >
                 <TableRow>
-                  <TableCell>Uploaded At</TableCell>
-                  <TableCell>User</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Ministry</TableCell>
-                  <TableCell>State Department</TableCell>
-                  <TableCell align="right">Inserted</TableCell>
-                  <TableCell align="right">Updated</TableCell>
-                  <TableCell>Mapping Errors</TableCell>
-                  <TableCell align="right">Action</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Uploaded At</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>User</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>State Department</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }} align="right">Inserted</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }} align="right">Updated</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Mapping Errors</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }} align="right">Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -259,7 +322,19 @@ function ProjectsUploadLogPage() {
                   const updated = Number(row?.rowsUpdated ?? row?.updatedRows ?? 0);
                   const { mappingErrorCount, mappingErrors } = getRowComputed(row);
                   return (
-                    <TableRow key={id || `${row?.createdAt}-${row?.uploadedFileName}`}>
+                    <TableRow
+                      key={id || `${row?.createdAt}-${row?.uploadedFileName}`}
+                      hover
+                      sx={{
+                        '&:nth-of-type(odd)': {
+                          bgcolor: alpha(theme.palette.action.hover, 0.35),
+                        },
+                        '& td': {
+                          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.55)}`,
+                          py: 1.1,
+                        },
+                      }}
+                    >
                       <TableCell>
                         {row?.createdAt || row?.created_at
                           ? new Date(row.createdAt || row.created_at).toLocaleString()
@@ -267,7 +342,6 @@ function ProjectsUploadLogPage() {
                       </TableCell>
                       <TableCell>{row?.fullName || row?.userFullName || row?.uploadedByName || '—'}</TableCell>
                       <TableCell>{row?.roleName || row?.userRole || '—'}</TableCell>
-                      <TableCell>{row?.ministry || row?.ministryName || '—'}</TableCell>
                       <TableCell>{row?.stateDepartment || row?.stateDepartmentName || '—'}</TableCell>
                       <TableCell align="right">{inserted}</TableCell>
                       <TableCell align="right">{updated}</TableCell>
@@ -276,30 +350,47 @@ function ProjectsUploadLogPage() {
                           <Chip
                             size="small"
                             color="warning"
+                            icon={<WarningAmberIcon />}
                             label={`Yes${mappingErrorCount ? ` (${mappingErrorCount})` : ''}`}
                           />
                         ) : (
-                          <Chip size="small" color="success" variant="outlined" label="No" />
+                          <Chip
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                            icon={<CheckCircleOutlineIcon />}
+                            label="No"
+                          />
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        <Button
-                          size="small"
-                          variant="text"
-                          startIcon={<VisibilityIcon />}
-                          onClick={() => setDetailsRow(row)}
-                        >
-                          Details
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<DownloadIcon />}
-                          onClick={() => handleDownload(row)}
-                          disabled={downloadingId === id || !id}
-                        >
-                          {downloadingId === id ? 'Downloading...' : 'Download'}
-                        </Button>
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Tooltip title="View full import details">
+                            <Button
+                              size="small"
+                              variant="text"
+                              startIcon={<VisibilityIcon />}
+                              onClick={() => setDetailsRow(row)}
+                              sx={{ textTransform: 'none', fontWeight: 600 }}
+                            >
+                              Details
+                            </Button>
+                          </Tooltip>
+                          <Tooltip title="Download uploaded source file">
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<DownloadIcon />}
+                                onClick={() => handleDownload(row)}
+                                disabled={downloadingId === id || !id}
+                                sx={{ textTransform: 'none', fontWeight: 600 }}
+                              >
+                                {downloadingId === id ? 'Downloading...' : 'Download'}
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   );
@@ -307,7 +398,9 @@ function ProjectsUploadLogPage() {
                 {filteredRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} align="center">
-                      No upload logs found.
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                        No upload logs found.
+                      </Typography>
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -341,6 +434,12 @@ function ProjectsUploadLogPage() {
               </Typography>
               <Typography variant="body2">
                 <strong>Import message:</strong> {detailsRow?.importMessage || '—'}
+              </Typography>
+              <Typography variant="body2">
+                <strong>Ministry:</strong> {detailsRow?.ministry || detailsRow?.ministryName || '—'}
+              </Typography>
+              <Typography variant="body2">
+                <strong>State Department:</strong> {detailsRow?.stateDepartment || detailsRow?.stateDepartmentName || '—'}
               </Typography>
               {(() => {
                 const details = extractErrorDetails(detailsRow);
