@@ -99,6 +99,7 @@ const JobsImpactDashboardPage = () => {
   });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [sectors, setSectors] = useState([]);
+  const [jobsProjects, setJobsProjects] = useState([]);
   const [topProjects, setTopProjects] = useState([]);
   const [jobsSummary, setJobsSummary] = useState({
     totalJobs: 0, totalMale: 0, totalFemale: 0, totalDirectJobs: 0, totalIndirectJobs: 0,
@@ -138,30 +139,11 @@ const JobsImpactDashboardPage = () => {
     const fetchTopProjects = async () => {
       setLoadingProjects(true);
       try {
-        const projects = await projectService.projects.getProjects({});
-        // Sort by jobsCount (descending) and take top 10
-        const sortedProjects = (projects || [])
-          .filter(p => p.jobsCount > 0)
-          .sort((a, b) => (b.jobsCount || 0) - (a.jobsCount || 0))
-          .slice(0, 10);
-        setTopProjects(sortedProjects);
-
-        const sectorMap = new Map();
-        (projects || []).forEach((p) => {
-          const total = Number(p.jobsCount || 0);
-          if (total <= 0) return;
-          const direct = Number(p.directJobsCount || 0);
-          const indirect = Number(p.indirectJobsCount || Math.max(0, total - direct));
-          const sector = p.sector || p.categoryName || p.department || p.ministry || 'Unknown';
-          const current = sectorMap.get(sector) || { sector, direct: 0, indirect: 0, total: 0 };
-          current.direct += direct;
-          current.indirect += indirect;
-          current.total += total;
-          sectorMap.set(sector, current);
-        });
-        setJobsBySector(Array.from(sectorMap.values()));
+        const projects = await projectService.analytics.getProjectsForOrganization({ limit: 5000 });
+        setJobsProjects(Array.isArray(projects) ? projects : []);
       } catch (error) {
         console.error('Error fetching top projects:', error);
+        setJobsProjects([]);
         setTopProjects([]);
         setJobsBySector([]);
       } finally {
@@ -170,6 +152,40 @@ const JobsImpactDashboardPage = () => {
     };
     fetchTopProjects();
   }, []);
+
+  useEffect(() => {
+    const list = Array.isArray(jobsProjects) ? jobsProjects : [];
+    const filtered = list.filter((p) => {
+      const projectName = String(p.projectName || p.name || '').trim();
+      const sector = String(p.sector || p.categoryName || p.department || p.ministry || 'Unknown').trim();
+      const category = String(p.categoryName || p.category || 'Uncategorized').trim();
+      if (filters.project && projectName !== filters.project) return false;
+      if (filters.sector && sector !== filters.sector) return false;
+      if (filters.category && category !== filters.category) return false;
+      return true;
+    });
+
+    const sortedProjects = filtered
+      .filter((p) => Number(p.jobsCount || 0) > 0)
+      .sort((a, b) => (Number(b.jobsCount) || 0) - (Number(a.jobsCount) || 0))
+      .slice(0, 10);
+    setTopProjects(sortedProjects);
+
+    const sectorMap = new Map();
+    filtered.forEach((p) => {
+      const total = Number(p.jobsCount || 0);
+      if (total <= 0) return;
+      const direct = Number(p.directJobsCount || 0);
+      const indirect = Number(p.indirectJobsCount || Math.max(0, total - direct));
+      const sector = p.sector || p.categoryName || p.department || p.ministry || 'Unknown';
+      const current = sectorMap.get(sector) || { sector, direct: 0, indirect: 0, total: 0 };
+      current.direct += direct;
+      current.indirect += indirect;
+      current.total += total;
+      sectorMap.set(sector, current);
+    });
+    setJobsBySector(Array.from(sectorMap.values()));
+  }, [jobsProjects, filters.project, filters.sector, filters.category]);
 
   const chartData = useMemo(() => {
     // Direct vs Indirect comparison
@@ -400,7 +416,7 @@ const JobsImpactDashboardPage = () => {
                     sx={{ fontSize: '0.8rem', height: '32px' }}
                   >
                     <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All Projects</MenuItem>
-                    {topProjects.map((p) => (
+                    {jobsProjects.map((p) => (
                       <MenuItem key={p.id || p.projectName} value={p.projectName || p.name || ''} sx={{ fontSize: '0.8rem' }}>
                         {p.projectName || p.name || 'Unnamed Project'}
                       </MenuItem>
