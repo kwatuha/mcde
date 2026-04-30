@@ -16,6 +16,25 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
+  const hasCrudPrivilege = (type, action) => {
+    const directPrivilege = `${type}.${action}`;
+    if (checkUserPrivilege(user, directPrivilege)) return true;
+
+    // Strategic planning legacy privilege compatibility
+    if (type === 'program' || type === 'subprogram') {
+      if (checkUserPrivilege(user, `strategic_plan.${action}`)) return true;
+    }
+    if (type === 'attachment') {
+      if (action === 'create' && (checkUserPrivilege(user, 'document.upload') || checkUserPrivilege(user, 'strategic_plan.create') || checkUserPrivilege(user, 'strategic_plan.update'))) {
+        return true;
+      }
+      if (action === 'delete' && (checkUserPrivilege(user, 'document.delete') || checkUserPrivilege(user, 'strategic_plan.delete') || checkUserPrivilege(user, 'strategic_plan.update'))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Maps a dialog type to the capitalized suffix used in the API method name.
   const apiMethodSuffixMap = {
     // KDSP Mappings
@@ -147,7 +166,7 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
         apiCallArgs = [formData];
       }
 
-      if (!checkUserPrivilege(user, `${dialogType}.${actionName}`)) {
+      if (!hasCrudPrivilege(dialogType, actionName)) {
         setSnackbar({ open: true, message: `You don't have permission to ${actionName} this record.`, severity: 'error' });
         setLoading(false);
         return;
@@ -185,7 +204,7 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
    * Handles deleting a record.
    */
   const handleDelete = async (type, recordId) => {
-    if (!checkUserPrivilege(user, `${type}.delete`)) {
+    if (!hasCrudPrivilege(type, 'delete')) {
       setSnackbar({ open: true, message: `You don't have permission to delete this record.`, severity: 'error' });
       return;
     }

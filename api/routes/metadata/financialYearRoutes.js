@@ -27,6 +27,7 @@ function normalizeFinancialYearName(name) {
 router.get('/', async (req, res) => {
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const isPostgres = DB_TYPE === 'postgresql';
         let query;
         
         if (DB_TYPE === 'postgresql') {
@@ -59,8 +60,24 @@ router.get('/', async (req, res) => {
             `;
         }
         
-        const result = await pool.query(query);
-        const allRows = DB_TYPE === 'postgresql' ? result.rows : (Array.isArray(result) ? result[0] : result);
+        let result = await pool.query(query);
+        let allRows = isPostgres ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : (result || []));
+
+        if (!allRows.length) {
+            const now = new Date();
+            const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+            const fyName = `${startYear}/${startYear + 1}`;
+            const startDate = `${startYear}-07-01`;
+            const endDate = `${startYear + 1}-06-30`;
+
+            await pool.query(
+                'INSERT INTO financialyears (finYearName, startDate, endDate, remarks, userId, voided) VALUES (?, ?, ?, ?, ?, ?)',
+                [fyName, startDate, endDate, 'Auto-created default financial year for budget setup', 1, isPostgres ? false : 0]
+            );
+
+            result = await pool.query(query);
+            allRows = isPostgres ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : (result || []));
+        }
         
         // Deduplicate by normalized finYearName, keeping the most recent one (highest finYearId)
         const seen = new Map();

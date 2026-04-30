@@ -7,6 +7,115 @@ const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
 const multer = require('multer');
 const xlsx = require('xlsx');
+const DB_TYPE = process.env.DB_TYPE || 'mysql';
+const isPostgres = DB_TYPE === 'postgresql';
+
+let budgetTablesEnsured = false;
+const rowsFromResult = (result) => (isPostgres ? (result?.rows || []) : (Array.isArray(result) ? (result[0] || []) : []));
+const firstRow = (result) => rowsFromResult(result)[0] || null;
+
+async function ensureBudgetTables() {
+    if (budgetTablesEnsured) return;
+
+    const runSafeDdl = async (sql) => {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            const code = String(err?.code || '');
+            // Ignore create races/duplicate objects and continue.
+            if (code === '42P07' || code === '42710' || code === '23505') return;
+            throw err;
+        }
+    };
+
+    if (isPostgres) {
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS budgets (
+                budgetId BIGSERIAL PRIMARY KEY,
+                budgetName TEXT NOT NULL,
+                budgetType TEXT NOT NULL DEFAULT 'Draft',
+                isCombined INTEGER NOT NULL DEFAULT 0,
+                parentBudgetId BIGINT NULL,
+                finYearId BIGINT NOT NULL,
+                departmentId BIGINT NULL,
+                description TEXT NULL,
+                totalAmount NUMERIC(18,2) NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'Draft',
+                isFrozen INTEGER NOT NULL DEFAULT 0,
+                requiresApprovalForChanges INTEGER NOT NULL DEFAULT 1,
+                approvedBy BIGINT NULL,
+                approvedAt TIMESTAMP NULL,
+                rejectedBy BIGINT NULL,
+                rejectedAt TIMESTAMP NULL,
+                rejectionReason TEXT NULL,
+                userId BIGINT NULL,
+                createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                voided BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        `);
+
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS budget_items (
+                itemId BIGSERIAL PRIMARY KEY,
+                budgetId BIGINT NOT NULL,
+                projectId BIGINT NOT NULL,
+                amount NUMERIC(18,2) NULL,
+                remarks TEXT NULL,
+                addedAfterApproval INTEGER NOT NULL DEFAULT 0,
+                changeRequestId BIGINT NULL,
+                userId BIGINT NULL,
+                createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                voided BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        `);
+    } else {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS budgets (
+                budgetId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                budgetName VARCHAR(255) NOT NULL,
+                budgetType VARCHAR(100) NOT NULL DEFAULT 'Draft',
+                isCombined TINYINT(1) NOT NULL DEFAULT 0,
+                parentBudgetId BIGINT NULL,
+                finYearId BIGINT NOT NULL,
+                departmentId BIGINT NULL,
+                description TEXT NULL,
+                totalAmount DECIMAL(18,2) NOT NULL DEFAULT 0,
+                status VARCHAR(100) NOT NULL DEFAULT 'Draft',
+                isFrozen TINYINT(1) NOT NULL DEFAULT 0,
+                requiresApprovalForChanges TINYINT(1) NOT NULL DEFAULT 1,
+                approvedBy BIGINT NULL,
+                approvedAt DATETIME NULL,
+                rejectedBy BIGINT NULL,
+                rejectedAt DATETIME NULL,
+                rejectionReason TEXT NULL,
+                userId BIGINT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                voided TINYINT(1) NOT NULL DEFAULT 0
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS budget_items (
+                itemId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                budgetId BIGINT NOT NULL,
+                projectId BIGINT NOT NULL,
+                amount DECIMAL(18,2) NULL,
+                remarks TEXT NULL,
+                addedAfterApproval TINYINT(1) NOT NULL DEFAULT 0,
+                changeRequestId BIGINT NULL,
+                userId BIGINT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                voided TINYINT(1) NOT NULL DEFAULT 0
+            )
+        `);
+    }
+
+    budgetTablesEnsured = true;
+}
 
 /**
  * ============================================
@@ -21,6 +130,7 @@ const xlsx = require('xlsx');
  */
 router.get('/containers', async (req, res) => {
     try {
+        await ensureBudgetTables();
         console.log('=== GET /api/budgets/containers called ===');
         console.log('Query params:', req.query);
         console.log('Request URL:', req.url);
@@ -72,8 +182,8 @@ router.get('/containers', async (req, res) => {
             FROM budgets b
             WHERE ${whereClause}
         `;
-        const [countResult] = await pool.query(countQuery, queryParams);
-        const total = countResult[0].total;
+        const countResult = await pool.query(countQuery, queryParams);
+        const total = Number(firstRow(countResult)?.total || 0);
 
         // Get budgets with related data
         const query = `
@@ -119,7 +229,8 @@ router.get('/containers', async (req, res) => {
         
         console.log('Executing query with params:', queryParams);
         console.log('Query:', query);
-        const [budgets] = await pool.query(query, queryParams);
+        const budgetsResult = await pool.query(query, queryParams);
+        const budgets = rowsFromResult(budgetsResult);
         console.log('Query executed successfully');
 
         console.log('Found budgets:', budgets.length);
@@ -251,6 +362,7 @@ router.get('/containers/:budgetId', auth, async (req, res) => {
  */
 router.post('/containers', auth, async (req, res) => {
     try {
+        await ensureBudgetTables();
         const {
             budgetName,
             budgetType = 'Draft',
@@ -273,9 +385,10 @@ router.post('/containers', auth, async (req, res) => {
             INSERT INTO budgets 
             (budgetName, budgetType, finYearId, departmentId, description, requiresApprovalForChanges, userId)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ${isPostgres ? 'RETURNING budgetId' : ''}
         `;
 
-        const [result] = await pool.query(query, [
+        const result = await pool.query(query, [
             budgetName,
             budgetType,
             finYearId,
@@ -286,14 +399,15 @@ router.post('/containers', auth, async (req, res) => {
         ]);
 
         // Fetch the created budget
-        const [createdBudget] = await pool.query(
-            'SELECT * FROM budgets WHERE budgetId = ?',
-            [result.insertId]
-        );
+        const insertId = isPostgres
+            ? firstRow(result)?.budgetid || firstRow(result)?.budgetId
+            : result?.[0]?.insertId;
+        const createdBudgetResult = await pool.query('SELECT * FROM budgets WHERE budgetId = ?', [insertId]);
+        const createdBudget = firstRow(createdBudgetResult);
 
         res.status(201).json({
             message: 'Budget container created successfully',
-            budget: createdBudget[0]
+            budget: createdBudget
         });
     } catch (error) {
         console.error('Error creating budget container:', error);

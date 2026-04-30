@@ -90,6 +90,7 @@ import ProjectBySectorDashboardPage from './pages/ProjectBySectorDashboardPage';
 import ProjectsUploadLogPage from './pages/ProjectsUploadLogPage';
 import ReportingDashboardPage from './pages/ReportingDashboardPage';
 import ProjectOrganizationDashboardPage from './pages/ProjectOrganizationDashboardPage';
+import PlanningProgramsGuidePage from './pages/PlanningProgramsGuidePage';
  
 import ReportingView from './components/ReportingView';
 import RegionalReportsView from './components/RegionalReportsView';
@@ -359,6 +360,10 @@ const router = createBrowserRouter([
       {
         path: 'projects-by-organization',
         element: <ProjectOrganizationDashboardPage />,
+      },
+      {
+        path: 'planning/programs-guide',
+        element: <PlanningProgramsGuidePage />,
       },
     ],
   },

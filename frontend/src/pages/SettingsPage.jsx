@@ -1662,14 +1662,14 @@ const FinancialYearManagement = () => {
       ) : (
         <TableContainer component={Paper} sx={{ borderRadius: '8px', overflow: 'hidden', boxShadow: theme.shadows[2] }}>
           <Table>
-            <TableHead>
-              <TableRow sx={{ backgroundColor: theme.palette.primary.main }}>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>ID</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Financial Year Name</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Start Date</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>End Date</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Remarks</TableCell>
-                <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
+            <TableHead sx={{ '& .MuiTableCell-root': { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, fontWeight: 'bold', borderBottom: 'none' } }}>
+              <TableRow>
+                <TableCell>ID</TableCell>
+                <TableCell>Financial Year Name</TableCell>
+                <TableCell>Start Date</TableCell>
+                <TableCell>End Date</TableCell>
+                <TableCell>Remarks</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1927,15 +1927,15 @@ const TaxRateManagement = () => {
       ) : (
         <TableContainer component={Paper} sx={{ borderRadius: '8px', overflow: 'hidden', boxShadow: theme.shadows[2] }}>
           <Table size="small">
-            <TableHead>
-              <TableRow sx={{ backgroundColor: theme.palette.primary.main }}>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tax Type</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Rate (%)</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Withholding Rate (%)</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Effective From</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Effective To</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Notes</TableCell>
-                <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
+            <TableHead sx={{ '& .MuiTableCell-root': { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, fontWeight: 'bold', borderBottom: 'none' } }}>
+              <TableRow>
+                <TableCell>Tax Type</TableCell>
+                <TableCell>Rate (%)</TableCell>
+                <TableCell>Withholding Rate (%)</TableCell>
+                <TableCell>Effective From</TableCell>
+                <TableCell>Effective To</TableCell>
+                <TableCell>Notes</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

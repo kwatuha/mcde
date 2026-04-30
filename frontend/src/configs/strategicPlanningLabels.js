@@ -31,14 +31,15 @@ const strategicPlanningLabels = {
     },
   },
   subprogram: {
-    singular: 'Subprogram',
-    plural: 'Subprograms',
+    singular: 'Sub-Program',
+    plural: 'Sub-Programs',
     // Define alternative names that clients might use for "Subprogram"
     altNames: ['Initiative', 'Action Plan', 'Project Activity'],
     fields: {
-      subProgramme: 'Subprogram Name', // This is the field name in your DB
+      subProgramme: 'Sub-Program', // This is the field name in your DB
       keyOutcome: 'Key Outcome',
       kpi: 'KPI',
+      unitOfMeasure: 'Unit of Measure',
       baseline: 'Baseline',
       yr1Targets: 'Year 1 Targets',
       yr2Targets: 'Year 2 Targets',

@@ -146,9 +146,24 @@
     },
     {
       "id": "management",
-      "label": "Management",
+      "label": "Planning",
       "icon": "SettingsIcon",
       "submenus": [
+        {
+          "title": "Budget Management",
+          "icon": "AttachMoneyIcon",
+          "route": "BUDGET_MANAGEMENT"
+        },
+        {
+          "title": "CIDP Registry",
+          "icon": "AccountTreeIcon",
+          "route": "STRATEGIC_PLANNING"
+        },
+        {
+          "title": "How to Create Programs & Sub Programs",
+          "icon": "MenuBookIcon",
+          "route": "PLANNING_PROGRAMS_GUIDE"
+        },
         {
           "title": "Central Import",
           "icon": "CloudUploadIcon",
@@ -237,12 +252,6 @@
           "title": "Contractor mgmt",
           "icon": "BusinessIcon",
           "route": "CONTRACTOR_MANAGEMENT",
-          "hidden": true
-        },
-        {
-          "title": "Budget Management",
-          "icon": "AttachMoneyIcon",
-          "route": "BUDGET_MANAGEMENT",
           "hidden": true
         },
         {

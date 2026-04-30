@@ -342,7 +342,7 @@ function StrategicPlanningPage() {
             fullWidth
             value={formValues.cidpid}
             onChange={handleFormChange}
-            required
+            helperText="Optional. If left blank, a Plan ID is auto-generated (example: CIDP-2026-0430)."
             sx={{ mb: 2 }}
           />
           <TextField

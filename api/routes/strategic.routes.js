@@ -11,6 +11,176 @@ const PDFDocument = require('pdfkit'); // NEW: Import pdfkit for PDF generation
 const annualWorkPlanRoutes = require('./annualWorkPlanRoutes');
 const activityRoutes = require('./activityRoutes');
 const milestoneActivityRoutes = require('./milestoneActivityRoutes');
+const DB_TYPE = process.env.DB_TYPE || 'mysql';
+const isPostgres = DB_TYPE === 'postgresql';
+let strategyTablesEnsured = false;
+let strategyEnsurePromise = null;
+const rowsFromResult = (result) => (isPostgres ? (result?.rows || []) : (Array.isArray(result) ? (result[0] || []) : []));
+const firstRowFromResult = (result) => rowsFromResult(result)[0] || null;
+const affectedRowsFromResult = (result) => (isPostgres ? Number(result?.rowCount || 0) : Number(result?.[0]?.affectedRows || 0));
+
+async function ensureStrategyTables() {
+    if (strategyTablesEnsured) return;
+
+    const runSafeDdl = async (sql) => {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            const code = String(err?.code || '');
+            if (code === '42P07' || code === '42710' || code === '23505') return;
+            throw err;
+        }
+    };
+
+    if (isPostgres) {
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS strategicplans (
+                id BIGSERIAL PRIMARY KEY,
+                cidpid TEXT NULL,
+                "cidpName" TEXT NULL,
+                "startDate" TIMESTAMP NULL,
+                "endDate" TIMESTAMP NULL,
+                remarks TEXT NULL,
+                voided BOOLEAN NOT NULL DEFAULT FALSE,
+                "userId" BIGINT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "voidedBy" BIGINT NULL
+            )
+        `);
+
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS programs (
+                "programId" BIGSERIAL PRIMARY KEY,
+                cidpid TEXT NULL,
+                "programName" TEXT NULL,
+                "programCode" TEXT NULL,
+                remarks TEXT NULL,
+                voided BOOLEAN NOT NULL DEFAULT FALSE,
+                "userId" BIGINT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS subprograms (
+                "subProgramId" BIGSERIAL PRIMARY KEY,
+                "programId" BIGINT NULL,
+                "subProgramName" TEXT NULL,
+                "subProgramCode" TEXT NULL,
+                remarks TEXT NULL,
+                voided BOOLEAN NOT NULL DEFAULT FALSE,
+                "userId" BIGINT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await runSafeDdl(`ALTER TABLE programs ALTER COLUMN cidpid TYPE TEXT USING cidpid::text`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS programme TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS description TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS "needsPriorities" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS strategies TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS objectives TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS outcomes TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "subProgramme" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "keyOutcome" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS kpi TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "unitOfMeasure" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS baseline TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr1Targets" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr2Targets" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr3Targets" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr4Targets" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr5Targets" TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr1Budget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr2Budget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr3Budget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr4Budget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr5Budget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "totalBudget" NUMERIC(18,2) NULL`);
+        await pool.query(`UPDATE subprograms SET "unitOfMeasure" = 'count' WHERE "unitOfMeasure" = 'counts'`);
+
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS planningdocuments (
+                "attachmentId" BIGSERIAL PRIMARY KEY,
+                "fileName" TEXT NOT NULL,
+                "filePath" TEXT NOT NULL,
+                "fileType" TEXT NULL,
+                "fileSize" BIGINT NULL,
+                description TEXT NULL,
+                "entityId" TEXT NULL,
+                "entityType" TEXT NULL,
+                "uploadedBy" BIGINT NULL,
+                voided BOOLEAN NOT NULL DEFAULT FALSE,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+    } else {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS strategicplans (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                cidpid VARCHAR(255) NULL,
+                cidpName VARCHAR(255) NULL,
+                startDate DATETIME NULL,
+                endDate DATETIME NULL,
+                remarks TEXT NULL,
+                voided TINYINT(1) NOT NULL DEFAULT 0,
+                userId BIGINT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                voidedBy BIGINT NULL
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS programs (
+                programId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                cidpid BIGINT NULL,
+                programName VARCHAR(255) NULL,
+                programCode VARCHAR(100) NULL,
+                remarks TEXT NULL,
+                voided TINYINT(1) NOT NULL DEFAULT 0,
+                userId BIGINT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS subprograms (
+                subProgramId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                programId BIGINT NULL,
+                subProgramName VARCHAR(255) NULL,
+                subProgramCode VARCHAR(100) NULL,
+                remarks TEXT NULL,
+                voided TINYINT(1) NOT NULL DEFAULT 0,
+                userId BIGINT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`UPDATE subprograms SET unitOfMeasure = 'count' WHERE unitOfMeasure = 'counts'`);
+    }
+
+    strategyTablesEnsured = true;
+}
+
+router.use(async (req, res, next) => {
+    try {
+        if (!strategyEnsurePromise) {
+            strategyEnsurePromise = ensureStrategyTables();
+        }
+        await strategyEnsurePromise;
+        next();
+    } catch (error) {
+        strategyEnsurePromise = null;
+        console.error('Error ensuring strategy tables:', error);
+        res.status(500).json({ message: 'Failed to initialize strategic planning tables', error: error.message });
+    }
+});
 
 // --- Helper Function: Format Date for MySQL DATETIME column ---
 const formatToMySQLDateTime = (date) => {
@@ -86,7 +256,8 @@ router.use('/milestone-activities', milestoneActivityRoutes);
 // --- CRUD Operations for Strategic Plans (strategicplans) ---
 router.get('/strategic_plans', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM strategicplans');
+        const result = await pool.query('SELECT * FROM strategicplans');
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching strategic plans:', error);
@@ -97,7 +268,8 @@ router.get('/strategic_plans', async (req, res) => {
 router.get('/strategic_plans/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM strategicplans WHERE id = ?', [id]);
+        const result = await pool.query('SELECT * FROM strategicplans WHERE id = ?', [id]);
+        const rows = rowsFromResult(result);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -111,24 +283,34 @@ router.get('/strategic_plans/:id', async (req, res) => {
 
 router.post('/strategic_plans', async (req, res) => {
     const clientData = req.body;
+    const now = new Date();
+    const generatedPlanId = `CIDP-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
 
     const newPlan = {
         startDate: formatToMySQLDateTime(clientData.startDate),
         endDate: formatToMySQLDateTime(clientData.endDate),
         ...clientData,
-        voided: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        cidpid: (clientData.cidpid || '').trim() || generatedPlanId,
+        voided: isPostgres ? false : 0,
+        createdAt: now,
+        updatedAt: now,
     };
     delete newPlan.id;
 
     try {
         console.log('Inserting Strategic Plan:', newPlan);
-        const [result] = await pool.query('INSERT INTO strategicplans SET ?', newPlan);
-
-        if (result.insertId) {
-            newPlan.id = result.insertId;
+        if (isPostgres) {
+            const result = await pool.query(
+                'INSERT INTO strategicplans (cidpid, "cidpName", "startDate", "endDate", voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                [newPlan.cidpid, newPlan.cidpName, newPlan.startDate, newPlan.endDate, newPlan.voided, newPlan.createdAt, newPlan.updatedAt]
+            );
+            const insertedId = rowsFromResult(result)[0]?.id;
+            res.status(201).json({ ...newPlan, id: insertedId });
+            return;
         }
+
+        const [result] = await pool.query('INSERT INTO strategicplans SET ?', newPlan);
+        if (result.insertId) newPlan.id = result.insertId;
         res.status(201).json(newPlan);
     } catch (error) {
         console.error('Error creating strategic plan:', error);
@@ -184,7 +366,13 @@ router.delete('/strategic_plans/:id', async (req, res) => {
 // --- CRUD Operations for Programs (programs) ---
 router.get('/programs', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM programs WHERE voided = 0');
+        const result = await pool.query(`
+            SELECT *,
+            COALESCE(programme, "programName") AS programme
+            FROM programs
+            WHERE voided = ${isPostgres ? 'false' : '0'}
+        `);
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching programs:', error);
@@ -195,7 +383,13 @@ router.get('/programs', async (req, res) => {
 router.get('/programs/by-plan/:planId', async (req, res) => {
     const { planId } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM programs WHERE cidpid = ? AND voided = 0', [planId]);
+        const result = await pool.query(`
+            SELECT *,
+            COALESCE(programme, "programName") AS programme
+            FROM programs
+            WHERE cidpid = ? AND voided = ${isPostgres ? 'false' : '0'}
+        `, [planId]);
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error(`Error fetching programs for plan ${planId}:`, error);
@@ -206,7 +400,8 @@ router.get('/programs/by-plan/:planId', async (req, res) => {
 router.get('/programs/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM programs WHERE programId = ? AND voided = 0', [id]);
+        const result = await pool.query(`SELECT * FROM programs WHERE "programId" = ? AND voided = ${isPostgres ? 'false' : '0'}`, [id]);
+        const rows = rowsFromResult(result);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -230,9 +425,31 @@ router.post('/programs', async (req, res) => {
 
     try {
         console.log('Inserting Program:', newProgram);
-        const [result] = await pool.query('INSERT INTO programs SET ?', newProgram);
-        if (result.insertId) {
-            newProgram.programId = result.insertId;
+        if (isPostgres) {
+            const result = await pool.query(
+                'INSERT INTO programs (cidpid, "programName", "programCode", programme, description, "needsPriorities", strategies, objectives, outcomes, remarks, voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING "programId"',
+                [
+                    newProgram.cidpid,
+                    newProgram.programme || null,
+                    newProgram.programCode || null,
+                    newProgram.programme || null,
+                    newProgram.description || null,
+                    newProgram.needsPriorities || null,
+                    newProgram.strategies || null,
+                    newProgram.objectives || null,
+                    newProgram.outcomes || null,
+                    newProgram.remarks || null,
+                    false,
+                    newProgram.createdAt,
+                    newProgram.updatedAt
+                ]
+            );
+            newProgram.programId = firstRowFromResult(result)?.programId;
+        } else {
+            const [result] = await pool.query('INSERT INTO programs SET ?', newProgram);
+            if (result.insertId) {
+                newProgram.programId = result.insertId;
+            }
         }
         res.status(201).json(newProgram);
     } catch (error) {
@@ -254,12 +471,37 @@ router.put('/programs/:id', async (req, res) => {
 
     try {
         console.log(`Updating Program ${id}:`, updatedFields);
-        const [result] = await pool.query('UPDATE programs SET ? WHERE programId = ?', [updatedFields, id]);
-        if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM programs WHERE programId = ?', [id]);
-            res.status(200).json(rows[0]);
+        if (isPostgres) {
+            const result = await pool.query(
+                'UPDATE programs SET "programName" = ?, "programCode" = ?, programme = ?, description = ?, "needsPriorities" = ?, strategies = ?, objectives = ?, outcomes = ?, remarks = ?, "updatedAt" = ? WHERE "programId" = ?',
+                [
+                    updatedFields.programme || null,
+                    updatedFields.programCode || null,
+                    updatedFields.programme || null,
+                    updatedFields.description || null,
+                    updatedFields.needsPriorities || null,
+                    updatedFields.strategies || null,
+                    updatedFields.objectives || null,
+                    updatedFields.outcomes || null,
+                    updatedFields.remarks || null,
+                    updatedFields.updatedAt,
+                    id
+                ]
+            );
+            if (affectedRowsFromResult(result) > 0) {
+                const getResult = await pool.query('SELECT * FROM programs WHERE "programId" = ?', [id]);
+                res.status(200).json(firstRowFromResult(getResult));
+            } else {
+                res.status(404).json({ message: 'Program not found' });
+            }
         } else {
-            res.status(404).json({ message: 'Program not found' });
+            const [result] = await pool.query('UPDATE programs SET ? WHERE programId = ?', [updatedFields, id]);
+            if (result.affectedRows > 0) {
+                const [rows] = await pool.query('SELECT * FROM programs WHERE programId = ?', [id]);
+                res.status(200).json(rows[0]);
+            } else {
+                res.status(404).json({ message: 'Program not found' });
+            }
         }
     }
     catch (error) {
@@ -272,8 +514,8 @@ router.delete('/programs/:id', async (req, res) => {
     const { id } = req.params;
     try {
         console.log('Soft-deleting Program:', id);
-        const [result] = await pool.query('UPDATE programs SET voided = 1 WHERE programId = ?', [id]);
-        if (result.affectedRows > 0) {
+        const result = await pool.query(`UPDATE programs SET voided = ${isPostgres ? 'true' : '1'} WHERE ${isPostgres ? '"programId"' : 'programId'} = ?`, [id]);
+        if (affectedRowsFromResult(result) > 0) {
             res.status(204).send();
         } else {
             res.status(404).json({ message: 'Program not found' });
@@ -287,7 +529,13 @@ router.delete('/programs/:id', async (req, res) => {
 // --- CRUD Operations for Subprograms (subprograms) ---
 router.get('/subprograms', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM subprograms WHERE voided = 0');
+        const result = await pool.query(`
+            SELECT *,
+            COALESCE("subProgramme", "subProgramName") AS "subProgramme"
+            FROM subprograms
+            WHERE voided = ${isPostgres ? 'false' : '0'}
+        `);
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching subprograms:', error);
@@ -298,7 +546,13 @@ router.get('/subprograms', async (req, res) => {
 router.get('/subprograms/by-program/:programId', async (req, res) => {
     const { programId } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM subprograms WHERE programId = ? AND voided = 0', [programId]);
+        const result = await pool.query(`
+            SELECT *,
+            COALESCE("subProgramme", "subProgramName") AS "subProgramme"
+            FROM subprograms
+            WHERE "programId" = ? AND voided = ${isPostgres ? 'false' : '0'}
+        `, [programId]);
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error(`Error fetching subprograms for program ${programId}:`, error);
@@ -309,7 +563,8 @@ router.get('/subprograms/by-program/:programId', async (req, res) => {
 router.get('/subprograms/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const [rows] = await pool.query('SELECT * FROM subprograms WHERE subProgramId = ? AND voided = 0', [id]);
+        const result = await pool.query(`SELECT * FROM subprograms WHERE "subProgramId" = ? AND voided = ${isPostgres ? 'false' : '0'}`, [id]);
+        const rows = rowsFromResult(result);
         if (rows.length > 0) {
             res.status(200).json(rows[0]);
         } else {
@@ -333,9 +588,41 @@ router.post('/subprograms', async (req, res) => {
 
     try {
         console.log('Inserting Subprogram:', newSubprogram);
-        const [result] = await pool.query('INSERT INTO subprograms SET ?', newSubprogram);
-        if (result.insertId) {
-            newSubprogram.subProgramId = result.insertId;
+        if (isPostgres) {
+            const result = await pool.query(
+                'INSERT INTO subprograms ("programId", "subProgramName", "subProgramCode", "subProgramme", "keyOutcome", kpi, "unitOfMeasure", baseline, "yr1Targets", "yr2Targets", "yr3Targets", "yr4Targets", "yr5Targets", "yr1Budget", "yr2Budget", "yr3Budget", "yr4Budget", "yr5Budget", "totalBudget", remarks, voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING "subProgramId"',
+                [
+                    newSubprogram.programId || null,
+                    newSubprogram.subProgramme || null,
+                    newSubprogram.subProgramCode || null,
+                    newSubprogram.subProgramme || null,
+                    newSubprogram.keyOutcome || null,
+                    newSubprogram.kpi || null,
+                    newSubprogram.unitOfMeasure || null,
+                    newSubprogram.baseline || null,
+                    newSubprogram.yr1Targets || null,
+                    newSubprogram.yr2Targets || null,
+                    newSubprogram.yr3Targets || null,
+                    newSubprogram.yr4Targets || null,
+                    newSubprogram.yr5Targets || null,
+                    newSubprogram.yr1Budget || null,
+                    newSubprogram.yr2Budget || null,
+                    newSubprogram.yr3Budget || null,
+                    newSubprogram.yr4Budget || null,
+                    newSubprogram.yr5Budget || null,
+                    newSubprogram.totalBudget || null,
+                    newSubprogram.remarks || null,
+                    false,
+                    newSubprogram.createdAt,
+                    newSubprogram.updatedAt
+                ]
+            );
+            newSubprogram.subProgramId = firstRowFromResult(result)?.subProgramId;
+        } else {
+            const [result] = await pool.query('INSERT INTO subprograms SET ?', newSubprogram);
+            if (result.insertId) {
+                newSubprogram.subProgramId = result.insertId;
+            }
         }
         res.status(201).json(newSubprogram);
     } catch (error) {
@@ -357,12 +644,47 @@ router.put('/subprograms/:id', async (req, res) => {
 
     try {
         console.log(`Updating Subprogram ${id}:`, updatedFields);
-        const [result] = await pool.query('UPDATE subprograms SET ? WHERE subProgramId = ?', [updatedFields, id]);
-        if (result.affectedRows > 0) {
-            const [rows] = await pool.query('SELECT * FROM subprograms WHERE subProgramId = ?', [id]);
-            res.status(200).json(rows[0]);
+        if (isPostgres) {
+            const result = await pool.query(
+                'UPDATE subprograms SET "subProgramName" = ?, "subProgramCode" = ?, "subProgramme" = ?, "keyOutcome" = ?, kpi = ?, "unitOfMeasure" = ?, baseline = ?, "yr1Targets" = ?, "yr2Targets" = ?, "yr3Targets" = ?, "yr4Targets" = ?, "yr5Targets" = ?, "yr1Budget" = ?, "yr2Budget" = ?, "yr3Budget" = ?, "yr4Budget" = ?, "yr5Budget" = ?, "totalBudget" = ?, remarks = ?, "updatedAt" = ? WHERE "subProgramId" = ?',
+                [
+                    updatedFields.subProgramme || null,
+                    updatedFields.subProgramCode || null,
+                    updatedFields.subProgramme || null,
+                    updatedFields.keyOutcome || null,
+                    updatedFields.kpi || null,
+                    updatedFields.unitOfMeasure || null,
+                    updatedFields.baseline || null,
+                    updatedFields.yr1Targets || null,
+                    updatedFields.yr2Targets || null,
+                    updatedFields.yr3Targets || null,
+                    updatedFields.yr4Targets || null,
+                    updatedFields.yr5Targets || null,
+                    updatedFields.yr1Budget || null,
+                    updatedFields.yr2Budget || null,
+                    updatedFields.yr3Budget || null,
+                    updatedFields.yr4Budget || null,
+                    updatedFields.yr5Budget || null,
+                    updatedFields.totalBudget || null,
+                    updatedFields.remarks || null,
+                    updatedFields.updatedAt,
+                    id
+                ]
+            );
+            if (affectedRowsFromResult(result) > 0) {
+                const getResult = await pool.query('SELECT * FROM subprograms WHERE "subProgramId" = ?', [id]);
+                res.status(200).json(firstRowFromResult(getResult));
+            } else {
+                res.status(404).json({ message: 'Subprogram not found' });
+            }
         } else {
-            res.status(404).json({ message: 'Subprogram not found' });
+            const [result] = await pool.query('UPDATE subprograms SET ? WHERE subProgramId = ?', [updatedFields, id]);
+            if (result.affectedRows > 0) {
+                const [rows] = await pool.query('SELECT * FROM subprograms WHERE subProgramId = ?', [id]);
+                res.status(200).json(rows[0]);
+            } else {
+                res.status(404).json({ message: 'Subprogram not found' });
+            }
         }
     }
     catch (error) {
@@ -375,8 +697,8 @@ router.delete('/subprograms/:id', async (req, res) => {
     const { id } = req.params;
     try {
         console.log('Soft-deleting Subprogram:', id);
-        const [result] = await pool.query('UPDATE subprograms SET voided = 1 WHERE subProgramId = ?', [id]);
-        if (result.affectedRows > 0) {
+        const result = await pool.query(`UPDATE subprograms SET voided = ${isPostgres ? 'true' : '1'} WHERE ${isPostgres ? '"subProgramId"' : 'subProgramId'} = ?`, [id]);
+        if (affectedRowsFromResult(result) > 0) {
             res.status(204).send();
         } else {
             res.status(404).json({ message: 'Subprogram not found' });
@@ -391,7 +713,8 @@ router.delete('/subprograms/:id', async (req, res) => {
 // --- CRUD Operations for Strategy Attachments (planningdocuments) ---
 router.get('/attachments', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM planningdocuments WHERE voided = 0');
+        const result = await pool.query(`SELECT * FROM planningdocuments WHERE voided = ${isPostgres ? 'false' : '0'}`);
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching strategic planning documents:', error);
@@ -402,10 +725,11 @@ router.get('/attachments', async (req, res) => {
 router.get('/attachments/by-entity/:entityType/:entityId', async (req, res) => {
     const { entityType, entityId } = req.params;
     try {
-        const [rows] = await pool.query(
-            'SELECT * FROM planningdocuments WHERE entityType = ? AND entityId = ? AND voided = 0',
+        const result = await pool.query(
+            `SELECT * FROM planningdocuments WHERE "entityType" = ? AND "entityId" = ? AND voided = ${isPostgres ? 'false' : '0'}`,
             [entityType, entityId]
         );
+        const rows = rowsFromResult(result);
         res.status(200).json(rows);
     } catch (error) {
         console.error(`Error fetching documents for entity ${entityType}:${entityId}:`, error);
