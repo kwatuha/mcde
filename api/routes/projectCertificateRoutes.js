@@ -47,6 +47,7 @@ const ensurePostgresTable = async () => {
             "requesterRemarks" TEXT NULL,
             "approverRemarks" TEXT NULL,
             "certificateData" JSONB NULL,
+            "uploadSource" TEXT NULL,
             voided BOOLEAN DEFAULT FALSE,
             "voidedBy" TEXT NULL
         )
@@ -54,6 +55,10 @@ const ensurePostgresTable = async () => {
     await pool.query(`
         ALTER TABLE projectcertificate
         ADD COLUMN IF NOT EXISTS "certificateData" JSONB NULL
+    `);
+    await pool.query(`
+        ALTER TABLE projectcertificate
+        ADD COLUMN IF NOT EXISTS "uploadSource" TEXT NULL
     `);
 };
 
@@ -145,6 +150,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         requesterRemarks = null,
         approverRemarks = null,
         certificateData = null,
+        uploadSource = null,
     } = req.body;
 
     if (!projectId) {
@@ -170,6 +176,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         requesterRemarks,
         approverRemarks,
         certificateData: certificateData || null,
+        uploadSource: uploadSource || null,
         voided: 0,
         voidedBy: null,
     };
@@ -182,9 +189,9 @@ router.post('/upload', upload.single('document'), async (req, res) => {
                 `INSERT INTO projectcertificate (
                     "projectId","statusId","requestDate","awardDate","progressStatus","applicationStatus",
                     "certType","certSubType","certNumber",path,"fileName","approvedBy","requesterRemarks",
-                    "approverRemarks","certificateData",voided,"voidedBy"
+                    "approverRemarks","certificateData","uploadSource",voided,"voidedBy"
                 ) VALUES (
-                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18
                 ) RETURNING "certificateId"`,
                 [
                     Number(projectId),
@@ -202,6 +209,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
                     requesterRemarks,
                     approverRemarks,
                     certificateData ? String(certificateData) : null,
+                    uploadSource || null,
                     false,
                     null,
                 ]

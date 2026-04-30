@@ -23,6 +23,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Chip,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -43,6 +44,9 @@ const CERTIFICATE_TYPES = [
 ];
 
 const STATUS_OPTIONS = ['pending', 'approved', 'rejected'];
+const CERT_DEFAULTS = {
+  countyName: import.meta.env.VITE_CERT_COUNTY_NAME || '',
+};
 
 const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const [certificates, setCertificates] = useState([]);
@@ -63,8 +67,10 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const [file, setFile] = useState(null);
   const [generatedPdfFile, setGeneratedPdfFile] = useState(null);
   const [bqItems, setBqItems] = useState([]);
+  const [taxRates, setTaxRates] = useState([]);
+  const [projectDetails, setProjectDetails] = useState(null);
   const [draft, setDraft] = useState({
-    countyName: 'COUNTY GOVERNMENT',
+    countyName: CERT_DEFAULTS.countyName,
     issuingMinistry: '',
     referenceNo: '',
     recipientOffice: '',
@@ -74,16 +80,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     contractSum: '',
     clientMinistry: '',
     contractorName: '',
-    totalWorkInclusive: '',
-    totalWorkExclusive: '',
-    vatAmount: '',
-    withholdingTax: '',
-    vatDeduction: '',
-    retentionAmount: '',
     advanceRecovery: '',
     previousCumulative: '',
-    grossAmount: '',
-    netAmount: '',
   });
 
   const loadCertificates = useCallback(async () => {
@@ -118,19 +116,77 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     loadBqItems();
   }, [projectId]);
 
+  useEffect(() => {
+    const loadTaxRates = async () => {
+      try {
+        const rates = await projectService.taxRates.getActive(form.requestDate);
+        setTaxRates(Array.isArray(rates) ? rates : []);
+      } catch (err) {
+        setTaxRates([]);
+      }
+    };
+    loadTaxRates();
+  }, [form.requestDate]);
+
+  useEffect(() => {
+    const loadProjectDetails = async () => {
+      if (!projectId) return;
+      try {
+        const data = await projectService.projects.getProjectById(projectId);
+        setProjectDetails(data || null);
+      } catch (err) {
+        setProjectDetails(null);
+      }
+    };
+    loadProjectDetails();
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectDetails) return;
+    const fallbackDepartment = projectDetails.departmentName || projectDetails.directorate || projectDetails.ministry || '';
+    const fallbackCounty = projectDetails.countyName || '';
+    const fallbackProjectTitle = projectDetails.projectName || projectDetails.name || '';
+    const fallbackRef = projectDetails.ProjectRefNum || projectDetails.projectRefNum || projectDetails.referenceNo || '';
+    const fallbackContractSum = projectDetails.costOfProject || projectDetails.budget || '';
+
+    setDraft((prev) => ({
+      ...prev,
+      countyName: prev.countyName || fallbackCounty,
+      issuingMinistry: prev.issuingMinistry || fallbackDepartment,
+      recipientOffice: prev.recipientOffice || fallbackDepartment,
+      projectTitle: prev.projectTitle || fallbackProjectTitle,
+      referenceNo: prev.referenceNo || fallbackRef,
+      contractSum: prev.contractSum || String(fallbackContractSum || ''),
+      clientMinistry: prev.clientMinistry || fallbackDepartment,
+    }));
+  }, [projectDetails]);
+
   const downloadName = useMemo(() => {
     if (file) return file.name;
     if (generatedPdfFile) return generatedPdfFile.name;
     return '';
   }, [file, generatedPdfFile]);
 
-  const createCertificatePdfFile = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const margin = 40;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const today = form.requestDate || new Date().toISOString().slice(0, 10);
-    const certNo = form.certNumber || 'N/A';
-    const title = draft.projectTitle || `Project #${projectId}`;
+  const suggestedCertificateNumber = useMemo(() => {
+    const year = new Date().getFullYear();
+    const nextIndex = (Array.isArray(certificates) ? certificates.length : 0) + 1;
+    const padded = String(nextIndex).padStart(3, '0');
+    return `PC-${projectId}-${year}-${padded}`;
+  }, [certificates, projectId]);
+
+  const calculateCertificateAmounts = useCallback(() => {
+    const parseMoney = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
+    const rateLookup = taxRates.reduce((acc, row) => {
+      acc[String(row.tax_type || '').toLowerCase()] = {
+        rate: Number(row.rate_percent || 0),
+        withholdingRate: Number(row.withholding_rate || 0),
+      };
+      return acc;
+    }, {});
+    const vatRate = rateLookup.vat?.rate || 0;
+    const withholdingTaxRate = rateLookup.withholding_tax?.rate || 0;
+    const vatWithholdingRate = rateLookup.vat?.withholdingRate || 0;
+    const retentionRate = rateLookup.retention?.rate || 0;
 
     const normalizedBq = bqItems.map((item) => {
       const budget = Number(item.budgetAmount || 0);
@@ -145,25 +201,71 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       };
     });
     const totalBqAmount = normalizedBq.reduce((sum, i) => sum + i.amount, 0);
-    const computedGross = draft.grossAmount && String(draft.grossAmount).trim() !== ''
-      ? Number(String(draft.grossAmount).replace(/,/g, '')) || 0
-      : totalBqAmount;
-    const computedNet = draft.netAmount && String(draft.netAmount).trim() !== ''
-      ? Number(String(draft.netAmount).replace(/,/g, '')) || 0
-      : totalBqAmount;
-    const computedInclusive = draft.totalWorkInclusive && String(draft.totalWorkInclusive).trim() !== ''
-      ? draft.totalWorkInclusive
-      : totalBqAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const computedExclusive = draft.totalWorkExclusive && String(draft.totalWorkExclusive).trim() !== ''
-      ? draft.totalWorkExclusive
-      : totalBqAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const totalExclusive = totalBqAmount;
+    const computedVatAmount = totalExclusive * (vatRate / 100);
+    const computedWithholdingAmount = totalExclusive * (withholdingTaxRate / 100);
+    const computedRetentionAmount = totalExclusive * (retentionRate / 100);
+    // VAT withholding is applied on work done (tax exclusive), not on VAT amount.
+    const vatDeduction = totalExclusive * (vatWithholdingRate / 100);
+    const advanceRecovery = parseMoney(draft.advanceRecovery);
+    const previousCumulative = parseMoney(draft.previousCumulative);
+    const computedInclusive = totalExclusive + computedVatAmount;
+    const computedGross = computedInclusive - computedWithholdingAmount - vatDeduction - computedRetentionAmount;
+    const computedNet = computedGross - advanceRecovery - previousCumulative;
+    return {
+      normalizedBq,
+      totalBqAmount,
+      totalExclusive,
+      computedVatAmount,
+      computedWithholdingAmount,
+      computedRetentionAmount,
+      vatDeduction,
+      advanceRecovery,
+      previousCumulative,
+      computedInclusive,
+      computedGross,
+      computedNet,
+      vatRate,
+      withholdingTaxRate,
+      vatWithholdingRate,
+      retentionRate,
+    };
+  }, [bqItems, draft.advanceRecovery, draft.previousCumulative, taxRates]);
+
+  const createCertificatePdfFile = () => {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const margin = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const today = form.requestDate || new Date().toISOString().slice(0, 10);
+    const certNo = form.certNumber || suggestedCertificateNumber || 'N/A';
+    const title = draft.projectTitle || `Project #${projectId}`;
+    const {
+      normalizedBq,
+      totalBqAmount,
+      totalExclusive,
+      computedVatAmount,
+      computedWithholdingAmount,
+      computedRetentionAmount,
+      vatDeduction,
+      advanceRecovery,
+      previousCumulative,
+      computedInclusive,
+      computedGross,
+      computedNet,
+      vatRate,
+      withholdingTaxRate,
+      vatWithholdingRate,
+      retentionRate,
+    } = calculateCertificateAmounts();
+    const contractSumValue = Number(String(draft.contractSum || '').replace(/,/g, '')) || 0;
+    const contractSumFormatted = contractSumValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     let y = 44;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('REPUBLIC OF KENYA', pageWidth / 2, y, { align: 'center' });
     y += 18;
-    doc.text(draft.countyName || 'COUNTY GOVERNMENT', pageWidth / 2, y, { align: 'center' });
+    doc.text(draft.countyName || CERT_DEFAULTS.countyName || 'COUNTY GOVERNMENT', pageWidth / 2, y, { align: 'center' });
     y += 18;
     doc.text(
       (draft.issuingMinistry || 'MINISTRY / DEPARTMENT').toUpperCase(),
@@ -195,7 +297,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     y += 18;
 
     doc.setFont('helvetica', 'normal');
-    const intro = `The above project currently under construction with contract sum Ksh. ${draft.contractSum || '0.00'} refers.`;
+    const intro = `The above project currently under construction with contract sum Ksh. ${contractSumFormatted} refers.`;
     const wrappedIntro = doc.splitTextToSize(intro, pageWidth - margin * 2);
     doc.text(wrappedIntro, margin, y);
     y += wrappedIntro.length * 12 + 10;
@@ -205,12 +307,12 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       theme: 'grid',
       head: [['Item', 'Amount (Ksh)']],
       body: [
-        ['Total Work Done (Tax Inclusive)', computedInclusive],
-        ['Total Work Done (Tax Exclusive)', computedExclusive],
-        ['VAT Amount', draft.vatAmount || '0.00'],
-        ['Withholding Tax', draft.withholdingTax || '0.00'],
-        ['VAT Deduction', draft.vatDeduction || '0.00'],
-        ['Retention Amount', draft.retentionAmount || '0.00'],
+        ['Total Work Done (Tax Inclusive)', computedInclusive.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        ['Total Work Done (Tax Exclusive)', totalExclusive.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        [`VAT Amount (${vatRate.toFixed(2)}%)`, computedVatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        [`Withholding Tax (${withholdingTaxRate.toFixed(2)}%)`, computedWithholdingAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        [`VAT Deduction (${vatWithholdingRate.toFixed(2)}% of Work Done)`, vatDeduction.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        [`Retention Amount (${retentionRate.toFixed(2)}%)`, computedRetentionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
         ['Advance Recovery', draft.advanceRecovery || '0.00'],
         ['Previous Cumulative Certificates', draft.previousCumulative || '0.00'],
         ['Gross Amount', computedGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
@@ -279,7 +381,6 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const safeCertNo = String(certNo).replace(/[^a-zA-Z0-9-_]/g, '_');
     return new File([blob], `payment-certificate-${safeCertNo}.pdf`, { type: 'application/pdf' });
   };
-
   const handleGenerateDraftPdf = () => {
     setError('');
     try {
@@ -289,6 +390,19 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     } catch (err) {
       setError(err?.message || 'Failed to generate certificate PDF draft.');
     }
+  };
+
+  const handleOpenAddCertificate = () => {
+    setError('');
+    setMessage('');
+    setFile(null);
+    setGeneratedPdfFile(null);
+    setForm((prev) => ({
+      ...prev,
+      certNumber: prev.certNumber || suggestedCertificateNumber,
+      requestDate: prev.requestDate || new Date().toISOString().slice(0, 10),
+    }));
+    setOpenDialog(true);
   };
 
   const handleSubmit = async () => {
@@ -302,9 +416,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     setMessage('');
     try {
       const payload = new FormData();
+      const uploadSource = generatedPdfFile && !file ? 'generated' : 'attached';
       payload.append('projectId', String(projectId));
       payload.append('document', fileToUpload);
       payload.append('certificateData', JSON.stringify(draft));
+      payload.append('uploadSource', uploadSource);
       Object.entries(form).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
           payload.append(key, value);
@@ -362,6 +478,14 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     }
   };
 
+  const getUploadSource = (certificate) => {
+    const explicit = String(certificate?.uploadSource || '').toLowerCase();
+    if (explicit === 'generated' || explicit === 'attached') return explicit;
+    const name = String(certificate?.fileName || '').toLowerCase();
+    if (name.startsWith('payment-certificate-')) return 'generated';
+    return 'attached';
+  };
+
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -377,7 +501,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           <Button
             variant="contained"
             startIcon={<UploadFileIcon />}
-            onClick={() => setOpenDialog(true)}
+            onClick={handleOpenAddCertificate}
           >
             Add Certificate
           </Button>
@@ -407,6 +531,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                   <TableCell>Type</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Request Date</TableCell>
+                  <TableCell>Source</TableCell>
                   <TableCell>File</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -418,6 +543,14 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                     <TableCell>{cert.certType || '-'}</TableCell>
                     <TableCell>{cert.applicationStatus || '-'}</TableCell>
                     <TableCell>{cert.requestDate ? String(cert.requestDate).slice(0, 10) : '-'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={getUploadSource(cert) === 'generated' ? 'Generated' : 'Attached'}
+                        color={getUploadSource(cert) === 'generated' ? 'success' : 'default'}
+                        variant={getUploadSource(cert) === 'generated' ? 'filled' : 'outlined'}
+                      />
+                    </TableCell>
                     <TableCell>{cert.fileName || 'attachment'}</TableCell>
                     <TableCell align="right">
                       <Tooltip title="Download">
@@ -514,9 +647,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             <Grid item xs={12}>
               <Typography variant="subtitle2" sx={{ mb: 1, mt: 0.5 }}>Certificate Generation Details</Typography>
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="County Government Name" value={draft.countyName} onChange={(e) => setDraft((p) => ({ ...p, countyName: e.target.value }))} />
-            </Grid>
+            {!CERT_DEFAULTS.countyName && (
+              <Grid item xs={12} md={6}>
+                <TextField fullWidth label="County Government Name" value={draft.countyName} onChange={(e) => setDraft((p) => ({ ...p, countyName: e.target.value }))} />
+              </Grid>
+            )}
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="Issuing Ministry/Department" value={draft.issuingMinistry} onChange={(e) => setDraft((p) => ({ ...p, issuingMinistry: e.target.value }))} />
             </Grid>
@@ -544,39 +679,21 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             <Grid item xs={12} md={4}>
               <TextField fullWidth label="Contractor Name" value={draft.contractorName} onChange={(e) => setDraft((p) => ({ ...p, contractorName: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Total Work Inclusive" value={draft.totalWorkInclusive} onChange={(e) => setDraft((p) => ({ ...p, totalWorkInclusive: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Total Work Exclusive" value={draft.totalWorkExclusive} onChange={(e) => setDraft((p) => ({ ...p, totalWorkExclusive: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="VAT Amount" value={draft.vatAmount} onChange={(e) => setDraft((p) => ({ ...p, vatAmount: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Withholding Tax" value={draft.withholdingTax} onChange={(e) => setDraft((p) => ({ ...p, withholdingTax: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="VAT Deduction" value={draft.vatDeduction} onChange={(e) => setDraft((p) => ({ ...p, vatDeduction: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Retention Amount" value={draft.retentionAmount} onChange={(e) => setDraft((p) => ({ ...p, retentionAmount: e.target.value }))} />
-            </Grid>
             <Grid item xs={12} md={4}>
               <TextField fullWidth label="Advance Recovery" value={draft.advanceRecovery} onChange={(e) => setDraft((p) => ({ ...p, advanceRecovery: e.target.value }))} />
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField fullWidth label="Previous Cumulative" value={draft.previousCumulative} onChange={(e) => setDraft((p) => ({ ...p, previousCumulative: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Gross Amount" value={draft.grossAmount} onChange={(e) => setDraft((p) => ({ ...p, grossAmount: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Net Amount Due" value={draft.netAmount} onChange={(e) => setDraft((p) => ({ ...p, netAmount: e.target.value }))} />
-            </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
                 BQ-based payable summary in PDF uses current BQ items ({bqItems.length} rows). Amount per row = Budget x % Complete.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                Applied rates for {form.requestDate || 'today'} -> VAT: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.rate_percent || 0).toFixed(2)}%, Withholding Tax: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'withholding_tax')?.rate_percent || 0).toFixed(2)}%, VAT Withholding: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.withholding_rate || 0).toFixed(2)}%, Retention: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'retention')?.rate_percent || 0).toFixed(2)}%.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                Financial totals are auto-generated from BQ progress and active tax rates.
               </Typography>
             </Grid>
             <Grid item xs={12}>

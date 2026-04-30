@@ -29,6 +29,7 @@ const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPho
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
 const projectJobsRoutes = require('./projectJobsRoutes');
 const projectBqRoutes = require('./projectBqRoutes');
+const projectTaxRateRoutes = require('./projectTaxRateRoutes');
 
 const PROJECT_IMPORT_LOG_DIR = path.join(__dirname, '..', 'uploads', 'project-import-logs');
 
@@ -424,6 +425,7 @@ router.use('/project_observations', projectObservationRoutes);
 router.use('/project_payments', projectPaymentRoutes);
 router.use('/projectscheduling', projectSchedulingRoutes);
 router.use('/projectcategories', projectCategoryRoutes);
+router.use('/tax-rates', projectTaxRateRoutes);
 router.use('/:projectId/monitoring', projectMonitoringRoutes);
 router.use('/:projectId', projectJobsRoutes);
 router.use('/:projectId/bq', projectBqRoutes);

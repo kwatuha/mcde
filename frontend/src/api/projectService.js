@@ -418,6 +418,29 @@ const projectService = {
     },
   },
 
+  taxRates: {
+    getAll: async (params = {}) => {
+      const response = await axiosInstance.get('/projects/tax-rates', { params });
+      return response.data;
+    },
+    getActive: async (onDate) => {
+      const response = await axiosInstance.get('/projects/tax-rates/active', { params: { onDate } });
+      return response.data;
+    },
+    create: async (payload) => {
+      const response = await axiosInstance.post('/projects/tax-rates', payload);
+      return response.data;
+    },
+    update: async (id, payload) => {
+      const response = await axiosInstance.put(`/projects/tax-rates/${id}`, payload);
+      return response.data;
+    },
+    remove: async (id) => {
+      const response = await axiosInstance.delete(`/projects/tax-rates/${id}`);
+      return response.data;
+    },
+  },
+
   bq: {
     getItems: async (projectId) => {
       const response = await axiosInstance.get(`/projects/${projectId}/bq`);

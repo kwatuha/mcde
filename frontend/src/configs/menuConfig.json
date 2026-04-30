@@ -226,8 +226,7 @@
         {
           "title": "Metadata mgmt",
           "icon": "StorageIcon",
-          "route": "METADATA_MANAGEMENT",
-          "hidden": true
+          "route": "METADATA_MANAGEMENT"
         },
         {
           "title": "Contractor mgmt",

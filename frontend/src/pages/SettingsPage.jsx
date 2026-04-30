@@ -7,7 +7,7 @@ import {
   Grid, useTheme, Tabs, Tab, FormControl, InputLabel, Select, MenuItem,
   InputAdornment, Chip
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, LocationCity as LocationCityIcon, Map as MapIcon, CalendarToday as CalendarTodayIcon, Search as SearchIcon, Clear as ClearIcon, Security as SecurityIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, LocationCity as LocationCityIcon, Map as MapIcon, CalendarToday as CalendarTodayIcon, Search as SearchIcon, Clear as ClearIcon, Security as SecurityIcon, Percent as PercentIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiService from '../api';
 import metaDataService from '../api/metaDataService';
@@ -1788,6 +1788,279 @@ const FinancialYearManagement = () => {
   );
 };
 
+const TaxRateManagement = () => {
+  const { hasPrivilege, user } = useAuth();
+  const theme = useTheme();
+  const [rates, setRates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editingRate, setEditingRate] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [formData, setFormData] = useState({
+    taxType: 'vat',
+    ratePercent: '',
+    withholdingRate: '',
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: '',
+    notes: '',
+  });
+
+  const canManage = isSuperAdminUser(user) || hasPrivilege('admin.access');
+
+  const loadRates = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await apiService.taxRates.getAll();
+      setRates(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to load tax rates.', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRates();
+  }, [loadRates]);
+
+  const openCreateDialog = () => {
+    setEditingRate(null);
+    setFormData({
+      taxType: 'vat',
+      ratePercent: '',
+      withholdingRate: '',
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      effectiveTo: '',
+      notes: '',
+    });
+    setOpenDialog(true);
+  };
+
+  const openEditDialog = (row) => {
+    setEditingRate(row);
+    setFormData({
+      taxType: row.tax_type || 'vat',
+      ratePercent: row.rate_percent ?? '',
+      withholdingRate: row.withholding_rate ?? '',
+      effectiveFrom: row.effective_from ? String(row.effective_from).slice(0, 10) : '',
+      effectiveTo: row.effective_to ? String(row.effective_to).slice(0, 10) : '',
+      notes: row.notes || '',
+    });
+    setOpenDialog(true);
+  };
+
+  const saveRate = async () => {
+    if (!formData.taxType || formData.ratePercent === '' || formData.withholdingRate === '' || !formData.effectiveFrom) {
+      setSnackbar({ open: true, message: 'Tax type, rate, withholding rate, and effective from date are required.', severity: 'error' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        taxType: formData.taxType,
+        ratePercent: Number(formData.ratePercent),
+        withholdingRate: Number(formData.withholdingRate),
+        effectiveFrom: formData.effectiveFrom,
+        effectiveTo: formData.effectiveTo || null,
+        notes: formData.notes || null,
+      };
+      if (editingRate?.id) {
+        await apiService.taxRates.update(editingRate.id, payload);
+        setSnackbar({ open: true, message: 'Tax rate updated.', severity: 'success' });
+      } else {
+        await apiService.taxRates.create(payload);
+        setSnackbar({ open: true, message: 'Tax rate created.', severity: 'success' });
+      }
+      setOpenDialog(false);
+      await loadRates();
+    } catch (error) {
+      setSnackbar({ open: true, message: error?.response?.data?.message || 'Failed to save tax rate.', severity: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeRate = async () => {
+    if (!deleteTarget?.id) return;
+    setSaving(true);
+    try {
+      await apiService.taxRates.remove(deleteTarget.id);
+      setSnackbar({ open: true, message: 'Tax rate deleted.', severity: 'success' });
+      setDeleteTarget(null);
+      await loadRates();
+    } catch (error) {
+      setSnackbar({ open: true, message: error?.response?.data?.message || 'Failed to delete tax rate.', severity: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatTaxType = (taxType) => {
+    const map = {
+      vat: 'VAT',
+      withholding_tax: 'Withholding Tax',
+      retention: 'Retention',
+    };
+    return map[String(taxType || '').toLowerCase()] || taxType;
+  };
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1" sx={{ color: theme.palette.primary.main, fontWeight: 'bold' }}>
+          Tax Rate Table
+        </Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog} disabled={!canManage}>
+          Add Tax Rate
+        </Button>
+      </Box>
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Add effective-dated VAT, Withholding Tax, and Retention rates. Payment certificates will automatically use the rate active on the certificate date.
+      </Alert>
+      {!canManage && <Alert severity="warning" sx={{ mb: 2 }}>Only admin users can amend tax rates.</Alert>}
+
+      {loading ? (
+        <CircularProgress size={24} />
+      ) : (
+        <TableContainer component={Paper} sx={{ borderRadius: '8px', overflow: 'hidden', boxShadow: theme.shadows[2] }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ backgroundColor: theme.palette.primary.main }}>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tax Type</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Rate (%)</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Withholding Rate (%)</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Effective From</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Effective To</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Notes</TableCell>
+                <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rates.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    <Typography variant="body2" color="text.secondary">No tax rates configured yet.</Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rates.map((row) => (
+                  <TableRow key={row.id} sx={{ '&:nth-of-type(odd)': { backgroundColor: theme.palette.action.hover } }}>
+                    <TableCell>{formatTaxType(row.tax_type)}</TableCell>
+                    <TableCell>{Number(row.rate_percent || 0).toFixed(2)}</TableCell>
+                    <TableCell>{Number(row.withholding_rate || 0).toFixed(2)}</TableCell>
+                    <TableCell>{row.effective_from ? String(row.effective_from).slice(0, 10) : '-'}</TableCell>
+                    <TableCell>{row.effective_to ? String(row.effective_to).slice(0, 10) : 'Open ended'}</TableCell>
+                    <TableCell>{row.notes || '-'}</TableCell>
+                    <TableCell align="right">
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <IconButton onClick={() => openEditDialog(row)} color="primary" disabled={!canManage}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton onClick={() => setDeleteTarget(row)} color="error" disabled={!canManage}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white' }}>
+          {editingRate ? 'Edit Tax Rate' : 'Add Tax Rate'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, pt: 2 }}>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Tax Type</InputLabel>
+            <Select
+              value={formData.taxType}
+              label="Tax Type"
+              onChange={(e) => setFormData((p) => ({ ...p, taxType: e.target.value }))}
+            >
+              <MenuItem value="vat">VAT</MenuItem>
+              <MenuItem value="withholding_tax">Withholding Tax</MenuItem>
+              <MenuItem value="retention">Retention</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            fullWidth
+            label="Rate (%)"
+            type="number"
+            value={formData.ratePercent}
+            onChange={(e) => setFormData((p) => ({ ...p, ratePercent: e.target.value }))}
+            inputProps={{ min: 0, step: 0.01 }}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Withholding Rate (%)"
+            type="number"
+            value={formData.withholdingRate}
+            onChange={(e) => setFormData((p) => ({ ...p, withholdingRate: e.target.value }))}
+            inputProps={{ min: 0, step: 0.01 }}
+            helperText="Example: VAT rate 16, withholding rate 2."
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Effective From"
+            type="date"
+            value={formData.effectiveFrom}
+            onChange={(e) => setFormData((p) => ({ ...p, effectiveFrom: e.target.value }))}
+            InputLabelProps={{ shrink: true }}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Effective To"
+            type="date"
+            value={formData.effectiveTo}
+            onChange={(e) => setFormData((p) => ({ ...p, effectiveTo: e.target.value }))}
+            InputLabelProps={{ shrink: true }}
+            helperText="Optional. Leave empty for an open-ended rate."
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Notes"
+            multiline
+            minRows={2}
+            value={formData.notes}
+            onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))}
+          />
+        </DialogContent>
+        <DialogActions sx={{ padding: '16px 24px' }}>
+          <Button onClick={() => setOpenDialog(false)} color="primary" variant="outlined">Cancel</Button>
+          <Button onClick={saveRate} color="primary" variant="contained" disabled={!canManage || saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <DeleteConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={removeRate}
+        itemToDeleteName={`${formatTaxType(deleteTarget?.tax_type)} ${deleteTarget?.effective_from ? `(${String(deleteTarget.effective_from).slice(0, 10)})` : ''}`}
+        itemType="tax rate"
+      />
+
+      <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((p) => ({ ...p, open: false }))}>
+        <Alert onClose={() => setSnackbar((p) => ({ ...p, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
+
 const SessionSecuritySettings = () => {
   const { user } = useAuth();
   const [value, setValue] = useState(60);
@@ -1912,13 +2185,15 @@ const SettingsPage = () => {
           <Tab icon={<LocationCityIcon />} label="Departments & Sections" iconPosition="start" />
           <Tab icon={<MapIcon />} label="Counties, Subcounties & Wards" iconPosition="start" />
           <Tab icon={<CalendarTodayIcon />} label="Financial Years" iconPosition="start" />
+          <Tab icon={<PercentIcon />} label="Tax Rates" iconPosition="start" />
           <Tab icon={<SecurityIcon />} label="Session Security" iconPosition="start" />
         </Tabs>
       </Box>
       {currentTab === 0 && <DepartmentAndSectionManagement />}
       {currentTab === 1 && <SubcountyManagement />}
       {currentTab === 2 && <FinancialYearManagement />}
-      {currentTab === 3 && <SessionSecuritySettings />}
+      {currentTab === 3 && <TaxRateManagement />}
+      {currentTab === 4 && <SessionSecuritySettings />}
     </Box>
   );
 };
