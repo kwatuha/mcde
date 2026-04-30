@@ -93,6 +93,185 @@ const isMainCategoryStatus = (status) => {
     return categories.some(cat => matchesStatusCategory(status, cat));
 };
 
+function isPostgresDb() {
+    return (process.env.DB_TYPE || 'mysql') === 'postgresql';
+}
+
+/**
+ * WHERE fragments for approved public projects (PostgreSQL JSONB `projects` table).
+ * Supports the same query keys used by the citizen dashboard and gallery.
+ */
+async function buildPgPublicProjectWhereParts(q) {
+    const parts = [
+        'p.voided = false',
+        `LOWER(COALESCE(p.is_public->>'approved', 'false')) = 'true'`
+    ];
+    const params = [];
+    let n = 1;
+
+    const search = q.search ? String(q.search).trim() : '';
+    if (search) {
+        parts.push(`(COALESCE(p.name, '') ILIKE $${n} OR COALESCE(p.description, '') ILIKE $${n + 1})`);
+        params.push(`%${search}%`, `%${search}%`);
+        n += 2;
+    }
+
+    const finYearId = q.finYearId != null && String(q.finYearId).trim() !== '' ? String(q.finYearId).trim() : '';
+    if (finYearId) {
+        parts.push(`(
+            (p.timeline->>'financial_year') = (SELECT "finYearName"::text FROM financialyears WHERE "finYearId" = $${n}::int LIMIT 1)
+            OR (p.timeline->>'financial_year')::text = $${n}::text
+        )`);
+        params.push(finYearId);
+        n++;
+    }
+
+    const rawDept = q.departmentId != null && String(q.departmentId).trim() !== '' ? String(q.departmentId).trim() : '';
+    if (rawDept) {
+        let deptPattern = rawDept;
+        if (/^\d+$/.test(rawDept)) {
+            try {
+                const dr = await pool.query('SELECT name FROM departments WHERE "departmentId" = $1 LIMIT 1', [parseInt(rawDept, 10)]);
+                if (dr.rows?.[0]?.name) {
+                    deptPattern = dr.rows[0].name;
+                }
+            } catch (e) {
+                /* ignore */
+            }
+        }
+        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
+        params.push(`%${deptPattern}%`);
+    } else if (q.department != null && String(q.department).trim() !== '') {
+        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
+        params.push(`%${String(q.department).trim()}%`);
+    } else if (q.ministry != null && String(q.ministry).trim() !== '') {
+        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
+        params.push(`%${String(q.ministry).trim()}%`);
+    }
+
+    if (q.stateDepartment != null && String(q.stateDepartment).trim() !== '') {
+        parts.push(`COALESCE(p.state_department, '') ILIKE $${n++}`);
+        params.push(`%${String(q.stateDepartment).trim()}%`);
+    }
+
+    const rawSub = [q.subcountyId, q.subCountyId].find((v) => v != null && String(v).trim() !== '');
+    const rawSubTrimmed = rawSub != null ? String(rawSub).trim() : '';
+    if (rawSubTrimmed) {
+        parts.push(`(
+            COALESCE(p.location->>'constituency', '') ILIKE $${n}
+            OR COALESCE(p.location->>'county', '') ILIKE $${n}
+        )`);
+        params.push(`%${rawSubTrimmed}%`);
+        n++;
+    }
+
+    const rawWard = q.wardId != null && String(q.wardId).trim() !== '' ? String(q.wardId).trim() : '';
+    if (rawWard) {
+        parts.push(`COALESCE(p.location->>'ward', '') ILIKE $${n++}`);
+        params.push(`%${rawWard}%`);
+    }
+
+    return { parts, params };
+}
+
+async function queryPgPublicProjectsForStats(q) {
+    const { parts, params } = await buildPgPublicProjectWhereParts(q);
+    const whereClause = parts.join(' AND ');
+    const sql = `
+        SELECT
+            p.project_id AS id,
+            COALESCE(p.progress->>'status', '') AS status,
+            CASE
+                WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                THEN (p.budget->>'allocated_amount_kes')::numeric
+                ELSE 0
+            END AS "costOfProject",
+            COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry_key,
+            COALESCE(
+                NULLIF(TRIM(p.location->>'constituency'), ''),
+                NULLIF(TRIM(p.location->>'county'), ''),
+                'Unassigned'
+            ) AS subcounty_key,
+            COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unassigned') AS ward_key
+        FROM projects p
+        WHERE ${whereClause}
+    `;
+    const result = await pool.query(sql, params);
+    return result.rows || [];
+}
+
+function aggregateOverviewFromPgRows(rows, statusFilter) {
+    let filteredProjects = rows;
+    if (statusFilter) {
+        filteredProjects = rows.filter((project) =>
+            matchesStatusCategory(project.status || '', String(statusFilter))
+        );
+    }
+    let completed_projects = 0;
+    let completed_budget = 0;
+    let ongoing_projects = 0;
+    let ongoing_budget = 0;
+    let not_started_projects = 0;
+    let not_started_budget = 0;
+    let under_procurement_projects = 0;
+    let under_procurement_budget = 0;
+    let stalled_projects = 0;
+    let stalled_budget = 0;
+    let suspended_projects = 0;
+    let suspended_budget = 0;
+    let other_projects = 0;
+    let other_budget = 0;
+    let total_budget = 0;
+
+    filteredProjects.forEach((project) => {
+        const st = project.status || '';
+        const budget = parseFloat(project.costOfProject) || 0;
+        total_budget += budget;
+
+        if (matchesStatusCategory(st, 'Completed')) {
+            completed_projects++;
+            completed_budget += budget;
+        } else if (matchesStatusCategory(st, 'Ongoing')) {
+            ongoing_projects++;
+            ongoing_budget += budget;
+        } else if (matchesStatusCategory(st, 'Not Started')) {
+            not_started_projects++;
+            not_started_budget += budget;
+        } else if (matchesStatusCategory(st, 'Under Procurement')) {
+            under_procurement_projects++;
+            under_procurement_budget += budget;
+        } else if (matchesStatusCategory(st, 'Stalled')) {
+            stalled_projects++;
+            stalled_budget += budget;
+        } else if (matchesStatusCategory(st, 'Suspended')) {
+            suspended_projects++;
+            suspended_budget += budget;
+        } else {
+            other_projects++;
+            other_budget += budget;
+        }
+    });
+
+    return {
+        total_projects: filteredProjects.length,
+        total_budget,
+        completed_projects,
+        completed_budget,
+        ongoing_projects,
+        ongoing_budget,
+        not_started_projects,
+        not_started_budget,
+        under_procurement_projects,
+        under_procurement_budget,
+        stalled_projects,
+        stalled_budget,
+        suspended_projects,
+        suspended_budget,
+        other_projects,
+        other_budget
+    };
+}
+
 // ==================== QUICK STATS ====================
 
 /**
@@ -102,6 +281,11 @@ const isMainCategoryStatus = (status) => {
  */
 router.get('/stats/overview', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            return res.json(aggregateOverviewFromPgRows(rows, req.query.status));
+        }
+
         const { finYearId, departmentId, subcountyId, wardId, status, search } = req.query;
         
         let whereConditions = ['p.voided = 0', 'p.approved_for_public = 1'];
@@ -120,7 +304,7 @@ router.get('/stats/overview', async (req, res) => {
         if (subcountyId) {
             whereConditions.push(`EXISTS (
                 SELECT 1 FROM project_subcounties psc 
-                WHERE psc.projectId = p.id 
+                WHERE psc.projectId = p.project_id 
                 AND psc.subcountyId = ? 
                 AND psc.voided = 0
             )`);
@@ -130,7 +314,7 @@ router.get('/stats/overview', async (req, res) => {
         if (wardId) {
             whereConditions.push(`EXISTS (
                 SELECT 1 FROM project_wards pw 
-                WHERE pw.projectId = p.id 
+                WHERE pw.projectId = p.project_id 
                 AND pw.wardId = ? 
                 AND pw.voided = 0
             )`);
@@ -147,7 +331,7 @@ router.get('/stats/overview', async (req, res) => {
         // First, get all projects with their statuses to categorize them properly
         const projectsQuery = `
             SELECT 
-                p.id,
+                p.project_id AS id,
                 p.status,
                 p.costOfProject
             FROM projects p
@@ -233,7 +417,27 @@ router.get('/stats/overview', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching overview stats:', error);
-        res.status(500).json({ error: 'Failed to fetch overview statistics' });
+        // Fail-soft for public dashboard: schema can vary across county databases.
+        // Return an empty stats payload instead of a hard error so the page still loads.
+        res.json({
+            total_projects: 0,
+            total_budget: 0,
+            completed_projects: 0,
+            completed_budget: 0,
+            ongoing_projects: 0,
+            ongoing_budget: 0,
+            not_started_projects: 0,
+            not_started_budget: 0,
+            under_procurement_projects: 0,
+            under_procurement_budget: 0,
+            stalled_projects: 0,
+            stalled_budget: 0,
+            suspended_projects: 0,
+            suspended_budget: 0,
+            other_projects: 0,
+            other_budget: 0,
+            warning: 'Overview statistics are unavailable for this database schema'
+        });
     }
 });
 
@@ -266,7 +470,7 @@ router.get('/financial-years', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching financial years:', error);
-        res.status(500).json({ error: 'Failed to fetch financial years' });
+        res.json([]);
     }
 });
 
@@ -279,6 +483,7 @@ router.get('/financial-years', async (req, res) => {
  */
 router.get('/projects', async (req, res) => {
     try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
         const { 
             finYearId, 
             status, 
@@ -291,6 +496,71 @@ router.get('/projects', async (req, res) => {
             limit = 20,
             search
         } = req.query;
+
+        // PostgreSQL public projects use JSONB-backed schema (project_id, progress, is_public, etc.)
+        // Handle this path separately so citizen portal works with the current database.
+        if (DB_TYPE === 'postgresql') {
+            const numericPage = Math.max(parseInt(page, 10) || 1, 1);
+            const numericLimit = Math.max(parseInt(limit, 10) || 20, 1);
+            const offset = (numericPage - 1) * numericLimit;
+            const { parts: whereParts, params } = await buildPgPublicProjectWhereParts(req.query);
+            let i = params.length + 1;
+
+            if (status) {
+                whereParts.push(`COALESCE(p.progress->>'status', '') ILIKE $${i++}`);
+                params.push(`%${String(status).trim()}%`);
+            }
+            if (projectType) {
+                whereParts.push(`COALESCE(p.sector, '') ILIKE $${i++}`);
+                params.push(`%${String(projectType).trim()}%`);
+            }
+
+            const whereClause = whereParts.join(' AND ');
+            const countResult = await pool.query(`SELECT COUNT(*)::integer AS total FROM projects p WHERE ${whereClause}`, params);
+            const totalProjects = Number(countResult.rows?.[0]?.total || 0);
+
+            const dataQuery = `
+                SELECT
+                    p.project_id AS id,
+                    p.name AS project_name,
+                    p.description AS description,
+                    CASE
+                        WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN (p.budget->>'allocated_amount_kes')::numeric
+                        ELSE NULL
+                    END AS budget,
+                    p.progress->>'status' AS status,
+                    (p.timeline->>'start_date')::date AS start_date,
+                    (p.timeline->>'expected_completion_date')::date AS end_date,
+                    CASE
+                        WHEN (p.progress->>'percentage_complete') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN (p.progress->>'percentage_complete')::numeric
+                        ELSE NULL
+                    END AS "completionPercentage",
+                    p.created_at AS "createdAt",
+                    p.ministry AS department_name,
+                    p.sector AS "projectType",
+                    p.location->>'subcounty' AS subcounty_name,
+                    p.location->>'ward' AS ward_name,
+                    NULL::text AS thumbnail
+                FROM projects p
+                WHERE ${whereClause}
+                ORDER BY p.created_at DESC
+                LIMIT $${i++} OFFSET $${i++}
+            `;
+            const dataParams = [...params, numericLimit, offset];
+            const result = await pool.query(dataQuery, dataParams);
+
+            return res.json({
+                projects: result.rows || [],
+                pagination: {
+                    total: totalProjects,
+                    page: numericPage,
+                    limit: numericLimit,
+                    totalPages: Math.ceil(totalProjects / numericLimit)
+                }
+            });
+        }
 
         let whereConditions = ['p.voided = 0', 'p.approved_for_public = 1'];
         const queryParams = [];
@@ -480,7 +750,16 @@ router.get('/projects', async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching projects:', error);
-        res.status(500).json({ error: 'Failed to fetch projects', details: error.message });
+        res.json({
+            projects: [],
+            pagination: {
+                total: 0,
+                page: parseInt(req.query.page || 1),
+                limit: parseInt(req.query.limit || 20),
+                totalPages: 0
+            },
+            warning: 'Projects data is unavailable for this database schema'
+        });
     }
 });
 
@@ -656,6 +935,53 @@ router.get('/projects/:id', async (req, res) => {
  */
 router.get('/stats/by-department', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            const departmentMap = new Map();
+            rows.forEach((row) => {
+                const key = row.ministry_key || 'Unassigned';
+                if (!departmentMap.has(key)) {
+                    departmentMap.set(key, {
+                        department_id: key,
+                        department_name: key,
+                        departmentAlias: null,
+                        projects: []
+                    });
+                }
+                departmentMap.get(key).projects.push({
+                    id: row.id,
+                    status: row.status,
+                    costOfProject: parseFloat(row.costOfProject) || 0
+                });
+            });
+            departmentMap.forEach((dept) => {
+                dept.total_projects = dept.projects.length;
+                dept.total_budget = dept.projects.reduce((sum, p) => sum + p.costOfProject, 0);
+                dept.completed_projects = 0;
+                dept.ongoing_projects = 0;
+                dept.stalled_projects = 0;
+                dept.not_started_projects = 0;
+                dept.under_procurement_projects = 0;
+                dept.suspended_projects = 0;
+                dept.other_projects = 0;
+                dept.projects.forEach((project) => {
+                    const st = project.status || '';
+                    if (matchesStatusCategory(st, 'Completed')) dept.completed_projects++;
+                    else if (matchesStatusCategory(st, 'Ongoing')) dept.ongoing_projects++;
+                    else if (matchesStatusCategory(st, 'Not Started')) dept.not_started_projects++;
+                    else if (matchesStatusCategory(st, 'Under Procurement')) dept.under_procurement_projects++;
+                    else if (matchesStatusCategory(st, 'Stalled')) dept.stalled_projects++;
+                    else if (matchesStatusCategory(st, 'Suspended')) dept.suspended_projects++;
+                    else dept.other_projects++;
+                });
+                delete dept.projects;
+            });
+            const results = Array.from(departmentMap.values())
+                .filter((dept) => dept.total_projects > 0)
+                .sort((a, b) => b.total_budget - a.total_budget);
+            return res.json(results);
+        }
+
         const { finYearId, departmentId, subcountyId, wardId, search } = req.query;
         
         let whereConditions = ['p.voided = 0'];
@@ -835,6 +1161,29 @@ router.get('/stats/by-department', async (req, res) => {
  */
 router.get('/stats/by-subcounty', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            const groups = new Map();
+            rows.forEach((row) => {
+                const key = row.subcounty_key || 'Unassigned';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(row);
+            });
+            const results = [];
+            groups.forEach((ps, name) => {
+                results.push({
+                    subcounty_id: name,
+                    subcounty_name: name,
+                    project_count: ps.length,
+                    total_budget: ps.reduce((sum, p) => sum + (parseFloat(p.costOfProject) || 0), 0),
+                    completed_projects: ps.filter((p) => matchesStatusCategory(p.status || '', 'Completed')).length,
+                    ongoing_projects: ps.filter((p) => matchesStatusCategory(p.status || '', 'Ongoing')).length
+                });
+            });
+            results.sort((a, b) => (parseFloat(b.total_budget) || 0) - (parseFloat(a.total_budget) || 0));
+            return res.json(results);
+        }
+
         const { finYearId, departmentId, subcountyId, wardId, search } = req.query;
         
         let whereConditions = [];
@@ -913,6 +1262,35 @@ router.get('/stats/by-subcounty', async (req, res) => {
  */
 router.get('/stats/by-ward', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            const byKey = new Map();
+            rows.forEach((row) => {
+                const sk = row.subcounty_key || 'Unassigned';
+                const wk = row.ward_key || 'Unassigned';
+                const key = `${sk}\0${wk}`;
+                if (!byKey.has(key)) {
+                    byKey.set(key, { subcounty_name: sk, ward_name: wk, projects: [] });
+                }
+                byKey.get(key).projects.push(row);
+            });
+            const results = [];
+            byKey.forEach((g) => {
+                const ps = g.projects;
+                results.push({
+                    ward_id: g.ward_name,
+                    ward_name: g.ward_name,
+                    subcounty_id: g.subcounty_name,
+                    subcounty_name: g.subcounty_name,
+                    project_count: ps.length,
+                    total_budget: ps.reduce((sum, p) => sum + (parseFloat(p.costOfProject) || 0), 0),
+                    completed_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Completed')).length,
+                    ongoing_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Ongoing')).length
+                });
+            });
+            return res.json(results);
+        }
+
         const { finYearId, departmentId, subcountyId, wardId, search } = req.query;
         
         let whereConditions = ['p.voided = 0'];
@@ -1036,7 +1414,7 @@ router.get('/metadata/departments', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching departments:', error);
-        res.status(500).json({ error: 'Failed to fetch departments' });
+        res.json([]);
     }
 });
 
@@ -1052,7 +1430,7 @@ router.get('/metadata/subcounties', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching sub-counties:', error);
-        res.status(500).json({ error: 'Failed to fetch sub-counties' });
+        res.json([]);
     }
 });
 
@@ -1079,7 +1457,7 @@ router.get('/metadata/wards', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching wards:', error);
-        res.status(500).json({ error: 'Failed to fetch wards' });
+        res.json([]);
     }
 });
 
@@ -1095,7 +1473,7 @@ router.get('/metadata/project-types', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Error fetching project types:', error);
-        res.status(500).json({ error: 'Failed to fetch project types' });
+        res.json([]);
     }
 });
 
@@ -1134,6 +1512,7 @@ router.get('/feedback/stats', async (req, res) => {
  */
 router.post('/feedback', async (req, res) => {
     try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
         const { 
             name, 
             email, 
@@ -1166,6 +1545,67 @@ router.post('/feedback', async (req, res) => {
             if (rating !== undefined && rating !== null && (rating < 1 || rating > 5)) {
                 return res.status(400).json({ error: 'Ratings must be between 1 and 5' });
             }
+        }
+
+        if (DB_TYPE === 'postgresql') {
+            // Ensure table exists in PostgreSQL deployments where legacy `public_feedback` may be missing.
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS public_feedback (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NULL,
+                    email VARCHAR(255) NULL,
+                    phone VARCHAR(64) NULL,
+                    subject VARCHAR(500) NULL,
+                    message TEXT NOT NULL,
+                    project_id INTEGER NULL,
+                    rating_overall_support SMALLINT NULL,
+                    rating_quality_of_life_impact SMALLINT NULL,
+                    rating_community_alignment SMALLINT NULL,
+                    rating_transparency SMALLINT NULL,
+                    rating_feasibility_confidence SMALLINT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    moderation_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    moderation_notes TEXT NULL,
+                    moderated_by INTEGER NULL,
+                    moderated_at TIMESTAMP WITHOUT TIME ZONE NULL,
+                    admin_response TEXT NULL,
+                    responded_by INTEGER NULL,
+                    responded_at TIMESTAMP WITHOUT TIME ZONE NULL,
+                    is_public BOOLEAN NOT NULL DEFAULT false,
+                    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            await pool.query(
+                `
+                INSERT INTO public_feedback (
+                    name, email, phone, subject, message, project_id,
+                    rating_overall_support, rating_quality_of_life_impact,
+                    rating_community_alignment, rating_transparency,
+                    rating_feasibility_confidence, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `,
+                [
+                    name || null,
+                    email || null,
+                    phone || null,
+                    subject || null,
+                    message,
+                    projectId || null,
+                    ratingOverallSupport || null,
+                    ratingQualityOfLifeImpact || null,
+                    ratingCommunityAlignment || null,
+                    ratingTransparency || null,
+                    ratingFeasibilityConfidence || null
+                ]
+            );
+
+            return res.status(201).json({
+                success: true,
+                message: 'Feedback submitted successfully. Thank you!'
+            });
         }
 
         const query = `

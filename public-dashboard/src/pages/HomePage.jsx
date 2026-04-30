@@ -192,7 +192,7 @@ const HomePage = () => {
                     fontSize: { xs: '2rem', md: '2.5rem' }
                   }}
                 >
-                  CivicChat
+                  County Government of Machakos
                 </Typography>
                 <Typography 
                   variant="h5" 
@@ -207,7 +207,7 @@ const HomePage = () => {
                     fontSize: { xs: '0.875rem', md: '1rem' }
                   }}
                 >
-                  CivicChat Portal
+                  Public Dashboard
                 </Typography>
                 <Typography 
                   variant="body1" 

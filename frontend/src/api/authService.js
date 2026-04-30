@@ -67,6 +67,21 @@ const authService = {
   },
 
   /**
+   * Requests a forgot-password reset email.
+   * @param {string} email - User email address
+   * @returns {Promise<Object>}
+   */
+  forgotPassword: async (email) => {
+    try {
+      const response = await axiosInstance.post('/auth/forgot-password', { email });
+      return response.data;
+    } catch (error) {
+      console.error('Error requesting password reset:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Fetch client session policy (e.g., idle timeout).
    * @returns {Promise<{idleTimeoutMinutes:number, source?:string}>}
    */

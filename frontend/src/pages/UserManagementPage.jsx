@@ -1657,6 +1657,40 @@ function UserManagementPage() {
     }
   };
 
+  const handleResendCredentialsEmail = async (targetRow) => {
+    if (!isSuperAdmin) {
+      setSnackbar({ open: true, message: 'Only Super Admin can resend credentials email.', severity: 'warning' });
+      return;
+    }
+
+    const username = targetRow?.username || 'this user';
+    const confirmed = window.confirm(`Resend login credentials email to ${username}?`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await apiService.resendUserCredentials(targetRow.userId);
+      setSnackbar({
+        open: true,
+        message: result?.message || `Credentials email sent to ${username}.`,
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message:
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.error ||
+          err?.message ||
+          'Failed to resend credentials email.',
+        severity: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Disable/Enable User Handler
   const handleToggleUserStatus = (targetRow) => {
     if (!hasPrivilege('user.update')) {
@@ -2513,6 +2547,23 @@ function UserManagementPage() {
                 <DeleteIcon fontSize="small" />
               </IconButton>
             )}
+            {isSuperAdmin && hasPrivilege('user.update') && (
+              <IconButton
+                size="small"
+                disabled={!params.row?.email}
+                sx={{
+                  color: colors.grey[100],
+                  backgroundColor: colors.greenAccent[800],
+                  '&:hover': params.row?.email ? { backgroundColor: colors.greenAccent[700], transform: 'scale(1.1)' } : {},
+                  transition: 'all 0.2s ease',
+                  opacity: params.row?.email ? 1 : 0.45,
+                }}
+                onClick={() => params.row?.email && handleResendCredentialsEmail(params.row)}
+                title={params.row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
+              >
+                <SecurityIcon fontSize="small" />
+              </IconButton>
+            )}
           </Stack>
         );
       },
@@ -3093,6 +3144,17 @@ function UserManagementPage() {
                               title={isCurrentUser ? 'You cannot delete your own account' : 'Delete (Super Admin only)'}
                             >
                               <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                          {isSuperAdmin && hasPrivilege('user.update') && (
+                            <IconButton
+                              size="small"
+                              disabled={!row?.email}
+                              sx={{ color: colors.greenAccent[400] }}
+                              onClick={() => row?.email && handleResendCredentialsEmail(row)}
+                              title={row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
+                            >
+                              <SecurityIcon fontSize="small" />
                             </IconButton>
                           )}
                         </Stack>

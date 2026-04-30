@@ -34,6 +34,14 @@ const projectService = {
       const response = await axiosInstance.put(`/projects/${projectId}`, projectData);
       return response.data;
     },
+    getProjectUpdates: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/updates`);
+      return response.data;
+    },
+    createProjectUpdate: async (projectId, payload) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/updates`, payload);
+      return response.data;
+    },
     deleteProject: async (projectId) => {
       const response = await axiosInstance.delete(`/projects/${projectId}`);
       return response.data;
@@ -341,6 +349,48 @@ const projectService = {
     },
     deleteRecord: async (projectId, recordId) => {
       const response = await axiosInstance.delete(`/projects/${projectId}/monitoring/${recordId}`);
+      return response.data;
+    },
+  },
+
+  inspections: {
+    getProjectInspections: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/inspections`);
+      return response.data;
+    },
+    createInspection: async (projectId, payload) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/inspections`, payload);
+      return response.data;
+    },
+    updateInspection: async (projectId, inspectionId, payload) => {
+      const response = await axiosInstance.put(`/projects/${projectId}/inspections/${inspectionId}`, payload);
+      return response.data;
+    },
+    uploadInspectionFiles: async (projectId, inspectionId, formData) => {
+      const response = await axiosInstance.post(
+        `/projects/${projectId}/inspections/${inspectionId}/files`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data;
+    },
+  },
+
+  funding: {
+    getFundingSources: async () => {
+      const response = await axiosInstance.get('/projects/funding-sources');
+      return response.data;
+    },
+    createFundingSource: async (payload) => {
+      const response = await axiosInstance.post('/projects/funding-sources', payload);
+      return response.data;
+    },
+    getProjectFundingEntries: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/funding-entries`);
+      return response.data;
+    },
+    createProjectFundingEntry: async (projectId, payload) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/funding-entries`, payload);
       return response.data;
     },
   },

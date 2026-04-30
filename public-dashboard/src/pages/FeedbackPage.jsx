@@ -297,10 +297,10 @@ const FeedbackPage = () => {
         </Typography>
         <Paper elevation={1} sx={{ p: 3 }}>
           <Typography variant="body1" gutterBottom>
-            <strong>Email:</strong> info@county.go.ke
+            <strong>Email:</strong> info@machos.go.ke
           </Typography>
           <Typography variant="body1" gutterBottom>
-            <strong>Phone:</strong> +254 700 000 000
+            <strong>Phone:</strong> +254 700 123 456
           </Typography>
           <Typography variant="body1">
             <strong>Office Hours:</strong> Monday - Friday, 8:00 AM - 5:00 PM

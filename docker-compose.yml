@@ -1,25 +1,25 @@
 services:
   nginx_proxy:
     image: nginx:alpine
-    container_name: gov_nginx_proxy
+    container_name: machakosme_nginx_proxy
     restart: always
     network_mode: host  # Use host network to access localhost:3000 (API) and localhost:5176 (frontend)
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
     # Note: With host network, ports mapping is not needed
-    # Access via http://localhost:80 (or configure nginx to listen on 8081)
+    # Access via http://localhost:80 (or configure nginx to listen on 8084)
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: gov_react_frontend
+    container_name: machakosme_react_frontend
     restart: always
     dns:
       - 8.8.8.8
       - 1.1.1.1
     ports:
-      - "5176:5173"
+      - "5178:5173"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -29,35 +29,36 @@ services:
       - api
     command: sh -c "cd /app && npm run dev"
     environment:
-      # Browser uses nginx :8081; asset URLs in index.html must match (fixes SPA deep links).
-      - VITE_DEV_PUBLIC_URL=http://localhost:8081
-      # API on host :3001 when api service uses network_mode: host
-      - VITE_PROXY_TARGET=http://host.docker.internal:3001
+      # Browser uses nginx :8084; asset URLs in index.html must match (fixes SPA deep links).
+      - VITE_DEV_PUBLIC_URL=http://localhost:8084
+      # API on host :3002 when api service uses network_mode: host
+      - VITE_PROXY_TARGET=http://host.docker.internal:3002
 
-  # public-dashboard service removed - not needed for this application
-  # public-dashboard:
-  #   build:
-  #     context: ./public-dashboard
-  #     dockerfile: Dockerfile
-  #   container_name: gov_public_dashboard
-  #   restart: always
-  #   ports:
-  #     - "5177:5173"
-  #   volumes:
-  #     - ./public-dashboard:/app
-  #     - /app/node_modules
-  #   depends_on:
-  #     - api
-  #   command: npm run dev
-  #   environment:
-  #     - VITE_API_URL=/api
-  #     - VITE_MAPS_API_KEY=AIzaSyArNdYrq_WsuoGc34C7Osua7kbpt2Twf_s
+  public-dashboard:
+    build:
+      context: ./public-dashboard
+      dockerfile: Dockerfile
+    container_name: machakosme_public_dashboard
+    restart: always
+    ports:
+      - "5179:5173"
+    volumes:
+      - ./public-dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    command: npm run dev
+    environment:
+      - VITE_API_URL=/api
+      - VITE_BASE_PATH=/citizen/
+      - VITE_DEV_PUBLIC_URL=http://localhost:8084/citizen
+      - VITE_MAPS_API_KEY=AIzaSyArNdYrq_WsuoGc34C7Osua7kbpt2Twf_s
 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: gov_node_api
+    container_name: machakosme_node_api
     restart: always
     network_mode: host  # Use host network to access localhost PostgreSQL
     volumes:
@@ -68,6 +69,7 @@ services:
     environment:
       # DB_* come from api/.env above; only NODE_ENV set here so api/.env controls DB connection
       NODE_ENV: development
+      PORT: 3002
     command: npm run dev
 
   # PostgreSQL database (primary)
@@ -76,7 +78,7 @@ services:
   # To use Docker PostgreSQL instead, uncomment below and change API network_mode to bridge
   # postgres_db:
   #   image: postgres:16-alpine
-  #   container_name: gov_postgres
+  #   container_name: machakosme_postgres
   #   restart: always
   #   environment:
   #     POSTGRES_USER: postgres
@@ -91,10 +93,10 @@ services:
   #     -c tcp_keepalives_count=3
   #     -c statement_timeout=30000
   #   volumes:
-  #     - gov_postgres_data:/var/lib/postgresql/data
+  #     - machakosme_postgres_data:/var/lib/postgresql/data
   #     - ./scripts/migration/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql
   #   ports:
-  #     - "5433:5432"
+  #     - "5434:5432"
   #   healthcheck:
   #     test: ["CMD-SHELL", "pg_isready -U postgres"]
   #     interval: 10s
@@ -103,4 +105,4 @@ services:
   #     start_period: 10s
 
 # volumes:
-  # gov_postgres_data:  # Commented out - using host PostgreSQL
+  # machakosme_postgres_data:  # Commented out - using host PostgreSQL

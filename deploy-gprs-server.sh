@@ -1,5 +1,9 @@
 #!/bin/bash
 
+echo "This script has been deprecated to prevent accidental deployments."
+echo "Use ./deploy-machos-server.sh instead."
+exit 1
+
 # GPRIS production deployment script (login.gpris.go.ke)
 # Server: 102.210.149.119
 # User: fortress

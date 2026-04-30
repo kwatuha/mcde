@@ -4,9 +4,9 @@
 services:
   nginx_proxy:
     image: ghcr.io/USERNAME/impes-nginx:latest
-    container_name: gov_nginx_proxy
+    container_name: machakosme_nginx_proxy
     ports:
-      - "8081:80"
+      - "8082:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
@@ -16,18 +16,27 @@ services:
 
   frontend:
     image: ghcr.io/USERNAME/impes-frontend:latest
-    container_name: gov_react_frontend
+    container_name: machakosme_react_frontend
     ports:
-      - "5176:80"
+      - "5178:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  public-dashboard:
+    image: ghcr.io/USERNAME/impes-public-dashboard:latest
+    container_name: machakosme_public_dashboard
+    ports:
+      - "5179:80"
     depends_on:
       - api
     restart: unless-stopped
 
   api:
     image: ghcr.io/USERNAME/impes-api:latest
-    container_name: gov_node_api
+    container_name: machakosme_node_api
     ports:
-      - "3010:3000"
+      - "3011:3000"
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -45,16 +54,16 @@ services:
   # PostgreSQL database (primary)
   postgres_db:
     image: postgres:16-alpine
-    container_name: gov_postgres
+    container_name: machakosme_postgres
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-${DB_USER:-postgres}}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-${DB_PASSWORD:-postgres}}
       POSTGRES_DB: ${POSTGRES_DB:-${DB_NAME:-government_projects}}
     volumes:
-      - gov_postgres_data:/var/lib/postgresql/data
+      - machakosme_postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-${DB_USER:-postgres}}"]
       interval: 10s
@@ -63,7 +72,7 @@ services:
       start_period: 10s
 
 volumes:
-  gov_postgres_data:
+  machakosme_postgres_data:
 
 # Instructions:
 # 1. Replace USERNAME with your actual GitHub username

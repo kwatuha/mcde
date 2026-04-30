@@ -7,12 +7,23 @@ const pool = require('../config/db'); // Your database connection pool
 const orgScope = require('../services/organizationScopeService');
 const authenticate = require('../middleware/authenticate');
 const { normalizeRoleForCompare, ADMIN_LIKE_ROLE_NAMES, isAdminLikeRequester } = require('../utils/roleUtils');
+const { canSendEmail, sendPasswordResetEmail } = require('../services/accountEmailService');
+const { setMustChangePassword, getMustChangePassword } = require('../services/passwordPolicyService');
 
 require('dotenv').config(); // Load environment variables
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_dev_only_change_this_asap';
 const SESSION_SETTINGS_KEY = 'session.idle_timeout_minutes';
 const DEFAULT_IDLE_TIMEOUT_MINUTES = 60;
+
+function generateOneTimePassword(length = 12) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let value = '';
+    for (let i = 0; i < length; i += 1) {
+        value += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return value;
+}
 
 /**
  * Read/write idle timeout in system_settings only when using PostgreSQL.
@@ -486,7 +497,15 @@ router.post('/login', async (req, res) => {
         const normalizedRole = normalizeRoleForCompare(user.role || '');
         const isSuperAdmin = normalizedRole === 'super admin';
         const isDefaultResetPassword = String(password || '').trim() === 'reset123';
-        const forcePasswordChange = isSuperAdmin || isDefaultResetPassword;
+        let mustChangePassword = false;
+        if (DB_TYPE === 'postgresql') {
+            try {
+                mustChangePassword = await getMustChangePassword(userId);
+            } catch (policyErr) {
+                console.warn('getMustChangePassword (login):', policyErr.message);
+            }
+        }
+        const forcePasswordChange = isSuperAdmin || isDefaultResetPassword || mustChangePassword;
 
         jwt.sign(
             payload,
@@ -574,6 +593,7 @@ router.post('/change-password', authenticate, async (req, res) => {
                 'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
                 [passwordHash, userId]
             );
+            await setMustChangePassword(userId, false, 'password_changed');
         } else {
             await pool.query(
                 'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ?',
@@ -585,6 +605,91 @@ router.post('/change-password', authenticate, async (req, res) => {
     } catch (err) {
         console.error('Error changing password:', err);
         return res.status(500).json({ error: 'Server error while changing password.', details: err.message });
+    }
+});
+
+// @route   POST /auth/forgot-password
+// @desc    Reset password and email a temporary one-time password
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        if (!canSendEmail()) {
+            return res.status(503).json({ error: 'Password reset email is not configured. Please contact administrator.' });
+        }
+        let userRow = null;
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `SELECT userid, username, email, firstname, lastname
+                 FROM users
+                 WHERE LOWER(email) = LOWER($1)
+                   AND COALESCE(voided, false) = false
+                 LIMIT 1`,
+                [email]
+            );
+            userRow = result.rows?.[0] || null;
+        } else {
+            const result = await pool.query(
+                `SELECT userId, username, email, firstName, lastName
+                 FROM users
+                 WHERE LOWER(email) = LOWER(?)
+                   AND voided = 0
+                 LIMIT 1`,
+                [email]
+            );
+            const rows = Array.isArray(result) ? result[0] : result;
+            userRow = Array.isArray(rows) ? rows[0] : rows;
+        }
+
+        // Always return generic response to prevent account enumeration.
+        const genericResponse = {
+            success: true,
+            message: 'If the email exists, password reset instructions have been sent.',
+        };
+        if (!userRow) {
+            return res.status(200).json(genericResponse);
+        }
+
+        const userId = userRow.userid || userRow.userId;
+        const username = userRow.username;
+        const fullName = `${userRow.firstname || userRow.firstName || ''} ${userRow.lastname || userRow.lastName || ''}`.trim();
+        const oneTimePassword = generateOneTimePassword();
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(oneTimePassword, salt);
+
+        if (DB_TYPE === 'postgresql') {
+            await pool.query(
+                'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
+                [passwordHash, userId]
+            );
+            await setMustChangePassword(userId, true, 'forgot_password');
+        } else {
+            await pool.query(
+                'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ?',
+                [passwordHash, userId]
+            );
+        }
+
+        try {
+            await sendPasswordResetEmail({
+                email: userRow.email,
+                fullName,
+                username,
+                oneTimePassword,
+            });
+        } catch (mailErr) {
+            console.error('Forgot password email failed:', mailErr.message);
+        }
+
+        return res.status(200).json(genericResponse);
+    } catch (err) {
+        console.error('Error processing forgot-password:', err);
+        return res.status(500).json({ error: 'Server error while processing password reset.', details: err.message });
     }
 });
 

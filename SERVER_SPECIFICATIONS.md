@@ -425,7 +425,7 @@ find /backups -name "db_*.sql.gz" -mtime +30 -delete
 ## Support & Documentation
 
 For deployment assistance, refer to:
-- `deploy-gprs-server.sh` - Deployment script
+- `deploy-machos-server.sh` - Deployment script
 - `docker-compose.prod.yml` - Production Docker configuration
 - `nginx/nginx-production.conf` - Nginx configuration
 

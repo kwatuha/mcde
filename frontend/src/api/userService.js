@@ -65,6 +65,16 @@ const userService = {
     }
   },
 
+  resendUserCredentials: async (userId) => {
+    try {
+      const response = await axiosInstance.post(`/users/users/${userId}/resend-credentials`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error resending credentials for user ID ${userId}:`, error);
+      throw error;
+    }
+  },
+
   updateUser: async (userId, userData) => {
     try {
       const response = await axiosInstance.put(`/users/users/${userId}`, userData);

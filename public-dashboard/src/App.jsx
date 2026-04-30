@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import {
   AppBar,
   Toolbar,
@@ -26,9 +26,7 @@ import {
   Facebook,
   Twitter,
   LinkedIn,
-  Add as AddIcon,
   Announcement as AnnouncementIcon,
-  Business as BusinessIcon
 } from '@mui/icons-material';
 import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
@@ -40,7 +38,7 @@ import AnnouncementsPage from './pages/AnnouncementsPage';
 
 function App() {
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <CssBaseline />
       
       {/* Navigation Bar */}
@@ -74,7 +72,7 @@ function App() {
                   letterSpacing: '-0.01em'
                 }}
               >
-                CivicChat
+                County Government of Machakos
               </Typography>
               <Typography 
                 variant="caption" 
@@ -87,7 +85,7 @@ function App() {
                   margin: 0
                 }}
               >
-                CivicChat Portal
+                Public Dashboard
               </Typography>
             </Grid>
           </Grid>
@@ -202,63 +200,7 @@ function App() {
               transition: 'all 0.2s ease-in-out'
             }}
           >
-            Public Approval
-          </Button>
-          <Button
-            color="inherit"
-            component={Link}
-            to="/citizen-proposals"
-            startIcon={<AddIcon />}
-            sx={{
-              fontWeight: 600,
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2,
-              py: 1.5,
-              minHeight: '48px',
-              mr: 2,
-              gap: 1,
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                transform: 'translateY(-1px)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-              },
-              '&.active': {
-                backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-              },
-              transition: 'all 0.2s ease-in-out'
-            }}
-          >
-            Citizen Proposed Projects
-          </Button>
-          <Button
-            color="inherit"
-            component={Link}
-            to="/county-projects"
-            startIcon={<BusinessIcon />}
-            sx={{
-              fontWeight: 600,
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2,
-              py: 1.5,
-              minHeight: '48px',
-              mr: 3,
-              gap: 1,
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                transform: 'translateY(-1px)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-              },
-              '&.active': {
-                backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-              },
-              transition: 'all 0.2s ease-in-out'
-            }}
-          >
-            Proposed Projects
+            Feedback
           </Button>
           <Button
             color="inherit"
@@ -299,8 +241,8 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/projects" element={<ProjectsGalleryPage />} />
           <Route path="/public-feedback" element={<PublicFeedbackPage />} />
-          <Route path="/citizen-proposals" element={<CitizenProposalsPage />} />
-          <Route path="/county-projects" element={<CountyProposedProjectsPage />} />
+          <Route path="/citizen-proposals" element={<Navigate to="/home" replace />} />
+          <Route path="/county-projects" element={<Navigate to="/home" replace />} />
           <Route path="/announcements" element={<AnnouncementsPage />} />
         </Routes>
       </Box>
@@ -321,16 +263,16 @@ function App() {
             <Grid item xs={12} md={4}>
               <Box sx={{ mb: 2 }}>
                 <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, mb: 0.5, letterSpacing: '-0.01em' }}>
-                  CivicChat
+                  County Government of Machakos
                 </Typography>
                 <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                  CivicChat Portal
+                  Public Dashboard
                 </Typography>
               </Box>
               
               <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
-                Empowering transparency, accountability, and efficient project delivery 
-                for government projects across all counties.
+                Empowering transparency, accountability, and efficient public service
+                delivery for residents of Machos County.
               </Typography>
             </Grid>
 
@@ -364,26 +306,26 @@ function App() {
                 <Box display="flex" alignItems="center" gap={1}>
                   <LocationOn sx={{ fontSize: 16, color: '#3498db' }} />
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                    CivicChat Portal<br />
-                    Multi-County Platform
+                    County Government of Machakos<br />
+                    County Headquarters
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Phone sx={{ fontSize: 16, color: '#3498db' }} />
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                    Contact your local county office
+                    +254 700 123 456
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Email sx={{ fontSize: 16, color: '#3498db' }} />
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                    info@civicchat.go.ke
+                    info@machos.go.ke
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Language sx={{ fontSize: 16, color: '#3498db' }} />
                   <Typography variant="body2" color="rgba(255, 255, 255, 0.8)">
-                    www.civicchat.go.ke
+                    www.machos.go.ke
                   </Typography>
                 </Box>
               </Box>
@@ -461,7 +403,7 @@ function App() {
           {/* Copyright */}
           <Box textAlign="center">
             <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
-              © {new Date().getFullYear()} CivicChat Portal. All rights reserved.
+              © {new Date().getFullYear()} County Government of Machakos. All rights reserved.
             </Typography>
             <Typography variant="caption" color="rgba(255, 255, 255, 0.5)" sx={{ mt: 1, display: 'block' }}>
               Built with transparency and accountability in mind

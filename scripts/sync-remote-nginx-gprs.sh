@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Pull / push system nginx site config for GPRS (/etc/nginx/sites-available/gprs)
-# using the same SSH defaults as deploy-gprs-server.sh.
+# using the same SSH defaults as deploy-machos-server.sh.
 #
 # Usage:
 #   chmod +x scripts/sync-remote-nginx-gprs.sh
@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Same defaults as deploy-gprs-server.sh (override with env)
+# Same defaults as deploy-machos-server.sh (override with env)
 SERVER_USER="${SERVER_USER:-fortress}"
 SERVER_IP="${SERVER_IP:-102.210.149.119}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_gprs_server}"
@@ -37,7 +37,7 @@ usage() {
 
 if [[ ! -f "$SSH_KEY" ]]; then
   echo "ERROR: SSH key not found: $SSH_KEY" >&2
-  echo "Set SSH_KEY or create the key (see deploy-gprs-server.sh)." >&2
+  echo "Set SSH_KEY or create the key (see deploy-machos-server.sh)." >&2
   exit 1
 fi
 

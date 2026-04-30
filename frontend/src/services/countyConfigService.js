@@ -25,16 +25,16 @@ export const fetchCountyConfig = async () => {
     return {
       county: {
         code: 'DEFAULT',
-        name: 'Default County',
-        displayName: 'Default County Government'
+        name: 'Machakos',
+        displayName: 'County Government of Machakos'
       },
       organization: {
-        name: 'Default County Government',
+        name: 'County Government of Machakos',
         contact: {
-          email: 'info@county.go.ke',
-          phone: '+254-XXX-XXXXXX',
-          address: 'County Headquarters',
-          website: 'https://www.county.go.ke'
+          email: 'info@machos.go.ke',
+          phone: '+254-700-123-456',
+          address: 'County Headquarters, Machos',
+          website: 'https://www.machos.go.ke'
         }
       },
       labels: {

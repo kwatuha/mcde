@@ -18,10 +18,15 @@ const projectClimateRiskRoutes = require('./projectClimateRiskRoutes');
 const projectEsohsgScreeningRoutes = require('./projectEsohsgScreeningRoutes');
 const projectPdfRoutes = require('./projectPdfRoutes');
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
+const projectInspectionRoutes = require('./projectInspectionRoutes');
+const projectFundingRoutes = require('./projectFundingRoutes');
 
 
 // Mount all the individual routers under this main project router.
 // The base path for all these routes is now handled by the parent app.use('/api/projects', projectRouter)
+// IMPORTANT: mount specific/static paths before generic '/:id' routes from projectRoutes.
+router.use('/', projectFundingRoutes);
+router.use('/', projectInspectionRoutes);
 router.use('/', projectRoutes);
 router.use('/', projectConceptNoteRoutes);
 router.use('/', projectNeedsAssessmentRoutes);

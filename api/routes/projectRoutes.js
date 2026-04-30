@@ -5361,6 +5361,143 @@ router.put('/:id/progress', async (req, res) => {
     }
 });
 
+async function ensureProjectUpdateHistoryTable() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS project_update_history (
+            update_id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            status TEXT NULL,
+            status_reason TEXT NULL,
+            progress_summary TEXT NULL,
+            overall_progress NUMERIC(6,2) NULL,
+            created_by INTEGER NULL,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            voided BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    `);
+}
+
+/**
+ * @route GET /api/projects/:id/updates
+ * @description Get project update history (newest first)
+ */
+router.get('/:id/updates', async (req, res) => {
+    const projectId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: 'Invalid project ID' });
+    }
+    try {
+        await ensureProjectUpdateHistoryTable();
+        const result = await pool.query(
+            `
+            SELECT
+                update_id AS "updateId",
+                project_id AS "projectId",
+                status,
+                status_reason AS "statusReason",
+                progress_summary AS "progressSummary",
+                overall_progress AS "overallProgress",
+                created_by AS "createdBy",
+                created_at AS "createdAt"
+            FROM project_update_history
+            WHERE project_id = $1
+              AND COALESCE(voided, false) = false
+            ORDER BY created_at DESC, update_id DESC
+            `,
+            [projectId]
+        );
+        return res.status(200).json(result.rows || []);
+    } catch (error) {
+        console.error('Error fetching project updates:', error);
+        return res.status(500).json({ message: 'Error fetching project updates', error: error.message });
+    }
+});
+
+/**
+ * @route POST /api/projects/:id/updates
+ * @description Append a new project progress update and sync project latest fields.
+ */
+router.post('/:id/updates', async (req, res) => {
+    const projectId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: 'Invalid project ID' });
+    }
+
+    const {
+        status,
+        statusReason,
+        progressSummary,
+        overallProgress,
+    } = req.body || {};
+
+    const hasAnyUpdate =
+        (status && String(status).trim() !== '') ||
+        (statusReason && String(statusReason).trim() !== '') ||
+        (progressSummary && String(progressSummary).trim() !== '') ||
+        (overallProgress !== undefined && overallProgress !== null && String(overallProgress).trim() !== '');
+    if (!hasAnyUpdate) {
+        return res.status(400).json({ message: 'Provide at least one update field.' });
+    }
+
+    try {
+        await ensureProjectUpdateHistoryTable();
+        const createdBy = req.user?.id ?? req.user?.userId ?? null;
+        const progressNumber =
+            overallProgress === undefined || overallProgress === null || String(overallProgress).trim() === ''
+                ? null
+                : Number(overallProgress);
+
+        const insertResult = await pool.query(
+            `
+            INSERT INTO project_update_history
+                (project_id, status, status_reason, progress_summary, overall_progress, created_by, created_at, voided)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, false)
+            RETURNING
+                update_id AS "updateId",
+                project_id AS "projectId",
+                status,
+                status_reason AS "statusReason",
+                progress_summary AS "progressSummary",
+                overall_progress AS "overallProgress",
+                created_by AS "createdBy",
+                created_at AS "createdAt"
+            `,
+            [
+                projectId,
+                status && String(status).trim() !== '' ? String(status).trim() : null,
+                statusReason && String(statusReason).trim() !== '' ? String(statusReason).trim() : null,
+                progressSummary && String(progressSummary).trim() !== '' ? String(progressSummary).trim() : null,
+                Number.isFinite(progressNumber) ? progressNumber : null,
+                createdBy,
+            ]
+        );
+        const created = insertResult.rows?.[0] || null;
+
+        // Keep latest project fields in sync with newest update (best-effort).
+        if (created) {
+            await pool.query(
+                `
+                UPDATE projects
+                SET
+                    status = COALESCE($1, status),
+                    "statusReason" = COALESCE($2, "statusReason"),
+                    "progressSummary" = COALESCE($3, "progressSummary"),
+                    "overallProgress" = COALESCE($4, "overallProgress"),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE project_id = $5
+                `,
+                [created.status, created.statusReason, created.progressSummary, created.overallProgress, projectId]
+            ).catch(() => {});
+        }
+
+        return res.status(201).json(created);
+    } catch (error) {
+        console.error('Error creating project update:', error);
+        return res.status(500).json({ message: 'Error creating project update', error: error.message });
+    }
+});
+
 /**
  * @route GET /api/projects/:id
  * @description Get a single active project by ID with joined data

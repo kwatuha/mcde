@@ -4,12 +4,23 @@ const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const orgScope = require('../services/organizationScopeService');
 const { isSuperAdminRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
+const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
+const { setMustChangePassword } = require('../services/passwordPolicyService');
 
 const ALLOWED_ASSIGNMENT_ROLES_FOR_MDA_ICT_ADMIN = new Set([
     'data entry officer',
     'data approver',
     'viewer',
 ]);
+
+function generateOneTimePassword(length = 12) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let value = '';
+    for (let i = 0; i < length; i += 1) {
+        value += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return value;
+}
 
 function isMdaIctAdminRequester(reqUser) {
     const raw = reqUser?.roleName ?? reqUser?.role ?? '';
@@ -448,6 +459,7 @@ router.post('/users', async (req, res) => {
                 [username, email, passwordHash, firstName, lastName, roleId, idNumber || null, employeeNumber || null, ministry || null, state_department || null, agency_id || null, true]
             );
             insertedUserId = insertResult.rows[0].userid;
+            await setMustChangePassword(insertedUserId, true, 'initial_password');
         } else {
             // MySQL: Use SET syntax (current schema has no phoneNumber column)
             const newUser = {
@@ -529,6 +541,22 @@ router.post('/users', async (req, res) => {
         const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
         const created = Array.isArray(rows) ? rows[0] : rows;
 
+        let emailSent = false;
+        if (DB_TYPE === 'postgresql') {
+            try {
+                const fullName = `${firstName || ''} ${lastName || ''}`.trim();
+                await sendInitialCredentialsEmail({
+                    email,
+                    fullName,
+                    username,
+                    oneTimePassword: password,
+                });
+                emailSent = true;
+            } catch (mailErr) {
+                console.error('Initial account email failed:', mailErr.message);
+            }
+        }
+
         if (DB_TYPE === 'postgresql') {
             try {
                 if (Array.isArray(scopesFromBody) && scopesFromBody.length > 0) {
@@ -545,16 +573,103 @@ router.post('/users', async (req, res) => {
             } catch (e) {
                 console.warn('fetchOrganizationScopesForUser after create:', e.message);
             }
-            return res.status(201).json({ ...created, organizationScopes });
+            return res.status(201).json({ ...created, organizationScopes, emailSent });
         }
 
-        res.status(201).json(created);
+        res.status(201).json({ ...created, emailSent });
     } catch (error) {
         console.error('Error creating user:', error);
         if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
             return res.status(400).json({ error: 'User with that username or email already exists.' });
         }
         res.status(500).json({ message: 'Error creating user', error: error.message });
+    }
+});
+
+/**
+ * @route POST /api/users/users/:id/resend-credentials
+ * @description Super Admin only: resend login URL, username and one-time password email.
+ */
+router.post('/users/:id/resend-credentials', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can resend credentials.' });
+    }
+    if (!canSendEmail()) {
+        return res.status(503).json({ error: 'Email service is not configured. Please configure SMTP settings first.' });
+    }
+
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) {
+        return res.status(400).json({ error: 'Invalid user ID.' });
+    }
+
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        let userRow = null;
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `SELECT userid, username, email, firstname, lastname
+                 FROM users
+                 WHERE userid = $1
+                   AND COALESCE(voided, false) = false
+                 LIMIT 1`,
+                [id]
+            );
+            userRow = result.rows?.[0] || null;
+        } else {
+            const result = await pool.query(
+                `SELECT userId, username, email, firstName, lastName
+                 FROM users
+                 WHERE userId = ?
+                   AND voided = 0
+                 LIMIT 1`,
+                [id]
+            );
+            const rows = Array.isArray(result) ? result[0] : result;
+            userRow = Array.isArray(rows) ? rows[0] : rows;
+        }
+
+        if (!userRow) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+        if (!userRow.email || String(userRow.email).trim() === '') {
+            return res.status(400).json({ error: 'User has no email address on file.' });
+        }
+
+        const oneTimePassword = generateOneTimePassword();
+        const username = userRow.username;
+        const fullName = `${userRow.firstname || userRow.firstName || ''} ${userRow.lastname || userRow.lastName || ''}`.trim();
+
+        await sendInitialCredentialsEmail({
+            email: userRow.email,
+            fullName,
+            username,
+            oneTimePassword,
+        });
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(oneTimePassword, salt);
+        const userId = userRow.userid || userRow.userId;
+        if (DB_TYPE === 'postgresql') {
+            await pool.query(
+                'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
+                [passwordHash, userId]
+            );
+            await setMustChangePassword(userId, true, 'resent_credentials');
+        } else {
+            await pool.query(
+                'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ?',
+                [passwordHash, userId]
+            );
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `Credentials email sent to ${userRow.email}.`,
+        });
+    } catch (error) {
+        console.error('Error resending user credentials:', error);
+        return res.status(500).json({ error: 'Failed to resend credentials email.', details: error.message });
     }
 });
 

@@ -3,7 +3,7 @@
 # Pull a PostgreSQL dump from the GPRS remote server into a local file, then restore into your
 # local database for debugging (e.g. organization scopes, real agency names, user rows).
 #
-# deploy-gprs-server.sh only deploys code (rsync + Docker). It does NOT dump the database.
+# deploy-machos-server.sh only deploys code (rsync + Docker). It does NOT dump the database.
 # On the server, PostgreSQL is expected on the host at 127.0.0.1 (see docker-compose.prod.yml).
 #
 # Prerequisites on the remote:
@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DUMP_DIR="${DUMP_DIR:-$REPO_ROOT/.remote-dumps}"
 
-# Defaults match deploy-gprs-server.sh
+# Defaults match deploy-machos-server.sh
 SERVER_USER="${SERVER_USER:-fortress}"
 SERVER_IP="${SERVER_IP:-102.210.149.119}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_gprs_server}"
@@ -50,7 +50,7 @@ REMOTE_FILE="/tmp/gprs-remote-dump-${STAMP}.sql"
 LOCAL_FILE="$DUMP_DIR/gprs-remote-${STAMP}$([ "$ORG_ONLY" = 1 ] && echo '-org-scope' || echo '-full').sql"
 
 if [[ ! -f "$SSH_KEY" ]]; then
-  echo "ERROR: SSH key not found: $SSH_KEY — same key as deploy-gprs-server.sh (SSH_KEY)" >&2
+  echo "ERROR: SSH key not found: $SSH_KEY — same key as deploy-machos-server.sh (SSH_KEY)" >&2
   exit 1
 fi
 

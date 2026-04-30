@@ -47,7 +47,9 @@ import {
     Cancel as CancelIcon,
     Pending as PendingIcon,
     Work as WorkIcon,
-    Feedback as FeedbackIcon
+    Feedback as FeedbackIcon,
+    FactCheck as FactCheckIcon,
+    AccountBalanceWallet as AccountBalanceWalletIcon
 } from '@mui/icons-material';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -395,6 +397,38 @@ function ProjectDetailsPage() {
         dateEnded: '',
         notes: ''
     });
+    const [projectInspections, setProjectInspections] = useState([]);
+    const [loadingInspections, setLoadingInspections] = useState(false);
+    const [inspectionsError, setInspectionsError] = useState(null);
+    const [openInspectionDialog, setOpenInspectionDialog] = useState(false);
+    const [editingInspection, setEditingInspection] = useState(null);
+    const [inspectionFormData, setInspectionFormData] = useState({
+        inspectionDate: '',
+        findings: '',
+        warnings: '',
+        recommendations: '',
+        teamMemberRefs: [],
+    });
+    const [uploadingInspectionFiles, setUploadingInspectionFiles] = useState(false);
+    const [fundingSources, setFundingSources] = useState([]);
+    const [projectFundingEntries, setProjectFundingEntries] = useState([]);
+    const [loadingFunding, setLoadingFunding] = useState(false);
+    const [fundingError, setFundingError] = useState(null);
+    const [newFundingSourceName, setNewFundingSourceName] = useState('');
+    const [fundingForm, setFundingForm] = useState({
+        sourceId: '',
+        amount: '',
+        stage: '',
+        notes: '',
+    });
+
+    const formatAmountInput = useCallback((value) => {
+        const raw = String(value || '').replace(/,/g, '').trim();
+        if (!raw) return '';
+        const [whole, fraction] = raw.split('.');
+        const wholeFormatted = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        return fraction !== undefined ? `${wholeFormatted}.${fraction}` : wholeFormatted;
+    }, []);
 
     // NEW: State for Tabs and Photos
     const [activeTab, setActiveTab] = useState(0);
@@ -404,14 +438,17 @@ function ProjectDetailsPage() {
     // Updates tab form state (progress summary, percentage, and optional status update)
     const [updatesForm, setUpdatesForm] = useState({ progressSummary: '', overallProgress: '', status: '', statusReason: '' });
     const [savingUpdates, setSavingUpdates] = useState(false);
+    const [projectUpdatesHistory, setProjectUpdatesHistory] = useState([]);
+    const [loadingUpdatesHistory, setLoadingUpdatesHistory] = useState(false);
+    const [updatesHistoryError, setUpdatesHistoryError] = useState(null);
     // Feedback tab form state
     const [feedbackForm, setFeedbackForm] = useState({ feedbackEnabled: true, complaintsReceived: '', commonFeedback: '' });
     const [savingFeedback, setSavingFeedback] = useState(false);
 
     // Sync Updates/Feedback form from project when user switches to those tabs
     useEffect(() => {
-        if (!project || (activeTab !== 4 && activeTab !== 5)) return;
-        if (activeTab === 4) {
+        if (!project || (activeTab !== 6 && activeTab !== 7)) return;
+        if (activeTab === 6) {
             setUpdatesForm({
                 progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
                 overallProgress: project?.overallProgress != null ? String(project.overallProgress) : '',
@@ -429,11 +466,283 @@ function ProjectDetailsPage() {
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Updates,5:Feedback)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6:Updates,7:Feedback,8:Documents,9:Map)
             fetchJobCategories();
             fetchProjectJobs();
         }
     }, [activeTab, fetchJobCategories, fetchProjectJobs]);
+
+    const fetchProjectUpdatesHistory = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingUpdatesHistory(true);
+        setUpdatesHistoryError(null);
+        try {
+            const rows = await projectService.projects.getProjectUpdates(projectId);
+            setProjectUpdatesHistory(Array.isArray(rows) ? rows : []);
+        } catch (err) {
+            console.error('Error fetching project update history:', err);
+            setUpdatesHistoryError(err?.response?.data?.message || err?.message || 'Failed to load update history.');
+            setProjectUpdatesHistory([]);
+        } finally {
+            setLoadingUpdatesHistory(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (activeTab === 6) {
+            fetchProjectUpdatesHistory();
+        }
+    }, [activeTab, fetchProjectUpdatesHistory]);
+
+    const getTeamMemberRef = useCallback((member) => {
+        if (!member || typeof member !== 'object') return '';
+        return String(
+            member.teamMemberId ||
+            `${member.teamName || ''}|${member.name || ''}|${member.email || ''}`
+        ).trim();
+    }, []);
+
+    const teamMemberLabel = useCallback((member) => {
+        const teamName = member?.teamName || 'Team';
+        const name = member?.name || 'Member';
+        const role = member?.role || '';
+        return role ? `${name} (${role}) - ${teamName}` : `${name} - ${teamName}`;
+    }, []);
+
+    const teamMemberOptions = useMemo(() => {
+        return (projectTeams || []).map((m) => ({
+            ref: getTeamMemberRef(m),
+            label: teamMemberLabel(m),
+            raw: m,
+        })).filter((m) => m.ref);
+    }, [projectTeams, getTeamMemberRef, teamMemberLabel]);
+
+    const fetchProjectInspections = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingInspections(true);
+        setInspectionsError(null);
+        try {
+            const rows = await projectService.inspections.getProjectInspections(projectId);
+            setProjectInspections(Array.isArray(rows) ? rows : []);
+        } catch (err) {
+            console.error('Error fetching project inspections:', err);
+            setInspectionsError(err?.message || 'Failed to load inspection records.');
+        } finally {
+            setLoadingInspections(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (activeTab === 5) {
+            fetchProjectInspections();
+        }
+    }, [activeTab, fetchProjectInspections]);
+
+    const handleOpenInspectionDialog = (inspection = null) => {
+        if (inspection) {
+            setEditingInspection(inspection);
+            setInspectionFormData({
+                inspectionDate: inspection.inspectionDate ? String(inspection.inspectionDate).slice(0, 10) : '',
+                findings: inspection.findings || '',
+                warnings: inspection.warnings || '',
+                recommendations: inspection.recommendations || '',
+                teamMemberRefs: Array.isArray(inspection.teamMemberRefs) ? inspection.teamMemberRefs : [],
+            });
+        } else {
+            setEditingInspection(null);
+            setInspectionFormData({
+                inspectionDate: new Date().toISOString().slice(0, 10),
+                findings: '',
+                warnings: '',
+                recommendations: '',
+                teamMemberRefs: [],
+            });
+        }
+        setOpenInspectionDialog(true);
+    };
+
+    const handleSaveInspection = async () => {
+        if (!inspectionFormData.inspectionDate) {
+            setSnackbar({ open: true, message: 'Inspection date is required.', severity: 'error' });
+            return;
+        }
+        try {
+            setLoading(true);
+            const payload = {
+                inspectionDate: inspectionFormData.inspectionDate,
+                findings: inspectionFormData.findings,
+                warnings: inspectionFormData.warnings,
+                recommendations: inspectionFormData.recommendations,
+                teamMemberRefs: inspectionFormData.teamMemberRefs || [],
+            };
+            if (editingInspection?.inspectionId) {
+                await projectService.inspections.updateInspection(projectId, editingInspection.inspectionId, payload);
+                setSnackbar({ open: true, message: 'Inspection updated successfully.', severity: 'success' });
+            } else {
+                await projectService.inspections.createInspection(projectId, payload);
+                setSnackbar({ open: true, message: 'Inspection created successfully.', severity: 'success' });
+            }
+            setOpenInspectionDialog(false);
+            setEditingInspection(null);
+            fetchProjectInspections();
+        } catch (err) {
+            setSnackbar({ open: true, message: err?.message || 'Failed to save inspection.', severity: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUploadInspectionFiles = async (inspection, fileCategory, fileList) => {
+        if (!inspection?.inspectionId || !fileList || fileList.length === 0) return;
+        try {
+            setUploadingInspectionFiles(true);
+            const formData = new FormData();
+            formData.append('fileCategory', fileCategory);
+            Array.from(fileList).forEach((f) => formData.append('files', f));
+            await projectService.inspections.uploadInspectionFiles(projectId, inspection.inspectionId, formData);
+            setSnackbar({ open: true, message: `${fileCategory === 'photo' ? 'Photo' : 'Document'} upload successful.`, severity: 'success' });
+            fetchProjectInspections();
+        } catch (err) {
+            setSnackbar({ open: true, message: err?.message || 'Upload failed.', severity: 'error' });
+        } finally {
+            setUploadingInspectionFiles(false);
+        }
+    };
+
+    const isSuperAdmin = useMemo(() => {
+        const role = String(user?.roleName || user?.role || '').toLowerCase().trim();
+        return role === 'super admin';
+    }, [user]);
+
+    const fetchFundingData = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingFunding(true);
+        setFundingError(null);
+        try {
+            const [sources, entries] = await Promise.all([
+                projectService.funding.getFundingSources(),
+                projectService.funding.getProjectFundingEntries(projectId),
+            ]);
+            setFundingSources(Array.isArray(sources) ? sources : []);
+            setProjectFundingEntries(Array.isArray(entries) ? entries : []);
+        } catch (err) {
+            console.error('Error loading funding data:', err);
+            setFundingError(err?.message || 'Failed to load funding data.');
+        } finally {
+            setLoadingFunding(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (activeTab === 10) {
+            fetchFundingData();
+        }
+    }, [activeTab, fetchFundingData]);
+
+    const handleDownloadInspectionReport = (inspection) => {
+        try {
+            const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 42;
+            let y = 44;
+
+            const inspectionDate = String(inspection?.inspectionDate || '').slice(0, 10) || 'N/A';
+            const projectTitle = project?.projectName || project?.name || `Project #${projectId}`;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(15);
+            doc.text('Project Inspection Report', pageWidth / 2, y, { align: 'center' });
+            y += 20;
+
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Project: ${projectTitle}`, margin, y);
+            y += 14;
+            doc.text(`Inspection Date: ${inspectionDate}`, margin, y);
+            y += 14;
+            doc.text(`Generated On: ${new Date().toLocaleString()}`, margin, y);
+            y += 18;
+
+            doc.setDrawColor(180, 180, 180);
+            doc.line(margin, y, pageWidth - margin, y);
+            y += 14;
+
+            const writeSection = (title, value) => {
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text(title, margin, y);
+                y += 12;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                const text = value && String(value).trim() !== '' ? String(value) : 'N/A';
+                const wrapped = doc.splitTextToSize(text, pageWidth - margin * 2);
+                doc.text(wrapped, margin, y);
+                y += wrapped.length * 12 + 8;
+            };
+
+            writeSection('Findings', inspection?.findings);
+            writeSection('Warnings', inspection?.warnings);
+            writeSection('Recommendations', inspection?.recommendations);
+
+            const members = (inspection?.teamMemberRefs || []).map((ref) => {
+                const found = (projectTeams || []).find((m) => getTeamMemberRef(m) === ref);
+                if (!found) {
+                    return { name: String(ref), role: '', teamName: '' };
+                }
+                return {
+                    name: found.name || '',
+                    role: found.role || '',
+                    teamName: found.teamName || '',
+                };
+            });
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.text('Inspection Team Members', margin, y);
+            y += 10;
+
+            const body = (members.length > 0 ? members : [{ name: 'N/A', role: '', teamName: '' }]).map((m, idx) => [
+                String(idx + 1),
+                m.name || 'N/A',
+                m.role || 'N/A',
+                m.teamName || 'N/A',
+                '____________________',
+            ]);
+
+            autoTable(doc, {
+                startY: y,
+                head: [['#', 'Name', 'Role', 'Team', 'Signature']],
+                body,
+                theme: 'grid',
+                styles: { fontSize: 9, cellPadding: 5 },
+                headStyles: { fillColor: [41, 128, 185] },
+                columnStyles: {
+                    0: { cellWidth: 24 },
+                    4: { cellWidth: 120 },
+                },
+                margin: { left: margin, right: margin },
+            });
+            y = (doc.lastAutoTable?.finalY || y) + 24;
+
+            if (y > pageHeight - 80) {
+                doc.addPage();
+                y = 52;
+            }
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(10);
+            doc.text('Inspection Team Lead Signature: ________________________________', margin, y);
+            y += 24;
+            doc.text('Date: ____________________', margin, y);
+
+            const filename = `inspection-report-project-${projectId}-inspection-${inspection?.inspectionId || 'record'}.pdf`;
+            doc.save(filename);
+        } catch (err) {
+            console.error('Error generating inspection report PDF:', err);
+            setSnackbar({ open: true, message: 'Failed to generate inspection report PDF.', severity: 'error' });
+        }
+    };
 
     // NEW: Helper function to get warning level colors from theme
     const getWarningLevelColors = (level) => {
@@ -979,8 +1288,9 @@ function ProjectDetailsPage() {
                 status: updatesForm.status === '' ? undefined : updatesForm.status,
                 statusReason: updatesForm.statusReason.trim() === '' ? undefined : updatesForm.statusReason.trim(),
             };
-            await apiService.projects.updateProject(projectId, payload);
+            await projectService.projects.createProjectUpdate(projectId, payload);
             await fetchProjectDetails();
+            await fetchProjectUpdatesHistory();
             setSnackbar({ open: true, message: 'Updates saved successfully.', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save updates.', severity: 'error' });
@@ -2306,13 +2616,18 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Updates, 5=Feedback. SCOPE_DOWN: Map tab hidden. */}
+                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=Documents, 9=Map */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
+                    <Tab label="Teams" icon={<GroupIcon />} iconPosition="start" />
+                    <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
                     <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
                     <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
+                    <Tab label="Documents" icon={<DescriptionIcon />} iconPosition="start" />
+                    <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
+                    <Tab label="Funds" icon={<AccountBalanceWalletIcon />} iconPosition="start" />
                 </Tabs>
             </Box>
 
@@ -3965,8 +4280,148 @@ function ProjectDetailsPage() {
                 {/* M&E Tab Content - Removed */}
                 {/* Documents Tab Content - Removed */}
 
-                {/* SCOPE_DOWN: Map tab hidden. Re-enable when restoring. */}
-                {activeTab === 4 && (
+                {activeTab === 5 && (
+                    <Box>
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+                                <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <FactCheckIcon /> Project Inspection
+                                </Typography>
+                                <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenInspectionDialog(null)} disabled={!canModifyOrCreateProjects}>
+                                    New Inspection
+                                </Button>
+                            </Stack>
+                            {loadingInspections ? (
+                                <Box sx={{ py: 3, display: 'flex', justifyContent: 'center' }}><CircularProgress size={26} /></Box>
+                            ) : inspectionsError ? (
+                                <Alert severity="error">{inspectionsError}</Alert>
+                            ) : projectInspections.length === 0 ? (
+                                <Alert severity="info">No inspections recorded yet for this project.</Alert>
+                            ) : (
+                                <Stack spacing={1.5}>
+                                    {projectInspections.map((inspection) => {
+                                        const files = Array.isArray(inspection.files) ? inspection.files : [];
+                                        const docs = files.filter((f) => f.fileCategory === 'document');
+                                        const photos = files.filter((f) => f.fileCategory === 'photo');
+                                        const members = (inspection.teamMemberRefs || []).map((ref) => {
+                                            const found = teamMemberOptions.find((m) => m.ref === ref);
+                                            return found ? found.label : String(ref);
+                                        });
+                                        return (
+                                            <Paper key={inspection.inspectionId} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                        Inspection Date: {String(inspection.inspectionDate || '').slice(0, 10)}
+                                                    </Typography>
+                                                    <Button size="small" variant="text" onClick={() => handleOpenInspectionDialog(inspection)} disabled={!canModifyOrCreateProjects}>
+                                                        Edit
+                                                    </Button>
+                                                </Stack>
+                                                <Typography variant="body2" sx={{ mt: 0.75 }}><strong>Findings:</strong> {inspection.findings || 'N/A'}</Typography>
+                                                <Typography variant="body2" sx={{ mt: 0.5 }}><strong>Warnings:</strong> {inspection.warnings || 'N/A'}</Typography>
+                                                <Typography variant="body2" sx={{ mt: 0.5 }}><strong>Recommendations:</strong> {inspection.recommendations || 'N/A'}</Typography>
+                                                <Typography variant="body2" sx={{ mt: 0.75 }}><strong>Team Members:</strong> {members.length > 0 ? members.join(', ') : 'None selected'}</Typography>
+
+                                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.25, flexWrap: 'wrap' }}>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        startIcon={<DownloadIcon />}
+                                                        onClick={() => handleDownloadInspectionReport(inspection)}
+                                                    >
+                                                        Download Report
+                                                    </Button>
+                                                    <Button component="label" size="small" variant="outlined" startIcon={<AttachmentIcon />} disabled={uploadingInspectionFiles || !canModifyOrCreateProjects}>
+                                                        Upload Documents
+                                                        <input hidden type="file" multiple onChange={(e) => handleUploadInspectionFiles(inspection, 'document', e.target.files)} />
+                                                    </Button>
+                                                    <Button component="label" size="small" variant="outlined" startIcon={<PhotoCameraIcon />} disabled={uploadingInspectionFiles || !canModifyOrCreateProjects}>
+                                                        Upload Photos
+                                                        <input hidden type="file" accept="image/*" multiple onChange={(e) => handleUploadInspectionFiles(inspection, 'photo', e.target.files)} />
+                                                    </Button>
+                                                    {uploadingInspectionFiles && <CircularProgress size={16} />}
+                                                </Stack>
+
+                                                {(docs.length > 0 || photos.length > 0) && (
+                                                    <Box sx={{ mt: 1 }}>
+                                                        {docs.length > 0 && (
+                                                            <Typography variant="caption" sx={{ display: 'block' }}>
+                                                                Documents: {docs.map((d) => d.fileName).join(', ')}
+                                                            </Typography>
+                                                        )}
+                                                        {photos.length > 0 && (
+                                                            <Typography variant="caption" sx={{ display: 'block' }}>
+                                                                Photos: {photos.map((p) => p.fileName).join(', ')}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                )}
+                                            </Paper>
+                                        );
+                                    })}
+                                </Stack>
+                            )}
+                        </Paper>
+
+                        <Dialog open={openInspectionDialog} onClose={() => setOpenInspectionDialog(false)} fullWidth maxWidth="md">
+                            <DialogTitle>{editingInspection ? 'Edit Inspection' : 'New Inspection'}</DialogTitle>
+                            <DialogContent>
+                                <Stack spacing={1.5} sx={{ mt: 0.75 }}>
+                                    <TextField
+                                        label="Inspection Date"
+                                        type="date"
+                                        value={inspectionFormData.inspectionDate}
+                                        onChange={(e) => setInspectionFormData((prev) => ({ ...prev, inspectionDate: e.target.value }))}
+                                        InputLabelProps={{ shrink: true }}
+                                        required
+                                    />
+                                    <TextField
+                                        label="Findings"
+                                        value={inspectionFormData.findings}
+                                        onChange={(e) => setInspectionFormData((prev) => ({ ...prev, findings: e.target.value }))}
+                                        multiline
+                                        rows={3}
+                                    />
+                                    <TextField
+                                        label="Warnings"
+                                        value={inspectionFormData.warnings}
+                                        onChange={(e) => setInspectionFormData((prev) => ({ ...prev, warnings: e.target.value }))}
+                                        multiline
+                                        rows={2}
+                                    />
+                                    <TextField
+                                        label="Recommendations"
+                                        value={inspectionFormData.recommendations}
+                                        onChange={(e) => setInspectionFormData((prev) => ({ ...prev, recommendations: e.target.value }))}
+                                        multiline
+                                        rows={2}
+                                    />
+                                    <Autocomplete
+                                        multiple
+                                        options={teamMemberOptions}
+                                        getOptionLabel={(option) => option.label}
+                                        value={teamMemberOptions.filter((opt) => (inspectionFormData.teamMemberRefs || []).includes(opt.ref))}
+                                        onChange={(event, values) => {
+                                            setInspectionFormData((prev) => ({
+                                                ...prev,
+                                                teamMemberRefs: values.map((v) => v.ref),
+                                            }));
+                                        }}
+                                        renderInput={(params) => <TextField {...params} label="Inspection Team Members" placeholder="Select team members" />}
+                                    />
+                                </Stack>
+                            </DialogContent>
+                            <DialogActions>
+                                <Button onClick={() => setOpenInspectionDialog(false)}>Cancel</Button>
+                                <Button variant="contained" onClick={handleSaveInspection} disabled={loading}>
+                                    {editingInspection ? 'Update' : 'Create'}
+                                </Button>
+                            </DialogActions>
+                        </Dialog>
+                    </Box>
+                )}
+
+                {activeTab === 6 && (
                     <Box>
                         {/* Updates Tab */}
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
@@ -3974,7 +4429,7 @@ function ProjectDetailsPage() {
                                 Project updates
                             </Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Record progress and the latest update summary for this project. You can also update the status here if it changes.
+                                Add periodic updates so this project keeps a visible progression history over time.
                             </Typography>
                             <Stack spacing={2} sx={{ maxWidth: 640 }}>
                                 <FormControl fullWidth size="small">
@@ -4065,11 +4520,66 @@ function ProjectDetailsPage() {
                                     </Button>
                                 </Box>
                             </Stack>
+
+                            <Divider sx={{ my: 3 }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                                Progress history
+                            </Typography>
+                            {loadingUpdatesHistory ? (
+                                <Box sx={{ py: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <CircularProgress size={18} />
+                                    <Typography variant="body2" color="text.secondary">Loading update history...</Typography>
+                                </Box>
+                            ) : updatesHistoryError ? (
+                                <Alert severity="error" sx={{ mt: 1 }}>{updatesHistoryError}</Alert>
+                            ) : projectUpdatesHistory.length === 0 ? (
+                                <Alert severity="info" sx={{ mt: 1 }}>
+                                    No historical updates yet. Save the first update to start tracking project progress over time.
+                                </Alert>
+                            ) : (
+                                <Stack spacing={1.5} sx={{ mt: 1 }}>
+                                    {projectUpdatesHistory.map((entry) => (
+                                        <Paper key={entry.updateId} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                                                <Chip
+                                                    size="small"
+                                                    icon={<ScheduleIcon />}
+                                                    label={entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'Unknown date'}
+                                                />
+                                                {entry.status && (
+                                                    <Chip
+                                                        size="small"
+                                                        label={entry.status}
+                                                        sx={{
+                                                            backgroundColor: getProjectStatusBackgroundColor(entry.status),
+                                                            color: getProjectStatusTextColor(entry.status),
+                                                            fontWeight: 700,
+                                                        }}
+                                                    />
+                                                )}
+                                                {entry.overallProgress !== null && entry.overallProgress !== undefined && (
+                                                    <Chip size="small" color="success" label={`${Number(entry.overallProgress).toFixed(2)}% complete`} />
+                                                )}
+                                            </Box>
+                                            {entry.statusReason && (
+                                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                                    <strong>Status reason:</strong> {entry.statusReason}
+                                                </Typography>
+                                            )}
+                                            {entry.progressSummary && (
+                                                <Typography variant="body2">
+                                                    {entry.progressSummary}
+                                                </Typography>
+                                            )}
+                                        </Paper>
+                                    ))}
+                                </Stack>
+                            )}
                         </Paper>
                     </Box>
                 )}
 
-                {activeTab === 5 && (
+                {activeTab === 7 && (
                     <Box>
                         {/* Feedback Tab */}
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
@@ -4681,9 +5191,9 @@ function ProjectDetailsPage() {
                     />
                 )}
 
-                {false && activeTab === 3 && (
+                {activeTab === 4 && (
                     <Box>
-                        {/* Teams Tab - hidden */}
+                        {/* Teams Tab */}
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                             <Typography variant="h6" sx={{ 
                                 fontWeight: 'bold',
@@ -5055,6 +5565,176 @@ function ProjectDetailsPage() {
                                 </MenuItem>
                             )}
                         </Menu>
+                    </Box>
+                )}
+
+                {activeTab === 8 && (
+                    <Box>
+                        <ProjectDocumentsAttachments projectId={projectId} />
+                    </Box>
+                )}
+
+                {activeTab === 9 && (
+                    <Box>
+                        <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
+                    </Box>
+                )}
+
+                {activeTab === 10 && (
+                    <Box>
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                            <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <AccountBalanceWalletIcon /> Project Funding Sources
+                            </Typography>
+
+                            {loadingFunding ? (
+                                <Box sx={{ py: 3, display: 'flex', justifyContent: 'center' }}>
+                                    <CircularProgress size={26} />
+                                </Box>
+                            ) : fundingError ? (
+                                <Alert severity="error" sx={{ mb: 1.5 }}>{fundingError}</Alert>
+                            ) : (
+                                <>
+                                    {isSuperAdmin && (
+                                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }}>
+                                            <TextField
+                                                label="New Funding Source (Admin)"
+                                                size="small"
+                                                value={newFundingSourceName}
+                                                onChange={(e) => setNewFundingSourceName(e.target.value)}
+                                                sx={{ minWidth: 260 }}
+                                            />
+                                            <Button
+                                                variant="outlined"
+                                                onClick={async () => {
+                                                    const sourceName = newFundingSourceName.trim();
+                                                    if (!sourceName) return;
+                                                    try {
+                                                        await projectService.funding.createFundingSource({ sourceName });
+                                                        setNewFundingSourceName('');
+                                                        setSnackbar({ open: true, message: 'Funding source added.', severity: 'success' });
+                                                        fetchFundingData();
+                                                    } catch (err) {
+                                                        setSnackbar({ open: true, message: err?.message || 'Failed to add funding source.', severity: 'error' });
+                                                    }
+                                                }}
+                                            >
+                                                Add Source
+                                            </Button>
+                                        </Stack>
+                                    )}
+
+                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            Add Project Funding Entry
+                                        </Typography>
+                                        <Grid container spacing={1}>
+                                            <Grid item xs={12} md={3}>
+                                                <FormControl fullWidth size="small" sx={{ minWidth: 260 }}>
+                                                    <InputLabel>Funding Source</InputLabel>
+                                                    <Select
+                                                        label="Funding Source"
+                                                        value={fundingForm.sourceId}
+                                                        onChange={(e) => setFundingForm((p) => ({ ...p, sourceId: e.target.value }))}
+                                                    >
+                                                        {fundingSources.map((s) => (
+                                                            <MenuItem key={s.sourceId} value={String(s.sourceId)}>{s.sourceName}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                            </Grid>
+                                            <Grid item xs={12} md={2}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Amount"
+                                                    size="small"
+                                                    inputMode="decimal"
+                                                    value={formatAmountInput(fundingForm.amount)}
+                                                    onChange={(e) => {
+                                                        const next = String(e.target.value || '').replace(/,/g, '');
+                                                        if (next === '' || /^\d*(\.\d{0,2})?$/.test(next)) {
+                                                            setFundingForm((p) => ({ ...p, amount: next }));
+                                                        }
+                                                    }}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Stage"
+                                                    size="small"
+                                                    value={fundingForm.stage}
+                                                    onChange={(e) => setFundingForm((p) => ({ ...p, stage: e.target.value }))}
+                                                    placeholder="e.g. Design, Procurement, Construction"
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} md={4}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Notes"
+                                                    size="small"
+                                                    value={fundingForm.notes}
+                                                    onChange={(e) => setFundingForm((p) => ({ ...p, notes: e.target.value }))}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12}>
+                                                <Button
+                                                    variant="contained"
+                                                    onClick={async () => {
+                                                        if (!fundingForm.sourceId || fundingForm.amount === '') {
+                                                            setSnackbar({ open: true, message: 'Funding source and amount are required.', severity: 'error' });
+                                                            return;
+                                                        }
+                                                        try {
+                                                            await projectService.funding.createProjectFundingEntry(projectId, {
+                                                                sourceId: Number(fundingForm.sourceId),
+                                                                amount: Number(fundingForm.amount),
+                                                                stage: fundingForm.stage,
+                                                                notes: fundingForm.notes,
+                                                            });
+                                                            setFundingForm({ sourceId: '', amount: '', stage: '', notes: '' });
+                                                            setSnackbar({ open: true, message: 'Funding entry added.', severity: 'success' });
+                                                            fetchFundingData();
+                                                        } catch (err) {
+                                                            setSnackbar({ open: true, message: err?.message || 'Failed to add funding entry.', severity: 'error' });
+                                                        }
+                                                    }}
+                                                >
+                                                    Save Funding Entry
+                                                </Button>
+                                            </Grid>
+                                        </Grid>
+                                    </Paper>
+
+                                    {projectFundingEntries.length === 0 ? (
+                                        <Alert severity="info">No funding entries recorded for this project yet.</Alert>
+                                    ) : (
+                                        <TableContainer component={Paper} variant="outlined">
+                                            <Table size="small">
+                                                <TableHead>
+                                                    <TableRow>
+                                                        <TableCell><strong>Funding Source</strong></TableCell>
+                                                        <TableCell><strong>Amount</strong></TableCell>
+                                                        <TableCell><strong>Stage</strong></TableCell>
+                                                        <TableCell><strong>Notes</strong></TableCell>
+                                                    </TableRow>
+                                                </TableHead>
+                                                <TableBody>
+                                                    {projectFundingEntries.map((entry) => (
+                                                        <TableRow key={entry.entryId}>
+                                                            <TableCell>{entry.sourceName || 'N/A'}</TableCell>
+                                                            <TableCell>{formatCurrency(entry.amount || 0)}</TableCell>
+                                                            <TableCell>{entry.stage || 'N/A'}</TableCell>
+                                                            <TableCell>{entry.notes || 'N/A'}</TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </TableContainer>
+                                    )}
+                                </>
+                            )}
+                        </Paper>
                     </Box>
                 )}
             </Box>
