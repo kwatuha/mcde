@@ -54,7 +54,7 @@ print_status "Fetching local database schema..."
 
 # Try to get credentials from environment or use defaults
 LOCAL_DB_USER="${DB_USER:-postgres_user}"
-LOCAL_DB_PASSWORD="${DB_PASSWORD:-sPh4eGb3r}"
+LOCAL_DB_PASSWORD="${DB_PASSWORD:-postgres}"
 
 export PGPASSWORD="${LOCAL_DB_PASSWORD}"
 

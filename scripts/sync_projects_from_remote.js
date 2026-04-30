@@ -6,7 +6,7 @@
  * Usage: node scripts/sync_projects_from_remote.js
  * 
  * This script:
- * 1. Connects to remote database (74.208.68.65)
+ * 1. Connects to remote database (REMOTE_PG_HOST / REMOTE_PG_PASSWORD from env)
  * 2. Fetches all projects and their referenced data
  * 3. Updates local projects if project_id matches, or inserts if new
  */
@@ -42,22 +42,22 @@ const { Pool } = require('pg');
 
 // Remote database configuration
 const REMOTE_CONFIG = {
-    host: '74.208.68.65',
-    user: 'postgres',
-    password: 'r2MdF1Aq',
-    database: 'government_projects',
-    port: 5432,
+    host: process.env.REMOTE_PG_HOST || 'localhost',
+    user: process.env.REMOTE_PG_USER || 'postgres',
+    password: process.env.REMOTE_PG_PASSWORD || process.env.DB_PASSWORD || 'postgres',
+    database: process.env.REMOTE_PG_DATABASE || 'government_projects',
+    port: Number(process.env.REMOTE_PG_PORT || 5432),
     ssl: false // Set to true if SSL is required
 };
 
 // Local database configuration (PostgreSQL - override .env MySQL settings)
 // Use localhost:5433 for direct connection to docker-exposed PostgreSQL port
 const LOCAL_CONFIG = {
-    host: 'localhost',
-    user: 'postgres',
-    password: 'postgres',
-    database: 'government_projects',
-    port: 5433, // Docker exposed port
+    host: process.env.LOCAL_PG_HOST || 'localhost',
+    user: process.env.LOCAL_PG_USER || 'postgres',
+    password: process.env.LOCAL_PG_PASSWORD || process.env.DB_PASSWORD || 'postgres',
+    database: process.env.LOCAL_PG_DATABASE || 'government_projects',
+    port: Number(process.env.LOCAL_PG_PORT || 5433), // Docker exposed port
     ssl: false
 };
 

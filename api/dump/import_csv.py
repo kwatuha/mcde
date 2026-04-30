@@ -1,4 +1,5 @@
 import csv
+import os
 import random
 import hashlib
 import mysql.connector
@@ -324,10 +325,10 @@ def save_to_csv(data, filename):
 if __name__ == '__main__':
     # Database credentials for getting max ID
     db_credentials = {
-        'host': 'localhost',
-        'user': 'root',
-        'password': 'Admin2010$$$$$',
-        'database': 'kemri'
+        'host': os.environ.get('MYSQL_HOST', 'localhost'),
+        'user': os.environ.get('MYSQL_USER', 'root'),
+        'password': os.environ.get('MYSQL_PASSWORD', 'postgres'),
+        'database': os.environ.get('MYSQL_DATABASE', 'kemri')
     }
 
     # 1. Generate and save user data

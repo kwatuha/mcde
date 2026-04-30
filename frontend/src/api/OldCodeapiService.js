@@ -1,7 +1,9 @@
 // src/api/apiService.js
 import axios from 'axios';
 
-const API_BASE_URL = 'http://165.22.227.234:5000/api';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+  ? import.meta.env.VITE_API_URL
+  : '/api';
 
 // Create an Axios instance with base URL and default headers
 const axiosInstance = axios.create({

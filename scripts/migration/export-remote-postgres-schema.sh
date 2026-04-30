@@ -2,19 +2,19 @@
 # Export schema from remote PostgreSQL database
 # Usage: ./export-remote-postgres-schema.sh [password]
 
-REMOTE_HOST="74.208.68.65"
-REMOTE_USER="postgres"
-REMOTE_PASSWORD="${REMOTE_PG_PASSWORD:-r2MdF1Aq}"
-REMOTE_DB="government_projects"
+REMOTE_HOST="${REMOTE_PG_HOST:-localhost}"
+REMOTE_USER="${REMOTE_PG_USER:-postgres}"
+REMOTE_DB="${REMOTE_PG_DATABASE:-government_projects}"
 OUTPUT_FILE="scripts/migration/schema/remote-postgres-schema.sql"
 
-# Get password from argument, environment variable, or use default
+# Password: first CLI arg, or REMOTE_PG_PASSWORD (no default — avoids leaking secrets).
 if [ -n "$1" ]; then
     PASSWORD="$1"
-elif [ -n "$REMOTE_PG_PASSWORD" ]; then
+elif [ -n "${REMOTE_PG_PASSWORD:-}" ]; then
     PASSWORD="$REMOTE_PG_PASSWORD"
 else
-    PASSWORD="r2MdF1Aq"
+    echo "Set REMOTE_PG_PASSWORD or pass the DB password as the first argument." >&2
+    exit 1
 fi
 
 echo "Exporting schema from remote PostgreSQL database..."

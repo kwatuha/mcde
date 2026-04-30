@@ -1,22 +1,21 @@
 #!/bin/bash
 # Export schema from remote PostgreSQL using SQL queries (works around pg_dump version mismatch)
 
-REMOTE_HOST="74.208.68.65"
-REMOTE_USER="postgres"
-REMOTE_PASSWORD="r2MdF1Aq"
-REMOTE_DB="government_projects"
+REMOTE_HOST="${REMOTE_PG_HOST:-localhost}"
+REMOTE_USER="${REMOTE_PG_USER:-postgres}"
+REMOTE_DB="${REMOTE_PG_DATABASE:-government_projects}"
+REMOTE_PASSWORD="${REMOTE_PG_PASSWORD:?Set REMOTE_PG_PASSWORD for the remote PostgreSQL user.}"
 OUTPUT_FILE="scripts/migration/schema/remote-postgres-schema.sql"
 
 echo "Exporting schema from remote PostgreSQL database using SQL queries..."
 
 # Start building the schema file
-cat > "$OUTPUT_FILE" << 'EOF'
--- PostgreSQL Schema from Remote Database
--- Generated: $(date)
--- Database: government_projects
--- Host: 74.208.68.65
-
-EOF
+{
+  echo "-- PostgreSQL schema export"
+  echo "-- Database: ${REMOTE_DB}"
+  echo "-- Host: ${REMOTE_HOST}"
+  echo
+} > "$OUTPUT_FILE"
 
 # Get all table names
 TABLES=$(PGPASSWORD="$REMOTE_PASSWORD" psql -h "$REMOTE_HOST" -U "$REMOTE_USER" -d "$REMOTE_DB" -t -c "

@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Defaults aligned with deploy/pull scripts.
 SERVER_USER="${SERVER_USER:-fortress}"
-SERVER_IP="${SERVER_IP:-102.210.149.119}"
+SERVER_IP="${SERVER_IP:-localhost}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_gprs_server}"
 SERVER_PATH="${SERVER_PATH:-/home/fortress/gprs}"
 

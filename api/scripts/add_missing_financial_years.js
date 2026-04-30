@@ -7,10 +7,7 @@
  *   Or use: ./api/scripts/run_add_financial_years.sh
  * 
  * Database connection uses environment variables from docker-compose.yml:
- *   - DB_HOST: mysql_db
- *   - DB_USER: impesUser (or root with password root_password)
- *   - DB_PASSWORD: Admin2010impes (or root_password for root)
- *   - DB_NAME: imbesdb
+ *   - DB_HOST, DB_USER, DB_PASSWORD, DB_NAME (set via api/.env; never commit secrets)
  */
 
 const pool = require('../config/db');

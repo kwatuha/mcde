@@ -52,7 +52,8 @@ services:
       - VITE_API_URL=/api
       - VITE_BASE_PATH=/citizen/
       - VITE_DEV_PUBLIC_URL=http://localhost:8084/citizen
-      - VITE_MAPS_API_KEY=AIzaSyArNdYrq_WsuoGc34C7Osua7kbpt2Twf_s
+      # Set in shell or a repo-root `.env` file (Compose substitutes ${VAR} from the host env / .env).
+      - VITE_MAPS_API_KEY=${VITE_MAPS_API_KEY:-}
 
   api:
     build:

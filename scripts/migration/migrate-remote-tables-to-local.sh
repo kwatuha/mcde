@@ -1,10 +1,10 @@
 #!/bin/bash
 # Script to migrate tables with foreign keys to projects from remote to local database
 
-REMOTE_HOST="74.208.68.65"
-REMOTE_USER="postgres"
-REMOTE_PASS="r2MdF1Aq"
-REMOTE_DB="government_projects"
+REMOTE_HOST="${REMOTE_PG_HOST:-localhost}"
+REMOTE_USER="${REMOTE_PG_USER:-postgres}"
+REMOTE_PASS="${REMOTE_PG_PASSWORD:-postgres}"
+REMOTE_DB="${REMOTE_PG_DATABASE:-government_projects}"
 
 LOCAL_HOST="localhost"
 LOCAL_PORT="5433"

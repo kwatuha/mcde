@@ -1,14 +1,13 @@
 #!/bin/bash
 
 # Script to copy local PostgreSQL database to remote server
-# Server: 102.210.149.119
-# User: fortress
+# Set SERVER_USER, SERVER_IP, SERVER_PATH, SSH_KEY for your target (do not commit secrets).
 
 # Configuration
-SERVER_USER="fortress"
-SERVER_IP="102.210.149.119"
-SERVER_PATH="/home/fortress/gprs"
-SSH_KEY="$HOME/.ssh/id_gprs_server"
+SERVER_USER="${SERVER_USER:-deploy}"
+SERVER_IP="${SERVER_IP:-localhost}"
+SERVER_PATH="${SERVER_PATH:-/opt/app}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 LOCAL_DB_CONTAINER="gov_postgres"
 LOCAL_DB_NAME="government_projects"
 LOCAL_DB_USER="postgres"

@@ -1,4 +1,5 @@
 import csv
+import os
 import mysql.connector
 
 def import_data_from_csv(db_credentials, filename, table_name, columns):
@@ -59,10 +60,10 @@ def import_data_from_csv(db_credentials, filename, table_name, columns):
 if __name__ == '__main__':
     # Database credentials (customize as needed)
     db_credentials = {
-        'host': 'localhost',
-        'user': 'root',
-        'password': 'Admin2010$$$$$',
-        'database': 'kemri'
+        'host': os.environ.get('MYSQL_HOST', 'localhost'),
+        'user': os.environ.get('MYSQL_USER', 'root'),
+        'password': os.environ.get('MYSQL_PASSWORD', 'postgres'),
+        'database': os.environ.get('MYSQL_DATABASE', 'kemri')
     }
 
     # Define the CSV files, their corresponding tables, and columns in the correct order

@@ -2,7 +2,7 @@
 
 const axios = require('axios');
 
-const BASE_URL = 'http://165.22.227.234:3000';
+const BASE_URL = process.env.API_URL || 'http://localhost:3000';
 
 // Test credentials - using a known test user
 const TEST_USER = {

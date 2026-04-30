@@ -5,18 +5,18 @@
 const { Pool } = require('pg');
 
 const remoteConfig = {
-    host: '74.208.68.65',
-    user: 'postgres',
-    password: 'r2MdF1Aq',
-    database: 'government_projects'
+    host: process.env.REMOTE_PG_HOST || 'localhost',
+    user: process.env.REMOTE_PG_USER || 'postgres',
+    password: process.env.REMOTE_PG_PASSWORD || process.env.DB_PASSWORD || 'postgres',
+    database: process.env.REMOTE_PG_DATABASE || 'government_projects'
 };
 
 const localConfig = {
-    host: 'localhost',
-    port: 5433,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'government_projects'
+    host: process.env.LOCAL_PG_HOST || 'localhost',
+    port: Number(process.env.LOCAL_PG_PORT || 5433),
+    user: process.env.LOCAL_PG_USER || 'postgres',
+    password: process.env.LOCAL_PG_PASSWORD || process.env.DB_PASSWORD || 'postgres',
+    database: process.env.LOCAL_PG_DATABASE || 'government_projects'
 };
 
 async function getCreateTableSQL(pool, tableName) {

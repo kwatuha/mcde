@@ -6,7 +6,7 @@ const mysql = require('mysql2/promise');
 const dbConfig = {
   host: process.env.DB_HOST || 'db',
   user: process.env.DB_USER || 'impesUser',
-  password: process.env.DB_PASSWORD || 'Admin2010impes',
+  password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'imbesdb',
   port: process.env.DB_PORT || 3306
 };

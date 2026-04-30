@@ -5,11 +5,11 @@
 
 set -e  # Exit on error
 
-# Configuration
-REMOTE_USER="kunye"
-REMOTE_HOST="165.22.227.234"
-REMOTE_PATH="/projects/imes"
-SSH_KEY="$HOME/.ssh/id_asusme"
+# Configuration (set for your environment; do not commit real hosts/keys)
+REMOTE_USER="${REMOTE_USER:-deploy}"
+REMOTE_HOST="${REMOTE_HOST:-localhost}"
+REMOTE_PATH="${REMOTE_PATH:-/opt/app}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 
 # Colors for output
 RED='\033[0;31m'

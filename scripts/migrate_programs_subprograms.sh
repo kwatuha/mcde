@@ -23,10 +23,10 @@ else
 fi
 
 # MySQL connection details (original database)
-MYSQL_HOST="${MYSQL_HOST:-102.210.149.119}"
+MYSQL_HOST="${MYSQL_HOST:-localhost}"
 MYSQL_PORT="${MYSQL_PORT:-3308}"
 MYSQL_USER="${MYSQL_USER:-impesUser}"
-MYSQL_PASS="${MYSQL_PASS:-Admin2010impes}"
+MYSQL_PASS="${MYSQL_PASS:-${MYSQL_PASSWORD:-postgres}}"
 MYSQL_DB="${MYSQL_DB:-gov_imbesdb}"
 
 # PostgreSQL connection details (target database)

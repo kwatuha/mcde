@@ -3,8 +3,8 @@
 # Script to run migrations for Citizen Features
 # Uses credentials from docker-compose.yml
 
-DB_USER="impesUser"
-DB_PASS="Admin2010impes"
+DB_USER="${MYSQL_USER:-impesUser}"
+DB_PASS="${MYSQL_PASSWORD:-${DB_PASSWORD:-postgres}}"
 DB_NAME="gov_imbesdb"
 DB_HOST="localhost"
 DB_PORT="3308"

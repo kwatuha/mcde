@@ -8,16 +8,17 @@
 set -e
 
 # --- Your local DB connection (used for dump + create/restore) ---
-DB_HOST="127.0.0.1"
-DB_PORT="5432"
-DB_USER="postgres_user"
-DB_PASSWORD="Admin2010@#"
-DB_NAME="government_projects"
+# Set secrets in the environment; do not commit real passwords.
+DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_PORT="${DB_PORT:-5432}"
+DB_USER="${DB_USER:-postgres_user}"
+DB_PASSWORD="${SOURCE_DB_PASSWORD:?Set SOURCE_DB_PASSWORD for the source DB user ${DB_USER}}"
+DB_NAME="${DB_NAME:-government_projects}"
 
 # --- Target ---
 TARGET_DB="revised_gov_db"
 NEW_USER="gov_local_user"
-NEW_PASS='Admin2020@#'
+NEW_PASS="${GOV_LOCAL_PASSWORD:?Set GOV_LOCAL_PASSWORD for new role ${NEW_USER}}"
 
 # --- Paths ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

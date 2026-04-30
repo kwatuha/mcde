@@ -1,3 +1,7 @@
+# Local / environment-specific deployment notes (may reference real hosts)
+DEPLOYMENT_GUIDE.html
+diagnose_projects.sh
+
 # Local copy of live server nginx site (from scripts/sync-remote-nginx-gprs.sh pull)
 nginx/gprs.sites-available.working
 
@@ -157,3 +161,8 @@ config/local.js
 
 # Remote database dumps and exports
 remote_119db/
+
+# Bulk import data (may contain PII / password hashes); keep scripts only
+api/dump/**/*.csv
+api/dump/**/.~lock.*
+api/dump/.~lock.*

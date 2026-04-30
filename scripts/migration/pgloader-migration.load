@@ -1,6 +1,7 @@
+# Edit the URLs before use; never commit real credentials.
 LOAD DATABASE
-    FROM mysql://impesUser:Admin2010impes@localhost:3308/gov_imbesdb
-    INTO pgsql://postgres:postgres@localhost:5433/government_projects
+    FROM mysql://impesUser:CHANGEME_MYSQL@localhost:3308/gov_imbesdb
+    INTO pgsql://postgres:CHANGEME_POSTGRES@localhost:5433/government_projects
 
 WITH
     include drop, create tables, create indexes, reset sequences,

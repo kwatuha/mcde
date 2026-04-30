@@ -7,10 +7,10 @@
  *   node scripts/migrate_programs_subprograms.js
  * 
  * Environment variables:
- *   MYSQL_HOST - MySQL host (default: 102.210.149.119)
+ *   MYSQL_HOST - MySQL host (default: localhost)
  *   MYSQL_PORT - MySQL port (default: 3308)
  *   MYSQL_USER - MySQL user (default: impesUser)
- *   MYSQL_PASS - MySQL password (default: Admin2010impes)
+ *   MYSQL_PASS - MySQL password (default: from MYSQL_PASSWORD or postgres for local dev)
  *   MYSQL_DB - MySQL database (default: gov_imbesdb)
  *   PG_HOST - PostgreSQL host (default: localhost)
  *   PG_PORT - PostgreSQL port (default: 5432)
@@ -52,17 +52,17 @@ if (!mysql || !Pool) {
 // Configuration
 const config = {
     mysql: {
-        host: process.env.MYSQL_HOST || '102.210.149.119',
-        port: parseInt(process.env.MYSQL_PORT || '3308'),
+        host: process.env.MYSQL_HOST || 'localhost',
+        port: parseInt(process.env.MYSQL_PORT || '3308', 10),
         user: process.env.MYSQL_USER || 'impesUser',
-        password: process.env.MYSQL_PASS || 'Admin2010impes',
+        password: process.env.MYSQL_PASS || process.env.MYSQL_PASSWORD || 'postgres',
         database: process.env.MYSQL_DB || 'gov_imbesdb',
     },
     postgres: {
         host: process.env.PG_HOST || 'localhost',
         port: parseInt(process.env.PG_PORT || '5432'),
         user: process.env.PG_USER || 'postgres',
-        password: process.env.PG_PASS || 'postgres',
+        password: process.env.PG_PASS || process.env.PG_PASSWORD || process.env.DB_PASSWORD || 'postgres',
         database: process.env.PG_DB || 'government_projects',
     }
 };

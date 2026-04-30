@@ -28,7 +28,7 @@ DUMP_DIR="${DUMP_DIR:-$REPO_ROOT/.remote-dumps}"
 
 # Defaults match deploy-machos-server.sh
 SERVER_USER="${SERVER_USER:-fortress}"
-SERVER_IP="${SERVER_IP:-102.210.149.119}"
+SERVER_IP="${SERVER_IP:-localhost}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_gprs_server}"
 SERVER_PATH="${SERVER_PATH:-/home/fortress/gprs}"
 

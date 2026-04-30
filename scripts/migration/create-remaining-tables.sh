@@ -4,11 +4,14 @@
 
 set -e
 
+MYSQL_USER="${MYSQL_USER:-impesUser}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-postgres}"
+
 echo "Creating remaining tables from MySQL..."
 
 # Export MySQL schema for all tables
 echo "Step 1: Exporting MySQL schema..."
-docker exec gov_db mysqldump -u impesUser -pAdmin2010impes \
+docker exec gov_db mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" \
   --no-data --skip-triggers --skip-add-drop-table \
   gov_imbesdb 2>/dev/null | \
   grep -E "^CREATE TABLE" | \
@@ -33,7 +36,7 @@ EXISTING=$(docker exec gov_postgres psql -U postgres -d government_projects -t -
   "SELECT tablename FROM pg_tables WHERE schemaname = 'public';" 2>/dev/null | \
   tr -d ' ' | sort)
 
-MYSQL_TABLES=$(docker exec gov_db mysql -u impesUser -pAdmin2010impes gov_imbesdb -e \
+MYSQL_TABLES=$(docker exec gov_db mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" gov_imbesdb -e \
   "SHOW TABLES;" 2>/dev/null | grep -v "Tables_in" | sort)
 
 echo "Step 2: Processing tables one by one..."
@@ -48,7 +51,7 @@ for table in $MYSQL_TABLES; do
   echo "📋 Creating $table..."
   
   # Get CREATE TABLE from MySQL
-  CREATE_SQL=$(docker exec gov_db mysql -u impesUser -pAdmin2010impes gov_imbesdb -e \
+  CREATE_SQL=$(docker exec gov_db mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" gov_imbesdb -e \
     "SHOW CREATE TABLE \`$table\`\G" 2>/dev/null | \
     grep -A 100 "Create Table" | \
     tail -n +2 | \

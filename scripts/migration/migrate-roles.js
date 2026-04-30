@@ -3,19 +3,19 @@ const mysql = require('mysql2/promise');
 const { Pool } = require('pg');
 
 const mysqlConfig = {
-    host: 'localhost',
-    port: 3308,
-    user: 'root',
-    password: 'root_password',
-    database: 'gov_imbesdb'
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: Number(process.env.MYSQL_PORT || 3308),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || process.env.MYSQL_ROOT_PASSWORD || 'postgres',
+    database: process.env.MYSQL_DB || 'gov_imbesdb'
 };
 
 const pgConfig = {
-    host: 'localhost',
-    port: 5433,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'government_projects'
+    host: process.env.PG_HOST || 'localhost',
+    port: Number(process.env.PG_PORT || 5433),
+    user: process.env.PG_USER || 'postgres',
+    password: process.env.PG_PASSWORD || process.env.PG_PASS || process.env.DB_PASSWORD || 'postgres',
+    database: process.env.PG_DB || 'government_projects'
 };
 
 async function migrateRoles() {

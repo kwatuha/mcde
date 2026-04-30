@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 MYSQL_HOST="${MYSQL_HOST:-localhost}"
 MYSQL_PORT="${MYSQL_PORT:-3308}"
 MYSQL_USER="${MYSQL_USER:-impesUser}"
-MYSQL_PASSWORD="${MYSQL_PASSWORD:-Admin2010impes}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-postgres}"
 MYSQL_DATABASE="${MYSQL_DATABASE:-gov_imbesdb}"
 
 PG_HOST="${PG_HOST:-localhost}"

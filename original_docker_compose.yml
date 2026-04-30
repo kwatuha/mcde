@@ -43,8 +43,8 @@ services:
       - mysql_db
     environment:
       DB_HOST: mysql_db # Use the service name to connect to the database
-      DB_USER: impesUser
-      DB_PASSWORD: Admin2010impes
+      DB_USER: ${MYSQL_USER:-impesUser}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-postgres}
       DB_NAME: imbesdb
     command: npm run dev # Assuming a script to start the server with a watcher (like nodemon)
 
@@ -54,10 +54,10 @@ services:
     restart: always
     command: --default-authentication-plugin=mysql_native_password
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-postgres}
       MYSQL_DATABASE: imbesdb
-      MYSQL_USER: impesUser
-      MYSQL_PASSWORD: Admin2010impes
+      MYSQL_USER: ${MYSQL_USER:-impesUser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-postgres}
     volumes:
       - ./api/init.sql:/docker-entrypoint-initdb.d/init.sql
       - db_data:/var/lib/mysql

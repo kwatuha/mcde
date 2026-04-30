@@ -14,7 +14,7 @@ const mysqlConfig = {
     host: process.env.MYSQL_HOST || 'localhost',
     port: parseInt(process.env.MYSQL_PORT || '3308'),
     user: process.env.MYSQL_USER || 'impesUser',
-    password: process.env.MYSQL_PASSWORD || 'Admin2010impes',
+    password: process.env.MYSQL_PASSWORD || process.env.MYSQL_PASS || 'postgres',
     database: process.env.MYSQL_DATABASE || 'gov_imbesdb',
 };
 

@@ -20,7 +20,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Same defaults as deploy-machos-server.sh (override with env)
 SERVER_USER="${SERVER_USER:-fortress}"
-SERVER_IP="${SERVER_IP:-102.210.149.119}"
+SERVER_IP="${SERVER_IP:-localhost}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_gprs_server}"
 
 REMOTE_SITES_FILE="${REMOTE_SITES_FILE:-/etc/nginx/sites-available/gprs}"
