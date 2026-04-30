@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-04-30T12:41:33.749Z",
+  "sourceDir": "/media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f6/devEx/countyerp/api.iebc",
+  "targetCounty": "MACHAKOS",
+  "outputDir": "/media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f6/newDev/machakos/frontend/public/gis/machakos",
+  "stats": {
+    "countyFeatures": 1,
+    "constituencyFeatures": 8,
+    "wardFeatures": 41
+  },
+  "files": {
+    "county": "/media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f6/newDev/machakos/frontend/public/gis/machakos/machakos-county.geojson",
+    "constituencies": "/media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f6/newDev/machakos/frontend/public/gis/machakos/machakos-constituencies.geojson",
+    "wards": "/media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f6/newDev/machakos/frontend/public/gis/machakos/machakos-wards.geojson"
+  }
+}

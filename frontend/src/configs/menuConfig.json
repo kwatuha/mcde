@@ -31,6 +31,11 @@
           "route": "SYSTEM_DASHBOARD"
         },
         {
+          "title": "GIS Dashboard",
+          "icon": "MapIcon",
+          "route": "GIS_DASHBOARD"
+        },
+        {
           "title": "Personal Dashboard",
           "icon": "DashboardIcon",
           "route": "DASHBOARD"

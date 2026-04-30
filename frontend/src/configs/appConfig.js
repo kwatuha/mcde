@@ -63,6 +63,7 @@ export const ROUTES = {
     PROJECTS: '/projects',
     REPORTS: '/reports',
     GIS_MAPPING: '/maps',
+    GIS_DASHBOARD: '/gis-dashboard',
     REPORTING_OVERVIEW: '/view-reports',
     REGIONAL_REPORTING: '/regional-reports',
     REGIONAL_DASHBOARD: '/regional-dashboard',

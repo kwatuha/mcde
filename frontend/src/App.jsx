@@ -32,6 +32,7 @@ import DataImportPage from './pages/DataImportPage';
 import KdspProjectDetailsPage from './pages/KdspProjectDetailsPage';
 // NEW: Import the GISMapPage for the new mapping component
 import GISMapPage from './pages/GISMapPage';
+import GISDashboardPage from './pages/GISDashboardPage';
 // NEW: Import the MapDataImportPage for the map data import form
 import MapDataImportPage from './pages/MapDataImportPage';
 // NEW: Import the SettingsPage
@@ -226,6 +227,10 @@ const router = createBrowserRouter([
       {
         path: 'maps',
         element: <GISMapPage />,
+      },
+      {
+        path: 'gis-dashboard',
+        element: <GISDashboardPage />,
       },
       {
         path: 'maps/import-data',
