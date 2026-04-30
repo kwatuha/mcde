@@ -62,6 +62,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   });
   const [file, setFile] = useState(null);
   const [generatedPdfFile, setGeneratedPdfFile] = useState(null);
+  const [bqItems, setBqItems] = useState([]);
   const [draft, setDraft] = useState({
     countyName: 'COUNTY GOVERNMENT',
     issuingMinistry: '',
@@ -103,6 +104,20 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     loadCertificates();
   }, [loadCertificates]);
 
+  useEffect(() => {
+    const loadBqItems = async () => {
+      if (!projectId) return;
+      try {
+        const items = await projectService.bq.getItems(projectId);
+        setBqItems(Array.isArray(items) ? items : []);
+      } catch (err) {
+        // Non-blocking for certificate flow; BQ section will simply be empty.
+        setBqItems([]);
+      }
+    };
+    loadBqItems();
+  }, [projectId]);
+
   const downloadName = useMemo(() => {
     if (file) return file.name;
     if (generatedPdfFile) return generatedPdfFile.name;
@@ -116,6 +131,32 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const today = form.requestDate || new Date().toISOString().slice(0, 10);
     const certNo = form.certNumber || 'N/A';
     const title = draft.projectTitle || `Project #${projectId}`;
+
+    const normalizedBq = bqItems.map((item) => {
+      const budget = Number(item.budgetAmount || 0);
+      const progress = Number(item.progressPercent || 0);
+      const payable = (budget * progress) / 100;
+      return {
+        code: item.sortOrder ? String(item.sortOrder) : '',
+        description: item.activityName || item.milestoneName || '-',
+        qty: budget,
+        percent: progress,
+        amount: payable,
+      };
+    });
+    const totalBqAmount = normalizedBq.reduce((sum, i) => sum + i.amount, 0);
+    const computedGross = draft.grossAmount && String(draft.grossAmount).trim() !== ''
+      ? Number(String(draft.grossAmount).replace(/,/g, '')) || 0
+      : totalBqAmount;
+    const computedNet = draft.netAmount && String(draft.netAmount).trim() !== ''
+      ? Number(String(draft.netAmount).replace(/,/g, '')) || 0
+      : totalBqAmount;
+    const computedInclusive = draft.totalWorkInclusive && String(draft.totalWorkInclusive).trim() !== ''
+      ? draft.totalWorkInclusive
+      : totalBqAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const computedExclusive = draft.totalWorkExclusive && String(draft.totalWorkExclusive).trim() !== ''
+      ? draft.totalWorkExclusive
+      : totalBqAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     let y = 44;
     doc.setFont('helvetica', 'bold');
@@ -164,23 +205,64 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       theme: 'grid',
       head: [['Item', 'Amount (Ksh)']],
       body: [
-        ['Total Work Done (Tax Inclusive)', draft.totalWorkInclusive || '0.00'],
-        ['Total Work Done (Tax Exclusive)', draft.totalWorkExclusive || '0.00'],
+        ['Total Work Done (Tax Inclusive)', computedInclusive],
+        ['Total Work Done (Tax Exclusive)', computedExclusive],
         ['VAT Amount', draft.vatAmount || '0.00'],
         ['Withholding Tax', draft.withholdingTax || '0.00'],
         ['VAT Deduction', draft.vatDeduction || '0.00'],
         ['Retention Amount', draft.retentionAmount || '0.00'],
         ['Advance Recovery', draft.advanceRecovery || '0.00'],
         ['Previous Cumulative Certificates', draft.previousCumulative || '0.00'],
-        ['Gross Amount', draft.grossAmount || '0.00'],
-        ['Net Amount Due', draft.netAmount || '0.00'],
+        ['Gross Amount', computedGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        ['Net Amount Due', computedNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
       ],
       margin: { left: margin, right: margin },
       styles: { fontSize: 9, cellPadding: 5 },
       headStyles: { fillColor: [41, 128, 185] },
     });
 
-    y = (doc.lastAutoTable?.finalY || y) + 16;
+    y = (doc.lastAutoTable?.finalY || y) + 18;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('BQ ACTIVITY SUMMARY', margin, y);
+    y += 8;
+
+    const bqRows = normalizedBq.map((row, idx) => ([
+      String.fromCharCode(65 + (idx % 26)),
+      row.description,
+      row.qty.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      `${row.percent.toFixed(2)}%`,
+      row.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    ]));
+
+    if (bqRows.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        theme: 'grid',
+        head: [['ITEM', 'DESCRIPTION', 'QTY', '%', 'AMOUNT']],
+        body: [
+          ...bqRows,
+          ['', 'TOTAL FOR THEATRE BLOCK', '', '', totalBqAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+        ],
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [80, 80, 80] },
+        columnStyles: {
+          0: { cellWidth: 36 },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right' },
+        },
+      });
+      y = (doc.lastAutoTable?.finalY || y) + 16;
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text('No BQ activities available for this project.', margin, y + 10);
+      y += 24;
+    }
+
     doc.setFont('helvetica', 'normal');
     const contractor = draft.contractorName || '-';
     const clientMinistry = draft.clientMinistry || '-';
@@ -491,6 +573,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="Net Amount Due" value={draft.netAmount} onChange={(e) => setDraft((p) => ({ ...p, netAmount: e.target.value }))} />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                BQ-based payable summary in PDF uses current BQ items ({bqItems.length} rows). Amount per row = Budget x % Complete.
+              </Typography>
             </Grid>
             <Grid item xs={12}>
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
