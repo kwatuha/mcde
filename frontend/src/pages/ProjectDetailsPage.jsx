@@ -55,6 +55,8 @@ import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
 import ProjectDocumentsAttachments from '../components/ProjectDocumentsAttachments';
+import ProjectBQTab from '../components/ProjectBQTab';
+import ProjectCertificatesTab from '../components/ProjectCertificatesTab';
 import ProjectMapEditor from '../components/ProjectMapEditor';
 import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/projectStatusColors';
 import * as XLSX from 'xlsx';
@@ -634,7 +636,7 @@ function ProjectDetailsPage() {
     }, [projectId]);
 
     useEffect(() => {
-        if (activeTab === 10) {
+        if (activeTab === 12) {
             fetchFundingData();
         }
     }, [activeTab, fetchFundingData]);
@@ -2616,7 +2618,7 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=Documents, 9=Map */}
+                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=Documents, 9=BQ, 10=Certificates, 11=Map, 12=Funds */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
@@ -2626,6 +2628,8 @@ function ProjectDetailsPage() {
                     <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
                     <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
                     <Tab label="Documents" icon={<DescriptionIcon />} iconPosition="start" />
+                    <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
+                    <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Funds" icon={<AccountBalanceWalletIcon />} iconPosition="start" />
                 </Tabs>
@@ -5576,11 +5580,29 @@ function ProjectDetailsPage() {
 
                 {activeTab === 9 && (
                     <Box>
-                        <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
+                        <ProjectBQTab
+                            projectId={projectId}
+                            canModify={canModifyOrCreateProjects}
+                        />
                     </Box>
                 )}
 
                 {activeTab === 10 && (
+                    <Box>
+                        <ProjectCertificatesTab
+                            projectId={projectId}
+                            canModify={canModifyOrCreateProjects}
+                        />
+                    </Box>
+                )}
+
+                {activeTab === 11 && (
+                    <Box>
+                        <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
+                    </Box>
+                )}
+
+                {activeTab === 12 && (
                     <Box>
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
                             <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>

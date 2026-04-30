@@ -28,6 +28,7 @@ const projectProposalRatingRoutes = require('./projectProposalRatingRoutes');
 const { projectRouter: projectPhotoRouter, photoRouter } = require('./projectPhotoRoutes'); 
 const projectAssignmentRoutes = require('./projectAssignmentRoutes');
 const projectJobsRoutes = require('./projectJobsRoutes');
+const projectBqRoutes = require('./projectBqRoutes');
 
 const PROJECT_IMPORT_LOG_DIR = path.join(__dirname, '..', 'uploads', 'project-import-logs');
 
@@ -425,6 +426,7 @@ router.use('/projectscheduling', projectSchedulingRoutes);
 router.use('/projectcategories', projectCategoryRoutes);
 router.use('/:projectId/monitoring', projectMonitoringRoutes);
 router.use('/:projectId', projectJobsRoutes);
+router.use('/:projectId/bq', projectBqRoutes);
 
 
 // Mount junction table routers
@@ -4193,8 +4195,34 @@ router.get('/', async (req, res) => {
         const authPrivileges = req.user?.privileges || [];
         if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
-                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
-                queryParams = [...orgScope.projectScopeParamTriple(authUserId), ...queryParams];
+                const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+                let hasProfileScopeContext = false;
+                try {
+                    const profileResult = await pool.query(
+                        `SELECT agency_id, ministry, state_department
+                         FROM users
+                         WHERE userid = $1 AND COALESCE(voided, false) = false
+                         LIMIT 1`,
+                        [authUserId]
+                    );
+                    const profile = profileResult?.rows?.[0];
+                    hasProfileScopeContext = Boolean(
+                        profile &&
+                        (
+                            profile.agency_id !== null ||
+                            (profile.ministry && String(profile.ministry).trim()) ||
+                            (profile.state_department && String(profile.state_department).trim())
+                        )
+                    );
+                } catch (profileErr) {
+                    console.warn('Project scope profile lookup failed, continuing with safe fallback:', profileErr.message);
+                }
+
+                // Avoid locking users out when this database has no scope rows/profile context for them.
+                if ((scopeRows || []).length > 0 || hasProfileScopeContext) {
+                    whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
+                    queryParams = [...orgScope.projectScopeParamTriple(authUserId), ...queryParams];
+                }
             }
         }
 
@@ -5513,12 +5541,37 @@ router.get('/:id', async (req, res) => {
         let query = GET_SINGLE_PROJECT_QUERY(DB_TYPE);
         let params = [id];
 
-               const authUserId = getScopeUserId(req.user);
+        const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
         if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
-                query = orgScope.appendSingleProjectScopeWhereClause(query);
-                params = orgScope.singleProjectScopeParams(id, authUserId);
+                const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+                let hasProfileScopeContext = false;
+                try {
+                    const profileResult = await pool.query(
+                        `SELECT agency_id, ministry, state_department
+                         FROM users
+                         WHERE userid = $1 AND COALESCE(voided, false) = false
+                         LIMIT 1`,
+                        [authUserId]
+                    );
+                    const profile = profileResult?.rows?.[0];
+                    hasProfileScopeContext = Boolean(
+                        profile &&
+                        (
+                            profile.agency_id !== null ||
+                            (profile.ministry && String(profile.ministry).trim()) ||
+                            (profile.state_department && String(profile.state_department).trim())
+                        )
+                    );
+                } catch (profileErr) {
+                    console.warn('Single project scope profile lookup failed, continuing with safe fallback:', profileErr.message);
+                }
+
+                if ((scopeRows || []).length > 0 || hasProfileScopeContext) {
+                    query = orgScope.appendSingleProjectScopeWhereClause(query);
+                    params = orgScope.singleProjectScopeParams(id, authUserId);
+                }
             }
         }
 

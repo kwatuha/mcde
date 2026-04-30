@@ -394,6 +394,56 @@ const projectService = {
       return response.data;
     },
   },
+
+  certificates: {
+    getByProject: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/project_certificates/project/${projectId}`);
+      return response.data;
+    },
+    upload: async (formData) => {
+      const response = await axiosInstance.post('/projects/project_certificates/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    remove: async (certificateId) => {
+      const response = await axiosInstance.delete(`/projects/project_certificates/${certificateId}`);
+      return response.data;
+    },
+    download: async (certificateId) => {
+      const response = await axiosInstance.get(`/projects/project_certificates/${certificateId}/download`, {
+        responseType: 'blob',
+      });
+      return response.data;
+    },
+  },
+
+  bq: {
+    getItems: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/bq`);
+      return response.data;
+    },
+    createItem: async (projectId, payload) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/bq`, payload);
+      return response.data;
+    },
+    updateItem: async (projectId, itemId, payload) => {
+      const response = await axiosInstance.put(`/projects/${projectId}/bq/${itemId}`, payload);
+      return response.data;
+    },
+    deleteItem: async (projectId, itemId) => {
+      const response = await axiosInstance.delete(`/projects/${projectId}/bq/${itemId}`);
+      return response.data;
+    },
+    getProgressLogs: async (projectId, itemId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/bq/${itemId}/progress`);
+      return response.data;
+    },
+    addProgressLog: async (projectId, itemId, payload) => {
+      const response = await axiosInstance.post(`/projects/${projectId}/bq/${itemId}/progress`, payload);
+      return response.data;
+    },
+  },
   
   // --- NEW: Contractor Management API Calls ---
   contractors: {
