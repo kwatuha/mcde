@@ -20,7 +20,7 @@ const HelpSupportPage = () => {
         Help & Support
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Quick user documentation for navigating and using the Government Projects Reporting Information System.
+        Quick user documentation for navigating and using the Machakos County Monitoring and Evaluation System.
       </Typography>
 
       <Grid container spacing={2}>
@@ -77,6 +77,74 @@ const HelpSupportPage = () => {
                   <ListItemText
                     primary="Reset your password"
                     secondary="Use Change Password from the three-dot menu. If prompted, complete forced password change before proceeding."
+                  />
+                </ListItem>
+              </List>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                Programs & Sub Programs Guide
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <List dense disablePadding>
+                <ListItem>
+                  <ListItemText
+                    primary="Step 1: Create or open CIDP"
+                    secondary="Open Planning > CIDP, click Add New, fill plan details (name, start date, end date), then open the plan."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="Step 2: Add Programs"
+                    secondary="Inside the selected plan details, go to Programs and click Add Program."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="Step 3: Add Sub Programs"
+                    secondary="Under each Program, click Add Sub Program and save."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="Step 4: Continue planning flow"
+                    secondary="Proceed to activities and annual work plans as needed."
+                  />
+                </ListItem>
+              </List>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                Approval Workflows Guide
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <List dense disablePadding>
+                <ListItem>
+                  <ListItemText
+                    primary="Generic approval workflows"
+                    secondary="Use workflow definitions and ordered role-based steps for new features."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="How requests move"
+                    secondary='Each definition uses an entity_type (for example annual_workplan or payment_request). Approvers see items under "My pending approval steps" when their role matches the current step.'
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemText
+                    primary="How to start from your feature"
+                    secondary="Call POST /api/approval-workflow/requests/start with entityType and entityId."
                   />
                 </ListItem>
               </List>

@@ -160,11 +160,6 @@
           "route": "BUDGET_MANAGEMENT"
         },
         {
-          "title": "How to Create Programs & Sub Programs",
-          "icon": "MenuBookIcon",
-          "route": "PLANNING_PROGRAMS_GUIDE"
-        },
-        {
           "title": "Approvals & workflows",
           "icon": "ApprovalIcon",
           "route": "APPROVAL_LEVELS_MANAGEMENT",

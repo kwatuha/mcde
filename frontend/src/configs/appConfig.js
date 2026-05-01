@@ -103,7 +103,6 @@ export const ROUTES = {
     PROJECTS_BY_ORGANIZATION: '/projects-by-organization', // ✨ NEW: Projects by organization dashboard
     SYSTEM_DASHBOARD: '/summary-statistics', // ✨ NEW: Summary Statistics route
     OPERATIONS_DASHBOARD: '/operations-dashboard', // ✨ NEW: Operations Dashboard route
-    PLANNING_PROGRAMS_GUIDE: '/planning/programs-guide',
     JOBS_DASHBOARD: '/jobs-dashboard', // ✨ NEW: Jobs & Impact Dashboard route
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route

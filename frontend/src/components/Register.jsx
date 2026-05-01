@@ -62,9 +62,9 @@ const Register = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingOrg, setLoadingOrg] = useState(false);
-    /** Full GET /public/ministries?withDepartments=1 payload */
+    /** Full GET /public/ministries?withDepartments=1&withSections=1 payload */
     const [ministriesHierarchy, setMinistriesHierarchy] = useState([]);
-    const [ministryNames, setMinistryNames] = useState([]);
+    const [departmentOptions, setDepartmentOptions] = useState([]);
     const [filteredStateDepartments, setFilteredStateDepartments] = useState([]);
     const [formErrors, setFormErrors] = useState({});
     const [showPassword, setShowPassword] = useState(false);
@@ -72,19 +72,26 @@ const Register = () => {
     const navigate = useNavigate();
     const fontStack = '"Helvetica Neue", Helvetica, Arial, "Segoe UI", sans-serif';
 
-    // Ministries + state departments from catalog (PostgreSQL seed tables)
+    // Department/directorate catalog for self-registration (from ministries->departments->sections hierarchy)
     useEffect(() => {
         const fetchOrg = async () => {
             setLoadingOrg(true);
             try {
                 const response = await axiosInstance.get('/public/ministries', {
-                    params: { withDepartments: '1' },
+                    params: { withDepartments: '1', withSections: '1' },
                 });
                 const list = Array.isArray(response.data) ? response.data : [];
                 setMinistriesHierarchy(list);
-                const names = list.map((m) => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b));
-                setMinistryNames(names);
-                if (names.length === 0) {
+                const flattenedDepartments = list
+                    .flatMap((m) => (Array.isArray(m.departments) ? m.departments : []))
+                    .filter((d) => d && d.name)
+                    .map((d) => ({
+                        ...d,
+                        ministryName: list.find((m) => m.ministryId === d.ministryId)?.name || '',
+                    }))
+                    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                setDepartmentOptions(flattenedDepartments);
+                if (flattenedDepartments.length === 0) {
                     setError('Organization directory is not available. Please contact an administrator.');
                 }
             } catch (err) {
@@ -96,7 +103,7 @@ const Register = () => {
                     'Failed to load ministries.';
                 setError(
                     err?.response?.status === 501
-                        ? 'Ministry directory requires PostgreSQL on the server.'
+                        ? 'Department directory requires PostgreSQL on the server.'
                         : msg
                 );
             } finally {
@@ -111,14 +118,16 @@ const Register = () => {
             setFilteredStateDepartments([]);
             return;
         }
-        const row = ministriesHierarchy.find((m) => m.name === formData.ministry);
-        let depts = (row?.departments || []).map((d) => d.name).filter(Boolean);
-        depts = [...new Set(depts)].sort((a, b) => a.localeCompare(b));
-        if (formData.stateDepartment && !depts.includes(formData.stateDepartment)) {
-            depts = [...depts, formData.stateDepartment].sort((a, b) => a.localeCompare(b));
+
+        // formData.ministry stores selected Department value for backward compatibility with backend payload.
+        const selectedDepartment = departmentOptions.find((d) => d.name === formData.ministry);
+        let directorates = (selectedDepartment?.sections || []).map((s) => s.name).filter(Boolean);
+        directorates = [...new Set(directorates)].sort((a, b) => a.localeCompare(b));
+        if (formData.stateDepartment && !directorates.includes(formData.stateDepartment)) {
+            directorates = [...directorates, formData.stateDepartment].sort((a, b) => a.localeCompare(b));
         }
-        setFilteredStateDepartments(depts);
-    }, [formData.ministry, formData.stateDepartment, ministriesHierarchy]);
+        setFilteredStateDepartments(directorates);
+    }, [formData.ministry, formData.stateDepartment, departmentOptions]);
 
     // Email validation function
     const validateEmail = (email) => {
@@ -159,12 +168,12 @@ const Register = () => {
             return;
         }
 
-        // Validate ministry and state department (agency is optional)
+        // Validate department and directorate (agency is optional)
         if (!formData.ministry) {
-            errors.ministry = 'Ministry is required';
+            errors.ministry = 'Department is required';
         }
         if (!formData.stateDepartment) {
-            errors.stateDepartment = 'State Department is required';
+            errors.stateDepartment = 'Directorate is required';
         }
         if (formData.phoneNumber && !phoneRegex.test(formData.phoneNumber.trim())) {
             errors.phoneNumber = 'Use 07XXXXXXXX or +2547XXXXXXXX';
@@ -298,7 +307,7 @@ const Register = () => {
                                 <Box
                                     component="img"
                                     src={gprisLogo}
-                                    alt="GPRIS — Government Projects Reporting Information System"
+                                    alt="GPRIS — Machakos County Monitoring and Evaluation System"
                                     onError={() => setLogoFailed(true)}
                                     sx={{
                                         maxWidth: '100%',
@@ -338,7 +347,7 @@ const Register = () => {
                                     mx: 'auto',
                                 }}
                             >
-                                Government Projects Reporting Information System
+                                Machakos County Monitoring and Evaluation System
                             </Typography>
                         </Box>
                         <Typography
@@ -655,7 +664,7 @@ const Register = () => {
 
                         <Autocomplete
                             fullWidth
-                            options={ministryNames}
+                            options={departmentOptions.map((d) => d.name)}
                             value={formData.ministry || null}
                             onChange={(event, newValue) => {
                                 setFormData(prev => ({ 
@@ -670,10 +679,10 @@ const Register = () => {
                             renderInput={(params) => (
                                 <TextField
                                     {...params}
-                                    label="Ministry"
+                                    label="Department"
                                     required
                                     error={!!formErrors.ministry}
-                                    helperText={formErrors.ministry || 'Select your ministry'}
+                                    helperText={formErrors.ministry || 'Select your department'}
                                     sx={{ 
                                         mb: 2,
                                         '& .MuiOutlinedInput-root': {
@@ -716,10 +725,17 @@ const Register = () => {
                             renderInput={(params) => (
                                 <TextField
                                     {...params}
-                                    label="State Department"
+                                    label="Directorate"
                                     required
                                     error={!!formErrors.stateDepartment}
-                                    helperText={formErrors.stateDepartment || (formData.ministry ? 'Select your state department' : 'Please select a ministry first')}
+                                    helperText={
+                                        formErrors.stateDepartment ||
+                                        (formData.ministry
+                                            ? (filteredStateDepartments.length > 0
+                                                ? 'Select your directorate'
+                                                : 'No directorates found for selected department')
+                                            : 'Please select a department first')
+                                    }
                                     sx={{ 
                                         mb: 2,
                                         '& .MuiOutlinedInput-root': {

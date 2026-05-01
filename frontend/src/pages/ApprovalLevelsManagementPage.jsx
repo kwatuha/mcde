@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, CircularProgress, IconButton,
@@ -97,6 +97,8 @@ const ApprovalLevelsManagementPage = () => {
     ],
   });
   const [workflowFormErrors, setWorkflowFormErrors] = useState({});
+  const [editWorkflowDefinitionId, setEditWorkflowDefinitionId] = useState(null);
+  const [workflowDefinitionLocked, setWorkflowDefinitionLocked] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -201,6 +203,8 @@ const ApprovalLevelsManagementPage = () => {
   };
 
   const resetWorkflowDraft = () => {
+    setEditWorkflowDefinitionId(null);
+    setWorkflowDefinitionLocked(false);
     setWorkflowDraft({
       entity_type: 'payment_request',
       code: 'default',
@@ -224,6 +228,49 @@ const ApprovalLevelsManagementPage = () => {
     setCreateWorkflowOpen(true);
   };
 
+  const handleOpenEditWorkflow = useCallback(
+    async (row) => {
+      const id = row.definition_id ?? row.definitionId;
+      if (id == null) return;
+      if (!hasPrivilege('approval_levels.update') && !hasPrivilege('approval_levels.create')) {
+        setSnackbar({ open: true, message: 'You need approval_levels.create or approval_levels.update.', severity: 'error' });
+        return;
+      }
+      setWorkflowLoading(true);
+      try {
+        const def = await apiService.approvalWorkflow.getDefinition(id);
+        const stepRows = Array.isArray(def.steps) && def.steps.length ? def.steps : [{ step_name: 'Step 1', role_id: '', sla_hours: '', escalation_role_id: '' }];
+        setWorkflowDraft({
+          entity_type: def.entity_type || '',
+          code: def.code || 'default',
+          name: def.name || '',
+          version: def.version ?? 1,
+          active: def.active !== false && def.active !== 0,
+          steps: stepRows.map((s) => ({
+            step_name: s.step_name || '',
+            role_id: s.role_id != null && s.role_id !== '' ? String(s.role_id) : '',
+            sla_hours: s.sla_hours != null && s.sla_hours !== '' ? String(s.sla_hours) : '',
+            escalation_role_id:
+              s.escalation_role_id != null && s.escalation_role_id !== '' ? String(s.escalation_role_id) : '',
+          })),
+        });
+        setWorkflowDefinitionLocked(Number(def.used_in_requests || 0) > 0);
+        setEditWorkflowDefinitionId(id);
+        setWorkflowFormErrors({});
+        setCreateWorkflowOpen(true);
+      } catch (err) {
+        setSnackbar({
+          open: true,
+          message: err.response?.data?.message || err.message || 'Failed to load definition',
+          severity: 'error',
+        });
+      } finally {
+        setWorkflowLoading(false);
+      }
+    },
+    [hasPrivilege]
+  );
+
   const handleWorkflowStepField = (index, field, value) => {
     setWorkflowDraft((prev) => {
       const steps = [...prev.steps];
@@ -246,12 +293,14 @@ const ApprovalLevelsManagementPage = () => {
     }));
   };
 
-  const handleSubmitCreateWorkflow = async () => {
+  const handleSubmitWorkflowDefinition = async () => {
     const errs = {};
-    if (!workflowDraft.entity_type?.trim()) errs.entity_type = 'Entity type is required (e.g. payment_request, annual_workplan).';
-    workflowDraft.steps.forEach((s, i) => {
-      if (!s.role_id) errs[`step_${i}`] = 'Each step needs a role.';
-    });
+    if (!workflowDefinitionLocked) {
+      if (!workflowDraft.entity_type?.trim()) errs.entity_type = 'Entity type is required (e.g. payment_request, annual_workplan).';
+      workflowDraft.steps.forEach((s, i) => {
+        if (!s.role_id) errs[`step_${i}`] = 'Each step needs a role.';
+      });
+    }
     setWorkflowFormErrors(errs);
     if (Object.keys(errs).length) {
       setSnackbar({ open: true, message: 'Fix the highlighted fields.', severity: 'warning' });
@@ -259,28 +308,59 @@ const ApprovalLevelsManagementPage = () => {
     }
     setWorkflowLoading(true);
     try {
-      const steps = workflowDraft.steps.map((s, idx) => ({
-        step_order: idx + 1,
-        step_name: s.step_name?.trim() || `Step ${idx + 1}`,
-        role_id: Number(s.role_id),
-        sla_hours: s.sla_hours === '' || s.sla_hours == null ? null : Number(s.sla_hours),
-        escalation_role_id: s.escalation_role_id === '' || s.escalation_role_id == null ? null : Number(s.escalation_role_id),
-      }));
-      await apiService.approvalWorkflow.createDefinition({
-        entity_type: workflowDraft.entity_type.trim(),
-        code: (workflowDraft.code || 'default').trim() || 'default',
-        version: Number(workflowDraft.version) || 1,
-        name: workflowDraft.name?.trim() || null,
-        active: workflowDraft.active !== false,
-        steps,
-      });
-      setSnackbar({ open: true, message: 'Workflow definition created.', severity: 'success' });
-      setCreateWorkflowOpen(false);
-      await loadWorkflowPanels();
+      if (editWorkflowDefinitionId != null) {
+        if (workflowDefinitionLocked) {
+          await apiService.approvalWorkflow.updateDefinition(editWorkflowDefinitionId, {
+            name: workflowDraft.name?.trim() || null,
+            active: workflowDraft.active !== false,
+          });
+          setSnackbar({ open: true, message: 'Definition updated (name / active only — in use by requests).', severity: 'success' });
+        } else {
+          const steps = workflowDraft.steps.map((s, idx) => ({
+            step_order: idx + 1,
+            step_name: s.step_name?.trim() || `Step ${idx + 1}`,
+            role_id: Number(s.role_id),
+            sla_hours: s.sla_hours === '' || s.sla_hours == null ? null : Number(s.sla_hours),
+            escalation_role_id: s.escalation_role_id === '' || s.escalation_role_id == null ? null : Number(s.escalation_role_id),
+          }));
+          await apiService.approvalWorkflow.updateDefinition(editWorkflowDefinitionId, {
+            entity_type: workflowDraft.entity_type.trim(),
+            code: (workflowDraft.code || 'default').trim() || 'default',
+            version: Number(workflowDraft.version) || 1,
+            name: workflowDraft.name?.trim() || null,
+            active: workflowDraft.active !== false,
+            steps,
+          });
+          setSnackbar({ open: true, message: 'Workflow definition updated.', severity: 'success' });
+        }
+        setCreateWorkflowOpen(false);
+        resetWorkflowDraft();
+        await loadWorkflowPanels();
+      } else {
+        const steps = workflowDraft.steps.map((s, idx) => ({
+          step_order: idx + 1,
+          step_name: s.step_name?.trim() || `Step ${idx + 1}`,
+          role_id: Number(s.role_id),
+          sla_hours: s.sla_hours === '' || s.sla_hours == null ? null : Number(s.sla_hours),
+          escalation_role_id: s.escalation_role_id === '' || s.escalation_role_id == null ? null : Number(s.escalation_role_id),
+        }));
+        await apiService.approvalWorkflow.createDefinition({
+          entity_type: workflowDraft.entity_type.trim(),
+          code: (workflowDraft.code || 'default').trim() || 'default',
+          version: Number(workflowDraft.version) || 1,
+          name: workflowDraft.name?.trim() || null,
+          active: workflowDraft.active !== false,
+          steps,
+        });
+        setSnackbar({ open: true, message: 'Workflow definition created.', severity: 'success' });
+        setCreateWorkflowOpen(false);
+        resetWorkflowDraft();
+        await loadWorkflowPanels();
+      }
     } catch (err) {
       setSnackbar({
         open: true,
-        message: err.response?.data?.message || err.message || 'Failed to create definition',
+        message: err.response?.data?.message || err.message || 'Failed to save definition',
         severity: 'error',
       });
     } finally {
@@ -306,19 +386,38 @@ const ApprovalLevelsManagementPage = () => {
     }
   };
 
-  const workflowDefColumns = [
-    { field: 'definition_id', headerName: 'ID', width: 70 },
-    { field: 'entity_type', headerName: 'Entity type', flex: 1, minWidth: 140 },
-    { field: 'code', headerName: 'Code', width: 100 },
-    { field: 'version', headerName: 'Ver', width: 60 },
-    { field: 'name', headerName: 'Name', flex: 1, minWidth: 160 },
-    {
-      field: 'active',
-      headerName: 'Active',
-      width: 90,
-      renderCell: (params) => (params.row.active === true || params.row.active === 1 ? 'Yes' : 'No'),
-    },
-  ];
+  const workflowDefColumns = useMemo(
+    () => [
+      { field: 'definition_id', headerName: 'ID', width: 70 },
+      { field: 'entity_type', headerName: 'Entity type', flex: 1, minWidth: 140 },
+      { field: 'code', headerName: 'Code', width: 100 },
+      { field: 'version', headerName: 'Ver', width: 60 },
+      { field: 'name', headerName: 'Name', flex: 1, minWidth: 160 },
+      {
+        field: 'active',
+        headerName: 'Active',
+        width: 90,
+        renderCell: (params) => (params.row.active === true || params.row.active === 1 ? 'Yes' : 'No'),
+      },
+      {
+        field: '_edit',
+        headerName: '',
+        width: 52,
+        sortable: false,
+        filterable: false,
+        disableColumnMenu: true,
+        renderCell: (params) =>
+          hasPrivilege('approval_levels.update') || hasPrivilege('approval_levels.create') ? (
+            <Tooltip title="Edit definition">
+              <IconButton size="small" onClick={() => handleOpenEditWorkflow(params.row)} aria-label="Edit workflow definition">
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null,
+      },
+    ],
+    [hasPrivilege, handleOpenEditWorkflow]
+  );
 
   const workflowPendingColumns = [
     { field: 'request_id', headerName: 'Request', width: 90 },
@@ -625,8 +724,7 @@ const ApprovalLevelsManagementPage = () => {
         Approvals & workflows
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Use <strong>generic workflows</strong> (definitions + steps per role) for new features. Legacy tabs keep the old payment ladder tables until you wire payments to{' '}
-        <code>POST /api/approval-workflow/requests/start</code>.
+        Configure approval definitions and role-based steps. For implementation guidance, see Help &amp; Support.
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
@@ -635,8 +733,7 @@ const ApprovalLevelsManagementPage = () => {
         </Typography>
         <Alert severity="info" sx={{ mb: 2 }}>
           <Typography variant="body2" component="div">
-            <strong>How it works:</strong> Each definition has an <code>entity_type</code> (e.g. <code>annual_workplan</code>, <code>payment_request</code>) and ordered steps with a <code>role_id</code>.
-            Your feature starts a run with <code>entityType</code> + <code>entityId</code> (string id). Approvers see rows under &quot;My pending approval steps&quot; when their role matches the current step.
+            Use this page to manage workflow definitions and step order by role. Detailed integration notes are in Help &amp; Support.
           </Typography>
         </Alert>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mb: 2 }}>
@@ -661,28 +758,6 @@ const ApprovalLevelsManagementPage = () => {
               Add workflow definition
             </Button>
           )}
-          {hasPrivilege('approval_levels.create') && (
-            <>
-              <Button
-                size="small"
-                variant="contained"
-                color="secondary"
-                disabled={workflowLoading}
-                onClick={handleSeedAnnualWorkplanWorkflow}
-              >
-                Seed work plan workflow
-              </Button>
-              <Button
-                size="small"
-                variant="contained"
-                color="secondary"
-                disabled={workflowLoading}
-                onClick={handleSeedPaymentRequestWorkflow}
-              >
-                Seed payment request workflow
-              </Button>
-            </>
-          )}
           {hasPrivilege('approval_levels.update') && (
             <Button
               size="small"
@@ -706,7 +781,7 @@ const ApprovalLevelsManagementPage = () => {
           </Box>
         ) : workflowDefs.length === 0 ? (
           <Alert severity="info">
-            No definitions yet. Click <strong>Add workflow definition</strong>, or use the seed buttons for ready-made examples.
+            No definitions yet. Click <strong>Add workflow definition</strong> to create one.
           </Alert>
         ) : (
           <>
@@ -744,145 +819,6 @@ const ApprovalLevelsManagementPage = () => {
           </Box>
         )}
       </Paper>
-
-      <Divider sx={{ my: 2 }} />
-      <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-        Legacy payment configuration
-      </Typography>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-        Optional tables used by older payment-request code paths. Prefer generic workflows above for new payment approval UX.
-      </Typography>
-
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={mainTabValue} onChange={handleMainTabChange} aria-label="legacy payment tabs">
-          <Tab label="LEGACY LEVELS" sx={{ fontWeight: 'bold' }} />
-          <Tab label="PAYMENT STATUSES" sx={{ fontWeight: 'bold' }} />
-        </Tabs>
-      </Box>
-
-      {mainTabValue === 0 && (
-          <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="subtitle1">Manage your multi-stage approval hierarchy.</Typography>
-              {hasPrivilege('approval_levels.create') && (
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleOpenCreateLevelDialog}
-                  sx={{ backgroundColor: '#16a34a', '&:hover': { backgroundColor: '#15803d' }, color: 'white', fontWeight: 'semibold' }}
-                >
-                  Add New Level
-                </Button>
-              )}
-            </Box>
-            {approvalLevels.length === 0 ? (
-              <Alert severity="info">No approval levels found. Add a new level to get started.</Alert>
-            ) : (
-                <Box
-                  sx={{
-                    height: 400,
-                    width: '100%',
-                    "& .MuiDataGrid-root": {
-                        border: "none",
-                        color: theme.palette.text.primary,
-                    },
-                    "& .MuiDataGrid-cell": {
-                        borderBottom: "none",
-                        color: theme.palette.text.primary,
-                    },
-                    "& .MuiDataGrid-columnHeaders": {
-                        backgroundColor: `${colors.blueAccent[700]} !important`,
-                        borderBottom: "none",
-                    },
-                    "& .MuiDataGrid-virtualScroller": {
-                        backgroundColor: colors.primary[400],
-                    },
-                    "& .MuiDataGrid-footerContainer": {
-                        borderTop: "none",
-                        backgroundColor: `${colors.blueAccent[700]} !important`,
-                    },
-                    "& .MuiCheckbox-root": {
-                        color: `${colors.greenAccent[200]} !important`,
-                    },
-                  }}
-                >
-                  <DataGrid
-                    rows={approvalLevels}
-                    columns={levelColumns}
-                    getRowId={(row) => row.levelId}
-                    initialState={{
-                        pagination: {
-                            paginationModel: { pageSize: 10, page: 0 },
-                        },
-                    }}
-                    pageSizeOptions={[10, 25, 50]}
-                  />
-                </Box>
-            )}
-          </Box>
-      )}
-      
-      {mainTabValue === 1 && (
-          <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="subtitle1">Manage the list of available payment statuses.</Typography>
-              {hasPrivilege('payment_status_definitions.create') && (
-                  <Button
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={handleOpenCreateStatusDialog}
-                      sx={{ backgroundColor: '#16a34a', '&:hover': { backgroundColor: '#15803d' }, color: 'white', fontWeight: 'semibold' }}
-                  >
-                      Add New Status
-                  </Button>
-              )}
-            </Box>
-            {paymentStatuses.length === 0 ? (
-              <Alert severity="info">No payment statuses found. Add a new one to get started.</Alert>
-            ) : (
-                <Box
-                    sx={{
-                        height: 400,
-                        width: '100%',
-                        "& .MuiDataGrid-root": {
-                            border: "none",
-                            color: theme.palette.text.primary,
-                        },
-                        "& .MuiDataGrid-cell": {
-                            borderBottom: "none",
-                            color: theme.palette.text.primary,
-                        },
-                        "& .MuiDataGrid-columnHeaders": {
-                            backgroundColor: `${colors.blueAccent[700]} !important`,
-                            borderBottom: "none",
-                        },
-                        "& .MuiDataGrid-virtualScroller": {
-                            backgroundColor: colors.primary[400],
-                        },
-                        "& .MuiDataGrid-footerContainer": {
-                            borderTop: "none",
-                            backgroundColor: `${colors.blueAccent[700]} !important`,
-                        },
-                        "& .MuiCheckbox-root": {
-                            color: `${colors.greenAccent[200]} !important`,
-                        },
-                    }}
-                >
-                  <DataGrid
-                    rows={paymentStatuses}
-                    columns={statusColumns}
-                    getRowId={(row) => row.statusId}
-                    initialState={{
-                        pagination: {
-                            paginationModel: { pageSize: 10, page: 0 },
-                        },
-                    }}
-                    pageSizeOptions={[10, 25, 50]}
-                  />
-                </Box>
-            )}
-          </Box>
-      )}
 
       {/* Add/Edit Approval Level Dialog */}
       <Dialog open={openLevelDialog} onClose={handleCloseLevelDialog} fullWidth maxWidth="sm">
@@ -980,7 +916,10 @@ const ApprovalLevelsManagementPage = () => {
 
       <Dialog
         open={createWorkflowOpen}
-        onClose={() => setCreateWorkflowOpen(false)}
+        onClose={() => {
+          setCreateWorkflowOpen(false);
+          resetWorkflowDraft();
+        }}
         fullWidth
         maxWidth="md"
         scroll="paper"
@@ -989,7 +928,7 @@ const ApprovalLevelsManagementPage = () => {
         <DialogTitle id="create-workflow-dialog-title">
           <Stack spacing={0.5}>
             <Typography component="span" variant="h6" fontWeight={700}>
-              Add workflow definition
+              {editWorkflowDefinitionId != null ? 'Edit workflow definition' : 'Add workflow definition'}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Definitions are matched by <code>entity_type</code> + <code>code</code> + <code>version</code>. Only one active definition per type is used when starting a request.
@@ -998,10 +937,15 @@ const ApprovalLevelsManagementPage = () => {
         </DialogTitle>
         <DialogContent dividers sx={{ pt: 1 }}>
           <Stack spacing={3}>
+            {workflowDefinitionLocked && (
+              <Alert severity="warning">
+                This definition already has approval requests. Only <strong>display name</strong> and <strong>active</strong> can be changed.
+                To change steps or identifiers, create a <strong>new version</strong> (or code) with &quot;Add workflow definition&quot;.
+              </Alert>
+            )}
             <Alert severity="info" variant="outlined">
               <Typography variant="body2">
-                Creates <code>approval_workflow_definitions</code> and <code>approval_workflow_steps</code>. Your app calls{' '}
-                <code>POST /api/approval-workflow/requests/start</code> with the same <code>entityType</code> string and an <code>entityId</code> (string).
+                This form saves workflow definitions and steps used by the approval engine.
               </Typography>
             </Alert>
 
@@ -1020,6 +964,7 @@ const ApprovalLevelsManagementPage = () => {
                         key={t}
                         size="small"
                         label={t}
+                        disabled={workflowDefinitionLocked}
                         onClick={() => setWorkflowDraft((p) => ({ ...p, entity_type: t }))}
                         color={workflowDraft.entity_type === t ? 'primary' : 'default'}
                         variant={workflowDraft.entity_type === t ? 'filled' : 'outlined'}
@@ -1030,6 +975,7 @@ const ApprovalLevelsManagementPage = () => {
                     label="Entity type"
                     fullWidth
                     required
+                    disabled={workflowDefinitionLocked}
                     value={workflowDraft.entity_type}
                     onChange={(e) => setWorkflowDraft((p) => ({ ...p, entity_type: e.target.value }))}
                     error={!!workflowFormErrors.entity_type}
@@ -1044,6 +990,7 @@ const ApprovalLevelsManagementPage = () => {
                   <TextField
                     label="Code"
                     fullWidth
+                    disabled={workflowDefinitionLocked}
                     value={workflowDraft.code}
                     onChange={(e) => setWorkflowDraft((p) => ({ ...p, code: e.target.value }))}
                     helperText="Variant label; most apps use default"
@@ -1055,6 +1002,7 @@ const ApprovalLevelsManagementPage = () => {
                     label="Version"
                     type="number"
                     fullWidth
+                    disabled={workflowDefinitionLocked}
                     value={workflowDraft.version}
                     onChange={(e) => setWorkflowDraft((p) => ({ ...p, version: e.target.value }))}
                     inputProps={{ min: 1 }}
@@ -1088,7 +1036,7 @@ const ApprovalLevelsManagementPage = () => {
               </Grid>
             </Box>
 
-            <Box>
+            <Box sx={{ opacity: workflowDefinitionLocked ? 0.55 : 1, pointerEvents: workflowDefinitionLocked ? 'none' : 'auto' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1}>
                 <Box>
                   <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
@@ -1098,7 +1046,7 @@ const ApprovalLevelsManagementPage = () => {
                     First row is step 1 (runs first). Each step needs a role that can approve in &quot;My pending steps&quot;.
                   </Typography>
                 </Box>
-                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleAddWorkflowStep}>
+                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleAddWorkflowStep} disabled={workflowDefinitionLocked}>
                   Add step
                 </Button>
               </Stack>
@@ -1123,6 +1071,7 @@ const ApprovalLevelsManagementPage = () => {
                           label="Step name"
                           fullWidth
                           size="small"
+                          disabled={workflowDefinitionLocked}
                           value={step.step_name}
                           onChange={(e) => handleWorkflowStepField(index, 'step_name', e.target.value)}
                           helperText="Label for approvers"
@@ -1139,6 +1088,7 @@ const ApprovalLevelsManagementPage = () => {
                           <Select
                             labelId={`wf-role-label-${index}`}
                             label="Approver role"
+                            disabled={workflowDefinitionLocked}
                             value={step.role_id}
                             onChange={(e) => handleWorkflowStepField(index, 'role_id', e.target.value)}
                             MenuProps={WORKFLOW_SELECT_MENU_PROPS}
@@ -1165,6 +1115,7 @@ const ApprovalLevelsManagementPage = () => {
                           type="number"
                           fullWidth
                           size="small"
+                          disabled={workflowDefinitionLocked}
                           value={step.sla_hours}
                           onChange={(e) => handleWorkflowStepField(index, 'sla_hours', e.target.value)}
                           helperText="Optional; due date for this step"
@@ -1177,6 +1128,7 @@ const ApprovalLevelsManagementPage = () => {
                           <Select
                             labelId={`wf-esc-label-${index}`}
                             label="Escalate to"
+                            disabled={workflowDefinitionLocked}
                             value={step.escalation_role_id}
                             onChange={(e) => handleWorkflowStepField(index, 'escalation_role_id', e.target.value)}
                             MenuProps={WORKFLOW_SELECT_MENU_PROPS}
@@ -1198,7 +1150,7 @@ const ApprovalLevelsManagementPage = () => {
                           <span>
                             <IconButton
                               aria-label="remove step"
-                              disabled={workflowDraft.steps.length <= 1}
+                              disabled={workflowDefinitionLocked || workflowDraft.steps.length <= 1}
                               onClick={() => handleRemoveWorkflowStep(index)}
                               color="error"
                               size="small"
@@ -1216,11 +1168,17 @@ const ApprovalLevelsManagementPage = () => {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider' }}>
-          <Button onClick={() => setCreateWorkflowOpen(false)} color="inherit">
+          <Button
+            onClick={() => {
+              setCreateWorkflowOpen(false);
+              resetWorkflowDraft();
+            }}
+            color="inherit"
+          >
             Cancel
           </Button>
-          <Button onClick={handleSubmitCreateWorkflow} variant="contained" disabled={workflowLoading} size="large">
-            Create definition
+          <Button onClick={handleSubmitWorkflowDefinition} variant="contained" disabled={workflowLoading} size="large">
+            {editWorkflowDefinitionId != null ? 'Save changes' : 'Create definition'}
           </Button>
         </DialogActions>
       </Dialog>

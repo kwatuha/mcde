@@ -2488,12 +2488,14 @@ router.get('/agencies', async (req, res) => {
 
 /**
  * @route GET /api/public/ministries
- * @description Ministries and optional state departments (for self-registration; no auth).
+ * @description Ministries and optional departments/directorates (for self-registration; no auth).
  * @query withDepartments=1 — nest departments under each ministry (same shape as GET /api/ministries)
+ * @query withSections=1 — when withDepartments=1, include sections/directorates under each department
  */
 router.get('/ministries', async (req, res) => {
     try {
         const withDeps = req.query.withDepartments === '1' || req.query.withDepartments === 'true';
+        const withSections = req.query.withSections === '1' || req.query.withSections === 'true';
         const tableCheck = await pool.query(`
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
@@ -2524,11 +2526,31 @@ router.get('/ministries', async (req, res) => {
              ORDER BY d.name`
         );
         const depts = dr.rows || [];
+        let sectionsByDept = new Map();
+        if (withSections) {
+            const sr = await pool.query(
+                `SELECT s."sectionId", s.name, s.alias, s."departmentId", s.voided, s."createdAt", s."updatedAt"
+                 FROM sections s
+                 WHERE (s.voided IS NULL OR s.voided = false)
+                 ORDER BY s.name`
+            );
+            const sections = sr.rows || [];
+            sectionsByDept = sections.reduce((acc, section) => {
+                const depId = section.departmentId;
+                if (depId == null) return acc;
+                if (!acc.has(depId)) acc.set(depId, []);
+                acc.get(depId).push(section);
+                return acc;
+            }, new Map());
+        }
         const byMin = new Map();
         ministries.forEach((m) => byMin.set(m.ministryId, { ...m, departments: [] }));
         depts.forEach((d) => {
             if (d.ministryId != null && byMin.has(d.ministryId)) {
-                byMin.get(d.ministryId).departments.push(d);
+                const deptPayload = withSections
+                    ? { ...d, sections: sectionsByDept.get(d.departmentId) || [] }
+                    : d;
+                byMin.get(d.ministryId).departments.push(deptPayload);
             }
         });
         return res.status(200).json(Array.from(byMin.values()));

@@ -43,13 +43,21 @@ router.get('/definitions', canConfigure, async (req, res) => {
 
 router.get('/definitions/:definitionId', canConfigure, async (req, res) => {
   try {
-    const def = await engine.listDefinitions();
-    const row = def.find((d) => String(d.definition_id) === String(req.params.definitionId));
+    const row = await engine.getDefinitionById(req.params.definitionId);
     if (!row) return res.status(404).json({ message: 'Definition not found' });
-    const steps = await engine.getDefinitionSteps(row.definition_id);
-    res.json({ ...row, steps });
+    res.json(row);
   } catch (e) {
     res.status(500).json({ message: e.message });
+  }
+});
+
+router.put('/definitions/:definitionId', privilege(['approval_levels.create', 'approval_levels.update'], { anyOf: true }), async (req, res) => {
+  try {
+    const out = await engine.updateDefinition(req.params.definitionId, req.body);
+    res.json(out);
+  } catch (e) {
+    const code = e.statusCode || 500;
+    res.status(code).json({ message: e.message });
   }
 });
 

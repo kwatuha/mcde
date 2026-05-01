@@ -26,6 +26,11 @@ const approvalWorkflowService = {
     return data;
   },
 
+  updateDefinition: async (definitionId, body) => {
+    const { data } = await axiosInstance.put(`${base}/definitions/${definitionId}`, body);
+    return data;
+  },
+
   seedAnnualWorkplan: async () => {
     const { data } = await axiosInstance.post(`${base}/seed/annual-workplan`);
     return data;

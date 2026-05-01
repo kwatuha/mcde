@@ -160,7 +160,7 @@ function MainLayoutContent() {
                 component="div"
                 sx={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em' }}
               >
-                GPRIS
+                MCMES
               </Typography>
             </Box>
             

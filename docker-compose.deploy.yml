@@ -1,0 +1,37 @@
+# Overlay for server / HTTPS public URL (use with: docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d)
+# Set MACHAKOS_PUBLIC_URL / MACHAKOS_CITIZEN_PUBLIC_URL in deploy/.env.deploy or export before compose.
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+    volumes: []
+    command: null
+    ports:
+      - "5178:80"
+    environment:
+      - VITE_DEV_PUBLIC_URL=${MACHAKOS_PUBLIC_URL:-https://monitoring.icskenya.co.ke}
+      - VITE_PROXY_TARGET=${MACHAKOS_API_PROXY:-http://host.docker.internal:3002}
+      # Avoid broken WS/HMR when the browser uses a public HTTPS origin
+      - VITE_HMR_DISABLED=true
+
+  public-dashboard:
+    build:
+      context: ./public-dashboard
+      dockerfile: Dockerfile.production
+      args:
+        VITE_BASE_PATH: ${MACHAKOS_CITIZEN_BASE_PATH:-/citizen/}
+    volumes: []
+    command: null
+    ports:
+      - "5179:80"
+    environment:
+      - VITE_DEV_PUBLIC_URL=${MACHAKOS_CITIZEN_PUBLIC_URL:-https://monitoring.icskenya.co.ke/citizen}
+      - VITE_PROXY_TARGET=${MACHAKOS_API_PROXY:-http://host.docker.internal:3002}
+      - VITE_API_URL=/api
+      - VITE_BASE_PATH=/citizen/
+
+  api:
+    volumes: []
+    command: npm start

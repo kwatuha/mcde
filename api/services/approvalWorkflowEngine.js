@@ -212,6 +212,132 @@ async function getDefinitionSteps(definitionId) {
   return rowsFromResult(r);
 }
 
+async function getDefinitionById(definitionId) {
+  await ensureReady();
+  const row = firstRow(
+    await pool.query('SELECT * FROM approval_workflow_definitions WHERE definition_id = ?', [definitionId])
+  );
+  if (!row) return null;
+  const steps = await getDefinitionSteps(definitionId);
+  const uc = firstRow(
+    await pool.query('SELECT COUNT(*) AS c FROM approval_requests WHERE definition_id = ?', [definitionId])
+  );
+  const used = Number(uc?.c ?? 0);
+  return { ...row, steps, used_in_requests: used };
+}
+
+/**
+ * Update a workflow definition. If any approval_requests reference it, only `name` and `active` may change.
+ */
+async function updateDefinition(definitionId, patch) {
+  await ensureReady();
+  const id = Number(definitionId);
+  if (!Number.isFinite(id)) {
+    const err = new Error('Invalid definition id');
+    err.statusCode = 400;
+    throw err;
+  }
+  const existing = firstRow(await pool.query('SELECT * FROM approval_workflow_definitions WHERE definition_id = ?', [id]));
+  if (!existing) {
+    const err = new Error('Definition not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const uc = firstRow(await pool.query('SELECT COUNT(*) AS c FROM approval_requests WHERE definition_id = ?', [id]));
+  const usedCount = Number(uc?.c ?? 0);
+
+  const {
+    entity_type: entityTypeIn,
+    code: codeIn,
+    version: versionIn,
+    name: nameIn,
+    active: activeIn,
+    steps: stepsIn,
+  } = patch;
+
+  const now = new Date();
+  const existingVersion = Number(existing.version);
+  const existingActive = isPostgres ? Boolean(existing.active) : Number(existing.active) === 1;
+
+  if (usedCount > 0) {
+    const wantsStructural =
+      (entityTypeIn != null && entityTypeIn !== existing.entity_type) ||
+      (codeIn != null && codeIn !== existing.code) ||
+      (versionIn != null && Number(versionIn) !== existingVersion) ||
+      (stepsIn != null && Array.isArray(stepsIn));
+    if (wantsStructural) {
+      const err = new Error(
+        'This definition is already referenced by approval requests. You can only change the display name and active flag. Create a new definition (new version or code) for other changes.'
+      );
+      err.statusCode = 409;
+      throw err;
+    }
+    const nextName = nameIn !== undefined ? nameIn : existing.name;
+    const nextActive = activeIn !== undefined ? activeIn !== false && activeIn !== 0 : existingActive;
+    if (isPostgres) {
+      await pool.query(
+        `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+        [nextName || null, nextActive, now, id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+        [nextName || null, nextActive ? 1 : 0, now, id]
+      );
+    }
+    return getDefinitionById(id);
+  }
+
+  const et = entityTypeIn != null ? entityTypeIn : existing.entity_type;
+  const cd = codeIn != null ? codeIn : existing.code;
+  const ver = versionIn != null ? Number(versionIn) : existingVersion;
+  const nm = nameIn !== undefined ? nameIn : existing.name;
+  const nextActiveFull = activeIn !== undefined ? activeIn !== false && activeIn !== 0 : existingActive;
+
+  const dup = firstRow(
+    await pool.query(
+      `SELECT definition_id FROM approval_workflow_definitions WHERE entity_type = ? AND code = ? AND version = ? AND definition_id != ?`,
+      [et, cd, ver, id]
+    )
+  );
+  if (dup) {
+    const err = new Error('Another definition already uses this entity_type, code and version combination.');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  if (isPostgres) {
+    await pool.query(
+      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+      [et, cd, ver, nm || null, nextActiveFull, now, id]
+    );
+  } else {
+    await pool.query(
+      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+      [et, cd, ver, nm || null, nextActiveFull ? 1 : 0, now, id]
+    );
+  }
+
+  if (Array.isArray(stepsIn)) {
+    if (stepsIn.length === 0) {
+      const err = new Error('At least one workflow step is required.');
+      err.statusCode = 400;
+      throw err;
+    }
+    await pool.query('DELETE FROM approval_workflow_steps WHERE definition_id = ?', [id]);
+    for (const s of stepsIn) {
+      await pool.query(
+        `INSERT INTO approval_workflow_steps (definition_id, step_order, step_name, role_id, sla_hours, escalation_role_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, s.step_order, s.step_name || null, s.role_id ?? null, s.sla_hours ?? null, s.escalation_role_id ?? null]
+      );
+    }
+  }
+
+  return getDefinitionById(id);
+}
+
 async function createDefinition({ entity_type, code = 'default', version = 1, name, active = true, steps = [] }) {
   await ensureReady();
   const now = new Date();
@@ -673,7 +799,9 @@ module.exports = {
   ensureReady,
   listDefinitions,
   getDefinitionSteps,
+  getDefinitionById,
   createDefinition,
+  updateDefinition,
   getActiveDefinitionForEntityType,
   startRequest,
   getRequestDetail,

@@ -65,8 +65,8 @@ services:
     volumes:
       - ./api:/app
       - /app/node_modules
-    env_file:
-      - ./api/.env
+    # DB_* and secrets: use api/.env on the server (loaded by dotenv in api/config/db.js).
+    # Not listed as compose env_file so deploy works when api/.env is absent until you create it.
     environment:
       # DB_* come from api/.env above; only NODE_ENV set here so api/.env controls DB connection
       NODE_ENV: development

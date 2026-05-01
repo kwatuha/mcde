@@ -1,0 +1,46 @@
+services:
+  nginx_proxy:
+    image: nginx:alpine
+    container_name: machakosme_nginx_proxy
+    restart: always
+    network_mode: host
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+    container_name: machakosme_react_frontend
+    restart: always
+    ports:
+      - "5178:80"
+
+  public-dashboard:
+    build:
+      context: ./public-dashboard
+      dockerfile: Dockerfile.production
+      args:
+        VITE_BASE_PATH: ${MACHAKOS_CITIZEN_BASE_PATH:-/citizen/}
+    container_name: machakosme_public_dashboard
+    restart: always
+    ports:
+      - "5179:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: machakosme_node_api
+    restart: always
+    network_mode: host
+    command: npm start
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+    volumes:
+      - ./api/.env:/app/.env:ro
+      - ./api/uploads:/app/uploads
+      - ./uploads:/uploads
