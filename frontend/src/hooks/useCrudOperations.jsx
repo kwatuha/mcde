@@ -20,9 +20,22 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
     const directPrivilege = `${type}.${action}`;
     if (checkUserPrivilege(user, directPrivilege)) return true;
 
+    if (type === 'strategicPlan' && checkUserPrivilege(user, `strategic_plan.${action}`)) {
+      return true;
+    }
+
     // Strategic planning legacy privilege compatibility
     if (type === 'program' || type === 'subprogram') {
       if (checkUserPrivilege(user, `strategic_plan.${action}`)) return true;
+    }
+    if (type === 'workplan' || type === 'activity') {
+      if (
+        checkUserPrivilege(user, `strategic_plan.${action}`) ||
+        checkUserPrivilege(user, `program.${action}`) ||
+        checkUserPrivilege(user, `subprogram.${action}`)
+      ) {
+        return true;
+      }
     }
     if (type === 'attachment') {
       if (action === 'create' && (checkUserPrivilege(user, 'document.upload') || checkUserPrivilege(user, 'strategic_plan.create') || checkUserPrivilege(user, 'strategic_plan.update'))) {
@@ -133,7 +146,11 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
   const handleSubmit = async (dialogType, currentRecord, formData, handleCloseDialog, parentId) => {
     setLoading(true);
     try {
-      const isUpdate = !!currentRecord && !!currentRecord[recordIdKeyMap[dialogType]];
+      const isUpdate =
+        !!currentRecord &&
+        (dialogType === 'strategicPlan'
+          ? !!(currentRecord.id ?? currentRecord.planId)
+          : !!currentRecord[recordIdKeyMap[dialogType]]);
       const actionName = isUpdate ? 'update' : 'create';
       
       const apiModule = getApiModule(dialogType);
@@ -143,7 +160,10 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
       let apiCallArgs = [];
       
       if (isUpdate) {
-        const recordId = currentRecord[recordIdKeyMap[dialogType]];
+        const recordId =
+          dialogType === 'strategicPlan'
+            ? (currentRecord.id ?? currentRecord.planId)
+            : currentRecord[recordIdKeyMap[dialogType]];
         apiCallArgs = [recordId, payload];
       } else {
         if (dialogType === 'subprogram') {

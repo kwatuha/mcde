@@ -150,14 +150,14 @@
       "icon": "SettingsIcon",
       "submenus": [
         {
-          "title": "Budget Management",
-          "icon": "AttachMoneyIcon",
-          "route": "BUDGET_MANAGEMENT"
-        },
-        {
-          "title": "CIDP Registry",
+          "title": "CIDP",
           "icon": "AccountTreeIcon",
           "route": "STRATEGIC_PLANNING"
+        },
+        {
+          "title": "ADP-Budget",
+          "icon": "AttachMoneyIcon",
+          "route": "BUDGET_MANAGEMENT"
         },
         {
           "title": "How to Create Programs & Sub Programs",
@@ -165,9 +165,11 @@
           "route": "PLANNING_PROGRAMS_GUIDE"
         },
         {
-          "title": "Central Import",
-          "icon": "CloudUploadIcon",
-          "route": "CENTRAL_IMPORT"
+          "title": "Approvals & workflows",
+          "icon": "ApprovalIcon",
+          "route": "APPROVAL_LEVELS_MANAGEMENT",
+          "permission": "approval_levels.read",
+          "roles": ["admin"]
         }
       ]
     },
@@ -240,8 +242,7 @@
           "icon": "ApprovalIcon",
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
-          "roles": ["admin"],
-          "hidden": true
+          "roles": ["admin"]
         },
         {
           "title": "Metadata mgmt",
@@ -267,7 +268,7 @@
           "roles": ["admin"]
         },
         {
-          "title": "Kenya Wards",
+          "title": "Wards",
           "icon": "LocationOnIcon",
           "route": "KENYA_WARDS",
           "roles": ["admin"]

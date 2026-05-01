@@ -54,10 +54,22 @@ const useStrategicPlanDetails = (planId) => {
       setAnnualWorkPlans(workPlansResults);
 
       // Step 5: Fetch all activities for all work plans.
-      const activitiesPromises = workPlansResults.map(workplan =>
-          apiService.strategy.activities.getActivitiesByWorkPlanId(workplan.workplanId)
+      // Be tolerant of partial failures to avoid breaking plan refresh after saving a work plan.
+      const validWorkPlans = (workPlansResults || []).filter(
+        (workplan) => workplan && workplan.workplanId
       );
-      const activitiesResults = (await Promise.all(activitiesPromises)).flat();
+      let activitiesResults = [];
+      if (validWorkPlans.length > 0) {
+        const activitiesPromises = validWorkPlans.map((workplan) =>
+          apiService.strategy.activities
+            .getActivitiesByWorkPlanId(workplan.workplanId)
+            .catch((err) => {
+              console.warn(`Error fetching activities for work plan ${workplan.workplanId}:`, err);
+              return [];
+            })
+        );
+        activitiesResults = (await Promise.all(activitiesPromises)).flat();
+      }
       setActivities(activitiesResults);
       
       // Step 6: Fetch attachments for the plan.

@@ -145,17 +145,17 @@ router.get('/containers', async (req, res) => {
             search
         } = req.query;
 
-        let whereConditions = ['b.voided = 0'];
+        let whereConditions = [isPostgres ? 'COALESCE(b.voided, false) = false' : 'b.voided = 0'];
         const queryParams = [];
         const offset = (page - 1) * limit;
 
         if (finYearId) {
-            whereConditions.push('b.finYearId = ?');
+            whereConditions.push(isPostgres ? 'b.finyearid = ?' : 'b.finYearId = ?');
             queryParams.push(finYearId);
         }
 
         if (departmentId) {
-            whereConditions.push('b.departmentId = ?');
+            whereConditions.push(isPostgres ? 'b.departmentid = ?' : 'b.departmentId = ?');
             queryParams.push(departmentId);
         }
 
@@ -165,12 +165,12 @@ router.get('/containers', async (req, res) => {
         }
 
         if (budgetType) {
-            whereConditions.push('b.budgetType = ?');
+            whereConditions.push(isPostgres ? 'b.budgettype = ?' : 'b.budgetType = ?');
             queryParams.push(budgetType);
         }
 
         if (search) {
-            whereConditions.push('(b.budgetName LIKE ? OR b.description LIKE ?)');
+            whereConditions.push(isPostgres ? '(b.budgetname ILIKE ? OR b.description ILIKE ?)' : '(b.budgetName LIKE ? OR b.description LIKE ?)');
             queryParams.push(`%${search}%`, `%${search}%`);
         }
 
@@ -186,7 +186,40 @@ router.get('/containers', async (req, res) => {
         const total = Number(firstRow(countResult)?.total || 0);
 
         // Get budgets with related data
-        const query = `
+        const query = isPostgres
+            ? `
+            SELECT
+                b.budgetid AS "budgetId",
+                b.budgetname AS "budgetName",
+                b.budgettype AS "budgetType",
+                b.iscombined AS "isCombined",
+                b.parentbudgetid AS "parentBudgetId",
+                b.finyearid AS "finYearId",
+                b.departmentid AS "departmentId",
+                b.description,
+                b.totalamount AS "totalAmount",
+                b.status,
+                b.isfrozen AS "isFrozen",
+                b.requiresapprovalforchanges AS "requiresApprovalForChanges",
+                b.approvedby AS "approvedBy",
+                b.approvedat AS "approvedAt",
+                b.rejectedby AS "rejectedBy",
+                b.rejectedat AS "rejectedAt",
+                b.rejectionreason AS "rejectionReason",
+                b.userid AS "userId",
+                b.createdat AS "createdAt",
+                b.updatedat AS "updatedAt",
+                fy."finYearName" AS "finYearName",
+                d.name AS "departmentName",
+                0 AS "itemCount"
+            FROM budgets b
+            LEFT JOIN financialyears fy ON b.finyearid = fy."finYearId"
+            LEFT JOIN departments d ON b.departmentid = d."departmentId"
+            WHERE ${whereClause}
+            ORDER BY b.createdat DESC
+            LIMIT ? OFFSET ?
+        `
+            : `
             SELECT 
                 b.budgetId,
                 b.budgetName,

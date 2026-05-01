@@ -18,6 +18,9 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import AnnouncementIcon from '@mui/icons-material/Announcement';
 import PublicIcon from '@mui/icons-material/Public';
 import ApartmentIcon from '@mui/icons-material/Apartment';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
+import WorkIcon from '@mui/icons-material/Work';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -28,7 +31,7 @@ import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   dashboard: 'PROJECT_BY_STATUS_DASHBOARD',
   reporting: 'PROJECTS',
-  management: 'CENTRAL_IMPORT',
+  management: 'BUDGET_MANAGEMENT',
   public: 'PUBLIC_APPROVAL',
   admin: 'USER_MANAGEMENT',
 };
@@ -69,6 +72,9 @@ const ICON_MAP = {
   AnnouncementIcon,
   PublicIcon,
   ApartmentIcon,
+  MenuBookIcon,
+  LocationOnIcon,
+  WorkIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching

@@ -28,11 +28,8 @@ const kenyaWardsService = {
    */
   getConstituenciesByCounty: async (county) => {
     try {
-      if (!county) {
-        return [];
-      }
       const response = await axiosInstance.get('/kenya-wards/constituencies', {
-        params: { county }
+        params: county ? { county } : {},
       });
       return response.data.data || [];
     } catch (error) {

@@ -4,14 +4,16 @@ import {
   Grid, Snackbar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Paper,
   IconButton,
   Accordion, AccordionSummary, AccordionDetails,
-  Stack, Tooltip, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  Stack, Tooltip, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowBack as ArrowBackIcon, FileDownload as FileDownloadIcon,
   Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon,
-  ExpandMore as ExpandMoreIcon, Visibility as ViewIcon
+  ExpandMore as ExpandMoreIcon, Visibility as ViewIcon,
+  TableChart as TableChartIcon,
 } from '@mui/icons-material';
+import apiService from '../api';
 
 // Hooks
 import { useAuth } from '../context/AuthContext.jsx';
@@ -23,15 +25,17 @@ import useCrudOperations from '../hooks/useCrudOperations';
 import StrategicPlanForm from '../components/strategicPlan/StrategicPlanForm';
 import ProgramForm from '../components/strategicPlan/ProgramForm';
 import SubprogramForm from "../components/strategicPlan/SubprogramForm";
+import AnnualWorkPlanForm from '../components/strategicPlan/AnnualWorkPlanForm';
+import ApprovalWorkflowPanel from '../components/approval/ApprovalWorkflowPanel';
 
 // Helpers
 import {
   formatCurrency,
   checkUserPrivilege,
 } from '../utils/helpers';
+import { downloadStrategicPlanExcel } from '../utils/exportStrategicPlanExcel';
 // Labels
 import strategicPlanningLabels from '../configs/strategicPlanningLabels';
-import { tokens } from './dashboard/theme';
 
 
 function StrategicPlanDetailsPage() {
@@ -39,15 +43,20 @@ function StrategicPlanDetailsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const theme = useTheme();
-  const colors = tokens(theme.palette.mode);
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [expandedProgram, setExpandedProgram] = useState(false);
   const [parentEntityId, setParentEntityId] = useState(null);
   const [isViewMode, setIsViewMode] = useState(false);
+  const [openWorkplansDialog, setOpenWorkplansDialog] = useState(false);
+  const [selectedSubprogram, setSelectedSubprogram] = useState(null);
+  const [workplanApprovalSelected, setWorkplanApprovalSelected] = useState(null);
+  const [pendingAccordionOpen, setPendingAccordionOpen] = useState(false);
+  const [myPendingSteps, setMyPendingSteps] = useState([]);
+  const [myPendingLoading, setMyPendingLoading] = useState(false);
 
   const {
-    strategicPlan, programs, subprograms,
+    strategicPlan, programs, subprograms, annualWorkPlans,
     loading: dataLoading, error, fetchStrategicPlanData
   } = useStrategicPlanDetails(planId);
 
@@ -67,6 +76,15 @@ function StrategicPlanDetailsPage() {
     checkUserPrivilege(user, 'strategic_plan.create') ||
     checkUserPrivilege(user, 'strategic_plan.update');
   const canManageSubprograms =
+    checkUserPrivilege(user, 'subprogram.create') ||
+    checkUserPrivilege(user, 'subprogram.update') ||
+    checkUserPrivilege(user, 'program.create') ||
+    checkUserPrivilege(user, 'program.update') ||
+    checkUserPrivilege(user, 'strategic_plan.create') ||
+    checkUserPrivilege(user, 'strategic_plan.update');
+  const canManageWorkplans =
+    checkUserPrivilege(user, 'workplan.create') ||
+    checkUserPrivilege(user, 'workplan.update') ||
     checkUserPrivilege(user, 'subprogram.create') ||
     checkUserPrivilege(user, 'subprogram.update') ||
     checkUserPrivilege(user, 'program.create') ||
@@ -118,10 +136,58 @@ function StrategicPlanDetailsPage() {
     handleOpenEditDialog('subprogram', subprogram);
   };
 
+  const handleOpenCreateWorkplanDialog = (subProgramId) => {
+    setIsViewMode(false);
+    setParentEntityId(subProgramId);
+    handleOpenCreateDialog('workplan', subProgramId);
+  };
+
+  const handleOpenSubprogramWorkplansDialog = (subprogram) => {
+    setSelectedSubprogram(subprogram);
+    setOpenWorkplansDialog(true);
+  };
+
+  const handleCloseSubprogramWorkplansDialog = () => {
+    setOpenWorkplansDialog(false);
+    setSelectedSubprogram(null);
+  };
+
   const handleCloseDialogWithReset = () => {
       setParentEntityId(null);
       setIsViewMode(false);
       handleCloseDialog();
+  };
+
+  const loadMyPendingApprovals = useCallback(async () => {
+    setMyPendingLoading(true);
+    try {
+      const rows = await apiService.approvalWorkflow.listPendingForMe();
+      const list = Array.isArray(rows) ? rows : [];
+      setMyPendingSteps(list.filter((r) => r.entity_type === 'annual_workplan'));
+    } catch {
+      setMyPendingSteps([]);
+    } finally {
+      setMyPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pendingAccordionOpen) {
+      loadMyPendingApprovals();
+    }
+  }, [pendingAccordionOpen, loadMyPendingApprovals]);
+
+  const handleExportExcel = () => {
+    try {
+      downloadStrategicPlanExcel({ strategicPlan, programs, subprograms });
+    } catch (err) {
+      console.error('Excel export failed:', err);
+      setSnackbar({
+        open: true,
+        message: err?.message || 'Could not export to Excel.',
+        severity: 'error',
+      });
+    }
   };
 
   const renderDialogForm = () => {
@@ -130,6 +196,7 @@ function StrategicPlanDetailsPage() {
       case 'strategicPlan': return <StrategicPlanForm {...commonFormProps} />;
       case 'program': return <ProgramForm {...commonFormProps} />;
       case 'subprogram': return <SubprogramForm {...commonFormProps} readOnly={isViewMode} />;
+      case 'workplan': return <AnnualWorkPlanForm {...commonFormProps} />;
       default: return <Typography>No form available for this type.</Typography>;
     }
   };
@@ -180,18 +247,64 @@ function StrategicPlanDetailsPage() {
   return (
     <Box sx={{ p: 2 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-        <Box />
-        {checkUserPrivilege(user, 'strategic_plan_pdf.download') && (
-          <Button variant="contained" startIcon={<FileDownloadIcon />} onClick={() => handleDownloadPdf('strategic_plan_pdf', strategicPlan.planName, strategicPlan.planId)}>
-            Download Plan PDF
+        <Box>
+          {checkUserPrivilege(user, 'strategic_plan.update') && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={() => handleOpenEditDialog('strategicPlan', strategicPlan)}
+            >
+              Edit plan
+            </Button>
+          )}
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            color="primary"
+            startIcon={<TableChartIcon />}
+            onClick={handleExportExcel}
+          >
+            Export to Excel
           </Button>
-        )}
+          {checkUserPrivilege(user, 'strategic_plan_pdf.download') && (
+            <Button variant="contained" startIcon={<FileDownloadIcon />} onClick={() => handleDownloadPdf('strategic_plan_pdf', strategicPlan.planName, strategicPlan.planId)}>
+              Download Plan PDF
+            </Button>
+          )}
+        </Stack>
       </Box>
       <Paper elevation={0} sx={{ px: 1.75, py: 1, mb: 2, borderRadius: 2, border: '1px solid', borderColor: 'primary.main', bgcolor: 'primary.main' }}>
         <Typography variant="h6" sx={{ fontWeight: 800, color: 'primary.contrastText', lineHeight: 1.2 }}>
           {strategicPlan.cidpName || strategicPlan.cidpid || 'N/A'}
         </Typography>
       </Paper>
+
+      {(strategicPlan.vision || strategicPlan.mission) && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+          {strategicPlan.vision ? (
+            <Box sx={{ mb: strategicPlan.mission ? 2 : 0 }}>
+              <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 700, mb: 0.5 }}>
+                {strategicPlanningLabels.strategicPlan.fields.vision}
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                {strategicPlan.vision}
+              </Typography>
+            </Box>
+          ) : null}
+          {strategicPlan.mission ? (
+            <Box>
+              <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 700, mb: 0.5 }}>
+                {strategicPlanningLabels.strategicPlan.fields.mission}
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                {strategicPlan.mission}
+              </Typography>
+            </Box>
+          ) : null}
+        </Paper>
+      )}
 
       <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -308,6 +421,26 @@ function StrategicPlanDetailsPage() {
                                 <TableCell>{formatCurrency(subprogram.totalBudget) || '—'}</TableCell>
                                 <TableCell align="right">
                                   <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                    {canManageWorkplans && (
+                                      <Tooltip title="Add Annual Work Plan">
+                                        <IconButton
+                                          size="small"
+                                          color="secondary"
+                                          onClick={() => handleOpenCreateWorkplanDialog(subprogram.subProgramId)}
+                                        >
+                                          <AddIcon fontSize="small" />
+                                        </IconButton>
+                                      </Tooltip>
+                                    )}
+                                    <Tooltip title="View Annual Work Plans">
+                                      <IconButton
+                                        size="small"
+                                        color="inherit"
+                                        onClick={() => handleOpenSubprogramWorkplansDialog(subprogram)}
+                                      >
+                                        <ViewIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
                                     <Tooltip title="View">
                                       <IconButton size="small" color="info" onClick={() => handleViewSubprogram(subprogram)}>
                                         <ViewIcon fontSize="small" />
@@ -327,6 +460,13 @@ function StrategicPlanDetailsPage() {
                                         </IconButton>
                                       </Tooltip>
                                     )}
+                                    <Tooltip title="Annual Work Plans linked to this sub-program">
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={`AWP: ${annualWorkPlans.filter(wp => wp.subProgramId === subprogram.subProgramId).length}`}
+                                      />
+                                    </Tooltip>
                                   </Stack>
                                 </TableCell>
                               </TableRow>
@@ -383,6 +523,149 @@ function StrategicPlanDetailsPage() {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Sub-program Annual Work Plans Dialog */}
+      <Dialog open={openWorkplansDialog} onClose={handleCloseSubprogramWorkplansDialog} fullWidth maxWidth="lg">
+        <DialogTitle>
+          Annual Work Plans - {selectedSubprogram?.subProgramme || 'Sub-Program'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Click a work plan row to show the approval workflow panel below.
+          </Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead sx={{ '& .MuiTableCell-root': { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, fontWeight: 'bold', borderBottom: 'none' } }}>
+                <TableRow>
+                  <TableCell>Work Plan Name</TableCell>
+                  <TableCell>Financial Year</TableCell>
+                  <TableCell>Approval Status</TableCell>
+                  <TableCell>Total Budget</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(annualWorkPlans.filter(wp => wp.subProgramId === selectedSubprogram?.subProgramId)).length > 0 ? (
+                  annualWorkPlans
+                    .filter(wp => wp.subProgramId === selectedSubprogram?.subProgramId)
+                    .map((workplan) => (
+                      <TableRow
+                        key={workplan.workplanId}
+                        hover
+                        selected={workplanApprovalSelected?.workplanId === workplan.workplanId}
+                        onClick={() => setWorkplanApprovalSelected(workplan)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell>{workplan.workplanName || '—'}</TableCell>
+                        <TableCell>{workplan.financialYear || '—'}</TableCell>
+                        <TableCell>{workplan.approvalStatus || '—'}</TableCell>
+                        <TableCell>{formatCurrency(workplan.totalBudget) || '—'}</TableCell>
+                        <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            {canManageWorkplans && (
+                              <Tooltip title="Edit Work Plan">
+                                <IconButton size="small" color="primary" onClick={() => handleOpenEditDialog('workplan', workplan)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {checkUserPrivilege(user, 'workplan.delete') && (
+                              <Tooltip title="Delete Work Plan">
+                                <IconButton size="small" color="error" onClick={() => handleDelete('workplan', workplan.workplanId)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        No annual work plans available for this sub-program.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {workplanApprovalSelected && (
+            <ApprovalWorkflowPanel
+              entityType="annual_workplan"
+              entityId={workplanApprovalSelected.workplanId}
+              user={user}
+              onChanged={fetchStrategicPlanData}
+              compact
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          {canManageWorkplans && selectedSubprogram?.subProgramId && (
+            <Button
+              startIcon={<AddIcon />}
+              variant="contained"
+              onClick={() => {
+                handleCloseSubprogramWorkplansDialog();
+                handleOpenCreateWorkplanDialog(selectedSubprogram.subProgramId);
+              }}
+            >
+              Add Work Plan
+            </Button>
+          )}
+          <Button onClick={handleCloseSubprogramWorkplansDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Accordion
+        expanded={pendingAccordionOpen}
+        onChange={(_, exp) => setPendingAccordionOpen(exp)}
+        sx={{ mt: 2, '&:before': { display: 'none' }, boxShadow: 1 }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            My pending annual work plan approvals
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            (expand to load)
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          {myPendingLoading ? (
+            <CircularProgress size={22} />
+          ) : myPendingSteps.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No pending work plan steps for your role.</Typography>
+          ) : (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Request</TableCell>
+                    <TableCell>Work plan ID</TableCell>
+                    <TableCell>Step</TableCell>
+                    <TableCell>Due</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {myPendingSteps.map((row) => (
+                    <TableRow key={`${row.request_id}-${row.instance_id ?? row.step_order}`} hover>
+                      <TableCell>{row.request_id}</TableCell>
+                      <TableCell>{row.entity_id}</TableCell>
+                      <TableCell>{row.step_name || row.step_order}</TableCell>
+                      <TableCell>{row.due_at ? new Date(row.due_at).toLocaleString() : '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            Open the sub-program work plans dialog and select the work plan row to approve or reject.
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
 
       <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
         <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>

@@ -15,13 +15,13 @@ function PlanningProgramsGuidePage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 1.5 }}>
-            Step 1: Create or Open a CIDP Registry
+            Step 1: Create or Open CIDP
           </Typography>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Go to CIDP Registry, click Add New, enter the plan details (name, start date, end date), then open the plan.
+            Go to CIDP under Planning, click Add New, enter the plan details (name, start date, end date), then open the plan.
           </Typography>
           <Button component={RouterLink} to="/strategic-planning" variant="contained">
-            Open CIDP Registry
+            Open CIDP
           </Button>
         </CardContent>
       </Card>
@@ -32,13 +32,13 @@ function PlanningProgramsGuidePage() {
             Step 2: Add Programs and Sub Programs
           </Typography>
           <Stack spacing={1.25} sx={{ mb: 2 }}>
-            <Typography variant="body2">1. Open a plan from CIDP Registry and go to its details page.</Typography>
+            <Typography variant="body2">1. Open a plan from CIDP and go to its details page.</Typography>
             <Typography variant="body2">2. In the Programs section, click Add Program and save.</Typography>
             <Typography variant="body2">3. Under each Program, click Add Sub Program and save.</Typography>
             <Typography variant="body2">4. Continue with activities and annual work plans as needed.</Typography>
           </Stack>
           <Button component={RouterLink} to="/strategic-planning" variant="outlined">
-            Go to Strategic Planning
+            Go to CIDP
           </Button>
         </CardContent>
       </Card>

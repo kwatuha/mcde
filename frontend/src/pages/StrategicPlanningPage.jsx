@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Button, Paper, CircularProgress, Alert,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Snackbar, useTheme, Tooltip, Stack
+  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Snackbar, useTheme, Tooltip, Stack,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Visibility as ViewIcon,
+  MoreHoriz as MoreHorizIcon,
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../api';
 import strategicPlanningLabels from '../configs/strategicPlanningLabels';
@@ -42,11 +48,15 @@ function StrategicPlanningPage() {
 
   const [openFormDialog, setOpenFormDialog] = useState(false);
   const [currentPlan, setCurrentPlan] = useState(null);
+  const [planDetailsOpen, setPlanDetailsOpen] = useState(false);
+  const [planForDetails, setPlanForDetails] = useState(null);
   const [formValues, setFormValues] = useState({
     cidpid: '',
     cidpName: '',
     startDate: '',
     endDate: '',
+    vision: '',
+    mission: '',
   });
 
   const fetchStrategicPlans = useCallback(async () => {
@@ -98,6 +108,8 @@ function StrategicPlanningPage() {
       cidpName: '',
       startDate: '',
       endDate: '',
+      vision: '',
+      mission: '',
     });
     setOpenFormDialog(true);
   };
@@ -113,8 +125,20 @@ function StrategicPlanningPage() {
       cidpName: plan.cidpName || '',
       startDate: plan.startDate ? new Date(plan.startDate).toISOString().split('T')[0] : '',
       endDate: plan.endDate ? new Date(plan.endDate).toISOString().split('T')[0] : '',
+      vision: plan.vision || '',
+      mission: plan.mission || '',
     });
     setOpenFormDialog(true);
+  };
+
+  const handleOpenPlanDetails = (plan) => {
+    setPlanForDetails(plan);
+    setPlanDetailsOpen(true);
+  };
+
+  const handleClosePlanDetails = () => {
+    setPlanDetailsOpen(false);
+    setPlanForDetails(null);
   };
 
   const handleCloseFormDialog = () => {
@@ -216,27 +240,32 @@ function StrategicPlanningPage() {
       field: 'actions',
       headerName: 'Actions',
       flex: 1,
-      minWidth: 150,
+      minWidth: 200,
       sortable: false,
       filterable: false,
       renderCell: (params) => (
-        <Stack direction="row" spacing={1}>
-          <Tooltip title="View Details">
-            <IconButton color="info" onClick={() => handleViewPlanDetails(params.row.id)}>
-              <ViewIcon />
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          <Tooltip title="Open plan (programs & sub-programs)">
+            <IconButton color="info" size="small" onClick={() => handleViewPlanDetails(params.row.id)}>
+              <ViewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Plan details (vision, mission, …)">
+            <IconButton color="secondary" size="small" onClick={() => handleOpenPlanDetails(params.row)}>
+              <MoreHorizIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           {checkUserPrivilege(user, 'strategic_plan.update') && (
             <Tooltip title="Edit">
-              <IconButton color="primary" onClick={() => handleOpenEditDialog(params.row)}>
-                <EditIcon />
+              <IconButton color="primary" size="small" onClick={() => handleOpenEditDialog(params.row)}>
+                <EditIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
           {checkUserPrivilege(user, 'strategic_plan.delete') && (
             <Tooltip title="Delete">
-              <IconButton color="error" onClick={() => handleDeletePlan(params.row.id)}>
-                <DeleteIcon />
+              <IconButton color="error" size="small" onClick={() => handleDeletePlan(params.row.id)}>
+                <DeleteIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
@@ -257,7 +286,7 @@ function StrategicPlanningPage() {
   return (
     <Box m="5px 20px">
       <Box sx={{ mb: 0.5, '& > div': { mb: '0 !important' } }}>
-        <Header title={strategicPlanningLabels.strategicPlan.plural.toUpperCase()} subtitle="List of strategic plans" />
+        <Header title="CIDP Registry" subtitle="List of strategic plans" />
       </Box>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
         {checkUserPrivilege(user, 'strategic_plan.create') && (
@@ -318,8 +347,63 @@ function StrategicPlanningPage() {
         </Box>
       )}
 
+      {/* Plan details (read-only): vision, mission, etc. — not shown in grid */}
+      <Dialog open={planDetailsOpen} onClose={handleClosePlanDetails} maxWidth="sm" fullWidth>
+        <DialogTitle>Plan details</DialogTitle>
+        <DialogContent dividers>
+          {planForDetails && (
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {strategicPlanningLabels.strategicPlan.fields.cidpName}
+                </Typography>
+                <Typography variant="body1" fontWeight={600}>
+                  {planForDetails.cidpName || '—'}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {strategicPlanningLabels.strategicPlan.fields.cidpid}
+                </Typography>
+                <Typography variant="body2">{planForDetails.cidpid || '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {strategicPlanningLabels.strategicPlan.fields.startDate} / {strategicPlanningLabels.strategicPlan.fields.endDate}
+                </Typography>
+                <Typography variant="body2">
+                  {formatDate(planForDetails.startDate)} — {formatDate(planForDetails.endDate)}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" color="primary" fontWeight={700} gutterBottom>
+                  {strategicPlanningLabels.strategicPlan.fields.vision}
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {planForDetails.vision?.trim() ? planForDetails.vision : '—'}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" color="primary" fontWeight={700} gutterBottom>
+                  {strategicPlanningLabels.strategicPlan.fields.mission}
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {planForDetails.mission?.trim() ? planForDetails.mission : '—'}
+                </Typography>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePlanDetails}>Close</Button>
+          <Button variant="contained" onClick={() => { handleClosePlanDetails(); handleViewPlanDetails(planForDetails.id); }}>
+            Open plan
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Strategic Plan Form Dialog */}
-      <Dialog open={openFormDialog} onClose={handleCloseFormDialog}>
+      <Dialog open={openFormDialog} onClose={handleCloseFormDialog} maxWidth="sm" fullWidth>
         <DialogTitle>{currentPlan ? `Edit ${strategicPlanningLabels.strategicPlan.singular}` : `Add New ${strategicPlanningLabels.strategicPlan.singular}`}</DialogTitle>
         <DialogContent>
           <TextField
@@ -343,6 +427,28 @@ function StrategicPlanningPage() {
             value={formValues.cidpid}
             onChange={handleFormChange}
             helperText="Optional. If left blank, a Plan ID is auto-generated (example: CIDP-2026-0430)."
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
+            name="vision"
+            label={strategicPlanningLabels.strategicPlan.fields.vision}
+            fullWidth
+            multiline
+            minRows={3}
+            value={formValues.vision}
+            onChange={handleFormChange}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
+            name="mission"
+            label={strategicPlanningLabels.strategicPlan.fields.mission}
+            fullWidth
+            multiline
+            minRows={3}
+            value={formValues.mission}
+            onChange={handleFormChange}
             sx={{ mb: 2 }}
           />
           <TextField

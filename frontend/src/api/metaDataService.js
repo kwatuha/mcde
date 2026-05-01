@@ -57,8 +57,39 @@ const metaDataService = {
   // --- Financial Years API Calls ---
   financialYears: {
     getAllFinancialYears: async () => {
-      const response = await axiosInstance.get('/metadata/financialyears');
-      return response.data;
+      const normalizeFinancialYears = (payload) => {
+        const rows = Array.isArray(payload)
+          ? payload
+          : (payload?.rows || payload?.data || payload?.financialYears || []);
+
+        return (rows || []).map((fy) => ({
+          ...fy,
+          finYearId: fy.finYearId ?? fy.finyearid ?? fy.id ?? fy.fin_year_id,
+          finYearName: fy.finYearName ?? fy.finyearname ?? fy.name ?? fy.fin_year_name,
+        })).filter((fy) => fy.finYearId && fy.finYearName);
+      };
+
+      // Primary endpoint used by most metadata pages.
+      try {
+        const response = await axiosInstance.get('/metadata/financialyears');
+        const normalized = normalizeFinancialYears(response.data);
+        if (normalized.length > 0) return normalized;
+      } catch (error) {
+        console.warn('Primary financialyears endpoint failed, trying fallback endpoint.', error);
+      }
+
+      // Fallback endpoint present in this codebase and often less restricted.
+      try {
+        const response = await axiosInstance.get('/financialyears');
+        const normalized = normalizeFinancialYears(response.data);
+        if (normalized.length > 0) return normalized;
+      } catch (error) {
+        console.warn('Fallback /financialyears endpoint failed, trying organization fallback.', error);
+      }
+
+      // Last fallback for environments exposing org routes.
+      const response = await axiosInstance.get('/organization/financial_years');
+      return normalizeFinancialYears(response.data);
     },
     getFinancialYearById: async (finYearId) => {
         const response = await axiosInstance.get(`/metadata/financialyears/${finYearId}`);

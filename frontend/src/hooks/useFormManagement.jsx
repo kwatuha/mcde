@@ -172,7 +172,13 @@ const useFormManagement = () => {
         goKPoliciesLaws: Array.isArray(record.goKPoliciesLaws) ? record.goKPoliciesLaws : [],
       }); break;
       // NEW: Strategic Plan cases
-      case 'strategicPlan': setStrategicPlanFormData(record); break;
+      case 'strategicPlan':
+        setStrategicPlanFormData({
+          ...record,
+          startDate: record.startDate ? new Date(record.startDate).toISOString().split('T')[0] : '',
+          endDate: record.endDate ? new Date(record.endDate).toISOString().split('T')[0] : '',
+        });
+        break;
       case 'program': setProgramFormData(record); break;
       case 'subprogram': setSubprogramFormData(record); break;
       // CORRECTED: New cases for work plan and activity

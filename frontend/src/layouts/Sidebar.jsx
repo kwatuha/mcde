@@ -55,6 +55,7 @@ import WorkIcon from '@mui/icons-material/Work';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import CategoryIcon from '@mui/icons-material/Category';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -89,6 +90,7 @@ const ICON_MAP = {
   LocationOnIcon,
   ApartmentIcon,
   CategoryIcon,
+  MenuBookIcon,
 };
 
 const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {

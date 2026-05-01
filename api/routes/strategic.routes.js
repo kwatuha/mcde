@@ -102,6 +102,9 @@ async function ensureStrategyTables() {
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "totalBudget" NUMERIC(18,2) NULL`);
         await pool.query(`UPDATE subprograms SET "unitOfMeasure" = 'count' WHERE "unitOfMeasure" = 'counts'`);
 
+        await runSafeDdl(`ALTER TABLE strategicplans ADD COLUMN IF NOT EXISTS vision TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE strategicplans ADD COLUMN IF NOT EXISTS mission TEXT NULL`);
+
         await runSafeDdl(`
             CREATE TABLE IF NOT EXISTS planningdocuments (
                 "attachmentId" BIGSERIAL PRIMARY KEY,
@@ -163,6 +166,17 @@ async function ensureStrategyTables() {
             )
         `);
         await pool.query(`UPDATE subprograms SET unitOfMeasure = 'count' WHERE unitOfMeasure = 'counts'`);
+
+        try {
+            await pool.query('ALTER TABLE strategicplans ADD COLUMN vision TEXT NULL');
+        } catch (e) {
+            if (!String(e?.message || '').includes('Duplicate column')) console.warn('strategicplans.vision alter:', e.message);
+        }
+        try {
+            await pool.query('ALTER TABLE strategicplans ADD COLUMN mission TEXT NULL');
+        } catch (e) {
+            if (!String(e?.message || '').includes('Duplicate column')) console.warn('strategicplans.mission alter:', e.message);
+        }
     }
 
     strategyTablesEnsured = true;
@@ -301,8 +315,18 @@ router.post('/strategic_plans', async (req, res) => {
         console.log('Inserting Strategic Plan:', newPlan);
         if (isPostgres) {
             const result = await pool.query(
-                'INSERT INTO strategicplans (cidpid, "cidpName", "startDate", "endDate", voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
-                [newPlan.cidpid, newPlan.cidpName, newPlan.startDate, newPlan.endDate, newPlan.voided, newPlan.createdAt, newPlan.updatedAt]
+                'INSERT INTO strategicplans (cidpid, "cidpName", "startDate", "endDate", vision, mission, voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                [
+                    newPlan.cidpid,
+                    newPlan.cidpName,
+                    newPlan.startDate,
+                    newPlan.endDate,
+                    newPlan.vision ?? null,
+                    newPlan.mission ?? null,
+                    newPlan.voided,
+                    newPlan.createdAt,
+                    newPlan.updatedAt,
+                ]
             );
             const insertedId = rowsFromResult(result)[0]?.id;
             res.status(201).json({ ...newPlan, id: insertedId });
@@ -320,20 +344,59 @@ router.post('/strategic_plans', async (req, res) => {
 
 router.put('/strategic_plans/:id', async (req, res) => {
     const { id } = req.params;
-    const clientData = req.body;
+    const clientData = req.body || {};
 
-    const updatedFields = {
-        startDate: clientData.startDate ? formatToMySQLDateTime(clientData.startDate) : undefined,
-        endDate: clientData.endDate ? formatToMySQLDateTime(clientData.endDate) : undefined,
-        ...clientData,
-        updatedAt: new Date(),
-    };
-    delete updatedFields.id;
-    delete updatedFields.voided;
-    delete updatedFields.createdAt;
+    const data = { ...clientData };
+    delete data.id;
+    delete data.voided;
+    delete data.createdAt;
+
+    if (data.startDate) data.startDate = formatToMySQLDateTime(data.startDate);
+    if (data.endDate) data.endDate = formatToMySQLDateTime(data.endDate);
+
+    const allowedKeys = ['cidpid', 'cidpName', 'startDate', 'endDate', 'vision', 'mission', 'remarks'];
+    const updatedFields = {};
+    for (const k of allowedKeys) {
+        if (data[k] !== undefined) updatedFields[k] = data[k];
+    }
+    updatedFields.updatedAt = new Date();
 
     try {
         console.log(`Updating Strategic Plan ${id}:`, updatedFields);
+
+        if (isPostgres) {
+            const colSql = {
+                cidpid: 'cidpid',
+                cidpName: '"cidpName"',
+                startDate: '"startDate"',
+                endDate: '"endDate"',
+                vision: 'vision',
+                mission: 'mission',
+                remarks: 'remarks',
+                updatedAt: '"updatedAt"',
+            };
+            const setFragments = [];
+            const params = [];
+            let p = 1;
+            for (const k of Object.keys(updatedFields)) {
+                if (!colSql[k]) continue;
+                setFragments.push(`${colSql[k]} = $${p++}`);
+                params.push(updatedFields[k]);
+            }
+            if (setFragments.length === 0) {
+                return res.status(400).json({ message: 'No valid fields to update' });
+            }
+            const sql = `UPDATE strategicplans SET ${setFragments.join(', ')} WHERE id = $${p}`;
+            params.push(id);
+            const result = await pool.query(sql, params);
+            if (affectedRowsFromResult(result) === 0) {
+                return res.status(404).json({ message: 'Strategic plan not found' });
+            }
+            const sel = await pool.query('SELECT * FROM strategicplans WHERE id = ?', [id]);
+            const row = firstRowFromResult(sel);
+            return res.status(200).json(row);
+        }
+
         const [result] = await pool.query('UPDATE strategicplans SET ? WHERE id = ?', [updatedFields, id]);
         if (result.affectedRows > 0) {
             const [rows] = await pool.query('SELECT * FROM strategicplans WHERE id = ?', [id]);
@@ -351,8 +414,9 @@ router.delete('/strategic_plans/:id', async (req, res) => {
     const { id } = req.params;
     try {
         console.log('Soft-deleting Strategic Plan:', id);
-        const [result] = await pool.query('UPDATE strategicplans SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows > 0) {
+        const voidVal = isPostgres ? true : 1;
+        const result = await pool.query(`UPDATE strategicplans SET voided = ? WHERE id = ?`, [voidVal, id]);
+        if (affectedRowsFromResult(result) > 0) {
             res.status(204).send();
         } else {
             res.status(404).json({ message: 'Strategic plan not found' });
@@ -1373,6 +1437,19 @@ router.get('/strategic_plans/:planId/export-pdf', async (req, res) => {
         doc.moveDown(0.5);
         doc.fontSize(14).text(`Plan ID: ${plan.cidpid}`);
         doc.fontSize(14).text(`Dates: ${plan.startDate} to ${plan.endDate}`);
+
+        if (plan.vision) {
+            doc.moveDown();
+            doc.fontSize(16).text('Vision:', { underline: true });
+            doc.moveDown(0.2);
+            doc.fontSize(12).text(String(plan.vision));
+        }
+        if (plan.mission) {
+            doc.moveDown();
+            doc.fontSize(16).text('Mission:', { underline: true });
+            doc.moveDown(0.2);
+            doc.fontSize(12).text(String(plan.mission));
+        }
         
         if (plan.strategicGoal) {
             doc.moveDown();

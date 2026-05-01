@@ -117,8 +117,8 @@ function KenyaWardsPage() {
         totalPages: response.data.pagination?.totalPages || 0,
       });
     } catch (err) {
-      console.error('Error fetching Kenya wards:', err);
-      const errorMessage = err?.response?.data?.message || err.message || 'Failed to fetch Kenya wards';
+      console.error('Error fetching wards:', err);
+      const errorMessage = err?.response?.data?.message || err.message || 'Failed to fetch wards';
       setError(errorMessage);
       setSnackbar({
         open: true,
@@ -443,7 +443,7 @@ function KenyaWardsPage() {
       // Create workbook and worksheet
       const worksheet = XLSX.utils.json_to_sheet(dataToExport);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Kenya Wards");
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Wards');
       
       // Generate filename with current date
       const dateStr = new Date().toISOString().split('T')[0];
@@ -663,7 +663,7 @@ function KenyaWardsPage() {
 
   return (
     <Box m="20px">
-      <Header title="Kenya Wards" subtitle="Manage Kenya ward data from IEBC" />
+      <Header title="Wards" subtitle="Machakos County ward data (IEBC reference)" />
       
       {/* Summary Card */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -894,7 +894,7 @@ function KenyaWardsPage() {
       {/* Create/Edit Dialog */}
       <Dialog open={openDialog} onClose={() => { setOpenDialog(false); resetForm(); }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white' }}>
-          {currentWard ? 'Edit Kenya Ward' : 'Add Kenya Ward'}
+          {currentWard ? 'Edit ward' : 'Add ward'}
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default }}>
           <Stack spacing={2}>
@@ -1052,7 +1052,7 @@ function KenyaWardsPage() {
 
       {/* Import Dialog */}
       <Dialog open={importDialogOpen} onClose={() => { setImportDialogOpen(false); setImportFile(null); }} maxWidth="sm" fullWidth>
-        <DialogTitle>Import Kenya Wards from CSV</DialogTitle>
+        <DialogTitle>Import wards from CSV</DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 1 }}>
             <Typography variant="body2" color="text.secondary">

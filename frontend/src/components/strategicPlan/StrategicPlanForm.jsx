@@ -1,64 +1,85 @@
 // src/components/strategicPlan/StrategicPlanForm.jsx
 import React from 'react';
 import { Box, TextField, Grid } from '@mui/material';
-import { formatNumberForInput } from '../../utils/helpers';
 
 /**
- * Form component for creating and editing a Strategic Plan.
- * It uses standard Material-UI TextFields for data entry.
- *
- * @param {object} props - The component props.
- * @param {object} props.formData - The current form data.
- * @param {function} props.handleFormChange - The change handler for form inputs.
+ * Form for editing a strategic plan on the plan details page (API fields).
  */
 function StrategicPlanForm({ formData, handleFormChange }) {
+  const cidpName = formData.cidpName ?? formData.planName ?? '';
+
   return (
     <Box component="form">
       <Grid container spacing={2}>
         <Grid item xs={12}>
           <TextField
             margin="dense"
-            name="planName"
-            label="Plan Name"
+            name="cidpName"
+            label="Plan name"
             fullWidth
-            value={formData.planName || ''}
+            value={cidpName}
+            onChange={handleFormChange}
+            required
+          />
+        </Grid>
+        <Grid item xs={12}>
+          <TextField
+            margin="dense"
+            name="vision"
+            label="Vision"
+            fullWidth
+            multiline
+            minRows={3}
+            value={formData.vision ?? ''}
             onChange={handleFormChange}
           />
         </Grid>
         <Grid item xs={12}>
           <TextField
             margin="dense"
-            name="description"
-            label="Description"
+            name="mission"
+            label="Mission"
             fullWidth
             multiline
-            rows={4}
-            value={formData.description || ''}
+            minRows={3}
+            value={formData.mission ?? ''}
+            onChange={handleFormChange}
+          />
+        </Grid>
+        <Grid item xs={12}>
+          <TextField
+            margin="dense"
+            name="remarks"
+            label="Remarks"
+            fullWidth
+            multiline
+            minRows={2}
+            value={formData.remarks ?? ''}
             onChange={handleFormChange}
           />
         </Grid>
         <Grid item xs={12} sm={6}>
           <TextField
             margin="dense"
-            name="startYear"
-            label="Start Year"
+            name="startDate"
+            label="Start date"
             fullWidth
-            type="text" // Use type text to allow formatting, as our handleFormChange will parse it
-            value={formatNumberForInput(formData.startYear)}
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            value={formData.startDate ?? ''}
             onChange={handleFormChange}
-            inputProps={{ 'data-type': 'number' }} // Custom data attribute for number parsing
           />
         </Grid>
         <Grid item xs={12} sm={6}>
           <TextField
             margin="dense"
-            name="endYear"
-            label="End Year"
+            name="endDate"
+            label="End date"
             fullWidth
-            type="text"
-            value={formatNumberForInput(formData.endYear)}
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            value={formData.endDate ?? ''}
             onChange={handleFormChange}
-            inputProps={{ 'data-type': 'number' }}
           />
         </Grid>
       </Grid>

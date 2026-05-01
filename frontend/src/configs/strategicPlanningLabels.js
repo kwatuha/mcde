@@ -9,6 +9,8 @@ const strategicPlanningLabels = {
       cidpName: 'Plan Name',
       startDate: 'Start Date',
       endDate: 'End Date',
+      vision: 'Vision',
+      mission: 'Mission',
       strategicGoal: 'Strategic Goal',
       // Add other fields from kemri_strategicplans here
     },

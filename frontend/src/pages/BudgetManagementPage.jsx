@@ -216,11 +216,15 @@ function BudgetManagementPage() {
   // Fetch metadata
   const fetchMetadata = useCallback(async () => {
     try {
-      const [fyData, deptData, subcountyData] = await Promise.all([
+      const [fyResult, deptResult, subcountyResult] = await Promise.allSettled([
         metaDataService.financialYears.getAllFinancialYears(),
         metaDataService.departments.getAllDepartments(),
         metaDataService.subcounties.getAllSubcounties()
       ]);
+
+      const fyData = fyResult.status === 'fulfilled' ? fyResult.value : [];
+      const deptData = deptResult.status === 'fulfilled' ? deptResult.value : [];
+      const subcountyData = subcountyResult.status === 'fulfilled' ? subcountyResult.value : [];
       
       // Deduplicate financial years by finYearName, keeping the most recent one
       const uniqueFinancialYears = (fyData || []).reduce((acc, fy) => {
@@ -248,9 +252,27 @@ function BudgetManagementPage() {
         return (b.finYearName || '').localeCompare(a.finYearName || '');
       });
       
-      setFinancialYears(uniqueFinancialYears);
-      setDepartments(deptData || []);
+      const normalizedDepartments = Array.isArray(deptData)
+        ? deptData
+        : (deptData?.rows || deptData?.data || deptData?.departments || []);
+      const normalizedFinancialYears = Array.isArray(uniqueFinancialYears)
+        ? uniqueFinancialYears
+        : [];
+
+      setFinancialYears(normalizedFinancialYears);
+      setDepartments(normalizedDepartments);
       setSubcounties(subcountyData || []);
+
+      // Keep FY dropdown usable even when other metadata endpoints fail.
+      if (fyResult.status !== 'fulfilled') {
+        console.warn('Financial years fetch failed:', fyResult.reason);
+      }
+      if (deptResult.status !== 'fulfilled') {
+        console.warn('Departments fetch failed:', deptResult.reason);
+      }
+      if (subcountyResult.status !== 'fulfilled') {
+        console.warn('Subcounties fetch failed:', subcountyResult.reason);
+      }
     } catch (err) {
       console.error('Error fetching metadata:', err);
     }
@@ -346,7 +368,26 @@ function BudgetManagementPage() {
       console.log('Final containers count:', containersList.length);
       
       // Always set containers, even if empty - this ensures state is consistent
-      setContainers(containersList || []);
+      const normalizedContainers = (containersList || []).map((row) => ({
+        ...row,
+        budgetId: row.budgetId ?? row.budgetid,
+        budgetName: row.budgetName ?? row.budgetname,
+        budgetType: row.budgetType ?? row.budgettype,
+        isCombined: row.isCombined ?? row.iscombined,
+        parentBudgetId: row.parentBudgetId ?? row.parentbudgetid,
+        finYearId: row.finYearId ?? row.finyearid,
+        departmentId: row.departmentId ?? row.departmentid,
+        totalAmount: row.totalAmount ?? row.totalamount,
+        isFrozen: row.isFrozen ?? row.isfrozen,
+        requiresApprovalForChanges: row.requiresApprovalForChanges ?? row.requiresapprovalforchanges,
+        createdAt: row.createdAt ?? row.createdat,
+        updatedAt: row.updatedAt ?? row.updatedat,
+        finYearName: row.finYearName ?? row.finyearname,
+        departmentName: row.departmentName ?? row.departmentname,
+        itemCount: row.itemCount ?? row.itemcount ?? 0,
+      })).filter((row) => row.budgetId != null);
+
+      setContainers(normalizedContainers);
       setPagination(prev => ({
         ...prev,
         total: data.pagination?.total || containersList.length || 0,
@@ -549,6 +590,15 @@ function BudgetManagementPage() {
       } else {
         await budgetService.createBudgetContainer(dataToSubmit);
         setSnackbar({ open: true, message: 'Budget container created successfully!', severity: 'success' });
+        // Ensure newly created containers are visible in the main list.
+        setActiveTab(0);
+        setSelectedContainer(null);
+        setFilters({
+          finYearId: '',
+          departmentId: '',
+          status: '',
+          search: ''
+        });
       }
       handleCloseDialog();
       // Reset to first page and refresh
@@ -1584,7 +1634,7 @@ function BudgetManagementPage() {
           <MoneyIcon sx={{ color: theme.palette.primary.main, fontSize: 32 }} />
           <Box>
             <Typography variant="h5" component="h1" sx={{ color: theme.palette.primary.main, fontWeight: 700, lineHeight: 1.2 }}>
-              Budget Management
+              ADP-Budget
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
               Manage containers & track approvals
@@ -2755,7 +2805,7 @@ function BudgetManagementPage() {
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <FormControl fullWidth margin="dense" error={!!formErrors.finYearId} sx={{ minWidth: 200 }}>
+              <FormControl fullWidth margin="dense" error={!!formErrors.finYearId} sx={{ minWidth: 260 }}>
                 <InputLabel>Financial Year *</InputLabel>
                 <Select
                   name="finYearId"
@@ -2763,6 +2813,11 @@ function BudgetManagementPage() {
                   value={formData.finYearId}
                   onChange={handleFormChange}
                 >
+                  {financialYears.length === 0 && (
+                    <MenuItem value="" disabled>
+                      No financial years available
+                    </MenuItem>
+                  )}
                   {financialYears.map((fy) => (
                     <MenuItem key={fy.finYearId} value={fy.finYearId}>
                       {fy.finYearName}
@@ -2778,7 +2833,7 @@ function BudgetManagementPage() {
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <FormControl fullWidth margin="dense" sx={{ minWidth: 200 }}>
+              <FormControl fullWidth margin="dense" sx={{ minWidth: 260 }}>
                 <InputLabel>Department</InputLabel>
                 <Select
                   name="departmentId"
@@ -2787,6 +2842,11 @@ function BudgetManagementPage() {
                   onChange={handleFormChange}
                 >
                   <MenuItem value="">None</MenuItem>
+                  {departments.length === 0 && (
+                    <MenuItem value="" disabled>
+                      No departments available
+                    </MenuItem>
+                  )}
                   {departments.map((dept) => (
                     <MenuItem key={dept.departmentId} value={dept.departmentId}>
                       {dept.name}

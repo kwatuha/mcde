@@ -16,6 +16,11 @@ try {
 const fs = require('fs');
 const path = require('path');
 
+/** When non-empty, list/read endpoints only return wards whose county matches (ILIKE). Unset defaults to Machakos; set to empty string to show all counties. */
+const WARDS_COUNTY_SCOPE = process.env.WARDS_COUNTY_SCOPE !== undefined
+    ? String(process.env.WARDS_COUNTY_SCOPE).trim()
+    : 'Machakos';
+
 // Configure multer for file uploads
 const upload = multer({ 
     dest: 'uploads/',
@@ -88,6 +93,11 @@ router.get('/', async (req, res) => {
         `;
         const params = [];
 
+        if (WARDS_COUNTY_SCOPE) {
+            query += ` AND county ILIKE $${params.length + 1}`;
+            params.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
+
         if (search) {
             query += ` AND (
                 iebc_ward_name ILIKE $${params.length + 1} OR
@@ -107,15 +117,19 @@ router.get('/', async (req, res) => {
         // Get total count for pagination
         let countQuery = 'SELECT COUNT(*) as total FROM kenya_wards WHERE voided = false';
         const countParams = [];
+        if (WARDS_COUNTY_SCOPE) {
+            countQuery += ` AND county ILIKE $${countParams.length + 1}`;
+            countParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
         if (search) {
             countQuery += ` AND (
-                iebc_ward_name ILIKE $1 OR
-                province ILIKE $1 OR
-                district ILIKE $1 OR
-                division ILIKE $1 OR
-                county ILIKE $1 OR
-                constituency ILIKE $1 OR
-                pcode ILIKE $1
+                iebc_ward_name ILIKE $${countParams.length + 1} OR
+                province ILIKE $${countParams.length + 1} OR
+                district ILIKE $${countParams.length + 1} OR
+                division ILIKE $${countParams.length + 1} OR
+                county ILIKE $${countParams.length + 1} OR
+                constituency ILIKE $${countParams.length + 1} OR
+                pcode ILIKE $${countParams.length + 1}
             )`;
             countParams.push(`%${search}%`);
         }
@@ -151,12 +165,17 @@ router.get('/', async (req, res) => {
  */
 router.get('/counties', async (req, res) => {
     try {
+        const scopeClause = WARDS_COUNTY_SCOPE
+            ? ' AND county ILIKE $1'
+            : '';
+        const scopeParams = WARDS_COUNTY_SCOPE ? [`%${WARDS_COUNTY_SCOPE}%`] : [];
         const result = await pool.query(`
             SELECT DISTINCT county
             FROM kenya_wards
             WHERE voided = false AND county IS NOT NULL AND county != ''
+            ${scopeClause}
             ORDER BY county ASC
-        `);
+        `, scopeParams);
         
         const counties = result.rows.map(row => row.county).filter(Boolean);
         res.status(200).json({ data: counties });
@@ -174,20 +193,30 @@ router.get('/counties', async (req, res) => {
 router.get('/constituencies', async (req, res) => {
     try {
         const { county } = req.query;
-        
-        if (!county) {
+
+        if (!WARDS_COUNTY_SCOPE && !county) {
             return res.status(400).json({ message: 'County parameter is required' });
         }
-        
+
+        const params = [];
+        let countyFilter = '';
+        if (WARDS_COUNTY_SCOPE) {
+            countyFilter = ` AND county ILIKE $${params.length + 1}`;
+            params.push(`%${WARDS_COUNTY_SCOPE}%`);
+        } else {
+            countyFilter = ` AND county = $${params.length + 1}`;
+            params.push(county);
+        }
+
         const result = await pool.query(`
             SELECT DISTINCT constituency
             FROM kenya_wards
             WHERE voided = false 
-                AND county = $1 
+                ${countyFilter}
                 AND constituency IS NOT NULL 
                 AND constituency != ''
             ORDER BY constituency ASC
-        `, [county]);
+        `, params);
         
         const constituencies = result.rows.map(row => row.constituency).filter(Boolean);
         res.status(200).json({ data: constituencies });
@@ -209,16 +238,24 @@ router.get('/wards', async (req, res) => {
         if (!constituency) {
             return res.status(400).json({ message: 'Constituency parameter is required' });
         }
-        
+
+        const wardParams = [constituency];
+        let countyClause = '';
+        if (WARDS_COUNTY_SCOPE) {
+            countyClause = ` AND county ILIKE $2`;
+            wardParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
+
         const result = await pool.query(`
             SELECT DISTINCT id, iebc_ward_name, pcode
             FROM kenya_wards
             WHERE voided = false 
                 AND constituency = $1 
+                ${countyClause}
                 AND iebc_ward_name IS NOT NULL 
                 AND iebc_ward_name != ''
             ORDER BY iebc_ward_name ASC
-        `, [constituency]);
+        `, wardParams);
         
         const wards = result.rows.map(row => ({
             id: row.id,
@@ -239,6 +276,12 @@ router.get('/wards', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const idParams = [id];
+        let countyClause = '';
+        if (WARDS_COUNTY_SCOPE) {
+            countyClause = ' AND county ILIKE $2';
+            idParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
         const result = await pool.query(
             `SELECT 
                 id,
@@ -257,8 +300,8 @@ router.get('/:id', async (req, res) => {
                 created_at,
                 updated_at
             FROM kenya_wards
-            WHERE id = $1 AND voided = false`,
-            [id]
+            WHERE id = $1 AND voided = false${countyClause}`,
+            idParams
         );
 
         if (result.rows.length === 0) {
@@ -352,10 +395,15 @@ router.put('/:id', async (req, res) => {
             status_1
         } = req.body;
 
-        // Check if ward exists
+        const existingParams = [id];
+        let existingCounty = '';
+        if (WARDS_COUNTY_SCOPE) {
+            existingCounty = ' AND county ILIKE $2';
+            existingParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
         const existing = await pool.query(
-            'SELECT id FROM kenya_wards WHERE id = $1 AND voided = false',
-            [id]
+            `SELECT id FROM kenya_wards WHERE id = $1 AND voided = false${existingCounty}`,
+            existingParams
         );
 
         if (existing.rows.length === 0) {
@@ -365,14 +413,22 @@ router.put('/:id', async (req, res) => {
         // Check if pcode already exists for another ward (if provided)
         if (pcode) {
             const pcodeCheck = await pool.query(
-                'SELECT id FROM kenya_wards WHERE pcode = $1 AND id != $2 AND voided = false',
-                [pcode, id]
+                `SELECT id FROM kenya_wards WHERE pcode = $1 AND id != $2 AND voided = false${WARDS_COUNTY_SCOPE ? ' AND county ILIKE $3' : ''}`,
+                WARDS_COUNTY_SCOPE ? [pcode, id, `%${WARDS_COUNTY_SCOPE}%`] : [pcode, id]
             );
             if (pcodeCheck.rows.length > 0) {
                 return res.status(400).json({ message: 'Ward with this PCODE already exists' });
             }
         }
 
+        const updateParams = [iebc_ward_name, count || null, province || null, district || null, division || null,
+            county || null, constituency || null, pcode || null, status || null, no || null,
+            shape_type || null, status_1 || null, id];
+        let updateCounty = '';
+        if (WARDS_COUNTY_SCOPE) {
+            updateCounty = ' AND county ILIKE $14';
+            updateParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
         const result = await pool.query(
             `UPDATE kenya_wards SET
                 iebc_ward_name = COALESCE($1, iebc_ward_name),
@@ -388,13 +444,15 @@ router.put('/:id', async (req, res) => {
                 shape_type = $11,
                 status_1 = $12,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = $13 AND voided = false
+            WHERE id = $13 AND voided = false${updateCounty}
             RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
                       pcode, status, no, shape_type, status_1, created_at, updated_at`,
-            [iebc_ward_name, count || null, province || null, district || null, division || null,
-             county || null, constituency || null, pcode || null, status || null, no || null, 
-             shape_type || null, status_1 || null, id]
+            updateParams
         );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Ward not found' });
+        }
 
         res.status(200).json({
             message: 'Ward updated successfully',
@@ -414,9 +472,15 @@ router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
+        const delParams = [id];
+        let delCounty = '';
+        if (WARDS_COUNTY_SCOPE) {
+            delCounty = ' AND county ILIKE $2';
+            delParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
         const result = await pool.query(
-            'UPDATE kenya_wards SET voided = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND voided = false RETURNING id',
-            [id]
+            `UPDATE kenya_wards SET voided = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND voided = false${delCounty} RETURNING id`,
+            delParams
         );
 
         if (result.rows.length === 0) {

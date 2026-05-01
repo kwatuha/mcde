@@ -38,6 +38,9 @@ export const ICON_MAP = {
   AttachMoneyIcon: () => import('@mui/icons-material/AttachMoney').then(m => m.default),
   ApartmentIcon: () => import('@mui/icons-material/Apartment').then(m => m.default),
   CategoryIcon: () => import('@mui/icons-material/Category').then(m => m.default),
+  MenuBookIcon: () => import('@mui/icons-material/MenuBook').then(m => m.default),
+  LocationOnIcon: () => import('@mui/icons-material/LocationOn').then(m => m.default),
+  WorkIcon: () => import('@mui/icons-material/Work').then(m => m.default),
 };
 
 // Get icon component by name

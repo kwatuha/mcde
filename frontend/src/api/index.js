@@ -14,6 +14,7 @@ import hrService from './hrService';
 import paymentService from './paymentService';
 import projectWorkFlowService from './projectWorkFlowService';
 import approvalService from './approvalService';
+import approvalWorkflowService from './approvalWorkflowService';
 import contractorService from './contractorService'; 
 import reportsService from './reportsService';
 import budgetService from './budgetService';
@@ -80,6 +81,7 @@ const apiService = {
   paymentRequests: paymentService,
   workflow: projectWorkFlowService,
   approval: approvalService,
+  approvalWorkflow: approvalWorkflowService,
   contractors: contractorService,
   reports: reportsService, // 👈 Mount the reportsService here
   budgets: budgetService, // 👈 Mount the budgetService here
