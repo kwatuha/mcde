@@ -9,6 +9,8 @@ import {
   Paper,
   Select,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import { InfoWindowF, MarkerF, PolygonF } from '@react-google-maps/api';
@@ -94,6 +96,7 @@ function GISDashboardPage() {
   const [hoverWard, setHoverWard] = useState(null);
   const [selectedWard, setSelectedWard] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [mapBaseStyle, setMapBaseStyle] = useState('roadmap');
 
   useEffect(() => {
     const loadData = async () => {
@@ -255,6 +258,30 @@ function GISDashboardPage() {
               <MenuItem value="no">Hide markers</MenuItem>
             </Select>
           </FormControl>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: { xs: 'stretch', md: 'flex-start' }, gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Base map (Machakos)
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={mapBaseStyle}
+              onChange={(_, value) => {
+                if (value) setMapBaseStyle(value);
+              }}
+              aria-label="Map or satellite view"
+            >
+              <ToggleButton value="roadmap" aria-label="Road map">
+                Map
+              </ToggleButton>
+              <ToggleButton value="satellite" aria-label="Satellite" title="Aerial imagery of the county">
+                Satellite
+              </ToggleButton>
+              <ToggleButton value="hybrid" aria-label="Satellite with labels" title="Satellite with place and road names">
+                Hybrid
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <Typography variant="caption" color="text.secondary">
               Projects loaded: {projects.length} | Geolocated markers: {markers.length}
@@ -278,7 +305,7 @@ function GISDashboardPage() {
           center={MACHAKOS_CENTER}
           zoom={9}
           style={{ height: '72vh', width: '100%' }}
-          mapTypeId="roadmap"
+          mapTypeId={mapBaseStyle}
         >
           {countyPolygons.map((polygon) => (
             <PolygonF

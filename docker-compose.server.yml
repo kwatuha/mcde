@@ -11,6 +11,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.production
+      args:
+        VITE_MAPS_API_KEY: ${VITE_MAPS_API_KEY:-}
     container_name: machakosme_react_frontend
     restart: always
     ports:
@@ -22,6 +24,7 @@ services:
       dockerfile: Dockerfile.production
       args:
         VITE_BASE_PATH: ${MACHAKOS_CITIZEN_BASE_PATH:-/citizen/}
+        VITE_MAPS_API_KEY: ${VITE_MAPS_API_KEY:-}
     container_name: machakosme_public_dashboard
     restart: always
     ports:

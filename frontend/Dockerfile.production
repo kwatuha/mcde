@@ -18,6 +18,10 @@ COPY . .
 # Increase Node heap during Vite production build (helps avoid OOM on constrained servers).
 ENV NODE_OPTIONS=--max-old-space-size=4096
 
+# Vite inlines public env at build time (must match runtime domain in Google Cloud key restrictions).
+ARG VITE_MAPS_API_KEY=
+ENV VITE_MAPS_API_KEY=$VITE_MAPS_API_KEY
+
 # Build the application for production
 # This creates optimized, minified bundles in /app/dist
 RUN npm run build

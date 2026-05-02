@@ -15,6 +15,10 @@ api/.env.remote
 .env.test
 .env.*.local
 *.env
+# Real deploy secrets on the server / local — keep scripts and .env.deploy.example in git
+deploy/.env.deploy
+
+
 
 # Dependencies
 node_modules/

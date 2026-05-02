@@ -10,9 +10,7 @@ function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearch
   const searchBoxRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   
-  // LOGGING ADDED: Log the API key to the console
   const apiKey = import.meta.env.VITE_MAPS_API_KEY;
-  console.log("Google Maps API Key:", apiKey);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: apiKey,
@@ -46,6 +44,12 @@ function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearch
     }
   }, [onCreated, mapTypeId]);
 
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || !window.google?.maps) return;
+    const id = mapTypeId || 'roadmap';
+    mapRef.current.setMapTypeId(id);
+  }, [mapTypeId, mapLoaded]);
+
   const onUnmount = useCallback(() => {
     mapRef.current = null;
     setMapLoaded(false);
@@ -56,7 +60,6 @@ function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearch
     if (mapRef.current && mapLoaded && center && typeof center === 'object' && 
         center.lat !== undefined && center.lng !== undefined && 
         !isNaN(center.lat) && !isNaN(center.lng) && zoom) {
-      console.log('[GoogleMapComponent] Updating center/zoom from props:', center, zoom);
       mapRef.current.setCenter(center);
       mapRef.current.setZoom(zoom);
     }
