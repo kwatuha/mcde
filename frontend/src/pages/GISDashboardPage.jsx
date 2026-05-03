@@ -220,79 +220,84 @@ function GISDashboardPage() {
     );
   }
 
+  /** Status-colored ward fills hide satellite/hybrid imagery; use outlines only on aerial bases. */
+  const aerialBaseMap = mapBaseStyle === 'satellite' || mapBaseStyle === 'hybrid';
+
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-        Machakos GIS Dashboard
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Ward-level distribution heat map using Machakos boundaries and project data.
-      </Typography>
+    <Box sx={{ p: { xs: 1, sm: 1.5 }, pb: 1 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ mb: 1 }} alignItems={{ sm: 'baseline' }} flexWrap="wrap" useFlexGap>
+        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+          Machakos GIS Dashboard
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+          Ward heat map · Machakos boundaries · project markers
+        </Typography>
+      </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-          <FormControl size="small" sx={{ minWidth: 220 }}>
-            <InputLabel id="gis-metric-label">Heat Metric</InputLabel>
+      <Paper variant="outlined" sx={{ p: 1, mb: 1 }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ columnGap: 1, rowGap: 0.75 }}
+        >
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel id="gis-metric-label">Heat metric</InputLabel>
             <Select
               labelId="gis-metric-label"
               value={metric}
-              label="Heat Metric"
+              label="Heat metric"
               onChange={(e) => setMetric(e.target.value)}
             >
-              <MenuItem value="count">Project Count</MenuItem>
-              <MenuItem value="budget">Budget Amount</MenuItem>
-              <MenuItem value="disbursed">Disbursed Amount</MenuItem>
+              <MenuItem value="count">Project count</MenuItem>
+              <MenuItem value="budget">Budget</MenuItem>
+              <MenuItem value="disbursed">Disbursed</MenuItem>
             </Select>
           </FormControl>
-          <FormControl size="small" sx={{ minWidth: 220 }}>
-            <InputLabel id="gis-markers-label">Project Markers</InputLabel>
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel id="gis-markers-label">Markers</InputLabel>
             <Select
               labelId="gis-markers-label"
               value={showMarkers}
-              label="Project Markers"
+              label="Markers"
               onChange={(e) => setShowMarkers(e.target.value)}
             >
-              <MenuItem value="yes">Show markers</MenuItem>
-              <MenuItem value="no">Hide markers</MenuItem>
+              <MenuItem value="yes">Show</MenuItem>
+              <MenuItem value="no">Hide</MenuItem>
             </Select>
           </FormControl>
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: { xs: 'stretch', md: 'flex-start' }, gap: 0.5 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              Base map (Machakos)
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={mapBaseStyle}
-              onChange={(_, value) => {
-                if (value) setMapBaseStyle(value);
-              }}
-              aria-label="Map or satellite view"
-            >
-              <ToggleButton value="roadmap" aria-label="Road map">
-                Map
-              </ToggleButton>
-              <ToggleButton value="satellite" aria-label="Satellite" title="Aerial imagery of the county">
-                Satellite
-              </ToggleButton>
-              <ToggleButton value="hybrid" aria-label="Satellite with labels" title="Satellite with place and road names">
-                Hybrid
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Typography variant="caption" color="text.secondary">
-              Projects loaded: {projects.length} | Geolocated markers: {markers.length}
-            </Typography>
-          </Box>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={mapBaseStyle}
+            onChange={(_, value) => {
+              if (value) setMapBaseStyle(value);
+            }}
+            aria-label="Base map"
+          >
+            <ToggleButton value="roadmap" aria-label="Road map">
+              Map
+            </ToggleButton>
+            <ToggleButton value="satellite" aria-label="Satellite" title="Aerial imagery">
+              Satellite
+            </ToggleButton>
+            <ToggleButton value="hybrid" aria-label="Hybrid" title="Satellite + labels">
+              Hybrid
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+            {projects.length} projects · {markers.length} on map
+          </Typography>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }} useFlexGap>
+        <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }} useFlexGap alignItems="center">
           {Object.entries(STATUS_COLORS).map(([status, color]) => (
-            <Box key={status} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: '2px', backgroundColor: color, border: '1px solid #ddd' }} />
-              <Typography variant="caption" color="text.secondary">
+            <Box key={status} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 9, height: 9, borderRadius: '2px', backgroundColor: color, border: '1px solid rgba(0,0,0,0.12)' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1 }}>
                 {status.replace(/_/g, ' ')}
               </Typography>
             </Box>
@@ -304,19 +309,20 @@ function GISDashboardPage() {
         <GoogleMapComponent
           center={MACHAKOS_CENTER}
           zoom={9}
-          style={{ height: '72vh', width: '100%' }}
+          style={{ height: '72vh', minHeight: 420, width: '100%' }}
           mapTypeId={mapBaseStyle}
+          searchPlacement="above"
         >
           {countyPolygons.map((polygon) => (
             <PolygonF
               key={polygon.key}
               paths={polygon.paths}
               options={{
-                strokeColor: '#1E3A8A',
+                strokeColor: aerialBaseMap ? '#E8F4FC' : '#1E3A8A',
                 strokeOpacity: 0.95,
                 strokeWeight: 2,
                 fillColor: '#93C5FD',
-                fillOpacity: 0.04,
+                fillOpacity: aerialBaseMap ? 0 : 0.04,
                 clickable: false,
                 zIndex: 1,
               }}
@@ -328,9 +334,9 @@ function GISDashboardPage() {
               key={polygon.key}
               paths={polygon.paths}
               options={{
-                strokeColor: '#6B7280',
-                strokeOpacity: 0.7,
-                strokeWeight: 1,
+                strokeColor: aerialBaseMap ? '#F1F5F9' : '#6B7280',
+                strokeOpacity: aerialBaseMap ? 0.75 : 0.7,
+                strokeWeight: aerialBaseMap ? 1.5 : 1,
                 fillOpacity: 0,
                 clickable: false,
                 zIndex: 2,
@@ -343,11 +349,11 @@ function GISDashboardPage() {
               key={ward.key}
               paths={ward.paths}
               options={{
-                strokeColor: '#555',
-                strokeOpacity: 0.8,
-                strokeWeight: 1,
+                strokeColor: aerialBaseMap ? '#FFFFFF' : '#555',
+                strokeOpacity: aerialBaseMap ? 0.92 : 0.8,
+                strokeWeight: aerialBaseMap ? 2 : 1,
                 fillColor: ward.fillColor,
-                fillOpacity: 0.65,
+                fillOpacity: aerialBaseMap ? 0 : 0.65,
                 zIndex: 3,
               }}
               onMouseOver={(event) => {

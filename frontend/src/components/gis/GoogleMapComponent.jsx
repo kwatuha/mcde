@@ -5,7 +5,18 @@ import { CircularProgress, Alert, TextField, Box } from '@mui/material';
 // Define the Google Maps libraries you'll use
 const libraries = ['places'];
 
-function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearchPlaceChanged, onClick, mapTypeId }) {
+/** Search box: `overlay` (default, centered on map) or `above` (toolbar row, map stays unobstructed). */
+function GoogleMapComponent({
+  children,
+  center,
+  zoom,
+  style,
+  onCreated,
+  onSearchPlaceChanged,
+  onClick,
+  mapTypeId,
+  searchPlacement = 'overlay',
+}) {
   const mapRef = useRef(null);
   const searchBoxRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -95,36 +106,94 @@ function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearch
     );
   }
 
+  const mapOptions = {
+    fullscreenControl: false,
+    mapTypeControl: false,
+    streetViewControl: false,
+    zoomControl: true,
+    zoomControlOptions: {
+      position: window.google?.maps?.ControlPosition?.RIGHT_CENTER || 10,
+    },
+    disableDefaultUI: false,
+    mapTypeId: mapTypeId || 'roadmap',
+  };
+
+  const searchField = (
+    <StandaloneSearchBox
+      onLoad={(ref) => {
+        searchBoxRef.current = ref;
+      }}
+      onPlacesChanged={onPlacesChanged}
+    >
+      <TextField
+        type="text"
+        placeholder="Search for a place or address…"
+        size="small"
+        variant="outlined"
+        fullWidth
+        sx={
+          searchPlacement === 'above'
+            ? {
+                maxWidth: 440,
+                flexShrink: 0,
+                bgcolor: 'background.paper',
+              }
+            : {
+                boxSizing: 'border-box',
+                border: '1px solid transparent',
+                width: 240,
+                height: 40,
+                padding: '0 12px',
+                borderRadius: '3px',
+                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3)',
+                fontSize: 14,
+                outline: 'none',
+                textOverflow: 'ellipsis',
+                position: 'absolute',
+                left: '50%',
+                marginLeft: '-120px',
+                top: 10,
+                zIndex: 10,
+                backgroundColor: 'white',
+              }
+        }
+      />
+    </StandaloneSearchBox>
+  );
+
+  if (searchPlacement === 'above') {
+    return (
+      <Box
+        sx={{
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          width: style?.width || '100%',
+          height: style?.height || '500px',
+          minHeight: 0,
+        }}
+      >
+        <Box sx={{ flexShrink: 0, px: 0.5, pt: 0.5, pb: 0.75 }}>{searchField}</Box>
+        <Box sx={{ flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+          <GoogleMap
+            mapContainerStyle={{ width: '100%', height: '100%' }}
+            center={center}
+            zoom={zoom}
+            onLoad={onLoad}
+            onUnmount={onUnmount}
+            onClick={onClick}
+            options={mapOptions}
+          >
+            {children}
+          </GoogleMap>
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ position: 'relative', ...style }}>
-      <StandaloneSearchBox
-        onLoad={ref => searchBoxRef.current = ref}
-        onPlacesChanged={onPlacesChanged}
-      >
-        <TextField
-          type="text"
-          placeholder="Search for a location..."
-          sx={{
-            boxSizing: `border-box`,
-            border: `1px solid transparent`,
-            width: `240px`,
-            height: `40px`,
-            padding: `0 12px`,
-            borderRadius: `3px`,
-            boxShadow: `0 2px 6px rgba(0, 0, 0, 0.3)`,
-            fontSize: `14px`,
-            outline: `none`,
-            textOverflow: `ellipses`,
-            position: "absolute",
-            left: "50%",
-            marginLeft: "-120px",
-            top: "10px",
-            zIndex: 10,
-            backgroundColor: "white",
-          }}
-        />
-      </StandaloneSearchBox>
-
+      {searchField}
       <GoogleMap
         mapContainerStyle={style}
         center={center}
@@ -132,17 +201,7 @@ function GoogleMapComponent({ children, center, zoom, style, onCreated, onSearch
         onLoad={onLoad}
         onUnmount={onUnmount}
         onClick={onClick}
-        options={{
-          fullscreenControl: false,
-          mapTypeControl: false,
-          streetViewControl: false,
-          zoomControl: true,
-          zoomControlOptions: {
-            position: window.google?.maps?.ControlPosition?.RIGHT_CENTER || 10,
-          },
-          disableDefaultUI: false,
-          mapTypeId: mapTypeId || 'roadmap',
-        }}
+        options={mapOptions}
       >
         {children}
       </GoogleMap>

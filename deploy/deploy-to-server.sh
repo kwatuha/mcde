@@ -10,6 +10,10 @@
 # Media sync defaults ON: DEPLOY_SYNC_UPLOADS=1 (copies uploads/ and api/uploads/ without --delete)
 # Set DEPLOY_SYNC_UPLOADS=0 to skip media sync.
 #
+# Database: this script does NOT dump, restore, migrate, or recreate PostgreSQL. Data lives wherever
+# api/.env points (host Postgres, Docker DB on the host, etc.). If data "disappears" after deploy,
+# check DB_HOST/DB_NAME/DB_PORT in server api/.env and avoid `docker compose down -v` on any stack that holds DB volumes.
+#
 # First-time on server:
 #   - mkdir -p "$DEPLOY_PATH" && ensure Docker + docker compose plugin installed
 #   - Create api/.env on the server with DB_* (not rsync'd). Containers start without it; the API needs it to reach Postgres.
