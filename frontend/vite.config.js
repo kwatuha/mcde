@@ -74,16 +74,15 @@ export default defineConfig({
     ...(process.env.VITE_HMR_DISABLED === 'true' ? { hmr: false } : {}),
     proxy: {
       '/api': {
-        // In Docker: use service name 'api'
-        // Outside Docker: use 'localhost'
-        // Override with VITE_PROXY_TARGET env var if needed
-        target: process.env.VITE_PROXY_TARGET || 'http://api:3000',
+        // Must match API PORT (docker-compose sets 3002; nginx /api/ proxies to 3002).
+        // In Docker frontend container, compose sets VITE_PROXY_TARGET=http://host.docker.internal:3002.
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:3002',
         changeOrigin: true,
         secure: false,
       },
       // Express serves certificate files under /uploads (same host as API). Dev SPA must proxy this too.
       '/uploads': {
-        target: process.env.VITE_PROXY_TARGET || 'http://api:3000',
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:3002',
         changeOrigin: true,
         secure: false,
       },

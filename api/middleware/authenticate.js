@@ -1,6 +1,7 @@
 // backend/middleware/authenticate.js
+const path = require('path');
 const jwt = require('jsonwebtoken');
-require('dotenv').config(); // Load environment variables
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_dev_only_change_this_asap'; // Use the same secret as in auth.js
 

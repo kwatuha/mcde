@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const orgScope = require('../services/organizationScopeService');
 const { isSuperAdminRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
+const { ensureLoginOtpSchema } = require('../services/loginOtpService');
 const { setMustChangePassword } = require('../services/passwordPolicyService');
 
 const ALLOWED_ASSIGNMENT_ROLES_FOR_MDA_ICT_ADMIN = new Set([
@@ -121,6 +122,7 @@ async function enforceTargetUserEditPermission(reqUser, targetUserId, DB_TYPE) {
  * Does not select password or password hash columns.
  */
 async function fetchActiveNonVoidedUsers() {
+    await ensureLoginOtpSchema(pool).catch(() => {});
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
     let query;
 
@@ -150,7 +152,8 @@ async function fetchActiveNonVoidedUsers() {
                 u.employee_number AS "employeeNumber",
                 u.createdat AS "createdAt", 
                 u.updatedat AS "updatedAt", 
-                u.isactive AS "isActive", 
+                u.isactive AS "isActive",
+                u.otp_enabled AS "otpEnabled",
                 u.roleid AS "roleId", 
                 r.name AS role,
                 u.ministry, 
@@ -175,7 +178,8 @@ async function fetchActiveNonVoidedUsers() {
                 u.employeeNumber,
                 u.createdAt, 
                 u.updatedAt, 
-                u.isActive, 
+                u.isActive,
+                IFNULL(u.otpEnabled, 0) AS otpEnabled,
                 u.roleId, 
                 r.roleName AS role,
                 u.ministry, 
@@ -305,6 +309,7 @@ router.get('/users/check-username', async (req, res) => {
 router.get('/users/:id', async (req, res) => {
     const { id } = req.params;
     try {
+        await ensureLoginOtpSchema(pool).catch(() => {});
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
         let query;
         let params;
@@ -334,7 +339,8 @@ router.get('/users/:id', async (req, res) => {
                     u.employee_number AS "employeeNumber",
                     u.createdat AS "createdAt", 
                     u.updatedat AS "updatedAt", 
-                    u.isactive AS "isActive", 
+                    u.isactive AS "isActive",
+                    u.otp_enabled AS "otpEnabled",
                     u.roleid AS "roleId", 
                     r.name AS role,
                     u.ministry,
@@ -359,7 +365,8 @@ router.get('/users/:id', async (req, res) => {
                     u.employeeNumber,
                     u.createdAt, 
                     u.updatedAt, 
-                    u.isActive, 
+                    u.isActive,
+                    IFNULL(u.otpEnabled, 0) AS otpEnabled,
                     u.roleId, 
                     r.roleName AS role,
                     u.ministry,
@@ -404,10 +411,15 @@ router.get('/users/:id', async (req, res) => {
 router.post('/users', async (req, res) => {
     const {
         username, email, password, firstName, lastName, roleId, idNumber, employeeNumber,
-        ministry, state_department, agency_id, phoneNumber, phone_number,
+        ministry, state_department, agency_id, phoneNumber, phone_number, otpEnabled,
         organizationScopes: organizationScopesBody,
         organization_scopes: organization_scopes_snake,
     } = req.body;
+    const otpEnabledVal =
+        otpEnabled === true ||
+        otpEnabled === 1 ||
+        otpEnabled === '1' ||
+        String(otpEnabled || '').toLowerCase() === 'true';
     const scopesFromBody = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
 
     if (!username || !email || !password || !firstName || !lastName || !roleId) {
@@ -447,16 +459,32 @@ router.post('/users', async (req, res) => {
             return res.status(400).json({ error: 'User with that username or email already exists.' });
         }
 
+        await ensureLoginOtpSchema(pool).catch(() => {});
+
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
 
         let insertedUserId;
         if (DB_TYPE === 'postgresql') {
             const insertResult = await pool.query(
-                `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false)
+                `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false, $13)
                 RETURNING userid`,
-                [username, email, passwordHash, firstName, lastName, roleId, idNumber || null, employeeNumber || null, ministry || null, state_department || null, agency_id || null, true]
+                [
+                    username,
+                    email,
+                    passwordHash,
+                    firstName,
+                    lastName,
+                    roleId,
+                    idNumber || null,
+                    employeeNumber || null,
+                    ministry || null,
+                    state_department || null,
+                    agency_id || null,
+                    true,
+                    otpEnabledVal,
+                ]
             );
             insertedUserId = insertResult.rows[0].userid;
             await setMustChangePassword(insertedUserId, true, 'initial_password');
@@ -477,6 +505,7 @@ router.post('/users', async (req, res) => {
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 isActive: true,
+                otpEnabled: otpEnabledVal ? 1 : 0,
             };
             const [result] = await pool.query('INSERT INTO users SET ?', newUser);
             insertedUserId = result.insertId;
@@ -500,6 +529,7 @@ router.post('/users', async (req, res) => {
                         u.createdat AS "createdAt", 
                         u.updatedat AS "updatedAt", 
                         u.isactive AS "isActive",
+                        u.otp_enabled AS "otpEnabled",
                         u.ministry, 
                         u.state_department AS "stateDepartment", 
                         u.agency_id AS "agencyId", 
@@ -525,6 +555,7 @@ router.post('/users', async (req, res) => {
                         u.createdAt, 
                         u.updatedAt, 
                         u.isActive,
+                        IFNULL(u.otpEnabled, 0) AS otpEnabled,
                         u.ministry, 
                         u.state_department AS stateDepartment, 
                         u.agency_id AS agencyId, 
@@ -723,6 +754,17 @@ router.put('/users/:id', async (req, res) => {
     }
     delete otherFieldsToUpdate.userId;
 
+    await ensureLoginOtpSchema(pool).catch(() => {});
+    if (Object.prototype.hasOwnProperty.call(otherFieldsToUpdate, 'otpEnabled')) {
+        const v = otherFieldsToUpdate.otpEnabled;
+        otherFieldsToUpdate.otpEnabled = !!(
+            v === true ||
+            v === 1 ||
+            v === '1' ||
+            String(v || '').toLowerCase() === 'true'
+        );
+    }
+
     const normalizedUsername = otherFieldsToUpdate.username !== undefined
         ? String(otherFieldsToUpdate.username || '').trim()
         : null;
@@ -814,7 +856,8 @@ router.put('/users/:id', async (req, res) => {
                 state_department: 'state_department',
                 agencyId: 'agency_id',
                 agency_id: 'agency_id',
-                phoneNumber: 'phone_number'
+                phoneNumber: 'phone_number',
+                otpEnabled: 'otp_enabled',
             };
 
             for (const [key, value] of Object.entries(otherFieldsToUpdate)) {
@@ -835,6 +878,9 @@ router.put('/users/:id', async (req, res) => {
             const fieldsToUpdate = { ...otherFieldsToUpdate, updatedAt: new Date() };
             // Current MySQL schema does not include phoneNumber, so drop it to avoid SQL errors
             delete fieldsToUpdate.phoneNumber;
+            if (Object.prototype.hasOwnProperty.call(fieldsToUpdate, 'otpEnabled')) {
+                fieldsToUpdate.otpEnabled = fieldsToUpdate.otpEnabled ? 1 : 0;
+            }
             const [mysqlResult] = await pool.query('UPDATE users SET ? WHERE userId = ?', [fieldsToUpdate, id]);
             result = mysqlResult;
         }
@@ -864,6 +910,7 @@ router.put('/users/:id', async (req, res) => {
                         u.userid AS "userId", u.username, u.email${hasPhoneNumber ? ', u.phone_number AS "phoneNumber"' : ''}, u.firstname AS "firstName", u.lastname AS "lastName", 
                         u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                         u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive",
+                        u.otp_enabled AS "otpEnabled",
                         u.ministry, u.state_department AS "stateDepartment", u.agency_id AS "agencyId", a.agency_name AS "agencyName"
                     FROM users u
                     LEFT JOIN roles r ON u.roleid = r.roleid
@@ -876,6 +923,7 @@ router.put('/users/:id', async (req, res) => {
                     SELECT 
                         u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
                         u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive,
+                        IFNULL(u.otpEnabled, 0) AS otpEnabled,
                         u.ministry, u.state_department AS stateDepartment, u.agency_id AS agencyId, a.agency_name AS agencyName
                     FROM users u
                     LEFT JOIN roles r ON u.roleId = r.roleId

@@ -52,40 +52,91 @@ const Login = () => {
     const [error, setError] = useState('');
     const [infoMessage, setInfoMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [otpStep, setOtpStep] = useState(false);
+    const [otpChallengeId, setOtpChallengeId] = useState('');
+    const [otpCode, setOtpCode] = useState('');
     const { login } = useAuth();
     const navigate = useNavigate();
+
+    const completeWithToken = (data) => {
+        if (!data?.token) {
+            setError('Sign-in incomplete: no session token received.');
+            return;
+        }
+        login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
+        if (data.forcePasswordChange === true) {
+            navigate('/force-password-change', { replace: true });
+        } else {
+            navigate('/', { replace: true });
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setInfoMessage('');
         setLoading(true);
-        console.log('Login.jsx: Attempting login with username:', username);
         try {
             const data = await apiService.auth.login(username, password);
-            console.log('Login.jsx: Login API response data:', data);
+
+            if (data?.otpRequired && data?.otpChallengeId) {
+                setOtpStep(true);
+                setOtpChallengeId(data.otpChallengeId);
+                setOtpCode('');
+                setInfoMessage(data.message || 'Enter the verification code sent to your email.');
+                return;
+            }
 
             if (data && data.token) {
-                console.log('Login.jsx: Token received, calling AuthContext login:', data.token);
-                login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
-                if (data.forcePasswordChange === true) {
-                    navigate('/force-password-change', { replace: true });
-                } else {
-                    console.log('Login.jsx: Login successful, navigating to dashboard.');
-                    navigate('/', { replace: true });
-                }
+                completeWithToken(data);
             } else {
-                setError('Login successful, but no token property received in response.');
-                console.error('Login.jsx: Login successful, but no token property in response data:', data);
+                setError('Login response was unexpected. Please try again.');
             }
         } catch (err) {
-            console.error('Login.jsx: Error caught during login API call:', err);
-            const errorMessage = err?.error || err?.message || (typeof err === 'string' ? err : 'Login failed. Please check your credentials.');
+            const errorMessage =
+                err?.response?.data?.error ||
+                err?.error ||
+                err?.message ||
+                (typeof err === 'string' ? err : 'Login failed. Please check your credentials.');
             setError(errorMessage);
         } finally {
             setLoading(false);
-            console.log('Login.jsx: Login attempt finished. Loading set to false.');
         }
+    };
+
+    const handleOtpSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setInfoMessage('');
+        setLoading(true);
+        try {
+            const data = await apiService.auth.verifyLoginOtp(otpChallengeId, otpCode.trim());
+            if (data?.token) {
+                setOtpStep(false);
+                setOtpChallengeId('');
+                setOtpCode('');
+                completeWithToken(data);
+            } else {
+                setError('Verification incomplete. Please try again.');
+            }
+        } catch (err) {
+            const errorMessage =
+                err?.response?.data?.error ||
+                err?.error ||
+                err?.message ||
+                'Invalid or expired code.';
+            setError(errorMessage);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBackToPassword = () => {
+        setOtpStep(false);
+        setOtpChallengeId('');
+        setOtpCode('');
+        setError('');
+        setInfoMessage('');
     };
 
     const handleForgotPassword = async () => {
@@ -297,7 +348,84 @@ const Login = () => {
                         </Box>
                     </Stack>
 
-                    <Box component="form" onSubmit={handleSubmit} sx={{ px: { xs: 2.25, sm: 3 }, pb: { xs: 2.25, sm: 3 } }}>
+                    <Box sx={{ px: { xs: 2.25, sm: 3 }, pb: { xs: 2.25, sm: 3 } }}>
+                    {otpStep ? (
+                    <Box component="form" onSubmit={handleOtpSubmit}>
+                        <Typography variant="body2" sx={{ mb: 1.5, fontFamily: fontStack, color: micde.textSecondary }}>
+                            Enter the 6-digit code sent to your email to finish signing in.
+                        </Typography>
+                        <TextField
+                            fullWidth
+                            label="Verification code"
+                            id="login-otp"
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            required
+                            disabled={loading}
+                            size="small"
+                            inputProps={{ inputMode: 'numeric', maxLength: 6, autoComplete: 'one-time-code' }}
+                            placeholder="000000"
+                            sx={{
+                                mb: 1.5,
+                                '& .MuiOutlinedInput-root': {
+                                    borderRadius: 1,
+                                    backgroundColor: micde.inputBg,
+                                    fontFamily: fontStack,
+                                    letterSpacing: '0.35em',
+                                },
+                            }}
+                            variant="outlined"
+                        />
+                        {infoMessage && (
+                            <Alert severity="info" sx={{ mb: 1.5, fontSize: '0.8rem', py: 0.5, fontFamily: fontStack }}>
+                                {infoMessage}
+                            </Alert>
+                        )}
+                        {error && (
+                            <Alert severity="error" sx={{ mb: 1.5, fontSize: '0.8rem', py: 0.5, fontFamily: fontStack }}>
+                                {error}
+                            </Alert>
+                        )}
+                        <Button
+                            type="submit"
+                            fullWidth
+                            variant="contained"
+                            disabled={loading || otpCode.length !== 6}
+                            sx={{
+                                py: 1.15,
+                                fontSize: '1rem',
+                                fontWeight: 700,
+                                borderRadius: 1,
+                                textTransform: 'none',
+                                fontFamily: fontStack,
+                                bgcolor: micde.brand,
+                                color: '#fff',
+                                boxShadow: 'none',
+                                '&:hover': { bgcolor: micde.brandHover, boxShadow: '0 4px 14px rgba(0, 90, 154, 0.35)' },
+                            }}
+                        >
+                            {loading ? (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <CircularProgress size={18} color="inherit" />
+                                    Verifying…
+                                </Box>
+                            ) : (
+                                'Verify and sign in'
+                            )}
+                        </Button>
+                        <Button
+                            type="button"
+                            fullWidth
+                            variant="text"
+                            disabled={loading}
+                            onClick={handleBackToPassword}
+                            sx={{ mt: 1, fontFamily: fontStack }}
+                        >
+                            Back to username and password
+                        </Button>
+                    </Box>
+                    ) : (
+                    <Box component="form" onSubmit={handleSubmit}>
                         <TextField
                             fullWidth
                             label="Username / Email"
@@ -453,6 +581,8 @@ const Login = () => {
                                 Register
                             </Link>
                         </Box>
+                    </Box>
+                    )}
                     </Box>
                 </CardContent>
             </Card>

@@ -28,6 +28,17 @@ const authService = {
     }
   },
 
+  /** Second step after POST /auth/login returned otpRequired: true */
+  verifyLoginOtp: async (challengeId, code) => {
+    try {
+      const response = await axiosInstance.post('/auth/login/verify-otp', { challengeId, code });
+      return response.data;
+    } catch (error) {
+      console.error('Error during OTP verification:', error);
+      throw error;
+    }
+  },
+
   /**
    * Fetches the profile of the currently authenticated user.
    * @returns {Promise<Object>} The user's profile data.

@@ -9,8 +9,14 @@ const authenticate = require('../middleware/authenticate');
 const { normalizeRoleForCompare, ADMIN_LIKE_ROLE_NAMES, isAdminLikeRequester } = require('../utils/roleUtils');
 const { canSendEmail, sendPasswordResetEmail } = require('../services/accountEmailService');
 const { setMustChangePassword, getMustChangePassword } = require('../services/passwordPolicyService');
+const {
+    ensureLoginOtpSchema,
+    createLoginOtpChallenge,
+    verifyLoginOtpChallenge,
+    readOtpEnabledFlag,
+} = require('../services/loginOtpService');
 
-require('dotenv').config(); // Load environment variables
+// Env is loaded by ../config/db (api/.env); avoid a second cwd-based dotenv here.
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_dev_only_change_this_asap';
 const SESSION_SETTINGS_KEY = 'session.idle_timeout_minutes';
@@ -133,6 +139,64 @@ async function getPrivilegesByRole(roleId) {
         console.error('Error fetching privileges for roleId', roleId, ':', error);
         return [];
     }
+}
+
+/**
+ * Issue JWT after password (and optional OTP) verified.
+ * @param {boolean} [opts.isDefaultResetPassword] - true when password matched literal reset123 on primary login
+ */
+async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
+    const { isDefaultResetPassword = false } = opts;
+    const roleId = user.roleId || user.roleid;
+    const userId = user.userId || user.userid;
+
+    const userPrivileges = await getPrivilegesByRole(roleId);
+
+    let organizationScopes = [];
+    if (DB_TYPE === 'postgresql') {
+        try {
+            organizationScopes = await orgScope.fetchOrganizationScopesForUser(userId);
+        } catch (scopeErr) {
+            console.warn('fetchOrganizationScopesForUser (login):', scopeErr.message);
+        }
+    }
+
+    const payload = {
+        user: {
+            id: userId,
+            actualUserId: userId,
+            username: user.username,
+            email: user.email,
+            roleId,
+            roleName: user.role,
+            privileges: userPrivileges,
+            organizationScopes,
+        },
+    };
+    const normalizedRole = normalizeRoleForCompare(user.role || '');
+    const isSuperAdmin = normalizedRole === 'super admin';
+    let mustChangePassword = false;
+    if (DB_TYPE === 'postgresql') {
+        try {
+            mustChangePassword = await getMustChangePassword(userId);
+        } catch (policyErr) {
+            console.warn('getMustChangePassword (login):', policyErr.message);
+        }
+    }
+    const forcePasswordChange = isSuperAdmin || isDefaultResetPassword || mustChangePassword;
+
+    jwt.sign(
+        payload,
+        JWT_SECRET,
+        { expiresIn: '24h' },
+        (err, token) => {
+            if (err) {
+                console.error('JWT signing error:', err);
+                return res.status(500).json({ error: 'Server error during token generation.' });
+            }
+            res.json({ token, message: 'Logged in successfully!', forcePasswordChange });
+        }
+    );
 }
 
 // @route   POST /register
@@ -467,62 +531,109 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Invalid credentials.' });
         }
         
-        // Handle both PostgreSQL (roleid, userid) and MySQL (roleId, userId) column names
-        const roleId = user.roleId || user.roleid;
         const userId = user.userId || user.userid;
+        const firstName = user.firstName || user.firstname || '';
+        const lastName = user.lastName || user.lastname || '';
 
-        const userPrivileges = await getPrivilegesByRole(roleId);
+        await ensureLoginOtpSchema(pool);
 
-        let organizationScopes = [];
-        if (DB_TYPE === 'postgresql') {
+        let otpEnabled = false;
+        try {
+            otpEnabled = readOtpEnabledFlag(user);
+        } catch (_) {
+            otpEnabled = false;
+        }
+
+        if (otpEnabled) {
+            if (!canSendEmail()) {
+                return res.status(503).json({
+                    error: 'Email verification is enabled for your account but the server is not configured to send mail (SMTP). Contact an administrator.',
+                });
+            }
             try {
-                organizationScopes = await orgScope.fetchOrganizationScopesForUser(userId);
-            } catch (scopeErr) {
-                console.warn('fetchOrganizationScopesForUser (login):', scopeErr.message);
+                const { challengeId } = await createLoginOtpChallenge(pool, {
+                    userId,
+                    email: user.email,
+                    username: user.username,
+                    firstName,
+                    lastName,
+                });
+                return res.status(200).json({
+                    otpRequired: true,
+                    otpChallengeId: challengeId,
+                    message: 'A verification code was sent to your email. Enter it to complete sign-in.',
+                });
+            } catch (sendErr) {
+                console.error('OTP login email failed:', sendErr);
+                return res.status(500).json({
+                    error: 'Could not send verification email. Try again later or contact support.',
+                    details: process.env.NODE_ENV === 'development' ? sendErr.message : undefined,
+                });
             }
         }
 
-        const payload = {
-            user: {
-                id: userId,
-                actualUserId: userId,
-                username: user.username,
-                email: user.email,
-                roleId: roleId,
-                roleName: user.role,
-                privileges: userPrivileges,
-                organizationScopes,
-            }
-        };
-        const normalizedRole = normalizeRoleForCompare(user.role || '');
-        const isSuperAdmin = normalizedRole === 'super admin';
         const isDefaultResetPassword = String(password || '').trim() === 'reset123';
-        let mustChangePassword = false;
-        if (DB_TYPE === 'postgresql') {
-            try {
-                mustChangePassword = await getMustChangePassword(userId);
-            } catch (policyErr) {
-                console.warn('getMustChangePassword (login):', policyErr.message);
-            }
-        }
-        const forcePasswordChange = isSuperAdmin || isDefaultResetPassword || mustChangePassword;
-
-        jwt.sign(
-            payload,
-            JWT_SECRET,
-            { expiresIn: '24h' }, // Changed to 24 hours for a better user experience
-            (err, token) => {
-                if (err) {
-                    console.error('JWT signing error:', err);
-                    return res.status(500).json({ error: 'Server error during token generation.' });
-                }
-                res.json({ token, message: 'Logged in successfully!', forcePasswordChange });
-            }
-        );
+        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword });
 
     } catch (err) {
         console.error('Error during login:', err);
         res.status(500).json({ error: 'Server error during login.', details: err.message });
+    }
+});
+
+// @route   POST /login/verify-otp
+// @desc    Complete login after email OTP (challenge from POST /login)
+// @access  Public
+router.post('/login/verify-otp', async (req, res) => {
+    const { challengeId, code } = req.body || {};
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        await ensureLoginOtpSchema(pool);
+        const verified = await verifyLoginOtpChallenge(pool, challengeId, code);
+        if (!verified.ok) {
+            return res.status(400).json({ error: verified.error || 'Verification failed.' });
+        }
+
+        let query;
+        let users;
+        if (DB_TYPE === 'postgresql') {
+            query = `
+                SELECT u.*, r.name AS role
+                FROM users u
+                LEFT JOIN roles r ON u.roleid = r.roleid
+                WHERE u.userid = $1 AND u.voided = false
+            `;
+            const result = await pool.query(query, [verified.userId]);
+            users = result.rows || [];
+        } else {
+            query = `
+                SELECT u.*, r.roleName AS role
+                FROM users u
+                LEFT JOIN roles r ON u.roleId = r.roleId
+                WHERE u.userId = ? AND u.voided = 0
+            `;
+            const result = await pool.query(query, [verified.userId]);
+            users = Array.isArray(result) ? result[0] : result.rows || result;
+        }
+        if (!Array.isArray(users)) {
+            users = users ? [users] : [];
+        }
+        if (users.length === 0) {
+            return res.status(400).json({ error: 'User not found or inactive.' });
+        }
+        const user = users[0];
+        const isActive = user.isActive !== undefined ? user.isActive : (user.isactive !== undefined ? user.isactive : true);
+        if (!isActive) {
+            return res.status(403).json({
+                error: 'Your account is pending approval.',
+                requiresApproval: true,
+            });
+        }
+
+        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword: false });
+    } catch (err) {
+        console.error('Error during OTP verification:', err);
+        res.status(500).json({ error: 'Server error during verification.', details: err.message });
     }
 });
 

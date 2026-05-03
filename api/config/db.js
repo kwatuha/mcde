@@ -1,5 +1,7 @@
 // backend/config/db.js
-require('dotenv').config(); // Load environment variables (like DB_HOST, DB_USER, etc.)
+const path = require('path');
+// Always load api/.env (not cwd), so SMTP_* and DB_* work when the process is started from the repo root.
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // PostgreSQL connection using pg (node-postgres)
 const { Pool } = require('pg');

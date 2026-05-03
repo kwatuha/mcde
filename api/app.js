@@ -5,8 +5,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const authenticate = require('./middleware/authenticate');
 
+// Load env + DB first (db.js loads api/.env); routes must not run before this or SMTP_* may be missing.
+const pool = require('./config/db');
 // Import all your route groups
 const authRoutes = require('./routes/authRoutes');
+const { ensureLoginOtpSchema } = require('./services/loginOtpService');
 const userRoutes = require('./routes/userRoutes');
 const orgRoutes = require('./routes/orgRoutes');
 const strategyRoutes = require('./routes/strategic.routes');
@@ -163,12 +166,19 @@ app.use((err, req, res, next) => {
 // Socket.IO connection handling
 require('./socket/chatSocket')(io);
 
-server.listen(port, () => {
-    // Use local/container host in logs; avoid hard-coding any production IPs here.
+// Bind 0.0.0.0 so Docker/host and nginx (127.0.0.1:PORT) can reach the server; override with API_BIND_HOST if needed.
+const bindHost = process.env.API_BIND_HOST || '0.0.0.0';
+server.listen(port, bindHost, async () => {
     const host = process.env.API_HOST || 'localhost';
-    console.log(`Government Projects Reporting Platform API listening at http://${host}:${port}`);
+    console.log(`Government Projects Reporting Platform API listening at http://${host}:${port} (bind ${bindHost}:${port})`);
     console.log(`Socket.IO server initialized`);
     console.log(`CORS enabled for all origins during development.`);
+    try {
+        await ensureLoginOtpSchema(pool);
+        console.log('Login OTP schema (users.otp_enabled, login_otp_challenges) ensured.');
+    } catch (e) {
+        console.warn('Login OTP schema ensure failed (non-fatal):', e.message);
+    }
 });
 
 module.exports = { app, server, io };

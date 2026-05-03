@@ -75,9 +75,18 @@ axiosInstance.interceptors.response.use(
             }
         }
         
-        // If there's a response object (e.g., 4xx, 5xx errors), reject with its data
-        // Otherwise, reject with a generic Error object
-        return Promise.reject(error.response ? error.response.data : new Error(error.message));
+        // Helpful context when nginx/Vite returns 502/503 (upstream not listening or wrong port).
+        const st = error.response?.status;
+        if (st === 502 || st === 503 || st === 504) {
+            const hint =
+                ' The API process may be down or on a different port than the proxy (nginx proxies /api to 127.0.0.1:3002; start the API with PORT=3002, or align nginx and VITE_PROXY_TARGET).';
+            if (error.message && !String(error.message).includes('nginx proxies')) {
+                error.message = `${error.message}${hint}`;
+            }
+        }
+        // Reject the full Axios error so callers can use err.response?.status and
+        // err.response?.data?.message | .error | .msg (rejecting only response.data breaks that).
+        return Promise.reject(error);
     }
 );
 

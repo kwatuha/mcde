@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Paper, CircularProgress, IconButton,
-  Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, Stack, useTheme,
-  Chip, Checkbox, Avatar, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails,
+  Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, Stack, useTheme, FormControlLabel,
+  Chip, Checkbox, Switch, Avatar, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails,
   DialogContentText, InputAdornment, Grid, Autocomplete,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon, TableChart as ExcelIcon, Security as SecurityIcon, SyncAlt as SyncAltIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, MarkEmailRead as MarkEmailReadIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon, TableChart as ExcelIcon, Security as SecurityIcon, SyncAlt as SyncAltIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import apiService from '../api/userService';
@@ -375,6 +375,7 @@ function UserManagementPage() {
     ministry: '',
     stateDepartment: '',
     agencyId: '',
+    otpEnabled: false,
   });
   const [userFormErrors, setUserFormErrors] = useState({});
   const [showUserFormPasswords, setShowUserFormPasswords] = useState({
@@ -422,6 +423,12 @@ function UserManagementPage() {
   const [openResetPasswordDialog, setOpenResetPasswordDialog] = useState(false);
   const [userToResetId, setUserToResetId] = useState(null);
   const [userToResetName, setUserToResetName] = useState('');
+
+  // Resend login credentials email (Super Admin) — styled dialog like reset password
+  const [openResendCredentialsDialog, setOpenResendCredentialsDialog] = useState(false);
+  const [userToResendCredentialsId, setUserToResendCredentialsId] = useState(null);
+  const [userToResendCredentialsName, setUserToResendCredentialsName] = useState('');
+  const [userToResendCredentialsEmail, setUserToResendCredentialsEmail] = useState('');
 
   // Toggle User Status Confirmation Dialog States
   const [openToggleStatusDialog, setOpenToggleStatusDialog] = useState(false);
@@ -551,7 +558,13 @@ function UserManagementPage() {
       if (err.response?.status === 401) {
         logout();
       }
-      setError(err.response?.data?.message || err.message || "Failed to load users.");
+      setError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.response?.data?.msg ||
+          err.message ||
+          'Failed to load users.'
+      );
     } finally {
       setLoading(false);
     }
@@ -1013,6 +1026,7 @@ function UserManagementPage() {
       ministry: '',
       stateDepartment: '',
       agencyId: '',
+      otpEnabled: false,
     });
     setUserFormErrors({});
     setIsCheckingUsername(false);
@@ -1049,6 +1063,7 @@ function UserManagementPage() {
           'Employee number': u.employeeNumber ?? u.employee_number ?? '',
           Role: roleName,
           Active: u.isActive === true || u.isActive === 1 ? 'Yes' : (u.isActive === false || u.isActive === 0 ? 'No' : ''),
+          'OTP at login': u.otpEnabled === true || u.otpEnabled === 1 ? 'Yes' : 'No',
           Ministry: u.ministry ?? '',
           'State department': u.stateDepartment ?? u.state_department ?? '',
           'Agency ID': u.agencyId ?? u.agency_id ?? '',
@@ -1107,6 +1122,7 @@ function UserManagementPage() {
       ministry: userItem.ministry || '',
       stateDepartment: userItem.stateDepartment || userItem.state_department || '',
       agencyId: userItem.agencyId || userItem.agency_id || '',
+      otpEnabled: !!(userItem.otpEnabled ?? userItem.otp_enabled),
     });
     setUserFormErrors({});
     setIsCheckingUsername(false);
@@ -1114,6 +1130,10 @@ function UserManagementPage() {
     try {
       const full = await apiService.getUserById(userItem.userId);
       setOrganizationScopes(Array.isArray(full.organizationScopes) ? full.organizationScopes : []);
+      setUserFormData((prev) => ({
+        ...prev,
+        otpEnabled: !!(full.otpEnabled ?? full.otp_enabled ?? prev.otpEnabled),
+      }));
     } catch (err) {
       console.warn('Could not load organization scopes:', err);
     }
@@ -1657,24 +1677,40 @@ function UserManagementPage() {
     }
   };
 
-  const handleResendCredentialsEmail = async (targetRow) => {
+  const handleOpenResendCredentialsDialog = (targetRow) => {
     if (!isSuperAdmin) {
       setSnackbar({ open: true, message: 'Only Super Admin can resend credentials email.', severity: 'warning' });
       return;
     }
+    if (!targetRow?.email) {
+      setSnackbar({ open: true, message: 'User has no email address.', severity: 'warning' });
+      return;
+    }
+    setUserToResendCredentialsId(targetRow.userId);
+    setUserToResendCredentialsName(targetRow.username || '');
+    setUserToResendCredentialsEmail(String(targetRow.email).trim());
+    setOpenResendCredentialsDialog(true);
+  };
 
-    const username = targetRow?.username || 'this user';
-    const confirmed = window.confirm(`Resend login credentials email to ${username}?`);
-    if (!confirmed) return;
+  const handleCloseResendCredentialsDialog = () => {
+    setOpenResendCredentialsDialog(false);
+    setUserToResendCredentialsId(null);
+    setUserToResendCredentialsName('');
+    setUserToResendCredentialsEmail('');
+  };
 
+  const handleConfirmResendCredentialsEmail = async () => {
+    if (userToResendCredentialsId == null) return;
     setLoading(true);
     try {
-      const result = await apiService.resendUserCredentials(targetRow.userId);
+      const result = await apiService.resendUserCredentials(userToResendCredentialsId);
+      const username = userToResendCredentialsName || 'user';
       setSnackbar({
         open: true,
         message: result?.message || `Credentials email sent to ${username}.`,
         severity: 'success',
       });
+      handleCloseResendCredentialsDialog();
     } catch (err) {
       setSnackbar({
         open: true,
@@ -1738,6 +1774,42 @@ function UserManagementPage() {
           err.response?.data?.message ||
           err.message ||
           `Failed to ${action} user.`,
+        severity: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Toggle `users.otp_enabled` / `users.otpEnabled` — off during dev for quick login; on for 6-digit email code after password. */
+  const handleToggleUserOtpLogin = async (targetRow, nextEnabled) => {
+    if (!hasPrivilege('user.update')) {
+      setSnackbar({ open: true, message: 'Permission denied to change OTP setting.', severity: 'error' });
+      return;
+    }
+    if (!canMdaIctAdminMutateUser(user, targetRow)) {
+      setSnackbar({ open: true, message: MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE, severity: 'warning' });
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiService.updateUser(targetRow.userId, { otpEnabled: !!nextEnabled });
+      setSnackbar({
+        open: true,
+        message: nextEnabled
+          ? `Email OTP enabled for ${targetRow.username} (6-digit code after password).`
+          : `Email OTP disabled for ${targetRow.username} — password-only sign-in.`,
+        severity: 'success',
+      });
+      fetchUsers(showPendingOnly);
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message:
+          err.response?.data?.error ||
+          err.response?.data?.message ||
+          err.message ||
+          'Failed to update OTP setting.',
         severity: 'error',
       });
     } finally {
@@ -2449,6 +2521,47 @@ function UserManagementPage() {
       },
     },
     {
+      field: 'otpEnabled',
+      headerName: 'OTP login',
+      width: 118,
+      minWidth: 118,
+      sortable: true,
+      headerAlign: 'center',
+      align: 'center',
+      description:
+        'Maps to users.otp_enabled (PostgreSQL) or users.otpEnabled (MySQL). When on, sign-in sends a 6-digit numeric code to email after a correct password.',
+      valueGetter: (value, row) => !!(row.otpEnabled ?? row.otp_enabled),
+      renderCell: ({ row }) => {
+        const enabled = !!(row.otpEnabled ?? row.otp_enabled);
+        const canEdit =
+          hasPrivilege('user.update') && canMdaIctAdminMutateUser(user, row);
+        return (
+          <Tooltip
+            title={
+              canEdit
+                ? enabled
+                  ? 'On: user must enter email code after password. Click to turn off for faster dev login.'
+                  : 'Off: password-only. Click to require 6-digit email code after password.'
+                : 'You cannot change this user’s OTP setting.'
+            }
+          >
+            <span>
+              <Switch
+                size="small"
+                checked={enabled}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handleToggleUserOtpLogin(row, e.target.checked);
+                }}
+                inputProps={{ 'aria-label': `Email OTP login for ${row.username}` }}
+              />
+            </span>
+          </Tooltip>
+        );
+      },
+    },
+    {
       field: "actions",
       headerName: "Actions",
       width: 208,
@@ -2558,7 +2671,7 @@ function UserManagementPage() {
                   transition: 'all 0.2s ease',
                   opacity: params.row?.email ? 1 : 0.45,
                 }}
-                onClick={() => params.row?.email && handleResendCredentialsEmail(params.row)}
+                onClick={() => params.row?.email && handleOpenResendCredentialsDialog(params.row)}
                 title={params.row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
               >
                 <SecurityIcon fontSize="small" />
@@ -3151,7 +3264,7 @@ function UserManagementPage() {
                               size="small"
                               disabled={!row?.email}
                               sx={{ color: colors.greenAccent[400] }}
-                              onClick={() => row?.email && handleResendCredentialsEmail(row)}
+                              onClick={() => row?.email && handleOpenResendCredentialsDialog(row)}
                               title={row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
                             >
                               <SecurityIcon fontSize="small" />
@@ -3406,6 +3519,14 @@ function UserManagementPage() {
                   <DetailRow label="Username" value={u.username} />
                   <DetailRow label="Email" value={u.email} />
                   <DetailRow label="Phone" value={u.phoneNumber || u.phone} />
+                  <DetailRow
+                    label="Email OTP (column: otp_enabled)"
+                    value={
+                      u.otpEnabled === true || u.otpEnabled === 1 || u.otp_enabled
+                        ? 'On — 6-digit code after password'
+                        : 'Off — password only'
+                    }
+                  />
                 </Grid>
 
                 {/* Personal */}
@@ -3562,6 +3683,28 @@ function UserManagementPage() {
                 borderRadius: 1.5,
               },
             }} 
+          />
+          <FormControlLabel
+            sx={{ mb: 2, alignItems: 'flex-start', ml: 0 }}
+            control={
+              <Checkbox
+                checked={!!userFormData.otpEnabled}
+                onChange={(e) => setUserFormData((prev) => ({ ...prev, otpEnabled: e.target.checked }))}
+                color="primary"
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body2" fontWeight={600}>
+                  Require email verification code (OTP) to sign in
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {
+                    "After password, a 6-digit code is sent to the user's email. The server must have SMTP configured."
+                  }
+                </Typography>
+              </Box>
+            }
           />
           <TextField 
             margin="dense" 
@@ -4452,6 +4595,140 @@ function UserManagementPage() {
             startIcon={<LockResetIcon />}
           >
             Reset Password
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resend login credentials email (Super Admin) */}
+      <Dialog
+        open={openResendCredentialsDialog}
+        onClose={handleCloseResendCredentialsDialog}
+        aria-labelledby="resend-credentials-dialog-title"
+        aria-describedby="resend-credentials-dialog-description"
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            bgcolor: theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[50],
+            boxShadow:
+              theme.palette.mode === 'dark'
+                ? '0 8px 32px rgba(0,0,0,0.4)'
+                : '0 8px 32px rgba(0,0,0,0.12)',
+          },
+        }}
+      >
+        <DialogTitle
+          id="resend-credentials-dialog-title"
+          sx={{
+            backgroundColor: colors.greenAccent[600],
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            py: 3,
+          }}
+        >
+          <Avatar sx={{ bgcolor: colors.greenAccent[700] }}>
+            <MarkEmailReadIcon />
+          </Avatar>
+          <Box>
+            <Typography variant="h6" fontWeight="bold">
+              Resend login credentials
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 1, fontWeight: 500 }}>
+              Email will be sent to the user&apos;s address on file
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ py: 3, px: 3 }}>
+          <DialogContentText
+            id="resend-credentials-dialog-description"
+            sx={{
+              color: theme.palette.mode === 'dark' ? colors.grey[100] : '#1a1a1a',
+              fontSize: '1.2rem',
+              lineHeight: 1.7,
+              fontWeight: 600,
+            }}
+          >
+            Send a new login credentials email to{' '}
+            <Box component="span" sx={{ fontWeight: 'bold', fontSize: '1.3rem', color: colors.greenAccent[700] }}>
+              "{userToResendCredentialsName}"
+            </Box>
+            ?
+          </DialogContentText>
+          <Box
+            sx={{
+              mt: 2,
+              p: 2,
+              borderRadius: 2,
+              // Use MUI palette here — dashboard `tokens('light').grey[100]` is a dark hex, not a light surface.
+              bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100],
+              border: `1px solid ${theme.palette.divider}`,
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" fontWeight={700} letterSpacing={0.5}>
+              RECIPIENT
+            </Typography>
+            <Typography
+              variant="body1"
+              fontWeight="bold"
+              color="text.primary"
+              sx={{ wordBreak: 'break-all', mt: 0.5 }}
+            >
+              {userToResendCredentialsEmail}
+            </Typography>
+          </Box>
+          <Alert
+            severity="info"
+            sx={{
+              mt: 2,
+              bgcolor: theme.palette.mode === 'dark' ? colors.greenAccent[900] : '#e8f5e9',
+              color: theme.palette.mode === 'dark' ? colors.greenAccent[100] : '#1b5e20',
+              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : colors.greenAccent[400]}`,
+              '& .MuiAlert-icon': {
+                color: theme.palette.mode === 'dark' ? colors.greenAccent[300] : colors.greenAccent[700],
+              },
+            }}
+          >
+            <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '1rem', mb: 1, color: 'inherit' }}>
+              What this email includes
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: '0.95rem', fontWeight: 600, lineHeight: 1.8, color: 'inherit' }}>
+              Login link, username, and a fresh one-time password. The user should use it promptly and change their
+              password after signing in if your policy requires it.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={handleCloseResendCredentialsDialog}
+            variant="outlined"
+            sx={{
+              borderColor: colors.grey[500],
+              color: colors.grey[100],
+              '&:hover': {
+                borderColor: colors.grey[400],
+                backgroundColor: colors.grey[700],
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmResendCredentialsEmail}
+            variant="contained"
+            disabled={loading}
+            sx={{
+              backgroundColor: colors.greenAccent[600],
+              '&:hover': {
+                backgroundColor: colors.greenAccent[700],
+              },
+              fontWeight: 'bold',
+            }}
+            startIcon={<MarkEmailReadIcon />}
+          >
+            {loading ? 'Sending…' : 'Send email'}
           </Button>
         </DialogActions>
       </Dialog>
