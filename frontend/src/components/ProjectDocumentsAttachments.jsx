@@ -20,9 +20,11 @@ import {
     Download as DownloadIcon,
     Edit as EditIcon,
     Public as PublicIcon,
-    Lock as LockIcon
+    Lock as LockIcon,
+    OutlinedFlag as OutlinedFlagIcon,
+    Flag as FlagIcon,
 } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
+import { useTheme, alpha } from '@mui/material/styles';
 import { tokens } from '../pages/dashboard/theme';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -43,6 +45,12 @@ const documentTypeOptions = [
     { value: 'progress_photo', label: 'Progress Photo', icon: '📸' },
     { value: 'other', label: 'Other Document', icon: '📎' }
 ];
+
+function isDocFlagged(doc) {
+    if (!doc || doc.isPhoto) return false;
+    const v = doc.isFlagged ?? doc.isflagged;
+    return v === true || v === 1 || String(v).toLowerCase() === 'true';
+}
 
 const ProjectDocumentsAttachments = ({ projectId }) => {
     const theme = useTheme();
@@ -120,6 +128,27 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
     }, [fetchDocuments]);
 
 
+    const handleToggleFlag = async (doc) => {
+        if (doc.isPhoto || !doc.id) return;
+        if (!hasPrivilege('document.update')) {
+            setSnackbar({ open: true, message: 'Permission denied', severity: 'error' });
+            return;
+        }
+        const next = !isDocFlagged(doc);
+        try {
+            await apiService.documents.updateDocument(doc.id, { isFlagged: next });
+            setSnackbar({
+                open: true,
+                message: next ? 'Flagged for follow-up.' : 'Flag cleared.',
+                severity: 'success',
+            });
+            fetchDocuments();
+        } catch (err) {
+            const msg = err.response?.data?.message || err.message || 'Failed to update flag';
+            setSnackbar({ open: true, message: msg, severity: 'error' });
+        }
+    };
+
     const handleDelete = async (documentId, isPhoto = false) => {
         if (!hasPrivilege('document.delete')) {
             setSnackbar({ 
@@ -190,13 +219,14 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                 }
             }
             
-            // For cross-origin requests, we need to fetch the file and create a blob
-            // Try with credentials if needed
+            // Static /uploads is not behind JWT; omit credentials so CORS works with Allow-Origin: *
+            // (browsers block credentialed fetches when the server responds with *).
             const fetchOptions = {
                 method: 'GET',
-                credentials: 'include', // Include cookies for authenticated requests
+                credentials: 'omit',
+                mode: 'cors',
             };
-            
+
             const response = await fetch(fileUrl, fetchOptions);
             console.log('Download response:', {
                 status: response.status,
@@ -393,6 +423,8 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                 });
             case 3: // Public approved
                 return documents.filter(doc => doc.approved_for_public === 1);
+            case 4: // Flagged (non-photo project documents)
+                return documents.filter((doc) => !doc.isPhoto && isDocFlagged(doc));
             default: // All
                 return documents;
         }
@@ -441,7 +473,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                 )}
             </Stack>
 
-            <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} sx={{ mb: 3 }}>
+            <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} sx={{ mb: 3 }} variant="scrollable" scrollButtons="auto">
                 <Tab label={`All (${documents.length})`} />
                 <Tab label={`Documents (${documents.filter(d => {
                     const filePath = d.documentPath || d.filePath;
@@ -452,13 +484,14 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     return (d.documentType === 'photo' || d.documentType === 'progress_photo') || isImageFile(filePath);
                 }).length})`} />
                 <Tab label={`Public Approved (${documents.filter(d => d.approved_for_public === 1).length})`} />
+                <Tab label={`Flagged (${documents.filter((d) => !d.isPhoto && isDocFlagged(d)).length})`} />
             </Tabs>
 
             {filteredDocuments().length === 0 ? (
                 <Paper sx={{ p: 4, textAlign: 'center' }}>
                     <DescriptionIcon sx={{ fontSize: 64, color: colors.grey[400], mb: 2 }} />
                     <Typography variant="h6" color="text.secondary">
-                        No {activeTab === 1 ? 'documents' : activeTab === 2 ? 'photos' : activeTab === 3 ? 'approved items' : 'files'} found
+                        No {activeTab === 1 ? 'documents' : activeTab === 2 ? 'photos' : activeTab === 3 ? 'approved items' : activeTab === 4 ? 'flagged items' : 'files'} found
                     </Typography>
                 </Paper>
             ) : (
@@ -478,6 +511,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                 const isImage = isImageFile(filePath);
                                 const fileUrl = getFileUrl(filePath);
                                 const docType = documentTypeOptions.find(opt => opt.value === doc.documentType);
+                                const flagged = isDocFlagged(doc);
 
                                 return (
                                     <Grid item xs={12} sm={6} md={4} lg={3} key={doc.id}>
@@ -486,7 +520,13 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                             display: 'flex', 
                                             flexDirection: 'column',
                                             border: doc.approved_for_public ? `2px solid ${colors.greenAccent[500]}` : '1px solid',
-                                            borderColor: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300]
+                                            borderColor: 'divider',
+                                            ...(flagged && !doc.isPhoto
+                                                ? {
+                                                      borderLeft: '4px solid',
+                                                      borderLeftColor: 'warning.main',
+                                                  }
+                                                : {}),
                                         }}>
                                             {isImage ? (
                                                 <CardMedia
@@ -503,8 +543,19 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                     display: 'flex', 
                                                     alignItems: 'center', 
                                                     justifyContent: 'center',
-                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.grey[100],
-                                                    cursor: 'pointer'
+                                                    // tokens('light').grey[100] is near-black — use theme neutrals for light mode
+                                                    backgroundColor: theme.palette.mode === 'dark'
+                                                        ? colors.primary[600]
+                                                        : alpha(theme.palette.common.black, 0.06),
+                                                    borderBottom: '1px solid',
+                                                    borderColor: 'divider',
+                                                    cursor: 'pointer',
+                                                    '& .MuiSvgIcon-root': {
+                                                        fontSize: 64,
+                                                        color: theme.palette.mode === 'dark'
+                                                            ? alpha(theme.palette.common.white, 0.85)
+                                                            : theme.palette.grey[700],
+                                                    },
                                                 }}
                                                 onClick={() => handlePreview(doc)}
                                                 >
@@ -529,7 +580,16 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                         {doc.description}
                                                     </Typography>
                                                 )}
-                                                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                                <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+                                                    {flagged && !doc.isPhoto && (
+                                                        <Chip
+                                                            icon={<FlagIcon />}
+                                                            label="Flagged"
+                                                            size="small"
+                                                            color="warning"
+                                                            variant="filled"
+                                                        />
+                                                    )}
                                                     {doc.approved_for_public ? (
                                                         <Chip 
                                                             icon={<PublicIcon />} 
@@ -573,6 +633,17 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                         </IconButton>
                                                     </Tooltip>
                                                 )}
+                                                {!doc.isPhoto && hasPrivilege('document.update') && (
+                                                    <Tooltip title={flagged ? 'Clear follow-up flag' : 'Flag for follow-up'}>
+                                                        <IconButton
+                                                            size="small"
+                                                            color={flagged ? 'warning' : 'default'}
+                                                            onClick={() => handleToggleFlag(doc)}
+                                                        >
+                                                            {flagged ? <FlagIcon /> : <OutlinedFlagIcon />}
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
                                                 {hasPrivilege('document.delete') && (
                                                     <Tooltip title="Delete">
                                                         <IconButton 
@@ -606,6 +677,12 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     options: documentTypeOptions,
                     optionsLabel: "Document Type",
                     apiCallKey: "documentType",
+                    followUpFlag: {
+                        documentTypeValues: ['warning_letter'],
+                        formFieldName: 'isFlagged',
+                        label: 'Flag this warning letter for compliance follow-up (listed under Flagged)',
+                        defaultChecked: true,
+                    },
                     description: {
                         label: 'Description (Optional)',
                         placeholder: 'Add a description for this document or photo...'

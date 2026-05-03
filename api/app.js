@@ -74,7 +74,12 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb', strict: false }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Project documents & payment uploads use repo-root uploads/ (see projectDocumentsRoutes baseUploadDir).
+// Project photos and chat files use api/uploads/. Serve both so /uploads/* resolves correctly.
+const repoUploads = path.join(__dirname, '..', 'uploads');
+const apiUploads = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(repoUploads));
+app.use('/uploads', express.static(apiUploads));
 // Serve templates publicly (before authentication middleware)
 app.use('/api/templates', express.static(path.join(__dirname, 'templates')));
 

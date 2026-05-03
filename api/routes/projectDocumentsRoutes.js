@@ -8,6 +8,33 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
+// Quoted identifiers: PostgreSQL schemas from postgres-schema-clean.sql use camelCase columns.
+const T_PROJECT_DOCUMENTS = '"project_documents"';
+const T_PROJECT_MILESTONES = '"project_milestones"';
+const T_PROJECT_CONTRACTOR_ASSIGNMENTS = '"project_contractor_assignments"';
+const T_PROJECTS = '"projects"';
+
+const DB_TYPE = process.env.DB_TYPE || 'mysql';
+const isPostgres = DB_TYPE === 'postgresql';
+
+/** True when public.project_documents has isFlagged (migration applied). */
+async function projectDocumentsHasIsFlaggedColumn(connection) {
+    if (!isPostgres) return false;
+    try {
+        const { rows } = await connection.query(
+            `SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'project_documents'
+                  AND column_name = 'isFlagged'
+            ) AS col_exists`
+        );
+        return Boolean(rows[0]?.col_exists);
+    } catch {
+        return false;
+    }
+}
+
 // Main upload directory for all project documents
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
 
@@ -47,11 +74,11 @@ const upload = multer({ storage });
  */
 async function isContractorAssignedToProject(contractorId, projectId) {
     if (!contractorId || !projectId) return false;
-    const [rows] = await db.query(
-        'SELECT 1 FROM project_contractor_assignments WHERE contractorId = ? AND projectId = ?',
+    const result = await db.query(
+        `SELECT 1 FROM ${T_PROJECT_CONTRACTOR_ASSIGNMENTS} WHERE "contractorId" = ? AND "projectId" = ?`,
         [contractorId, projectId]
     );
-    return rows.length > 0;
+    return result.rows.length > 0;
 }
 
 
@@ -60,12 +87,45 @@ async function isContractorAssignedToProject(contractorId, projectId) {
 // @access  Private (e.g., requires 'document.create' privilege)
 router.post('/', auth, privilege(['document.create']), upload.array('documents'), async (req, res) => {
     // FIX: Destructure new field 'originalFileName' from the request body
-    const { projectId, milestoneId, requestId, documentType, documentCategory, description, status, progressPercentage, originalFileName } = req.body;
-    const userId = req.user.id;
+    let {
+        projectId,
+        milestoneId,
+        requestId,
+        documentType,
+        documentCategory,
+        description,
+        status,
+        progressPercentage,
+        originalFileName,
+        isFlagged: isFlaggedBody,
+    } = req.body;
+    const authUserId = req.user?.id ?? req.user?.userId ?? req.user?.actualUserId;
+    const userId = parseInt(String(authUserId), 10);
     const files = req.files;
+
+    if (!Number.isFinite(userId)) {
+        return res.status(400).json({ message: 'Invalid or missing user id on session. Please sign in again.' });
+    }
 
     if (!files || files.length === 0 || !projectId || !documentType || !documentCategory || !status) {
         return res.status(400).json({ message: 'Missing files or required fields: projectId, documentType, documentCategory, and status.' });
+    }
+
+    projectId = parseInt(projectId, 10);
+    if (Number.isNaN(projectId)) {
+        return res.status(400).json({ message: 'Invalid projectId.' });
+    }
+    if (milestoneId !== undefined && milestoneId !== null && milestoneId !== '') {
+        milestoneId = parseInt(milestoneId, 10);
+        if (Number.isNaN(milestoneId)) milestoneId = null;
+    } else {
+        milestoneId = null;
+    }
+    if (requestId !== undefined && requestId !== null && requestId !== '') {
+        requestId = parseInt(requestId, 10);
+        if (Number.isNaN(requestId)) requestId = null;
+    } else {
+        requestId = null;
     }
 
     if (String(documentType).toLowerCase().trim() === 'payment_certificate') {
@@ -75,10 +135,25 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
         });
     }
 
+    const isWarningLetter = String(documentType).toLowerCase().trim() === 'warning_letter';
+    const parseBoolLoose = (v) => {
+        if (v === undefined || v === null || v === '') return null;
+        if (v === true || v === 1) return true;
+        if (v === false || v === 0) return false;
+        const s = String(v).toLowerCase().trim();
+        if (s === 'true' || s === '1' || s === 'yes') return true;
+        if (s === 'false' || s === '0' || s === 'no') return false;
+        return null;
+    };
+    const flagParsed = parseBoolLoose(isFlaggedBody);
+    const isFlagged = flagParsed !== null ? flagParsed : isWarningLetter;
+
     let connection;
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
+
+        const hasFlagCol = await projectDocumentsHasIsFlaggedColumn(connection);
 
         const documentValues = await Promise.all(files.map(async file => {
             const tempPath = file.path;
@@ -96,31 +171,50 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
             fs.renameSync(tempPath, finalPath);
 
             const documentPathForDb = path.relative(path.join(__dirname, '..', '..'), finalPath).replace(/\\/g, '/');
-            
-            return [
-                projectId, 
-                milestoneId || null, 
+            const storedOriginalName =
+                (files.length === 1 && originalFileName) ? originalFileName : (file.originalname || originalFileName || null);
+
+            const row = [
+                projectId,
+                milestoneId || null,
                 requestId || null,
-                documentType, 
-                documentCategory, 
-                documentPathForDb, 
-                originalFileName || null, // FIX: Use the originalFileName
+                documentType,
+                documentCategory,
+                documentPathForDb,
+                storedOriginalName,
                 description || null,
-                userId, 
-                0, // isProjectCover
-                0, // voided
-                new Date(), // createdAt
-                new Date(),  // updatedAt
+                userId,
+                false,
+                false,
+                new Date(),
+                new Date(),
                 status,
-                progressPercentage || null
+                progressPercentage || null,
             ];
+            if (hasFlagCol) {
+                row.push(isFlagged);
+            }
+            return row;
         }));
 
-        await connection.query(
-            // FIX: Add originalFileName to the SQL query
-            `INSERT INTO project_documents (projectId, milestoneId, requestId, documentType, documentCategory, documentPath, originalFileName, description, userId, isProjectCover, voided, createdAt, updatedAt, status, progressPercentage) VALUES ?`,
-            [documentValues]
+        const maxIdResult = await connection.query(
+            `SELECT COALESCE(MAX("id"), 0) AS max_id FROM ${T_PROJECT_DOCUMENTS}`
         );
+        let nextId = Number(maxIdResult.rows[0]?.max_id ?? 0) + 1;
+
+        const insertSqlWithFlag = `INSERT INTO ${T_PROJECT_DOCUMENTS} (
+                "id", "projectId", "milestoneId", "requestId", "documentType", "documentCategory", "documentPath",
+                "originalFileName", "description", "userId", "isProjectCover", "voided", "createdAt", "updatedAt", "status", "progressPercentage", "isFlagged"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const insertSqlNoFlag = `INSERT INTO ${T_PROJECT_DOCUMENTS} (
+                "id", "projectId", "milestoneId", "requestId", "documentType", "documentCategory", "documentPath",
+                "originalFileName", "description", "userId", "isProjectCover", "voided", "createdAt", "updatedAt", "status", "progressPercentage"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const insertSql = hasFlagCol ? insertSqlWithFlag : insertSqlNoFlag;
+
+        for (const row of documentValues) {
+            await connection.query(insertSql, [nextId++, ...row]);
+        }
         
         await connection.commit();
         res.status(201).json({ message: 'Documents uploaded successfully.' });
@@ -128,7 +222,12 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
     } catch (error) {
         if (connection) await connection.rollback();
         console.error('Error uploading documents:', error);
-        res.status(500).json({ message: 'Error uploading documents', error: error.message });
+        res.status(500).json({
+            message: 'Error uploading documents',
+            error: error.message,
+            detail: error.detail || undefined,
+            code: error.code || undefined,
+        });
     } finally {
         if (req.files) {
             req.files.forEach(file => {
@@ -141,6 +240,80 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
     }
 });
 
+// @route   GET /api/projects/documents/by-project
+// @desc    All non-voided project documents with project name, for cross-project registry view
+// @access  Private — document.read_all
+router.get('/by-project', auth, privilege(['document.read_all']), async (req, res) => {
+    let connection;
+    try {
+        connection = await db.getConnection();
+
+        const run = async (sql, params = []) => {
+            const result = await connection.query(sql, params);
+            return result.rows;
+        };
+
+        let rows = null;
+        const attempts = [];
+
+        if (isPostgres) {
+            // Machakos / JSONB projects: PK is project_id, title is name (see projectRoutes GET list).
+            attempts.push({
+                sql: `
+                    SELECT d.*, p.name AS "projectDisplayName"
+                    FROM ${T_PROJECT_DOCUMENTS} d
+                    LEFT JOIN projects p ON p.project_id = d."projectId"
+                    WHERE d."voided" = false
+                    ORDER BY LOWER(COALESCE(p.name, '')), d."projectId", d."createdAt" DESC NULLS LAST
+                `,
+            });
+            // Legacy quoted camelCase projects (postgres-schema-clean.sql): PK "id", "projectName".
+            attempts.push({
+                sql: `
+                    SELECT d.*, p."projectName" AS "projectDisplayName"
+                    FROM ${T_PROJECT_DOCUMENTS} d
+                    LEFT JOIN ${T_PROJECTS} p ON p."id" = d."projectId"
+                    WHERE d."voided" = false
+                    ORDER BY LOWER(COALESCE(p."projectName", '')), d."projectId", d."createdAt" DESC NULLS LAST
+                `,
+            });
+        }
+
+        for (const { sql } of attempts) {
+            try {
+                rows = await run(sql);
+                break;
+            } catch (e) {
+                console.warn('GET /by-project attempt failed:', e.message);
+            }
+        }
+
+        if (!rows) {
+            try {
+                rows = await run(
+                    `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "voided" = false ORDER BY "projectId", "createdAt" DESC NULLS LAST`
+                );
+            } catch (e) {
+                console.warn('GET /by-project documents-only (quoted) failed:', e.message);
+                rows = await run(
+                    'SELECT * FROM project_documents WHERE voided = false ORDER BY projectid, createdat DESC'
+                );
+            }
+        }
+
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching documents by project:', error);
+        res.status(500).json({
+            message: 'Error fetching documents by project',
+            error: error.message,
+            detail: error.detail || undefined,
+            code: error.code || undefined,
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
 
 // @route   GET /api/documents/project/:projectId
 // @desc    Get all documents and photos for a specific project.
@@ -160,7 +333,10 @@ router.get('/project/:projectId', auth, async (req, res) => {
     let connection;
     try {
         connection = await db.getConnection();
-        const [rows] = await connection.query('SELECT * FROM project_documents WHERE projectId = ? AND voided = 0', [projectId]);
+        const { rows } = await connection.query(
+            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "projectId" = ? AND "voided" = false`,
+            [projectId]
+        );
         res.json(rows);
     } catch (error) {
         console.error('Error fetching project documents:', error);
@@ -187,7 +363,7 @@ router.put('/reorder', auth, privilege(['document.update']), async (req, res) =>
 
         const updatePromises = photos.map(photo => {
             return connection.query(
-                'UPDATE project_documents SET displayOrder = ? WHERE id = ?',
+                `UPDATE ${T_PROJECT_DOCUMENTS} SET "displayOrder" = ? WHERE "id" = ?`,
                 [photo.displayOrder, photo.id]
             );
         });
@@ -218,7 +394,11 @@ router.put('/cover/:documentId', auth, privilege(['project.update']), async (req
         await connection.beginTransaction();
 
         // Get the projectId of the document to update
-        const [doc] = await connection.query('SELECT projectId FROM project_documents WHERE id = ? AND voided = 0', [documentId]);
+        const docResult = await connection.query(
+            `SELECT "projectId" FROM ${T_PROJECT_DOCUMENTS} WHERE "id" = ? AND "voided" = false`,
+            [documentId]
+        );
+        const doc = docResult.rows;
         if (doc.length === 0) {
             await connection.rollback();
             return res.status(404).json({ message: 'Document not found.' });
@@ -226,10 +406,16 @@ router.put('/cover/:documentId', auth, privilege(['project.update']), async (req
         const projectId = doc[0].projectId;
 
         // Reset the cover status for all other photos for this project
-        await connection.query('UPDATE project_documents SET isProjectCover = 0 WHERE projectId = ?', [projectId]);
+        await connection.query(
+            `UPDATE ${T_PROJECT_DOCUMENTS} SET "isProjectCover" = false WHERE "projectId" = ?`,
+            [projectId]
+        );
 
         // Set the specified document as the new project cover
-        await connection.query('UPDATE project_documents SET isProjectCover = 1 WHERE id = ?', [documentId]);
+        await connection.query(
+            `UPDATE ${T_PROJECT_DOCUMENTS} SET "isProjectCover" = true WHERE "id" = ?`,
+            [documentId]
+        );
         
         await connection.commit();
         res.status(200).json({ message: 'Project cover photo updated successfully.' });
@@ -249,18 +435,47 @@ router.put('/cover/:documentId', auth, privilege(['project.update']), async (req
 // @access  Private (requires 'document.update' privilege)
 router.put('/:documentId', auth, privilege(['document.update']), async (req, res) => {
     const { documentId } = req.params;
-    const { description } = req.body;
+    const { description, isFlagged } = req.body;
     let connection;
 
-    if (!description) {
-        return res.status(400).json({ message: 'Description is required for updating the document.' });
+    const hasDescription = description !== undefined && description !== null && String(description).trim() !== '';
+    const hasFlag = isFlagged !== undefined && isFlagged !== null;
+    if (!hasDescription && !hasFlag) {
+        return res.status(400).json({
+            message: 'Provide at least one of: description (non-empty), isFlagged (boolean).',
+        });
     }
+
+    const flagBool =
+        isFlagged === true ||
+        isFlagged === 'true' ||
+        isFlagged === 1 ||
+        isFlagged === '1';
 
     try {
         connection = await db.getConnection();
+        const hasFlagCol = await projectDocumentsHasIsFlaggedColumn(connection);
+        if (hasFlag && !hasFlagCol) {
+            connection.release();
+            return res.status(400).json({
+                message:
+                    'Flagging is not available until the database has the isFlagged column. Apply api/migrations/add_project_documents_is_flagged.sql (or run node api/scripts/ensureProjectDocumentsTable.js), then retry.',
+            });
+        }
+        const sets = ['"updatedAt" = CURRENT_TIMESTAMP'];
+        const params = [];
+        if (hasDescription) {
+            sets.push('"description" = ?');
+            params.push(String(description).trim());
+        }
+        if (hasFlag && hasFlagCol) {
+            sets.push('"isFlagged" = ?');
+            params.push(flagBool);
+        }
+        params.push(documentId);
         await connection.query(
-            'UPDATE project_documents SET description = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-            [description, documentId]
+            `UPDATE ${T_PROJECT_DOCUMENTS} SET ${sets.join(', ')} WHERE "id" = ? AND "voided" = false`,
+            params
         );
         res.status(200).json({ message: 'Document updated successfully.' });
     } catch (error) {
@@ -281,7 +496,7 @@ router.delete('/:documentId', auth, privilege(['document.delete']), async (req, 
     try {
         connection = await db.getConnection();
         await connection.query(
-            'UPDATE project_documents SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+            `UPDATE ${T_PROJECT_DOCUMENTS} SET "voided" = true, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
             [documentId]
         );
         res.status(200).json({ message: 'Document deleted successfully.' });
@@ -306,10 +521,11 @@ router.get('/milestone/:milestoneId', auth, async (req, res) => {
         connection = await db.getConnection();
 
         // Check the projectId associated with the milestone
-        const [milestoneRows] = await connection.query(
-            'SELECT projectId FROM project_milestones WHERE milestoneId = ?',
+        const milestoneResult = await connection.query(
+            `SELECT "projectId" FROM ${T_PROJECT_MILESTONES} WHERE "milestoneId" = ?`,
             [milestoneId]
         );
+        const milestoneRows = milestoneResult.rows;
         if (milestoneRows.length === 0) {
             return res.status(404).json({ message: 'Milestone not found.' });
         }
@@ -322,7 +538,10 @@ router.get('/milestone/:milestoneId', auth, async (req, res) => {
             return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
         }
 
-        const [rows] = await connection.query('SELECT * FROM project_documents WHERE milestoneId = ? AND voided = 0', [milestoneId]);
+        const { rows } = await connection.query(
+            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "milestoneId" = ? AND "voided" = false`,
+            [milestoneId]
+        );
         res.json(rows);
     } catch (error) {
         console.error('Error fetching milestone documents:', error);
@@ -367,15 +586,15 @@ router.put('/:documentId/approval', auth, async (req, res) => {
         const approvedAtFormatted = approvedAt.toISOString().slice(0, 19).replace('T', ' ');
 
         const query = `
-            UPDATE project_documents
+            UPDATE ${T_PROJECT_DOCUMENTS}
             SET approved_for_public = ?,
                 approval_notes = ?,
                 approved_by = ?,
                 approved_at = ?
-            WHERE id = ? AND voided = 0
+            WHERE "id" = ? AND "voided" = false
         `;
 
-        const [result] = await db.query(query, [
+        const result = await db.query(query, [
             approved_for_public ? 1 : 0,
             approval_notes || null,
             approved_by || req.user.id,
@@ -383,7 +602,7 @@ router.put('/:documentId/approval', auth, async (req, res) => {
             documentId
         ]);
 
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Document not found' });
         }
 

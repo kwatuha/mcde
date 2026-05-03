@@ -119,7 +119,11 @@ const FeedbackManagementPage = () => {
       setError(null);
     } catch (err) {
       console.error('Error fetching feedback:', err);
-      setError('Failed to load feedback. Please try again.');
+      const detail =
+        err.response?.data?.error ||
+        err.response?.data?.details ||
+        err.response?.data?.message;
+      setError(detail || 'Failed to load feedback. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -184,7 +188,11 @@ const FeedbackManagementPage = () => {
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       console.error('Error submitting response:', err);
-      setError('Failed to submit response. Please try again.');
+      const detail =
+        err.response?.data?.error ||
+        err.response?.data?.details ||
+        err.response?.data?.message;
+      setError(detail || 'Failed to submit response. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -205,7 +213,11 @@ const FeedbackManagementPage = () => {
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       console.error('Error updating status:', err);
-      setError('Failed to update status. Please try again.');
+      const detail =
+        err.response?.data?.error ||
+        err.response?.data?.details ||
+        err.response?.data?.message;
+      setError(detail || 'Failed to update status. Please try again.');
     }
   };
 

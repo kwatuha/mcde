@@ -1,12 +1,12 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
-  Box, Typography, Button, List, ListItem, ListItemText, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Snackbar, Alert, CircularProgress,
+  Box, Typography, Button, List, ListItem, ListItemText, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Alert, CircularProgress,
   FormControl, InputLabel, Select, MenuItem,
-  ListItemIcon, Paper, Stack, Chip, Divider
+  ListItemIcon, Paper, Stack, FormControlLabel, Checkbox,
 } from '@mui/material';
-import { CloudUpload as CloudUploadIcon, Add as AddIcon, InsertDriveFile as DocumentIcon, Photo as PhotoIcon, Description as DescriptionIcon } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
+import { CloudUpload as CloudUploadIcon, InsertDriveFile as DocumentIcon, Photo as PhotoIcon } from '@mui/icons-material';
+import { useTheme, alpha } from '@mui/material/styles';
 import { tokens } from '../pages/dashboard/theme.js';
 
 /**
@@ -34,8 +34,21 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
   const [success, setSuccess] = useState(false);
   // NEW: State to control the accepted file types for the file input
   const [acceptedFileTypes, setAcceptedFileTypes] = useState('');
+  const [followUpFlagChecked, setFollowUpFlagChecked] = useState(true);
 
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    setSuccess(false);
+    setLoading(false);
+    setSelectedFiles([]);
+    setSelectedOption('');
+    setDescription('');
+    setAcceptedFileTypes('');
+    setFollowUpFlagChecked(uploadConfig?.followUpFlag?.defaultChecked !== false);
+  }, [open, uploadConfig?.followUpFlag?.defaultChecked]);
 
   const handleFileChange = useCallback((event) => {
     setSelectedFiles(Array.from(event.target.files));
@@ -45,16 +58,24 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
     fileInputRef.current.click();
   };
 
-  const handleOptionChange = useCallback((e) => {
-    const selectedValue = e.target.value;
-    setSelectedOption(selectedValue);
-    // NEW: Update accepted file types based on the selected option
-    if (selectedValue.startsWith('photo')) {
-      setAcceptedFileTypes('image/*');
-    } else {
-      setAcceptedFileTypes(''); // Allow all file types for other documents
-    }
-  }, []);
+  const handleOptionChange = useCallback(
+    (e) => {
+      const selectedValue = e.target.value;
+      setSelectedOption(selectedValue);
+      if (selectedValue.startsWith('photo')) {
+        setAcceptedFileTypes('image/*');
+      } else {
+        setAcceptedFileTypes('');
+      }
+      const types = uploadConfig?.followUpFlag?.documentTypeValues;
+      if (Array.isArray(types) && types.includes(selectedValue)) {
+        setFollowUpFlagChecked(uploadConfig.followUpFlag.defaultChecked !== false);
+      } else {
+        setFollowUpFlagChecked(false);
+      }
+    },
+    [uploadConfig?.followUpFlag]
+  );
   
   const handleDescriptionChange = useCallback((e) => {
     setDescription(e.target.value);
@@ -164,10 +185,16 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
         formData.append('description', description);
       }
 
+      const flagTypes = uploadConfig?.followUpFlag?.documentTypeValues;
+      const flagField = uploadConfig?.followUpFlag?.formFieldName || 'isFlagged';
+      if (Array.isArray(flagTypes) && flagTypes.includes(finalDocumentType)) {
+        formData.append(flagField, followUpFlagChecked ? 'true' : 'false');
+      }
+
       // 🔧 FIX: Add missing required fields that the backend expects
       // Ensure documentCategory is always present
       if (!formData.has('documentCategory')) {
-        formData.append('documentCategory', 'payment');
+        formData.append('documentCategory', 'general');
       }
       
       // Add status field (default to 'pending_review' for new uploads - matches database enum)
@@ -185,6 +212,11 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
       selectedFiles.forEach(file => {
         formData.append('documents', file);
       });
+
+      // Backend stores originalFileName on project_documents (first file when batching)
+      if (selectedFiles.length > 0 && !formData.has('originalFileName')) {
+        formData.append('originalFileName', selectedFiles[0].name);
+      }
 
       // 🔍 DEBUGGING: Enhanced logging to check FormData content before sending
       console.log('📋 FormData Contents:');
@@ -214,17 +246,18 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
       setTimeout(() => onClose(), 1500);
     } catch (err) {
       console.error('Error uploading document:', err);
-      setError(err.message || 'Failed to upload document.');
+      const data = err.response?.data;
+      const apiMsg =
+        (typeof data?.message === 'string' && data.message) ||
+        (typeof data?.error === 'string' && data.error) ||
+        (typeof data?.details === 'string' && data.details) ||
+        (data?.error && typeof data.error === 'object' && data.error.message);
+      setError(apiMsg || err.message || 'Failed to upload document.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCloseSnackbar = () => {
-    setSuccess(false);
-    setError(null);
-  };
-  
   const isFormValid = selectedFiles.length > 0 && (!uploadConfig.options || selectedOption);
   
   // 🔧 ADDITIONAL VALIDATION: Check if all required fields are present
@@ -252,131 +285,108 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
     return true;
   };
 
+  const sectionPaperSx = {
+    p: 1.5,
+    borderRadius: 1,
+    bgcolor: 'background.paper',
+    borderColor: 'divider',
+    borderWidth: 1,
+    borderStyle: 'solid',
+  };
+
+  const listRowSx = {
+    mb: 0.5,
+    py: 0.5,
+    px: 1,
+    borderRadius: 1,
+    border: '1px solid',
+    borderColor: 'divider',
+    bgcolor: (t) =>
+      t.palette.mode === 'dark'
+        ? alpha(t.palette.common.white, 0.06)
+        : alpha(t.palette.text.primary, 0.04),
+    '&:hover': {
+      bgcolor: (t) =>
+        t.palette.mode === 'dark'
+          ? alpha(t.palette.common.white, 0.1)
+          : alpha(t.palette.text.primary, 0.07),
+    },
+  };
+
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      fullWidth 
-      maxWidth="md"
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="sm"
+      scroll="paper"
       sx={{
         '& .MuiDialog-paper': {
-          borderRadius: 3,
-          boxShadow: theme.palette.mode === 'dark' 
-            ? '0 20px 40px rgba(0,0,0,0.8)' 
-            : '0 20px 40px rgba(0,0,0,0.15)',
-          overflow: 'visible'
-        }
+          borderRadius: 2,
+          maxHeight: 'min(520px, 88vh)',
+          display: 'flex',
+          flexDirection: 'column',
+          m: { xs: 1, sm: 2 },
+          boxShadow:
+            theme.palette.mode === 'dark'
+              ? '0 12px 32px rgba(0,0,0,0.65)'
+              : '0 8px 24px rgba(0,0,0,0.12)',
+        },
       }}
     >
-      <DialogTitle 
-        sx={{ 
+      <DialogTitle
+        sx={{
+          flexShrink: 0,
+          py: 1.25,
+          px: 2,
           background: `linear-gradient(135deg, ${colors.blueAccent[400]}, ${colors.primary[500]})`,
-          color: 'white',
+          color: '#fff',
           fontWeight: 700,
-          fontSize: '1.3rem',
-          borderBottom: `3px solid ${colors.blueAccent[300]}`,
-          position: 'relative'
+          borderBottom: `2px solid ${alpha('#fff', 0.25)}`,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Box sx={{ 
-            width: 40, 
-            height: 40, 
-            borderRadius: '50%', 
-            backgroundColor: 'rgba(255,255,255,0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.5rem'
-          }}>
-            📎
-          </Box>
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
-              {title}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9, fontWeight: 500 }}>
-              Upload and organize your documents
-            </Typography>
-          </Box>
-        </Box>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
+          {title}
+        </Typography>
       </DialogTitle>
-      
-      <DialogContent 
-        dividers 
-        sx={{ 
-          p: 3,
-          backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.grey[50],
-          '& .MuiDivider-root': {
-            borderColor: theme.palette.mode === 'dark' ? colors.primary[500] : colors.grey[200]
-          }
+
+      <DialogContent
+        dividers
+        sx={{
+          flex: '1 1 auto',
+          minHeight: 0,
+          overflowY: 'auto',
+          px: 2,
+          py: 1.5,
+          bgcolor: 'background.default',
+          '& .MuiDivider-root': { borderColor: 'divider' },
         }}
       >
         {error && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 3,
-              borderRadius: 2,
-              backgroundColor: theme.palette.mode === 'dark' ? colors.redAccent[900] : colors.redAccent[50],
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.redAccent[700] : colors.redAccent[200]}`,
-              '& .MuiAlert-message': {
-                fontWeight: 600,
-                color: colors.grey[700],
-                fontSize: '0.95rem'
-              }
-            }}
-          >
-            <Box>
-              <Typography sx={{ fontWeight: 700, mb: 1 }}>
-                {error}
-              </Typography>
-              {error.includes('Missing required information') && (
-                <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9 }}>
-                  Required fields: projectId, documentType, documentCategory, status
-                </Typography>
-              )}
-            </Box>
-          </Alert>
-        )}
-        
-        {success && (
-          <Alert 
-            severity="success" 
-            sx={{ 
-              mb: 3,
-              borderRadius: 2,
-              backgroundColor: theme.palette.mode === 'dark' ? colors.greenAccent[900] : colors.greenAccent[50],
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.greenAccent[700] : colors.greenAccent[200]}`,
-              '& .MuiAlert-message': {
-                fontWeight: 600,
-                color: colors.grey[700],
-                fontSize: '0.95rem'
-              }
-            }}
-          >
-            🎉 Upload successful! Your documents have been uploaded.
-          </Alert>
-        )}
-        
-        <Stack spacing={3}>
-          {/* File Selection Section */}
-          <Paper 
-            variant="outlined" 
-            sx={{ 
-              p: 2.5,
-              borderRadius: 2,
-              backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : 'white',
-              border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[200]}`,
-              boxShadow: theme.palette.mode === 'dark' 
-                ? `0 2px 8px ${colors.primary[400]}20`
-                : `0 2px 8px ${colors.grey[200]}30`
-            }}
-          >
-            <Typography variant="h6" sx={{ fontWeight: 700, color: colors.grey[800], mb: 2 }}>
-              📁 File Selection
+          <Alert severity="error" sx={{ mb: 1.5, py: 0.5, '& .MuiAlert-message': { color: 'text.primary' } }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {error}
             </Typography>
-            
+            {error.includes('Missing required information') && (
+              <Typography variant="caption" component="div" sx={{ mt: 0.5, color: 'text.secondary' }}>
+                Required: projectId, documentType, documentCategory, status
+              </Typography>
+            )}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" sx={{ mb: 1.5, py: 0.5, '& .MuiAlert-message': { color: 'text.primary' } }}>
+            Upload successful.
+          </Alert>
+        )}
+
+        <Stack spacing={1.25}>
+          <Paper variant="outlined" sx={sectionPaperSx}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
+              Files
+            </Typography>
+
             <input
               type="file"
               ref={fileInputRef}
@@ -385,67 +395,49 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
               multiple
               accept={acceptedFileTypes}
             />
-            
+
             <Button
               variant="outlined"
+              size="small"
               startIcon={<CloudUploadIcon />}
               onClick={handleUploadClick}
               fullWidth
               sx={{
+                py: 0.75,
                 borderColor: colors.blueAccent[400],
                 color: colors.blueAccent[500],
                 fontWeight: 600,
-                py: 2,
-                fontSize: '1rem',
                 '&:hover': {
                   borderColor: colors.blueAccent[500],
-                  backgroundColor: colors.blueAccent[50]
-                }
+                  bgcolor: alpha(colors.blueAccent[500], 0.08),
+                },
               }}
             >
-              {selectedFiles.length > 0 ? `${selectedFiles.length} file(s) selected` : 'Choose File(s)'}
+              {selectedFiles.length > 0 ? `${selectedFiles.length} selected` : 'Choose file(s)'}
             </Button>
-            
+
             {selectedFiles.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600, color: colors.grey[700], mb: 1.5 }}>
-                  Selected Files:
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                  Selected
                 </Typography>
-                <List dense sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                <List dense disablePadding sx={{ maxHeight: 120, overflowY: 'auto' }}>
                   {selectedFiles.map((file, index) => (
-                    <ListItem 
-                      key={index}
-                      sx={{
-                        mb: 1,
-                        p: 1.5,
-                        borderRadius: 1,
-                        backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[100],
-                        border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[300] : colors.grey[200]}`,
-                        '&:hover': {
-                          backgroundColor: theme.palette.mode === 'dark' ? colors.primary[300] : colors.grey[50]
-                        }
-                      }}
-                    >
-                      <ListItemIcon>
-                        {getFileIcon(file.type)}
-                      </ListItemIcon>
-                      <ListItemText 
+                    <ListItem key={index} sx={listRowSx}>
+                      <ListItemIcon sx={{ minWidth: 36 }}>{getFileIcon(file.type)}</ListItemIcon>
+                      <ListItemText
                         primary={
-                          <Typography sx={{ fontWeight: 600, color: colors.grey[800], fontSize: '0.95rem' }}>
+                          <Typography noWrap variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                             {file.name}
                           </Typography>
-                        } 
+                        }
                         secondary={
-                          <Typography sx={{ color: colors.grey[600], fontWeight: 500, fontSize: '0.85rem' }}>
-                            {formatFileSize(file.size)} • {file.type || 'Unknown type'}
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            {formatFileSize(file.size)}
                           </Typography>
-                        } 
+                        }
                       />
-                      <IconButton 
-                        size="small" 
-                        onClick={() => handleRemoveFile(index)}
-                        sx={{ color: colors.redAccent[500] }}
-                      >
+                      <IconButton size="small" onClick={() => handleRemoveFile(index)} aria-label="Remove file" sx={{ color: 'error.main' }}>
                         ✕
                       </IconButton>
                     </ListItem>
@@ -455,147 +447,112 @@ function GenericFileUploadModal({ open, onClose, title, uploadConfig, submitFunc
             )}
           </Paper>
 
-          {/* Document Type Selection */}
           {uploadConfig.options && (
-            <Paper 
-              variant="outlined" 
-              sx={{ 
-                p: 2.5,
-                borderRadius: 2,
-                backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : 'white',
-                border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[200]}`,
-                boxShadow: theme.palette.mode === 'dark' 
-                  ? `0 2px 8px ${colors.primary[400]}20`
-                  : `0 2px 8px ${colors.grey[200]}30`
-              }}
-            >
-              <Typography variant="h6" sx={{ fontWeight: 700, color: colors.grey[800], mb: 2 }}>
-                🏷️ Document Type
+            <Paper variant="outlined" sx={sectionPaperSx}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
+                Document type
               </Typography>
-              
-              <FormControl fullWidth>
-                <InputLabel 
-                  id="document-type-label"
-                  sx={{ fontWeight: 600, color: colors.grey[700] }}
-                >
-                  {uploadConfig.optionsLabel}
-                </InputLabel>
+
+              <FormControl fullWidth size="small">
+                <InputLabel id="document-type-label">{uploadConfig.optionsLabel}</InputLabel>
                 <Select
                   labelId="document-type-label"
                   label={uploadConfig.optionsLabel}
                   value={selectedOption}
                   onChange={handleOptionChange}
                   required
-                  sx={{
-                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : 'white',
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: colors.blueAccent[400]
-                    }
-                  }}
+                  sx={{ bgcolor: 'background.paper' }}
                 >
                   {uploadConfig.options.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {option.value.startsWith('photo') ? '📸' : '📄'}
-                        <Typography sx={{ fontWeight: 600 }}>
-                          {option.label}
-                        </Typography>
-                      </Box>
+                    <MenuItem key={option.value} value={option.value} dense>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {option.label}
+                      </Typography>
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </Paper>
           )}
-          
-          {/* Description Field */}
+
+          {uploadConfig.followUpFlag &&
+            Array.isArray(uploadConfig.followUpFlag.documentTypeValues) &&
+            uploadConfig.followUpFlag.documentTypeValues.includes(selectedOption) && (
+              <Paper variant="outlined" sx={sectionPaperSx}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
+                  Follow-up
+                </Typography>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={followUpFlagChecked}
+                      onChange={(e) => setFollowUpFlagChecked(e.target.checked)}
+                      color="warning"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2">
+                      {uploadConfig.followUpFlag.label ||
+                        'Flag this upload for compliance / follow-up (shows in Flagged tab)'}
+                    </Typography>
+                  }
+                />
+              </Paper>
+            )}
+
           {uploadConfig.description && (
-            <Paper 
-              variant="outlined" 
-              sx={{ 
-                p: 2.5,
-                borderRadius: 2,
-                backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : 'white',
-                border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[200]}`,
-                boxShadow: theme.palette.mode === 'dark' 
-                  ? `0 2px 8px ${colors.primary[400]}20`
-                  : `0 2px 8px ${colors.grey[200]}30`
-              }}
-            >
-              <Typography variant="h6" sx={{ fontWeight: 700, color: colors.grey[800], mb: 2 }}>
-                📝 Description
+            <Paper variant="outlined" sx={sectionPaperSx}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
+                Description (optional)
               </Typography>
-              
+
               <TextField
                 fullWidth
+                size="small"
                 label={uploadConfig.description.label}
                 placeholder={uploadConfig.description.placeholder}
                 value={description}
                 onChange={handleDescriptionChange}
                 multiline
-                rows={3}
-                InputLabelProps={{
-                  sx: { fontWeight: 600, color: colors.grey[700] }
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[400] : 'white',
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: colors.blueAccent[400]
-                    }
-                  }
-                }}
+                minRows={2}
+                maxRows={4}
+                InputLabelProps={{ shrink: true }}
+                sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'background.paper' } }}
               />
             </Paper>
           )}
         </Stack>
       </DialogContent>
-      
-      <DialogActions 
-        sx={{ 
-          p: 3,
-          backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : colors.grey[100],
-          borderTop: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[400] : colors.grey[200]}`
+
+      <DialogActions
+        sx={{
+          flexShrink: 0,
+          px: 2,
+          py: 1,
+          bgcolor: 'background.paper',
+          borderTop: '1px solid',
+          borderTopColor: 'divider',
+          gap: 1,
         }}
       >
-        <Button 
-          onClick={onClose}
-          variant="outlined"
-          sx={{
-            borderColor: colors.grey[400],
-            color: colors.grey[700],
-            fontWeight: 600,
-            px: 3,
-            py: 1.5,
-            '&:hover': {
-              borderColor: colors.grey[600],
-              backgroundColor: colors.grey[100]
-            }
-          }}
-        >
+        <Button onClick={onClose} variant="outlined" size="small" color="inherit">
           Cancel
         </Button>
-        
-        <Button 
-          onClick={handleUploadSubmit} 
-          variant="contained" 
+
+        <Button
+          onClick={handleUploadSubmit}
+          variant="contained"
+          size="small"
           disabled={loading || !isFormValid}
-          startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+          startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <CloudUploadIcon />}
           sx={{
-            backgroundColor: colors.greenAccent[500],
+            bgcolor: colors.greenAccent[500],
             fontWeight: 700,
-            px: 4,
-            py: 1.5,
-            fontSize: '1rem',
-            '&:hover': {
-              backgroundColor: colors.greenAccent[600]
-            },
-            '&:disabled': {
-              backgroundColor: colors.grey[400]
-            }
+            '&:hover': { bgcolor: colors.greenAccent[600] },
+            '&:disabled': { bgcolor: 'action.disabledBackground' },
           }}
         >
-          {loading ? 'Uploading...' : 'Upload Documents'}
+          {loading ? 'Uploading…' : 'Upload'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -616,6 +573,12 @@ GenericFileUploadModal.propTypes = {
     description: PropTypes.shape({
         label: PropTypes.string,
         placeholder: PropTypes.string,
+    }),
+    followUpFlag: PropTypes.shape({
+      documentTypeValues: PropTypes.arrayOf(PropTypes.string),
+      formFieldName: PropTypes.string,
+      label: PropTypes.string,
+      defaultChecked: PropTypes.bool,
     }),
   }),
   submitFunction: PropTypes.func.isRequired,

@@ -13,6 +13,7 @@ import DashboardPage from './pages/DashboardPage';
 import DashboardLandingPage from './pages/DashboardLandingPage';
 import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
+import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
@@ -201,6 +202,10 @@ const router = createBrowserRouter([
       {
         path: 'projects',
         element: <ProjectManagementPage />,
+      },
+      {
+        path: 'projects/documents-by-project',
+        element: <ProjectDocumentsByProjectPage />,
       },
       {
         path: 'projects/:projectId',

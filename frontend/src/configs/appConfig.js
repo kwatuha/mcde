@@ -61,6 +61,8 @@ export const ROUTES = {
     // Main layout routes
     RAW_DATA: '/raw-data',
     PROJECTS: '/projects',
+    /** Cross-project registry: documents grouped by project (sidebar under Projects). */
+    PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
     REPORTS: '/reports',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',

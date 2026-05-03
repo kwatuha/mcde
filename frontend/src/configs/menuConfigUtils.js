@@ -81,8 +81,10 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         return hasPermission || hasRole;
       }
       
-      // Check permission-based visibility (if only permission is specified)
-      if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
+      if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
+        if (!hasPrivilege) return false;
+        if (!submenu.permissionsAny.some((p) => hasPrivilege(p))) return false;
+      } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
         return false;
       }
       

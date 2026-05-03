@@ -97,6 +97,30 @@ function isPostgresDb() {
     return (process.env.DB_TYPE || 'mysql') === 'postgresql';
 }
 
+/** node-pg returns { rows }; mysql2-style [rows] destructuring breaks admin feedback lists. */
+function rowsFrom(result) {
+    if (!result) return [];
+    if (Array.isArray(result.rows)) return result.rows;
+    if (Array.isArray(result[0])) return result[0];
+    return [];
+}
+
+async function ensurePublicFeedbackAdminColumnsPostgres() {
+    if (!isPostgresDb()) return;
+    const stmts = [
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS moderation_reason VARCHAR(255)',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS custom_reason TEXT',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS moderator_notes TEXT',
+    ];
+    for (const sql of stmts) {
+        try {
+            await pool.query(sql);
+        } catch {
+            /* ignore: older PG, or table not created yet */
+        }
+    }
+}
+
 /**
  * WHERE fragments for approved public projects (PostgreSQL JSONB `projects` table).
  * Supports the same query keys used by the citizen dashboard and gallery.
@@ -1497,8 +1521,9 @@ router.get('/feedback/stats', async (req, res) => {
             WHERE moderation_status = 'approved'
         `;
 
-        const [results] = await pool.query(query);
-        res.json(results[0]);
+        const result = await pool.query(query);
+        const list = rowsFrom(result);
+        res.json(list[0] || {});
     } catch (error) {
         console.error('Error fetching feedback stats:', error);
         res.status(500).json({ error: 'Failed to fetch feedback statistics' });
@@ -1666,9 +1691,10 @@ router.put('/feedback/:id/respond', async (req, res) => {
             WHERE id = ?
         `;
 
-        const [result] = await pool.query(query, [admin_response, responded_by || null, id]);
+        const result = await pool.query(query, [admin_response, responded_by || null, id]);
+        const affected = result.rowCount ?? result.affectedRows ?? 0;
 
-        if (result.affectedRows === 0) {
+        if (!affected) {
             return res.status(404).json({ error: 'Feedback not found' });
         }
 
@@ -1703,9 +1729,10 @@ router.put('/feedback/:id/status', async (req, res) => {
             WHERE id = ?
         `;
 
-        const [result] = await pool.query(query, [status, id]);
+        const result = await pool.query(query, [status, id]);
+        const affected = result.rowCount ?? result.affectedRows ?? 0;
 
-        if (result.affectedRows === 0) {
+        if (!affected) {
             return res.status(404).json({ error: 'Feedback not found' });
         }
 
@@ -1734,7 +1761,8 @@ router.get('/feedback', async (req, res) => {
             limit = 10 
         } = req.query;
 
-        let whereConditions = ['f.moderation_status = "approved"']; // Only show approved feedback publicly
+        const pg = isPostgresDb();
+        let whereConditions = ["f.moderation_status = 'approved'"];
         const queryParams = [];
 
         if (status && status !== 'all') {
@@ -1747,26 +1775,32 @@ router.get('/feedback', async (req, res) => {
             queryParams.push(projectId);
         }
 
+        const projectJoin = pg
+            ? 'LEFT JOIN projects p ON f.project_id = p.project_id'
+            : 'LEFT JOIN projects p ON f.project_id = p.id';
+        const projectNameExpr = pg ? 'p.name AS project_name' : 'p.projectName AS project_name';
+
         if (search) {
-            whereConditions.push('(f.name LIKE ? OR f.subject LIKE ? OR f.message LIKE ? OR p.projectName LIKE ?)');
-            queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+            const like = pg ? 'ILIKE' : 'LIKE';
+            const nameCol = pg ? 'p.name' : 'p.projectName';
+            whereConditions.push(`(f.name ${like} ? OR f.subject ${like} ? OR f.message ${like} ? OR ${nameCol} ${like} ?)`);
+            const s = `%${search}%`;
+            queryParams.push(s, s, s, s);
         }
 
         const whereClause = whereConditions.join(' AND ');
         const offset = (page - 1) * limit;
 
-        // Get total count
         const countQuery = `
-            SELECT COUNT(*) as total
+            SELECT COUNT(*)::bigint AS total
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
+            ${projectJoin}
             WHERE ${whereClause}
         `;
 
-        const [countResult] = await pool.query(countQuery, queryParams);
-        const totalFeedbacks = countResult[0].total;
+        const countResult = await pool.query(countQuery, queryParams);
+        const totalFeedbacks = Number(rowsFrom(countResult)[0]?.total ?? 0);
 
-        // Get paginated feedback
         const feedbackQuery = `
             SELECT 
                 f.id,
@@ -1785,24 +1819,25 @@ router.get('/feedback', async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
-                p.projectName as project_name
+                ${projectNameExpr}
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
+            ${projectJoin}
             WHERE ${whereClause}
             ORDER BY f.created_at DESC
             LIMIT ? OFFSET ?
         `;
 
-        queryParams.push(parseInt(limit), offset);
-        const [feedbacks] = await pool.query(feedbackQuery, queryParams);
+        const listParams = [...queryParams, parseInt(limit, 10), offset];
+        const fbResult = await pool.query(feedbackQuery, listParams);
+        const feedbacks = rowsFrom(fbResult);
 
         res.json({
             feedbacks,
             pagination: {
                 total: totalFeedbacks,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                totalPages: Math.ceil(totalFeedbacks / limit)
+                page: parseInt(page, 10),
+                limit: parseInt(limit, 10),
+                totalPages: Math.ceil(totalFeedbacks / limit) || 1
             }
         });
     } catch (error) {
@@ -1818,6 +1853,8 @@ router.get('/feedback', async (req, res) => {
  */
 router.get('/feedback/admin', async (req, res) => {
     try {
+        await ensurePublicFeedbackAdminColumnsPostgres();
+
         const { 
             status, 
             projectId,
@@ -1827,6 +1864,7 @@ router.get('/feedback/admin', async (req, res) => {
             limit = 10 
         } = req.query;
 
+        const pg = isPostgresDb();
         let whereConditions = ['1=1']; // Admin can see all feedback
         const queryParams = [];
 
@@ -1845,26 +1883,39 @@ router.get('/feedback/admin', async (req, res) => {
             queryParams.push(projectId);
         }
 
+        const projectJoin = pg
+            ? 'LEFT JOIN projects p ON f.project_id = p.project_id'
+            : 'LEFT JOIN projects p ON f.project_id = p.id';
+        const projectNameExpr = pg ? 'p.name AS project_name' : 'p.projectName AS project_name';
+        const userJoin = pg
+            ? 'LEFT JOIN users u ON f.moderated_by = u.userid'
+            : 'LEFT JOIN users u ON f.moderated_by = u.userId';
+        const moderatorNameExpr = pg
+            ? `(TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, ''))) AS moderator_name`
+            : `CONCAT(u.firstName, ' ', u.lastName) AS moderator_name`;
+
         if (search) {
-            whereConditions.push('(f.name LIKE ? OR f.subject LIKE ? OR f.message LIKE ? OR p.projectName LIKE ?)');
-            queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+            const like = pg ? 'ILIKE' : 'LIKE';
+            const nameCol = pg ? 'p.name' : 'p.projectName';
+            whereConditions.push(`(f.name ${like} ? OR f.subject ${like} ? OR f.message ${like} ? OR ${nameCol} ${like} ?)`);
+            const s = `%${search}%`;
+            queryParams.push(s, s, s, s);
         }
 
         const whereClause = whereConditions.join(' AND ');
         const offset = (page - 1) * limit;
 
-        // Get total count
+        const countSelect = pg ? 'COUNT(*)::bigint AS total' : 'COUNT(*) AS total';
         const countQuery = `
-            SELECT COUNT(*) as total
+            SELECT ${countSelect}
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
+            ${projectJoin}
             WHERE ${whereClause}
         `;
 
-        const [countResult] = await pool.query(countQuery, queryParams);
-        const totalFeedbacks = countResult[0].total;
+        const countResult = await pool.query(countQuery, queryParams);
+        const totalFeedbacks = Number(rowsFrom(countResult)[0]?.total ?? 0);
 
-        // Get paginated feedback
         const feedbackQuery = `
             SELECT 
                 f.id,
@@ -1888,26 +1939,27 @@ router.get('/feedback/admin', async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
-                p.projectName as project_name,
-                CONCAT(u.firstName, ' ', u.lastName) as moderator_name
+                ${projectNameExpr},
+                ${moderatorNameExpr}
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
-            LEFT JOIN users u ON f.moderated_by = u.userId
+            ${projectJoin}
+            ${userJoin}
             WHERE ${whereClause}
             ORDER BY f.created_at DESC
             LIMIT ? OFFSET ?
         `;
 
-        queryParams.push(parseInt(limit), offset);
-        const [feedbacks] = await pool.query(feedbackQuery, queryParams);
+        const listParams = [...queryParams, parseInt(limit, 10), offset];
+        const fbResult = await pool.query(feedbackQuery, listParams);
+        const feedbacks = rowsFrom(fbResult);
 
         res.json({
             feedbacks,
             pagination: {
                 total: totalFeedbacks,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                totalPages: Math.ceil(totalFeedbacks / limit)
+                page: parseInt(page, 10),
+                limit: parseInt(limit, 10),
+                totalPages: Math.ceil(totalFeedbacks / limit) || 1
             }
         });
     } catch (error) {

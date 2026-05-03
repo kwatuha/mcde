@@ -1,5 +1,5 @@
 // src/api/axiosInstance.js
-import axios from 'axios';
+import axios, { AxiosHeaders } from 'axios';
 import { ROUTES } from '../configs/appConfig';
 
 /**
@@ -32,6 +32,13 @@ axiosInstance.interceptors.request.use(
         const token = localStorage.getItem('jwtToken'); // Assuming token is stored as 'jwtToken'
         if (token) {
             config.headers.Authorization = `Bearer ${token}`; // Changed to Bearer token
+        }
+        // Default instance Content-Type is application/json. For FormData, axios would otherwise
+        // stringify the body in transformRequest; browsers must set multipart boundary themselves.
+        if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+            const h = AxiosHeaders.from(config.headers || {});
+            h.delete('Content-Type');
+            config.headers = h;
         }
         return config;
     },

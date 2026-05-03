@@ -320,9 +320,13 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           // Show if user has permission OR role
           return hasPermission || hasRole;
         }
-        
-        // Check permission-based visibility (if only permission is specified)
-        if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
+
+        // Optional: any of these privileges (menu JSON `permissionsAny`)
+        if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
+          if (!hasPrivilege) return false;
+          const any = submenu.permissionsAny.some((p) => hasPrivilege(p));
+          if (!any) return false;
+        } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
           return false;
         }
         

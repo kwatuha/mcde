@@ -280,11 +280,9 @@ const projectService = {
       const response = await axiosInstance.get(`/projects/documents/project/${projectId}`);
       return response.data;
     },
-    uploadDocument: async (documentData) => {
+    uploadDocument: async (documentData, onUploadProgress) => {
       const response = await axiosInstance.post(`/projects/documents`, documentData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        ...(typeof onUploadProgress === 'function' ? { onUploadProgress } : {}),
       });
       return response.data;
     },
@@ -324,6 +322,11 @@ const projectService = {
     // New function to get documents for a project (using the correct endpoint)
     getProjectDocuments: async (projectId) => {
         const response = await axiosInstance.get(`/projects/documents/project/${projectId}`);
+        return response.data;
+    },
+    /** All project documents with projectDisplayName (requires document.read_all). */
+    getDocumentsByProjectRegistry: async () => {
+        const response = await axiosInstance.get('/projects/documents/by-project');
         return response.data;
     },
     // New function to update document approval

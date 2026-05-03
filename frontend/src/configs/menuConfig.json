@@ -91,6 +91,12 @@
           "route": "PROJECTS"
         },
         {
+          "title": "Project Documents",
+          "icon": "DescriptionIcon",
+          "route": "PROJECT_DOCUMENTS_BY_PROJECT",
+          "permissionsAny": ["document.read_all", "document.create"]
+        },
+        {
           "title": "Upload Projects",
           "icon": "CloudUploadIcon",
           "route": "CENTRAL_IMPORT",
@@ -209,8 +215,7 @@
           "icon": "FeedbackIcon",
           "route": "FEEDBACK_MANAGEMENT",
           "permission": "feedback.respond",
-          "roles": ["admin"],
-          "hidden": true
+          "roles": ["admin"]
         },
         {
           "title": "County Projects",

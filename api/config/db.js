@@ -4,13 +4,21 @@ require('dotenv').config(); // Load environment variables (like DB_HOST, DB_USER
 // PostgreSQL connection using pg (node-postgres)
 const { Pool } = require('pg');
 
+const poolOptions = process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+    }
+    : {
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME,
+        port: process.env.DB_PORT || 5432,
+    };
+
 // Enhanced pool configuration for stable remote connections
 const pool = new Pool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT || 5432,
+    ...poolOptions,
     max: 20, // Increased maximum number of clients in the pool
     idleTimeoutMillis: 300000, // 5 minutes - increased from 30 seconds
     connectionTimeoutMillis: 10000, // 10 seconds - increased from 2 seconds for remote connections

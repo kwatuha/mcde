@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
     Box, Typography, CircularProgress, Alert, Button, Paper,
     List, ListItem, ListItemText, IconButton,
     Stack, Chip, Snackbar, LinearProgress,
     Tooltip, Accordion, AccordionSummary, AccordionDetails, useTheme, Grid,
-    Divider, Tabs, Tab, Card, CardContent, CardMedia, Link,
+    Divider, Tabs, Tab, Card, CardContent, CardMedia,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
     InputLabel, Select, FormControl, Menu, ListItemIcon, Switch, FormControlLabel,
@@ -34,7 +34,6 @@ import {
     Phone as PhoneIcon,
     Email as EmailIcon,
     LocationOn as LocationOnIcon,
-    Description as DescriptionIcon,
     People as PeopleIcon,
     CheckCircle as CheckCircleIcon,
     Upload as UploadIcon,
@@ -52,9 +51,9 @@ import {
     AccountBalanceWallet as AccountBalanceWalletIcon
 } from '@mui/icons-material';
 import apiService from '../api';
+import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
-import ProjectDocumentsAttachments from '../components/ProjectDocumentsAttachments';
 import ProjectBQTab from '../components/ProjectBQTab';
 import ProjectCertificatesTab from '../components/ProjectCertificatesTab';
 import ProjectMapEditor from '../components/ProjectMapEditor';
@@ -209,7 +208,7 @@ const getWarningColor = (level) => {
 function ProjectDetailsPage() {
     const { projectId } = useParams();
     const navigate = useNavigate();
-    const { user, logout, authLoading } = useAuth();
+    const { user, logout, authLoading, hasPrivilege } = useAuth();
     const theme = useTheme();
     const colors = tokens(theme.palette.mode); // Initialize colors
     const isLight = theme.palette.mode === 'light';
@@ -468,7 +467,7 @@ function ProjectDetailsPage() {
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6:Updates,7:Feedback,8:Documents,9:Map)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6:Updates,7:Feedback,8=BQ,9=Certificates,10=Map,11=Funds)
             fetchJobCategories();
             fetchProjectJobs();
         }
@@ -636,7 +635,7 @@ function ProjectDetailsPage() {
     }, [projectId]);
 
     useEffect(() => {
-        if (activeTab === 12) {
+        if (activeTab === 11) {
             fetchFundingData();
         }
     }, [activeTab, fetchFundingData]);
@@ -2618,7 +2617,7 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=Documents, 9=BQ, 10=Certificates, 11=Map, 12=Funds */}
+                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=BQ, 9=Certificates, 10=Map, 11=Funds (documents: /projects/documents-by-project) */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
@@ -2627,7 +2626,6 @@ function ProjectDetailsPage() {
                     <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
                     <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
                     <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
-                    <Tab label="Documents" icon={<DescriptionIcon />} iconPosition="start" />
                     <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
@@ -2661,6 +2659,18 @@ function ProjectDetailsPage() {
                     <InfoIcon sx={{ mr: 0.5, fontSize: '1rem', opacity: 0.9 }} />
                     Project Overview
                 </Typography>
+                {hasPrivilege &&
+                    (hasPrivilege('document.read_all') || hasPrivilege('document.create')) &&
+                    projectId && (
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                            <RouterLink
+                                to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}
+                                style={{ fontWeight: 600 }}
+                            >
+                                Project Documents
+                            </RouterLink>
+                        </Typography>
+                    )}
                 <Grid container spacing={1}>
                     {/* First Column: Key Information */}
                     <Grid item xs={12} md={4}>
@@ -5574,12 +5584,6 @@ function ProjectDetailsPage() {
 
                 {activeTab === 8 && (
                     <Box>
-                        <ProjectDocumentsAttachments projectId={projectId} />
-                    </Box>
-                )}
-
-                {activeTab === 9 && (
-                    <Box>
                         <ProjectBQTab
                             projectId={projectId}
                             canModify={canModifyOrCreateProjects}
@@ -5587,7 +5591,7 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 10 && (
+                {activeTab === 9 && (
                     <Box>
                         <ProjectCertificatesTab
                             projectId={projectId}
@@ -5596,13 +5600,13 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 11 && (
+                {activeTab === 10 && (
                     <Box>
                         <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
                     </Box>
                 )}
 
-                {activeTab === 12 && (
+                {activeTab === 11 && (
                     <Box>
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
                             <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
