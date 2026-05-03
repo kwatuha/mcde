@@ -14,6 +14,7 @@ import DashboardLandingPage from './pages/DashboardLandingPage';
 import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
+import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
 import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
@@ -70,6 +71,7 @@ import CountyProposedProjectsManagementPage from './pages/CountyProposedProjects
 import ProjectAnnouncementsManagementPage from './pages/ProjectAnnouncementsManagementPage';
 // ✨ NEW: Import the Public Approval Management page
 import PublicApprovalManagementPage from './pages/PublicApprovalManagementPage';
+import FeedbackModerationPage from './pages/FeedbackModerationPage';
 // ✨ NEW: Import the Project Analytics page
 import ProjectAnalyticsPage from './pages/ProjectAnalyticsPage';
 // ✨ NEW: Import the Budget Management page
@@ -208,6 +210,10 @@ const router = createBrowserRouter([
         element: <ProjectDocumentsByProjectPage />,
       },
       {
+        path: 'projects/feedback-by-project',
+        element: <ProjectFeedbackByProjectPage />,
+      },
+      {
         path: 'projects/:projectId',
         element: <ProjectDetailsPage />,
       },
@@ -334,6 +340,10 @@ const router = createBrowserRouter([
       {
         path: 'public-approval',
         element: <PublicApprovalManagementPage />,
+      },
+      {
+        path: 'public-feedback-moderation',
+        element: <FeedbackModerationPage />,
       },
       {
         path: 'budget-management',

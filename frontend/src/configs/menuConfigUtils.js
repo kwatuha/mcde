@@ -42,6 +42,7 @@ export const ICON_MAP = {
   LocationOnIcon: () => import('@mui/icons-material/LocationOn').then(m => m.default),
   WorkIcon: () => import('@mui/icons-material/Work').then(m => m.default),
   DescriptionIcon: () => import('@mui/icons-material/Description').then(m => m.default),
+  GavelIcon: () => import('@mui/icons-material/Gavel').then(m => m.default),
 };
 
 // Get icon component by name
@@ -82,8 +83,8 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
       }
       
       if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
-        if (!hasPrivilege) return false;
-        if (!submenu.permissionsAny.some((p) => hasPrivilege(p))) return false;
+        const passPriv = hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p));
+        if (!passPriv && !isAdmin) return false;
       } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
         return false;
       }

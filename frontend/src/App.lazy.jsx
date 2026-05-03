@@ -14,6 +14,7 @@ import MainLayout from './layouts/MainLayout';
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const DashboardLandingPage = lazy(() => import('./pages/DashboardLandingPage'));
 const ProjectManagementPage = lazy(() => import('./pages/ProjectManagementPage'));
+const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackByProjectPage'));
 const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
 const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
@@ -40,6 +41,7 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage'));
 const ApprovalLevelsManagementPage = lazy(() => import('./pages/ApprovalLevelsManagementPage'));
 const FeedbackManagementPage = lazy(() => import('./pages/FeedbackManagementPage'));
+const FeedbackModerationPage = lazy(() => import('./pages/FeedbackModerationPage'));
 const HrModulePage = lazy(() => import('./pages/HrModulePage'));
 const ProjectDashboardPage = lazy(() => import('./pages/ProjectDashboardPage'));
 const ReportingView = lazy(() => import('./pages/ReportingView'));
@@ -110,6 +112,10 @@ const router = createBrowserRouter([
         element: <LazyRoute component={ProjectImportPage} />,
       },
       {
+        path: 'projects/feedback-by-project',
+        element: <LazyRoute component={ProjectFeedbackByProjectPage} />,
+      },
+      {
         path: 'data-import',
         element: <LazyRoute component={CentralImportPage} />,
       },
@@ -164,6 +170,10 @@ const router = createBrowserRouter([
       {
         path: 'feedback-management',
         element: <LazyRoute component={FeedbackManagementPage} />,
+      },
+      {
+        path: 'public-feedback-moderation',
+        element: <LazyRoute component={FeedbackModerationPage} />,
       },
       {
         path: 'strategic-planning',

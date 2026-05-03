@@ -136,7 +136,9 @@ export default function RibbonMenu({ isAdmin = false }) {
       if (submenu && !submenu.hidden) {
         const hasPermission = (() => {
           if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
-            return hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p));
+            return (
+              (hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p))) || isAdmin
+            );
           }
           return !submenu.permission || (hasPrivilege && hasPrivilege(submenu.permission));
         })();
@@ -151,7 +153,9 @@ export default function RibbonMenu({ isAdmin = false }) {
     for (const submenu of category.submenus) {
       if (submenu.hidden) continue;
       if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
-        if (!hasPrivilege || !submenu.permissionsAny.some((p) => hasPrivilege(p))) continue;
+        const pass =
+          (hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p))) || isAdmin;
+        if (!pass) continue;
       } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) continue;
       if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) continue;
       if (submenu.route && ROUTES[submenu.route]) return ROUTES[submenu.route];

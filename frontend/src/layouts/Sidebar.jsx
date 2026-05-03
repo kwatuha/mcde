@@ -321,11 +321,10 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           return hasPermission || hasRole;
         }
 
-        // Optional: any of these privileges (menu JSON `permissionsAny`)
+        // Optional: any of these privileges (menu JSON `permissionsAny`); admin-like users bypass
         if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
-          if (!hasPrivilege) return false;
-          const any = submenu.permissionsAny.some((p) => hasPrivilege(p));
-          if (!any) return false;
+          const any = hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p));
+          if (!any && !isAdminLike) return false;
         } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
           return false;
         }
@@ -346,7 +345,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           icon: <IconComponent />,
         };
       });
-  }, [selectedCategory, hasPrivilege, user]);
+  }, [selectedCategory, hasPrivilege, user, isAdminLike]);
   
   // Update selected state when route changes (pathname + query for e.g. planning indicators section)
   useEffect(() => {

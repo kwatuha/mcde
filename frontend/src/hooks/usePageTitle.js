@@ -10,6 +10,8 @@ const routeTitles = {
   '/dashboard': { title: 'Dashboard', subtitle: 'Overview & Analytics' },
   '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
+  '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
+  '/projects/feedback-by-project': { title: 'Project Feedback', subtitle: 'Public feedback by project' },
   '/contractor-dashboard': { title: 'Personal Dashboard', subtitle: 'My Activities' },
   '/project-analytics': { title: 'Project Analytics', subtitle: 'Performance Metrics & Statistics' },
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },
@@ -57,7 +59,8 @@ const routeTitles = {
   '/contractor-management': { title: 'Contractor Management', subtitle: 'Contractor Administration' },
   '/county-proposed-projects': { title: 'Proposed Projects', subtitle: 'Project Proposals' },
   '/project-announcements': { title: 'Project Announcements', subtitle: 'Public Announcements' },
-  '/public-approval': { title: 'Public Content Approval', subtitle: 'Content Moderation' },
+  '/public-approval': { title: 'Public Content Approval', subtitle: 'Approve content for the public site' },
+  '/public-feedback-moderation': { title: 'Feedback Review', subtitle: 'Citizen feedback queue & analytics' },
   
   // Contractor sub-routes
   '/contractor-dashboard/payments': { title: 'Payment Requests', subtitle: 'Payment Management' },
@@ -111,7 +114,11 @@ export const usePageTitleEffect = () => {
     
     // Handle dynamic project routes
     if (!titleInfo && path.startsWith('/projects/')) {
-      if (path.includes('/gantt-chart')) {
+      if (path === '/projects/feedback-by-project') {
+        titleInfo = { title: 'Project Feedback', subtitle: 'Public feedback by project' };
+      } else if (path === '/projects/documents-by-project') {
+        titleInfo = { title: 'Project Documents', subtitle: 'Attachments by project' };
+      } else if (path.includes('/gantt-chart')) {
         titleInfo = { title: 'Gantt Chart', subtitle: 'Project Timeline' };
       } else if (path.includes('/kdsp-details')) {
         titleInfo = { title: 'KDSP Details', subtitle: 'Project Details' };

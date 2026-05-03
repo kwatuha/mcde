@@ -63,6 +63,8 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
+    /** Public feedback linked to projects, grouped by project (sidebar under Projects). */
+    PROJECT_FEEDBACK_BY_PROJECT: '/projects/feedback-by-project',
     REPORTS: '/reports',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',
@@ -84,6 +86,8 @@ export const ROUTES = {
     COUNTY_PROPOSED_PROJECTS: '/county-proposed-projects', // ✨ NEW: Proposed Projects management route
     PROJECT_ANNOUNCEMENTS: '/project-announcements', // ✨ NEW: Project Announcements management route
     PUBLIC_APPROVAL: '/public-approval', // ✨ NEW: Public Content Approval management route
+    /** Citizen feedback review queue & analytics (sidebar under Public). */
+    PUBLIC_FEEDBACK_MODERATION: '/public-feedback-moderation',
     BUDGET_MANAGEMENT: '/budget-management', // ✨ NEW: Budget Management route
     PROJECT_TYPES: '/project-types', // ✨ NEW: Project Types management route
     JOB_CATEGORIES: '/job-categories', // ✨ NEW: Job Categories management route

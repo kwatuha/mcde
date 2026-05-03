@@ -63,14 +63,20 @@ import {
   Block,
   CheckCircleOutline,
   Cancel,
-  Warning
+  Warning,
+  PictureAsPdf
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import ModerationAnalytics from '../components/ModerationAnalytics';
 import axiosInstance from '../api/axiosInstance';
+import { isAdmin } from '../utils/privilegeUtils.js';
+import {
+  downloadFeedbackOfficialResponsePdf,
+  downloadFeedbackListOfficialPdf,
+} from '../utils/feedbackOfficialResponsePdf.js';
 
 const FeedbackModerationPage = () => {
-  const { user } = useAuth();
+  const { user, hasPrivilege } = useAuth();
   console.log('FeedbackModerationPage component rendered');
   const [activeTab, setActiveTab] = useState(0);
   const [feedbacks, setFeedbacks] = useState([]);
@@ -94,9 +100,19 @@ const FeedbackModerationPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalFeedbacks, setModalFeedbacks] = useState([]);
   const [modalTitle, setModalTitle] = useState('');
+  const [modalModerationStatus, setModalModerationStatus] = useState(null);
+  const [countyResponseModalOpen, setCountyResponseModalOpen] = useState(false);
+  const [countyResponseTarget, setCountyResponseTarget] = useState(null);
+  const [countyResponseText, setCountyResponseText] = useState('');
+  const [respondSubmitting, setRespondSubmitting] = useState(false);
 
   const fetchFeedbacks = async () => {
     try {
+      if (!hasPrivilege('public_content.approve') && !isAdmin(user)) {
+        setLoading(false);
+        setFeedbacks([]);
+        return;
+      }
       setLoading(true);
       console.log('Fetching moderation queue...');
       const params = new URLSearchParams({
@@ -130,6 +146,9 @@ const FeedbackModerationPage = () => {
 
   const fetchStatistics = async () => {
     try {
+      if (!hasPrivilege('public_content.approve') && !isAdmin(user)) {
+        return;
+      }
       const response = await axiosInstance.get('/moderate/statistics');
       setStatistics(response.data);
     } catch (err) {
@@ -138,9 +157,13 @@ const FeedbackModerationPage = () => {
   };
 
   useEffect(() => {
+    if (!hasPrivilege('public_content.approve') && !isAdmin(user)) {
+      setLoading(false);
+      return;
+    }
     fetchFeedbacks();
     fetchStatistics();
-  }, [page, moderationFilter, searchTerm]);
+  }, [page, moderationFilter, searchTerm, user, hasPrivilege]);
 
   const handleAccordionChange = (id) => (event, isExpanded) => {
     setExpandedId(isExpanded ? id : null);
@@ -163,6 +186,7 @@ const FeedbackModerationPage = () => {
 
       setModalFeedbacks(response.data.items || []);
       setModalTitle(title);
+      setModalModerationStatus(moderationStatus);
       setModalOpen(true);
     } catch (err) {
       console.error('Error fetching feedback for modal:', err);
@@ -176,6 +200,89 @@ const FeedbackModerationPage = () => {
     setModalOpen(false);
     setModalFeedbacks([]);
     setModalTitle('');
+    setModalModerationStatus(null);
+  };
+
+  const refreshModalQueue = async (moderationStatus) => {
+    if (!moderationStatus) return;
+    try {
+      const params = new URLSearchParams({
+        page: 1,
+        limit: 100,
+        moderation_status: moderationStatus,
+      });
+      const response = await axiosInstance.get(`/moderate/queue?${params.toString()}`);
+      setModalFeedbacks(response.data.items || []);
+    } catch (e) {
+      console.error('Error refreshing modal queue:', e);
+    }
+  };
+
+  const handleOpenCountyResponseModal = (feedback) => {
+    setCountyResponseTarget(feedback);
+    setCountyResponseText(feedback.admin_response || '');
+    setCountyResponseModalOpen(true);
+    setError(null);
+  };
+
+  const handleCloseCountyResponseModal = () => {
+    setCountyResponseModalOpen(false);
+    setCountyResponseTarget(null);
+    setCountyResponseText('');
+  };
+
+  const handleSubmitCountyResponse = async () => {
+    if (!countyResponseTarget) return;
+    if (!countyResponseText.trim()) {
+      setError('Please enter an official response');
+      return;
+    }
+    const statusForModal = modalModerationStatus;
+    try {
+      setRespondSubmitting(true);
+      setError(null);
+      await axiosInstance.put(`/public/feedback/${countyResponseTarget.id}/respond`, {
+        admin_response: countyResponseText.trim(),
+        responded_by: user?.id || user?.userId,
+      });
+      setSuccessMessage('Official response submitted successfully');
+      handleCloseCountyResponseModal();
+      await fetchFeedbacks();
+      fetchStatistics();
+      if (modalOpen && statusForModal) {
+        await refreshModalQueue(statusForModal);
+      }
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } catch (err) {
+      console.error('Error submitting county response:', err);
+      const detail =
+        err.response?.data?.error ||
+        err.response?.data?.details ||
+        err.response?.data?.message;
+      setError(detail || 'Failed to submit response. Please try again.');
+    } finally {
+      setRespondSubmitting(false);
+    }
+  };
+
+  const handleDownloadCountyResponsePdf = (feedback) => {
+    try {
+      setError(null);
+      downloadFeedbackOfficialResponsePdf(feedback, formatDate);
+    } catch (e) {
+      console.error(e);
+      setError('Could not generate PDF. Please try again.');
+    }
+  };
+
+  const handleExportModalListPdf = () => {
+    try {
+      setError(null);
+      downloadFeedbackListOfficialPdf(modalFeedbacks, formatDate, modalTitle);
+    } catch (e) {
+      console.error(e);
+      setError('Could not generate combined PDF. Please try again.');
+    }
   };
 
   const handleOpenModerationModal = (feedback, action) => {
@@ -303,6 +410,14 @@ const FeedbackModerationPage = () => {
     { value: 'other', label: 'Other' }
   ];
 
+  if (!hasPrivilege('public_content.approve') && !isAdmin(user)) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">You do not have permission to access feedback review.</Alert>
+      </Box>
+    );
+  }
+
   if (loading && feedbacks.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
@@ -326,11 +441,11 @@ const FeedbackModerationPage = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
           <Gavel sx={{ fontSize: '1.5rem', color: 'primary.main', mr: 1.5 }} />
           <Typography variant="h6" fontWeight="bold" color="text.primary">
-            Feedback Moderation
+            Feedback Review
           </Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem', ml: 5 }}>
-          Review and moderate citizen feedback before public display
+          Review citizen feedback before it is shown publicly
         </Typography>
       </Box>
 
@@ -380,7 +495,7 @@ const FeedbackModerationPage = () => {
             label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                 <Schedule sx={{ fontSize: '1rem' }} />
-                Moderation Queue
+                Review queue
               </Box>
             } 
           />
@@ -388,7 +503,7 @@ const FeedbackModerationPage = () => {
             label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                 <Assessment sx={{ fontSize: '1rem' }} />
-                Analytics
+                Review analytics
               </Box>
             } 
           />
@@ -543,11 +658,11 @@ const FeedbackModerationPage = () => {
           </Grid>
           <Grid item xs={12} md={3}>
             <FormControl fullWidth>
-              <InputLabel>Moderation Status</InputLabel>
+              <InputLabel>Review status</InputLabel>
               <Select
                 value={moderationFilter}
                 onChange={(e) => setModerationFilter(e.target.value)}
-                label="Moderation Status"
+                label="Review status"
               >
                 <MenuItem value="all">All Status</MenuItem>
                 <MenuItem value="pending">Pending</MenuItem>
@@ -577,8 +692,8 @@ const FeedbackModerationPage = () => {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {moderationFilter !== 'all' 
-                ? `No feedback with moderation status "${moderationFilter}"` 
-                : 'No feedback items in the moderation queue'}
+                ? `No feedback with review status "${moderationFilter}"` 
+                : 'No feedback items in the review queue'}
             </Typography>
           </Paper>
         ) : (
@@ -653,7 +768,7 @@ const FeedbackModerationPage = () => {
                   {feedback.moderation_reason && (
                     <Box sx={{ mb: 1 }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                        Moderation Reason: {moderationReasons.find(r => r.value === feedback.moderation_reason)?.label}
+                        Review reason: {moderationReasons.find(r => r.value === feedback.moderation_reason)?.label}
                       </Typography>
                       {feedback.custom_reason && (
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', display: 'block' }}>
@@ -666,7 +781,7 @@ const FeedbackModerationPage = () => {
                   {feedback.moderator_notes && (
                     <Box sx={{ mb: 1 }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                        Moderator Notes: {feedback.moderator_notes}
+                        Reviewer notes: {feedback.moderator_notes}
                       </Typography>
                     </Box>
                   )}
@@ -677,6 +792,15 @@ const FeedbackModerationPage = () => {
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {feedback.moderation_status === 'pending' && (
                     <>
+                      <Button
+                        variant="contained"
+                        color="info"
+                        startIcon={<Reply />}
+                        onClick={() => handleOpenCountyResponseModal(feedback)}
+                        size="small"
+                      >
+                        Respond
+                      </Button>
                       <Button
                         variant="contained"
                         color="success"
@@ -783,6 +907,16 @@ const FeedbackModerationPage = () => {
                       Review Decision
                     </Button>
                   )}
+
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<PictureAsPdf />}
+                    onClick={() => handleDownloadCountyResponsePdf(feedback)}
+                    size="small"
+                  >
+                    Download PDF
+                  </Button>
                 </Box>
               </AccordionDetails>
             </Accordion>
@@ -803,7 +937,7 @@ const FeedbackModerationPage = () => {
         </Box>
       )}
 
-      {/* Moderation Modal */}
+      {/* Review decision dialog */}
       <Dialog
         open={moderationModalOpen}
         onClose={handleCloseModerationModal}
@@ -814,7 +948,7 @@ const FeedbackModerationPage = () => {
           {moderationAction === 'approve' && 'Approve Feedback'}
           {moderationAction === 'reject' && 'Reject Feedback (Permanent Decision)'}
           {moderationAction === 'flag' && 'Flag Feedback for Further Review'}
-          {moderationAction === 'review' && 'Review Moderation Decision'}
+          {moderationAction === 'review' && 'Review feedback decision'}
           {moderationAction === 'reopen' && `Reopen Feedback from ${selectedFeedback?.moderation_status || ''} Status`}
         </DialogTitle>
         <DialogContent>
@@ -850,7 +984,7 @@ const FeedbackModerationPage = () => {
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
                 This feedback was flagged for further review. Reopening will change its status back to pending 
-                so it can be reviewed again by the moderation team.
+                so it can be reviewed again by the review team.
               </Typography>
             </Alert>
           )}
@@ -903,7 +1037,7 @@ const FeedbackModerationPage = () => {
 
           <TextField
             fullWidth
-            label="Moderator Notes"
+            label="Reviewer notes"
             multiline
             rows={4}
             value={moderatorNotes}
@@ -911,7 +1045,7 @@ const FeedbackModerationPage = () => {
             placeholder={
               moderationAction === 'reopen' 
                 ? 'Add any additional notes about reopening this feedback...'
-                : 'Add any additional notes about this moderation decision...'
+                : 'Add any additional notes about this review decision...'
             }
           />
         </DialogContent>
@@ -937,6 +1071,89 @@ const FeedbackModerationPage = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Official county response (citizen-facing reply + PDF) */}
+      <Dialog
+        open={countyResponseModalOpen}
+        onClose={handleCloseCountyResponseModal}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" fontWeight="bold">
+              Official response to feedback
+            </Typography>
+            <IconButton onClick={handleCloseCountyResponseModal} size="small">
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {countyResponseTarget && (
+            <>
+              <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Citizen feedback
+                </Typography>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                  From: {countyResponseTarget.name || 'Anonymous'}
+                </Typography>
+                {countyResponseTarget.project_name && (
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Project: {countyResponseTarget.project_name}
+                  </Typography>
+                )}
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Subject: {countyResponseTarget.subject || 'No subject'}
+                </Typography>
+                <Typography variant="body1" sx={{ mt: 1 }}>
+                  {countyResponseTarget.message}
+                </Typography>
+              </Box>
+              <TextField
+                fullWidth
+                multiline
+                rows={8}
+                label="Official county response"
+                placeholder="Enter the official response to this feedback…"
+                value={countyResponseText}
+                onChange={(e) => setCountyResponseText(e.target.value)}
+                variant="outlined"
+                helperText="This response is stored with the feedback record and can be exported to PDF."
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleCloseCountyResponseModal} disabled={respondSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PictureAsPdf />}
+            onClick={() =>
+              countyResponseTarget &&
+              handleDownloadCountyResponsePdf({
+                ...countyResponseTarget,
+                admin_response: countyResponseText,
+              })
+            }
+            disabled={respondSubmitting}
+          >
+            Download PDF
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={respondSubmitting ? <CircularProgress size={20} /> : <Send />}
+            onClick={handleSubmitCountyResponse}
+            disabled={respondSubmitting || !countyResponseText.trim()}
+          >
+            {respondSubmitting ? 'Submitting…' : 'Submit response'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Feedback Modal */}
       <Dialog 
         open={modalOpen} 
@@ -945,13 +1162,33 @@ const FeedbackModerationPage = () => {
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
             <Typography variant="h6" fontWeight="bold">
               {modalTitle}
             </Typography>
-            <IconButton onClick={handleCloseModal} size="small">
-              <Close />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {modalFeedbacks.length > 0 && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<PictureAsPdf />}
+                  onClick={handleExportModalListPdf}
+                >
+                  Download all (PDF)
+                </Button>
+              )}
+              <IconButton onClick={handleCloseModal} size="small">
+                <Close />
+              </IconButton>
+            </Box>
           </Box>
         </DialogTitle>
         
@@ -1003,7 +1240,7 @@ const FeedbackModerationPage = () => {
                     {feedback.moderation_reason && (
                       <Box sx={{ mt: 2, p: 2, backgroundColor: '#fff3e0', borderRadius: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Moderation Reason: {moderationReasons.find(r => r.value === feedback.moderation_reason)?.label}
+                          Review reason: {moderationReasons.find(r => r.value === feedback.moderation_reason)?.label}
                         </Typography>
                         {feedback.custom_reason && (
                           <Typography variant="body2">
@@ -1012,11 +1249,47 @@ const FeedbackModerationPage = () => {
                         )}
                         {feedback.moderator_notes && (
                           <Typography variant="body2">
-                            Moderator Notes: {feedback.moderator_notes}
+                            Reviewer notes: {feedback.moderator_notes}
                           </Typography>
                         )}
                       </Box>
                     )}
+
+                    {feedback.admin_response && (
+                      <Box sx={{ mt: 2, p: 2, backgroundColor: '#e8f5e9', borderRadius: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Official county response
+                        </Typography>
+                        <Typography variant="body2">{feedback.admin_response}</Typography>
+                        {feedback.responded_at && (
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                            Recorded {formatDate(feedback.responded_at)}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 2, width: '100%' }}>
+                      {feedback.moderation_status === 'pending' && (
+                        <Button
+                          variant="contained"
+                          color="info"
+                          size="small"
+                          startIcon={<Reply />}
+                          onClick={() => handleOpenCountyResponseModal(feedback)}
+                        >
+                          Respond
+                        </Button>
+                      )}
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<PictureAsPdf />}
+                        onClick={() => handleDownloadCountyResponsePdf(feedback)}
+                      >
+                        Download PDF
+                      </Button>
+                    </Box>
                   </Box>
                   <Divider sx={{ width: '100%', mt: 1 }} />
                 </ListItem>

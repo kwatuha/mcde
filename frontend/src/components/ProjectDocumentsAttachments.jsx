@@ -30,6 +30,7 @@ import apiService from '../api';
 import { useAuth } from '../context/AuthContext';
 import GenericFileUploadModal from './GenericFileUploadModal';
 import axiosInstance from '../api/axiosInstance';
+import { workflowChipProps, workflowDetailLine } from '../utils/certificateWorkflowDisplay.js';
 
 // Document type options for various project aspects
 const documentTypeOptions = [
@@ -43,11 +44,17 @@ const documentTypeOptions = [
     { value: 'invoice', label: 'Invoice', icon: '🧾' },
     { value: 'receipt', label: 'Receipt', icon: '📄' },
     { value: 'progress_photo', label: 'Progress Photo', icon: '📸' },
+    { value: 'payment_certificate', label: 'Payment Certificate', icon: '📜' },
+    { value: 'inspection_attachment', label: 'Inspection attachment', icon: '🔍' },
     { value: 'other', label: 'Other Document', icon: '📎' }
 ];
 
+function isExternalAttachment(doc) {
+    return doc?.sourceKind === 'certificate' || doc?.sourceKind === 'inspection_file';
+}
+
 function isDocFlagged(doc) {
-    if (!doc || doc.isPhoto) return false;
+    if (!doc || doc.isPhoto || isExternalAttachment(doc)) return false;
     const v = doc.isFlagged ?? doc.isflagged;
     return v === true || v === 1 || String(v).toLowerCase() === 'true';
 }
@@ -75,7 +82,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
         setLoading(true);
         try {
             // Fetch both documents and photos
-            const [documentsData, photosResponse] = await Promise.all([
+            const [documentsData, photosResponse, certificatesData, inspectionsData] = await Promise.all([
                 apiService.documents.getProjectDocuments(projectId).catch(err => {
                     console.error('Error fetching documents:', err);
                     return [];
@@ -83,11 +90,21 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                 axiosInstance.get(`/projects/${projectId}/photos`).catch(err => {
                     console.error('Error fetching photos:', err);
                     return { data: [] };
-                })
+                }),
+                apiService.certificates.getByProject(projectId).catch((err) => {
+                    console.error('Error fetching certificates:', err);
+                    return [];
+                }),
+                apiService.inspections.getProjectInspections(projectId).catch((err) => {
+                    console.error('Error fetching inspections:', err);
+                    return [];
+                }),
             ]);
             
             const documents = documentsData || [];
             const photos = photosResponse.data || [];
+            const certRows = Array.isArray(certificatesData) ? certificatesData : [];
+            const inspectionRows = Array.isArray(inspectionsData) ? inspectionsData : [];
             
             // Convert photos to document-like format for unified display
             const photosAsDocuments = photos.map(photo => ({
@@ -105,11 +122,71 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                 approval_notes: photo.approval_notes,
                 createdAt: photo.createdAt,
                 updatedAt: photo.updatedAt,
-                isPhoto: true // Flag to identify photos
+                isPhoto: true, // Flag to identify photos
+                sourceKind: 'photo',
             }));
+
+            const certificatesAsDocuments = certRows
+                .map((cert) => {
+                    const certificateId = cert.certificateId ?? cert.certificateid;
+                    const filePath = cert.path ?? cert.filePath ?? cert.filepath;
+                    const fileName = cert.fileName ?? cert.filename;
+                    const parts = [cert.certType, cert.certNumber].filter(Boolean);
+                    return {
+                        id: `cert_${certificateId}`,
+                        certificateId,
+                        projectId: cert.projectId ?? cert.projectid ?? projectId,
+                        documentType: 'payment_certificate',
+                        documentCategory: 'certificates',
+                        documentPath: filePath,
+                        originalFileName: fileName || parts.join(' · ') || `certificate-${certificateId}`,
+                        description: parts.length ? parts.join(' · ') : 'Project certificate',
+                        createdAt: cert.requestDate ?? cert.requestdate ?? cert.createdAt,
+                        isPhoto: false,
+                        sourceKind: 'certificate',
+                        approved_for_public: 0,
+                        approvalWorkflowStatus: cert.approvalWorkflowStatus ?? cert.approval_workflow_status,
+                        approvalRequestId: cert.approvalRequestId ?? cert.approval_request_id,
+                        approvalCurrentStepName: cert.approvalCurrentStepName ?? cert.approval_current_step_name,
+                        approvalCurrentStepOrder: cert.approvalCurrentStepOrder ?? cert.approval_current_step_order,
+                        approvalTotalSteps: cert.approvalTotalSteps ?? cert.approval_total_steps,
+                        applicationStatus: cert.applicationStatus ?? cert.applicationstatus,
+                    };
+                })
+                .filter((d) => d.certificateId != null && d.documentPath);
+
+            const inspectionFilesAsDocuments = [];
+            for (const insp of inspectionRows) {
+                const inspectionId = insp.inspectionId ?? insp.inspectionid;
+                const files = Array.isArray(insp.files) ? insp.files : [];
+                const dateLabel = insp.inspectionDate ?? insp.inspectiondate;
+                for (const f of files) {
+                    const fileId = f.fileId ?? f.fileid;
+                    const filePath = f.filePath ?? f.filepath;
+                    if (fileId == null || !filePath) continue;
+                    const isPhotoCat = String(f.fileCategory || f.filecategory || '').toLowerCase() === 'photo';
+                    inspectionFilesAsDocuments.push({
+                        id: `inspfile_${fileId}`,
+                        inspectionFileId: fileId,
+                        inspectionId,
+                        projectId: insp.projectId ?? insp.projectid ?? projectId,
+                        documentType: isPhotoCat ? 'progress_photo' : 'inspection_attachment',
+                        documentCategory: 'inspection',
+                        documentPath: filePath,
+                        originalFileName: f.fileName ?? f.filename ?? `inspection-${fileId}`,
+                        description: dateLabel
+                            ? `Inspection ${dateLabel}${f.fileCategory ? ` · ${f.fileCategory}` : ''}`
+                            : 'Inspection attachment',
+                        createdAt: f.createdAt ?? f.createdat,
+                        isPhoto: isPhotoCat,
+                        sourceKind: 'inspection_file',
+                        approved_for_public: 0,
+                    });
+                }
+            }
             
-            // Merge documents and photos
-            const allItems = [...documents, ...photosAsDocuments];
+            // Merge project documents, progress photos, certificates, and inspection files
+            const allItems = [...documents, ...photosAsDocuments, ...certificatesAsDocuments, ...inspectionFilesAsDocuments];
             setDocuments(allItems);
         } catch (error) {
             console.error('Error fetching documents and photos:', error);
@@ -129,7 +206,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
 
 
     const handleToggleFlag = async (doc) => {
-        if (doc.isPhoto || !doc.id) return;
+        if (doc.isPhoto || isExternalAttachment(doc) || !doc.id) return;
         if (!hasPrivilege('document.update')) {
             setSnackbar({ open: true, message: 'Permission denied', severity: 'error' });
             return;
@@ -149,7 +226,15 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
         }
     };
 
-    const handleDelete = async (documentId, isPhoto = false) => {
+    const handleDelete = async (doc) => {
+        if (isExternalAttachment(doc)) {
+            setSnackbar({
+                open: true,
+                message: 'Certificates and inspection files are managed from their tabs on the project page.',
+                severity: 'info',
+            });
+            return;
+        }
         if (!hasPrivilege('document.delete')) {
             setSnackbar({ 
                 open: true, 
@@ -158,26 +243,26 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
             });
             return;
         }
-        if (!window.confirm(`Are you sure you want to delete this ${isPhoto ? 'photo' : 'document'}?`)) return;
+        const isProgressPhoto = doc.sourceKind === 'photo' && doc.photoId != null;
+        const kindLabel = isProgressPhoto ? 'photo' : 'document';
+        if (!window.confirm(`Are you sure you want to delete this ${kindLabel}?`)) return;
 
         try {
-            if (isPhoto) {
-                // Delete photo from photos endpoint
-                await axiosInstance.delete(`/project_photos/${documentId}`);
+            if (isProgressPhoto) {
+                await axiosInstance.delete(`/project_photos/${doc.photoId}`);
             } else {
-                // Delete document from documents endpoint
-                await apiService.documents.deleteDocument(documentId);
+                await apiService.documents.deleteDocument(doc.id);
             }
             setSnackbar({ 
                 open: true, 
-                message: `${isPhoto ? 'Photo' : 'Document'} deleted successfully`, 
+                message: `${isProgressPhoto ? 'Photo' : 'Document'} deleted successfully`, 
                 severity: 'success' 
             });
             fetchDocuments();
         } catch (error) {
             setSnackbar({ 
                 open: true, 
-                message: error.response?.data?.message || `Failed to delete ${isPhoto ? 'photo' : 'document'}`, 
+                message: error.response?.data?.message || `Failed to delete ${kindLabel}`, 
                 severity: 'error' 
             });
         }
@@ -189,6 +274,30 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
     };
 
     const handleDownload = async (doc) => {
+        if (doc.sourceKind === 'certificate' && doc.certificateId != null) {
+            try {
+                const blob = await apiService.certificates.download(doc.certificateId);
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                const fallbackName = `certificate-${doc.certificateId}`;
+                link.href = url;
+                link.download = doc.originalFileName || doc.description || fallbackName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+                setSnackbar({ open: true, message: 'File downloaded successfully', severity: 'success' });
+            } catch (error) {
+                console.error('Error downloading certificate:', error);
+                setSnackbar({
+                    open: true,
+                    message: error.response?.data?.message || error.message || 'Failed to download certificate.',
+                    severity: 'error',
+                });
+            }
+            return;
+        }
+
         try {
             // Use documentPath for documents, filePath for photos
             const filePath = doc.documentPath || doc.filePath;
@@ -290,9 +399,17 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
             });
             return;
         }
+        if (isExternalAttachment(approvalDocument)) {
+            setSnackbar({
+                open: true,
+                message: 'Public approval applies to project documents and progress photos only.',
+                severity: 'info',
+            });
+            return;
+        }
 
         try {
-            const isPhoto = approvalDocument.isPhoto || approvalDocument.photoId;
+            const isPhoto = approvalDocument.sourceKind === 'photo' && approvalDocument.photoId != null;
             const approvalData = {
                 approved_for_public: approved,
                 approval_notes: approvalNotes,
@@ -590,7 +707,55 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                             variant="filled"
                                                         />
                                                     )}
-                                                    {doc.approved_for_public ? (
+                                                    {doc.sourceKind === 'certificate' ? (
+                                                        <>
+                                                            <Tooltip title={workflowDetailLine(doc)}>
+                                                                <Chip size="small" variant="outlined" {...workflowChipProps(doc)} />
+                                                            </Tooltip>
+                                                            {(() => {
+                                                                const w = String(
+                                                                    doc.approvalWorkflowStatus ?? doc.approval_workflow_status ?? ''
+                                                                ).toLowerCase();
+                                                                if (w !== 'pending') return null;
+                                                                const total =
+                                                                    Number(doc.approvalTotalSteps ?? doc.approval_total_steps) || 0;
+                                                                const ordRaw =
+                                                                    doc.approvalCurrentStepOrder ?? doc.approval_current_step_order;
+                                                                const ord = ordRaw != null ? Number(ordRaw) : null;
+                                                                const stepName = String(
+                                                                    doc.approvalCurrentStepName ??
+                                                                        doc.approval_current_step_name ??
+                                                                        ''
+                                                                ).trim();
+                                                                if (total > 0 && ord != null && !Number.isNaN(ord)) {
+                                                                    const stepLabel = `Step ${ord} / ${total}`;
+                                                                    return (
+                                                                        <Tooltip
+                                                                            title={
+                                                                                stepName ||
+                                                                                'Current approval step in the payment certificate workflow.'
+                                                                            }
+                                                                        >
+                                                                            <Chip
+                                                                                size="small"
+                                                                                variant="outlined"
+                                                                                color="info"
+                                                                                label={stepLabel}
+                                                                            />
+                                                                        </Tooltip>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <Chip
+                                                                        size="small"
+                                                                        variant="outlined"
+                                                                        color="warning"
+                                                                        label="Awaiting review"
+                                                                    />
+                                                                );
+                                                            })()}
+                                                        </>
+                                                    ) : doc.approved_for_public ? (
                                                         <Chip 
                                                             icon={<PublicIcon />} 
                                                             label="Public" 
@@ -622,7 +787,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                         <DownloadIcon />
                                                     </IconButton>
                                                 </Tooltip>
-                                                {hasPrivilege('public_content.approve') && (
+                                                {hasPrivilege('public_content.approve') && !isExternalAttachment(doc) && (
                                                     <Tooltip title={doc.approved_for_public ? "Revoke Approval" : "Approve for Public"}>
                                                         <IconButton 
                                                             size="small" 
@@ -633,7 +798,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                         </IconButton>
                                                     </Tooltip>
                                                 )}
-                                                {!doc.isPhoto && hasPrivilege('document.update') && (
+                                                {!doc.isPhoto && !isExternalAttachment(doc) && hasPrivilege('document.update') && (
                                                     <Tooltip title={flagged ? 'Clear follow-up flag' : 'Flag for follow-up'}>
                                                         <IconButton
                                                             size="small"
@@ -644,12 +809,12 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                         </IconButton>
                                                     </Tooltip>
                                                 )}
-                                                {hasPrivilege('document.delete') && (
+                                                {hasPrivilege('document.delete') && !isExternalAttachment(doc) && (
                                                     <Tooltip title="Delete">
                                                         <IconButton 
                                                             size="small" 
                                                             color="error" 
-                                                            onClick={() => handleDelete(doc.isPhoto ? doc.photoId : doc.id, doc.isPhoto)}
+                                                            onClick={() => handleDelete(doc)}
                                                         >
                                                             <DeleteIcon />
                                                         </IconButton>

@@ -3,6 +3,18 @@ const router = express.Router();
 const pool = require('../config/db');
 const auth = require('../middleware/authenticate');
 
+function isPostgresDb() {
+    return (process.env.DB_TYPE || 'mysql') === 'postgresql';
+}
+
+/** node-pg returns { rows }; mysql2 returns [rows, fields] — moderation routes must use rows here. */
+function rowsFrom(result) {
+    if (!result) return [];
+    if (Array.isArray(result.rows)) return result.rows;
+    if (Array.isArray(result[0])) return result[0];
+    return [];
+}
+
 // ==================== MODERATION MANAGEMENT ====================
 
 /**
@@ -22,37 +34,51 @@ router.get('/queue', auth, async (req, res) => {
         console.log('API Debug - moderation_status:', moderation_status);
         console.log('API Debug - moderation_reason:', moderation_reason);
 
+        const pg = isPostgresDb();
+
         // If only moderation_reason is provided, get all statuses for that reason
         if (moderation_reason && !moderation_status) {
-            whereCondition = 'WHERE moderation_reason = ?';
+            whereCondition = 'WHERE f.moderation_reason = ?';
             queryParams.push(moderation_reason);
-        } else if (moderation_reason && moderation_status) {
-            // Both parameters provided
-            whereCondition = 'WHERE moderation_status = ? AND moderation_reason = ?';
+        } else if (moderation_reason && moderation_status && moderation_status !== 'all') {
+            whereCondition = 'WHERE f.moderation_status = ? AND f.moderation_reason = ?';
             queryParams.push(moderation_status, moderation_reason);
-        } else if (moderation_status) {
-            // Only moderation_status provided (default behavior)
-            whereCondition = 'WHERE moderation_status = ?';
+        } else if (moderation_status && moderation_status !== 'all') {
+            whereCondition = 'WHERE f.moderation_status = ?';
             queryParams.push(moderation_status);
         } else {
-            // Default to pending if no parameters provided
-            whereCondition = 'WHERE moderation_status = ?';
-            queryParams.push('pending');
+            // No status filter (e.g. "All" — frontend omits param) or explicit all
+            whereCondition = '';
         }
 
         console.log('API Debug - whereCondition:', whereCondition);
         console.log('API Debug - queryParams:', queryParams);
 
-        // Get total count of feedback with specified moderation status
+        const projectJoin = pg
+            ? 'LEFT JOIN projects p ON f.project_id = p.project_id'
+            : 'LEFT JOIN projects p ON f.project_id = p.id';
+        const projectNameExpr = pg ? 'p.name AS project_name' : 'p.projectName AS project_name';
+        const userJoin = pg
+            ? 'LEFT JOIN users u ON f.moderated_by = u.userid'
+            : 'LEFT JOIN users u ON f.moderated_by = u.userId';
+        const moderatorNameExpr = pg
+            ? `(TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, ''))) AS moderator_name`
+            : `CONCAT(u.firstName, ' ', u.lastName) AS moderator_name`;
+
+        const countSelect = pg ? 'COUNT(*)::bigint AS total' : 'COUNT(*) AS total';
         const countQuery = `
-            SELECT COUNT(*) as total
-            FROM public_feedback
+            SELECT ${countSelect}
+            FROM public_feedback f
+            ${projectJoin}
+            ${userJoin}
             ${whereCondition}
         `;
-        const [countResult] = await pool.query(countQuery, queryParams);
-        const totalItems = countResult[0].total;
+        const countRows = rowsFrom(await pool.query(countQuery, queryParams));
+        const totalItems = Number(countRows[0]?.total ?? 0);
 
-        // Get paginated feedback with specified moderation status
+        const limitN = parseInt(limit, 10) || 10;
+        const offsetN = (parseInt(page, 10) - 1) * limitN;
+
         const queueQuery = `
             SELECT 
                 f.id,
@@ -63,6 +89,9 @@ router.get('/queue', auth, async (req, res) => {
                 f.message,
                 f.project_id,
                 f.status,
+                f.admin_response,
+                f.responded_at,
+                f.responded_by,
                 f.created_at,
                 f.moderation_status,
                 f.moderation_reason,
@@ -74,26 +103,26 @@ router.get('/queue', auth, async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
-                p.projectName as project_name,
-                CONCAT(u.firstName, ' ', u.lastName) as moderator_name
+                ${projectNameExpr},
+                ${moderatorNameExpr}
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
-            LEFT JOIN users u ON f.moderated_by = u.userId
+            ${projectJoin}
+            ${userJoin}
             ${whereCondition}
             ORDER BY f.created_at DESC
             LIMIT ? OFFSET ?
         `;
-        
-        const [items] = await pool.query(queueQuery, [...queryParams, parseInt(limit), offset]);
+
+        const items = rowsFrom(await pool.query(queueQuery, [...queryParams, limitN, offsetN]));
 
         res.json({
             success: true,
             items,
             pagination: {
                 total: totalItems,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                totalPages: Math.ceil(totalItems / limit)
+                page: parseInt(page, 10),
+                limit: limitN,
+                totalPages: Math.max(1, Math.ceil(totalItems / limitN))
             }
         });
     } catch (error) {
@@ -112,6 +141,7 @@ router.get('/queue', auth, async (req, res) => {
  */
 router.get('/statistics', auth, async (req, res) => {
     try {
+        const pg = isPostgresDb();
         const statsQuery = `
             SELECT 
                 COUNT(*) as total_feedback,
@@ -121,7 +151,8 @@ router.get('/statistics', auth, async (req, res) => {
                 SUM(CASE WHEN moderation_status = 'flagged' THEN 1 ELSE 0 END) as flagged_count
             FROM public_feedback
         `;
-        const [stats] = await pool.query(statsQuery);
+        const statsRows = rowsFrom(await pool.query(statsQuery));
+        const stats = statsRows[0] || {};
 
         // Get moderation reasons breakdown
         const reasonsQuery = `
@@ -133,7 +164,14 @@ router.get('/statistics', auth, async (req, res) => {
             GROUP BY moderation_reason
             ORDER BY count DESC
         `;
-        const [reasons] = await pool.query(reasonsQuery);
+        const reasons = rowsFrom(await pool.query(reasonsQuery));
+
+        const userJoin = pg
+            ? 'LEFT JOIN users u ON f.moderated_by = u.userid'
+            : 'LEFT JOIN users u ON f.moderated_by = u.userId';
+        const moderatorNameExpr = pg
+            ? `(TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, ''))) AS moderator_name`
+            : `CONCAT(u.firstName, ' ', u.lastName) AS moderator_name`;
 
         // Get recent moderation activity
         const activityQuery = `
@@ -144,18 +182,18 @@ router.get('/statistics', auth, async (req, res) => {
                 f.moderation_status,
                 f.moderation_reason,
                 f.moderated_at,
-                CONCAT(u.firstName, ' ', u.lastName) as moderator_name
+                ${moderatorNameExpr}
             FROM public_feedback f
-            LEFT JOIN users u ON f.moderated_by = u.userId
+            ${userJoin}
             WHERE f.moderated_at IS NOT NULL
             ORDER BY f.moderated_at DESC
             LIMIT 10
         `;
-        const [recentActivity] = await pool.query(activityQuery);
+        const recentActivity = rowsFrom(await pool.query(activityQuery));
 
         res.json({
             success: true,
-            statistics: stats[0],
+            statistics: stats,
             reasonsBreakdown: reasons,
             recentActivity
         });
@@ -175,8 +213,22 @@ router.get('/statistics', auth, async (req, res) => {
  */
 router.get('/analytics', auth, async (req, res) => {
     try {
-        // Get moderation trends over time (last 30 days)
-        const trendsQuery = `
+        const pg = isPostgresDb();
+
+        const trendsQuery = pg
+            ? `
+            SELECT 
+                (moderated_at::date) AS date,
+                COUNT(*) FILTER (WHERE moderation_status = 'approved') AS approved,
+                COUNT(*) FILTER (WHERE moderation_status = 'rejected') AS rejected,
+                COUNT(*) FILTER (WHERE moderation_status = 'flagged') AS flagged,
+                COUNT(*) AS total_moderated
+            FROM public_feedback 
+            WHERE moderated_at >= (CURRENT_DATE - INTERVAL '30 days')
+            GROUP BY (moderated_at::date)
+            ORDER BY date DESC
+        `
+            : `
             SELECT 
                 DATE(moderated_at) as date,
                 COUNT(CASE WHEN moderation_status = 'approved' THEN 1 END) as approved,
@@ -189,8 +241,22 @@ router.get('/analytics', auth, async (req, res) => {
             ORDER BY date DESC
         `;
 
-        // Get moderator activity
-        const moderatorQuery = `
+        const moderatorQuery = pg
+            ? `
+            SELECT 
+                (TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, ''))) AS moderator_name,
+                COUNT(*) AS total_moderated,
+                COUNT(*) FILTER (WHERE f.moderation_status = 'approved') AS approved_count,
+                COUNT(*) FILTER (WHERE f.moderation_status = 'rejected') AS rejected_count,
+                COUNT(*) FILTER (WHERE f.moderation_status = 'flagged') AS flagged_count,
+                ROUND(AVG(EXTRACT(EPOCH FROM (f.moderated_at - f.created_at)) / 60.0)::numeric, 2) AS avg_response_time_minutes
+            FROM public_feedback f
+            JOIN users u ON f.moderated_by = u.userid
+            WHERE f.moderated_at IS NOT NULL
+            GROUP BY f.moderated_by, u.userid, u.firstname, u.lastname
+            ORDER BY total_moderated DESC
+        `
+            : `
             SELECT 
                 CONCAT(u.firstName, ' ', u.lastName) as moderator_name,
                 COUNT(*) as total_moderated,
@@ -205,8 +271,21 @@ router.get('/analytics', auth, async (req, res) => {
             ORDER BY total_moderated DESC
         `;
 
-        // Get feedback volume trends
-        const volumeQuery = `
+        const volumeQuery = pg
+            ? `
+            SELECT 
+                (created_at::date) AS date,
+                COUNT(*) AS total_submitted,
+                COUNT(*) FILTER (WHERE moderation_status = 'pending') AS pending,
+                COUNT(*) FILTER (WHERE moderation_status = 'approved') AS approved,
+                COUNT(*) FILTER (WHERE moderation_status = 'rejected') AS rejected,
+                COUNT(*) FILTER (WHERE moderation_status = 'flagged') AS flagged
+            FROM public_feedback 
+            WHERE created_at >= (CURRENT_DATE - INTERVAL '30 days')
+            GROUP BY (created_at::date)
+            ORDER BY date DESC
+        `
+            : `
             SELECT 
                 DATE(created_at) as date,
                 COUNT(*) as total_submitted,
@@ -220,7 +299,6 @@ router.get('/analytics', auth, async (req, res) => {
             ORDER BY date DESC
         `;
 
-        // Get average ratings by moderation status
         const ratingsQuery = `
             SELECT 
                 moderation_status,
@@ -235,8 +313,17 @@ router.get('/analytics', auth, async (req, res) => {
             GROUP BY moderation_status
         `;
 
-        // Get response time statistics
-        const responseTimeQuery = `
+        const responseTimeQuery = pg
+            ? `
+            SELECT 
+                AVG(EXTRACT(EPOCH FROM (moderated_at - created_at)) / 3600.0) AS avg_response_hours,
+                MIN(EXTRACT(EPOCH FROM (moderated_at - created_at)) / 3600.0) AS min_response_hours,
+                MAX(EXTRACT(EPOCH FROM (moderated_at - created_at)) / 3600.0) AS max_response_hours,
+                COUNT(*)::bigint AS total_moderated
+            FROM public_feedback 
+            WHERE moderated_at IS NOT NULL
+        `
+            : `
             SELECT 
                 AVG(TIMESTAMPDIFF(HOUR, created_at, moderated_at)) as avg_response_hours,
                 MIN(TIMESTAMPDIFF(HOUR, created_at, moderated_at)) as min_response_hours,
@@ -246,8 +333,18 @@ router.get('/analytics', auth, async (req, res) => {
             WHERE moderated_at IS NOT NULL
         `;
 
-        // Get moderation reason breakdown with percentages
-        const reasonQuery = `
+        const reasonQuery = pg
+            ? `
+            SELECT 
+                moderation_reason,
+                COUNT(*)::bigint AS count,
+                ROUND((COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM public_feedback WHERE moderation_reason IS NOT NULL), 0))::numeric, 2) AS percentage
+            FROM public_feedback 
+            WHERE moderation_reason IS NOT NULL
+            GROUP BY moderation_reason
+            ORDER BY count DESC
+        `
+            : `
             SELECT 
                 moderation_reason,
                 COUNT(*) as count,
@@ -258,8 +355,17 @@ router.get('/analytics', auth, async (req, res) => {
             ORDER BY count DESC
         `;
 
-        // Get hourly moderation patterns
-        const hourlyQuery = `
+        const hourlyQuery = pg
+            ? `
+            SELECT 
+                EXTRACT(HOUR FROM moderated_at)::int AS hour,
+                COUNT(*)::bigint AS moderation_count
+            FROM public_feedback 
+            WHERE moderated_at >= (CURRENT_DATE - INTERVAL '7 days')
+            GROUP BY EXTRACT(HOUR FROM moderated_at)
+            ORDER BY hour
+        `
+            : `
             SELECT 
                 HOUR(moderated_at) as hour,
                 COUNT(*) as moderation_count
@@ -269,13 +375,13 @@ router.get('/analytics', auth, async (req, res) => {
             ORDER BY hour
         `;
 
-        const [trendsResults] = await pool.query(trendsQuery);
-        const [moderatorResults] = await pool.query(moderatorQuery);
-        const [volumeResults] = await pool.query(volumeQuery);
-        const [ratingsResults] = await pool.query(ratingsQuery);
-        const [responseTimeResults] = await pool.query(responseTimeQuery);
-        const [reasonResults] = await pool.query(reasonQuery);
-        const [hourlyResults] = await pool.query(hourlyQuery);
+        const trendsResults = rowsFrom(await pool.query(trendsQuery));
+        const moderatorResults = rowsFrom(await pool.query(moderatorQuery));
+        const volumeResults = rowsFrom(await pool.query(volumeQuery));
+        const ratingsResults = rowsFrom(await pool.query(ratingsQuery));
+        const responseTimeRows = rowsFrom(await pool.query(responseTimeQuery));
+        const reasonResults = rowsFrom(await pool.query(reasonQuery));
+        const hourlyResults = rowsFrom(await pool.query(hourlyQuery));
 
         res.json({
             success: true,
@@ -284,7 +390,7 @@ router.get('/analytics', auth, async (req, res) => {
                 moderatorActivity: moderatorResults,
                 volumeTrends: volumeResults,
                 ratingsByStatus: ratingsResults,
-                responseTimeStats: responseTimeResults[0],
+                responseTimeStats: responseTimeRows[0] || {},
                 reasonBreakdown: reasonResults,
                 hourlyPatterns: hourlyResults
             }
@@ -449,19 +555,18 @@ router.post('/:feedbackId/reopen', auth, async (req, res) => {
         const moderatorId = req.user.userId;
 
         // First, check the current status
-        const [currentStatus] = await pool.query(
-            'SELECT moderation_status FROM public_feedback WHERE id = ?',
-            [feedbackId]
+        const currentRows = rowsFrom(
+            await pool.query('SELECT moderation_status FROM public_feedback WHERE id = ?', [feedbackId])
         );
 
-        if (currentStatus.length === 0) {
+        if (currentRows.length === 0) {
             return res.status(404).json({
                 success: false,
                 error: 'Feedback not found'
             });
         }
 
-        const status = currentStatus[0].moderation_status;
+        const status = currentRows[0].moderation_status;
 
         // Update the public feedback moderation status back to pending
         const updateQuery = `
@@ -504,19 +609,30 @@ router.post('/:feedbackId/reopen', auth, async (req, res) => {
 router.get('/:feedbackId/details', auth, async (req, res) => {
     try {
         const { feedbackId } = req.params;
+        const pg = isPostgresDb();
+        const projectJoin = pg
+            ? 'LEFT JOIN projects p ON f.project_id = p.project_id'
+            : 'LEFT JOIN projects p ON f.project_id = p.id';
+        const projectNameExpr = pg ? 'p.name AS project_name' : 'p.projectName AS project_name';
+        const userJoin = pg
+            ? 'LEFT JOIN users u ON f.moderated_by = u.userid'
+            : 'LEFT JOIN users u ON f.moderated_by = u.userId';
+        const moderatorNameExpr = pg
+            ? `(TRIM(COALESCE(u.firstname, '') || ' ' || COALESCE(u.lastname, ''))) AS moderator_name`
+            : `CONCAT(u.firstName, ' ', u.lastName) AS moderator_name`;
 
         const detailsQuery = `
             SELECT 
                 f.*,
-                p.projectName as project_name,
-                CONCAT(u.firstName, ' ', u.lastName) as moderator_name
+                ${projectNameExpr},
+                ${moderatorNameExpr}
             FROM public_feedback f
-            LEFT JOIN projects p ON f.project_id = p.id
-            LEFT JOIN users u ON f.moderated_by = u.userId
+            ${projectJoin}
+            ${userJoin}
             WHERE f.id = ?
         `;
 
-        const [details] = await pool.query(detailsQuery, [feedbackId]);
+        const details = rowsFrom(await pool.query(detailsQuery, [feedbackId]));
 
         if (details.length === 0) {
             return res.status(404).json({
@@ -550,7 +666,7 @@ router.get('/settings', auth, async (req, res) => {
             FROM feedback_moderation_settings
             ORDER BY setting_name
         `;
-        const [settings] = await pool.query(settingsQuery);
+        const settings = rowsFrom(await pool.query(settingsQuery));
 
         // Convert to object for easier frontend consumption
         const settingsObj = {};

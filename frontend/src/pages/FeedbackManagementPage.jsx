@@ -55,15 +55,15 @@ import {
   Assessment,
   Forum,
   Star,
-  Gavel
+  PictureAsPdf
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../api/axiosInstance';
 import FeedbackAnalytics from '../components/feedback/FeedbackAnalytics';
-import FeedbackModerationPage from './FeedbackModerationPage';
-import { Navigate } from 'react-router-dom';
-import { ROUTES } from '../configs/appConfig';
-
+import {
+  downloadFeedbackOfficialResponsePdf,
+  downloadFeedbackListOfficialPdf,
+} from '../utils/feedbackOfficialResponsePdf.js';
 const FeedbackManagementPage = () => {
   // useAuth() will throw if not within AuthProvider
   // This component should always be rendered within MainLayout which is within AuthProvider
@@ -182,9 +182,23 @@ const FeedbackManagementPage = () => {
       );
 
       setSuccessMessage('Response submitted successfully!');
+      const id = selectedFeedback.id;
+      const text = response.trim();
+      setModalFeedbacks((prev) =>
+        prev.map((f) =>
+          f.id === id
+            ? {
+                ...f,
+                admin_response: text,
+                status: 'responded',
+                responded_at: new Date().toISOString(),
+              }
+            : f
+        )
+      );
       handleCloseResponseModal();
       fetchFeedbacks();
-      
+
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       console.error('Error submitting response:', err);
@@ -241,6 +255,26 @@ const FeedbackManagementPage = () => {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleDownloadFeedbackPdf = (feedback) => {
+    try {
+      setError(null);
+      downloadFeedbackOfficialResponsePdf(feedback, formatDate);
+    } catch (e) {
+      console.error(e);
+      setError('Could not generate PDF. Please try again.');
+    }
+  };
+
+  const handleExportModalFeedbacksPdf = () => {
+    try {
+      setError(null);
+      downloadFeedbackListOfficialPdf(modalFeedbacks, formatDate, modalTitle);
+    } catch (e) {
+      console.error(e);
+      setError('Could not generate combined PDF. Please try again.');
+    }
   };
 
   if (loading && feedbacks.length === 0) {
@@ -312,11 +346,6 @@ const FeedbackManagementPage = () => {
           <Tab 
             icon={<Assessment sx={{ fontSize: '1.1rem' }} />} 
             label="Ratings Analytics" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<Gavel sx={{ fontSize: '1.1rem' }} />} 
-            label="Moderation" 
             iconPosition="start"
           />
         </Tabs>
@@ -988,8 +1017,6 @@ const FeedbackManagementPage = () => {
         </Box>
       ) : activeTab === 1 ? (
         <FeedbackAnalytics />
-      ) : activeTab === 2 ? (
-        <FeedbackModerationPage />
       ) : null}
 
       {/* Feedback Modal */}
@@ -1000,13 +1027,33 @@ const FeedbackManagementPage = () => {
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
             <Typography variant="h6" fontWeight="bold">
               {modalTitle}
             </Typography>
-            <IconButton onClick={handleCloseModal} size="small">
-              <Close />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {modalFeedbacks.length > 0 && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<PictureAsPdf />}
+                  onClick={handleExportModalFeedbacksPdf}
+                >
+                  Download all (PDF)
+                </Button>
+              )}
+              <IconButton onClick={handleCloseModal} size="small">
+                <Close />
+              </IconButton>
+            </Box>
           </Box>
         </DialogTitle>
         
@@ -1070,6 +1117,28 @@ const FeedbackManagementPage = () => {
                         )}
                       </Box>
                     )}
+
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 2, width: '100%' }}>
+                      {(feedback.status === 'pending' || feedback.status === 'reviewed') && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="small"
+                          startIcon={<Reply />}
+                          onClick={() => handleOpenResponseModal(feedback)}
+                        >
+                          Respond
+                        </Button>
+                      )}
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<PictureAsPdf />}
+                        onClick={() => handleDownloadFeedbackPdf(feedback)}
+                      >
+                        Download PDF
+                      </Button>
+                    </Box>
                   </Box>
                   <Divider sx={{ width: '100%', mt: 1 }} />
                 </ListItem>

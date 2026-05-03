@@ -167,7 +167,7 @@ const ModerationAnalytics = () => {
   return (
     <Box>
       <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ mb: 3 }}>
-        Moderation Analytics
+        Review analytics
       </Typography>
 
       {/* Response Time Statistics */}
@@ -183,7 +183,7 @@ const ModerationAnalytics = () => {
                 {formatTime(analytics.responseTimeStats?.avg_response_hours || 0)}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {analytics.responseTimeStats?.total_moderated || 0} items moderated
+                {analytics.responseTimeStats?.total_moderated || 0} items reviewed
               </Typography>
             </CardContent>
           </Card>
@@ -222,12 +222,12 @@ const ModerationAnalytics = () => {
         </Grid>
       </Grid>
 
-      {/* Moderation Reasons Breakdown */}
+      {/* Review reasons breakdown */}
       <Card sx={{ mb: 4 }}>
         <CardContent>
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             <Flag sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Moderation Reasons Breakdown
+            Review reasons breakdown
           </Typography>
           {analytics.reasonBreakdown && analytics.reasonBreakdown.length > 0 ? (
             <TableContainer>
@@ -285,25 +285,25 @@ const ModerationAnalytics = () => {
             </TableContainer>
           ) : (
             <Typography variant="body2" color="text.secondary">
-              No moderation reasons data available
+              No review reason data available
             </Typography>
           )}
         </CardContent>
       </Card>
 
-      {/* Moderator Activity */}
+      {/* Reviewer activity */}
       <Card sx={{ mb: 4 }}>
         <CardContent>
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             <Person sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Moderator Activity
+            Reviewer activity
           </Typography>
           {analytics.moderatorActivity && analytics.moderatorActivity.length > 0 ? (
             <TableContainer>
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Moderator</TableCell>
+                    <TableCell>Reviewer</TableCell>
                     <TableCell align="center">Total</TableCell>
                     <TableCell align="center">Approved</TableCell>
                     <TableCell align="center">Rejected</TableCell>
@@ -348,7 +348,7 @@ const ModerationAnalytics = () => {
             </TableContainer>
           ) : (
             <Typography variant="body2" color="text.secondary">
-              No moderator activity data available
+              No reviewer activity data available
             </Typography>
           )}
         </CardContent>
@@ -359,7 +359,7 @@ const ModerationAnalytics = () => {
         <CardContent>
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             <Assessment sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Ratings Analysis by Moderation Status
+            Ratings analysis by review status
           </Typography>
           {analytics.ratingsByStatus && analytics.ratingsByStatus.length > 0 ? (
             <TableContainer>
@@ -428,12 +428,12 @@ const ModerationAnalytics = () => {
         </CardContent>
       </Card>
 
-      {/* Recent Moderation Trends */}
+      {/* Recent review trends */}
       <Card>
         <CardContent>
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             <TrendingUp sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Recent Moderation Trends (Last 30 Days)
+            Recent review trends (last 30 days)
           </Typography>
           {analytics.moderationTrends && analytics.moderationTrends.length > 0 ? (
             <TableContainer>
@@ -476,7 +476,7 @@ const ModerationAnalytics = () => {
             </TableContainer>
           ) : (
             <Typography variant="body2" color="text.secondary">
-              No moderation trends data available
+              No review trend data available
             </Typography>
           )}
         </CardContent>
@@ -508,7 +508,7 @@ const ModerationAnalytics = () => {
           ) : reasonFeedbacks.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="body1" color="text.secondary">
-                No feedback found for this moderation reason.
+                No feedback found for this review reason.
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                 Debug: reasonFeedbacks length = {reasonFeedbacks.length}
@@ -561,7 +561,7 @@ const ModerationAnalytics = () => {
                     {feedback.moderation_reason && (
                       <Box sx={{ mt: 2, p: 2, backgroundColor: '#fff3e0', borderRadius: 1 }}>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Moderation Reason: {getReasonLabel(feedback.moderation_reason)}
+                          Review reason: {getReasonLabel(feedback.moderation_reason)}
                         </Typography>
                         {feedback.custom_reason && (
                           <Typography variant="body2">
@@ -570,12 +570,12 @@ const ModerationAnalytics = () => {
                         )}
                         {feedback.moderator_notes && (
                           <Typography variant="body2">
-                            Moderator Notes: {feedback.moderator_notes}
+                            Reviewer notes: {feedback.moderator_notes}
                           </Typography>
                         )}
                         {feedback.moderated_at && (
                           <Typography variant="caption" color="text.secondary">
-                            Moderated: {formatDate(feedback.moderated_at)}
+                            Reviewed on: {formatDate(feedback.moderated_at)}
                           </Typography>
                         )}
                       </Box>

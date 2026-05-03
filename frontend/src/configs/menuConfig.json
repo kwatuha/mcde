@@ -97,6 +97,12 @@
           "permissionsAny": ["document.read_all", "document.create"]
         },
         {
+          "title": "Project Feedback",
+          "icon": "FeedbackIcon",
+          "route": "PROJECT_FEEDBACK_BY_PROJECT",
+          "permissionsAny": ["feedback.respond", "public_content.approve"]
+        },
+        {
           "title": "Upload Projects",
           "icon": "CloudUploadIcon",
           "route": "CENTRAL_IMPORT",
@@ -207,6 +213,13 @@
           "title": "Public Approval",
           "icon": "ApprovalIcon",
           "route": "PUBLIC_APPROVAL",
+          "permission": "public_content.approve",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Feedback Review",
+          "icon": "GavelIcon",
+          "route": "PUBLIC_FEEDBACK_MODERATION",
           "permission": "public_content.approve",
           "roles": ["admin"]
         },
