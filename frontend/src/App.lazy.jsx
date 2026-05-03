@@ -23,6 +23,7 @@ const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
 const StrategicPlanningPage = lazy(() => import('./pages/StrategicPlanningPage'));
+const PlanningIndicatorsPage = lazy(() => import('./pages/PlanningIndicatorsPage'));
 const StrategicPlanDetailsPage = lazy(() => import('./pages/StrategicPlanDetailsPage'));
 const DataImportPage = lazy(() => import('./pages/DataImportPage'));
 const KdspProjectDetailsPage = lazy(() => import('./pages/KdspProjectDetailsPage'));
@@ -33,6 +34,7 @@ const ProjectCategoryPage = lazy(() => import('./pages/ProjectCategoryPage'));
 const ProjectPhotoManager = lazy(() => import('./pages/ProjectPhotoManager'));
 const PersonalDashboard = lazy(() => import('./pages/ContractorDashboard'));
 const ContractorManagementPage = lazy(() => import('./pages/ContractorManagementPage'));
+const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
 const DashboardConfigManager = lazy(() => import('./pages/DashboardConfigManager'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage'));
@@ -94,6 +96,10 @@ const router = createBrowserRouter([
       {
         path: 'contractor-management',
         element: <LazyRoute component={ContractorManagementPage} />,
+      },
+      {
+        path: 'finance/payment-certificates',
+        element: <LazyRoute component={PaymentCertificatesPage} />,
       },
       {
         path: 'projects',
@@ -162,6 +168,10 @@ const router = createBrowserRouter([
       {
         path: 'strategic-planning',
         element: <LazyRoute component={StrategicPlanningPage} />,
+      },
+      {
+        path: 'planning/indicators',
+        element: <LazyRoute component={PlanningIndicatorsPage} />,
       },
       {
         path: 'strategic-planning/:planId',

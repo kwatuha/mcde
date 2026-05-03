@@ -69,6 +69,7 @@ export const ROUTES = {
     REGIONAL_DASHBOARD: '/regional-dashboard',
     USER_MANAGEMENT: '/user-management',
     STRATEGIC_PLANNING: '/strategic-planning',
+    PLANNING_INDICATORS: '/planning/indicators',
     METADATA_MANAGEMENT: '/metadata-management',
     HR: '/hr-module', // New route for the HR module
     WORKFLOW_MANAGEMENT: '/workflow-management',
@@ -105,6 +106,7 @@ export const ROUTES = {
     OPERATIONS_DASHBOARD: '/operations-dashboard', // ✨ NEW: Operations Dashboard route
     JOBS_DASHBOARD: '/jobs-dashboard', // ✨ NEW: Jobs & Impact Dashboard route
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
+    FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',
     PROJECTS_UPLOAD_LOG: '/data-upload-log',

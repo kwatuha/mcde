@@ -41,6 +41,7 @@ export const ICON_MAP = {
   MenuBookIcon: () => import('@mui/icons-material/MenuBook').then(m => m.default),
   LocationOnIcon: () => import('@mui/icons-material/LocationOn').then(m => m.default),
   WorkIcon: () => import('@mui/icons-material/Work').then(m => m.default),
+  DescriptionIcon: () => import('@mui/icons-material/Description').then(m => m.default),
 };
 
 // Get icon component by name
@@ -112,7 +113,13 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const allowedProjectsRoutes = new Set(['PROJECTS']);
 
   return categories
-    .filter((category) => category.id === 'dashboard' || category.id === 'reporting')
+    .filter((category) => {
+      if (category.id === 'dashboard' || category.id === 'reporting') return true;
+      if (category.id === 'finance') {
+        return hasPrivilege && hasPrivilege('document.read_all');
+      }
+      return false;
+    })
     .map((category) => {
       if (category.id === 'dashboard') {
         const filteredSubmenus = (category.submenus || [])
@@ -121,6 +128,16 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
             (a, b) =>
               allowedDashboardRoutes.indexOf(a.route) - allowedDashboardRoutes.indexOf(b.route)
           );
+        return { ...category, submenus: filteredSubmenus };
+      }
+
+      if (category.id === 'finance') {
+        const filteredSubmenus = (category.submenus || []).filter(
+          (submenu) =>
+            !submenu.hidden &&
+            submenu.route === 'FINANCE_PAYMENT_CERTIFICATES' &&
+            (!submenu.permission || (hasPrivilege && hasPrivilege(submenu.permission)))
+        );
         return { ...category, submenus: filteredSubmenus };
       }
 

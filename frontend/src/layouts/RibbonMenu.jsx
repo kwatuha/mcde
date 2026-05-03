@@ -21,6 +21,10 @@ import ApartmentIcon from '@mui/icons-material/Apartment';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import WorkIcon from '@mui/icons-material/Work';
+import DescriptionIcon from '@mui/icons-material/Description';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+import StraightenIcon from '@mui/icons-material/Straighten';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -30,6 +34,7 @@ import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 /** First sidebar destination when switching ribbon tab (menuConfig `route` keys). */
 const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   dashboard: 'PROJECT_BY_STATUS_DASHBOARD',
+  finance: 'FINANCE_PAYMENT_CERTIFICATES',
   reporting: 'PROJECTS',
   management: 'BUDGET_MANAGEMENT',
   public: 'PUBLIC_APPROVAL',
@@ -75,6 +80,10 @@ const ICON_MAP = {
   MenuBookIcon,
   LocationOnIcon,
   WorkIcon,
+  DescriptionIcon,
+  AttachMoneyIcon,
+  ShowChartIcon,
+  StraightenIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching
@@ -95,8 +104,8 @@ export default function RibbonMenu({ isAdmin = false }) {
   // Find the index of the selected category
   const selectedCategoryIndex = useMemo(() => {
     const index = menuCategories.findIndex(cat => cat.id === selectedCategoryId);
-    return index >= 0 ? index : (isAdmin ? 3 : 0);
-  }, [selectedCategoryId, menuCategories, isAdmin]);
+    return index >= 0 ? index : 0;
+  }, [selectedCategoryId, menuCategories]);
   
   const go = (to) => () => navigate(to);
 
@@ -157,6 +166,12 @@ export default function RibbonMenu({ isAdmin = false }) {
     }
 
     const categoryForPath = findCategoryIdForPath(currentPath, menuCategories);
+    // Path is valid in the app but not listed in this user's filtered menu (e.g. finance
+    // without document.read_all). Do not redirect to another ribbon tab's default route.
+    if (!categoryForPath) {
+      manualSelectionRef.current = false;
+      return;
+    }
     // In-app navigation (sidebar, quick actions, notifications) updates URL before React state; align ribbon and do not redirect away
     if (!manualSelectionRef.current && categoryForPath && categoryForPath !== selectedCategoryId) {
       setSelectedCategoryId(categoryForPath);

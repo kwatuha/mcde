@@ -24,6 +24,7 @@ import HelpSupportPage from './pages/HelpSupportPage';
 
 // Import the StrategicPlanningPage
 import StrategicPlanningPage from './pages/StrategicPlanningPage';
+import PlanningIndicatorsPage from './pages/PlanningIndicatorsPage';
 // Import the StrategicPlanDetailsPage
 import StrategicPlanDetailsPage from './pages/StrategicPlanDetailsPage';
 // Import the DataImportPage
@@ -85,6 +86,7 @@ import SectorsPage from './pages/SectorsPage';
 import OperationsDashboardPage from './pages/OperationsDashboardPage';
 import JobsImpactDashboardPage from './pages/JobsImpactDashboardPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
+import PaymentCertificatesPage from './pages/PaymentCertificatesPage';
 import ProjectByStatusDashboardPage from './pages/ProjectByStatusDashboardPage';
 import ProjectBySectorDashboardPage from './pages/ProjectBySectorDashboardPage';
 import ProjectsUploadLogPage from './pages/ProjectsUploadLogPage';
@@ -175,6 +177,10 @@ const router = createBrowserRouter([
       {
         path: 'finance-dashboard',
         element: <FinanceDashboardPage />,
+      },
+      {
+        path: 'finance/payment-certificates',
+        element: <PaymentCertificatesPage />,
       },
       {
         path: 'dashboard-config',
@@ -275,6 +281,10 @@ const router = createBrowserRouter([
       {
         path: 'strategic-planning',
         element: <StrategicPlanningPage />,
+      },
+      {
+        path: 'planning/indicators',
+        element: <PlanningIndicatorsPage />,
       },
       {
         path: 'strategic-planning/:planId',

@@ -32,7 +32,13 @@ const WORKFLOW_FORM_CONTROL_SELECT_SX = {
   width: '100%',
 };
 
-const WORKFLOW_ENTITY_SUGGESTIONS = ['payment_request', 'annual_workplan', 'purchase_order', 'budget_change'];
+const WORKFLOW_ENTITY_SUGGESTIONS = [
+  'payment_request',
+  'project_certificate',
+  'annual_workplan',
+  'purchase_order',
+  'budget_change',
+];
 
 const DeleteConfirmDialog = ({ open, onClose, onConfirm, itemToDeleteName, itemType }) => (
   <Dialog open={open} onClose={onClose} aria-labelledby="delete-dialog-title">
@@ -91,6 +97,7 @@ const ApprovalLevelsManagementPage = () => {
     name: '',
     version: 1,
     active: true,
+    link_template: '/projects?focusPaymentRequest={{entity_id}}',
     steps: [
       { step_name: 'First review', role_id: '', sla_hours: '72', escalation_role_id: '' },
       { step_name: 'Second review', role_id: '', sla_hours: '', escalation_role_id: '' },
@@ -211,6 +218,7 @@ const ApprovalLevelsManagementPage = () => {
       name: '',
       version: 1,
       active: true,
+      link_template: '/projects?focusPaymentRequest={{entity_id}}',
       steps: [
         { step_name: 'First review', role_id: '', sla_hours: '72', escalation_role_id: '' },
         { step_name: 'Second review', role_id: '', sla_hours: '', escalation_role_id: '' },
@@ -246,6 +254,7 @@ const ApprovalLevelsManagementPage = () => {
           name: def.name || '',
           version: def.version ?? 1,
           active: def.active !== false && def.active !== 0,
+          link_template: def.link_template != null && def.link_template !== '' ? String(def.link_template) : '',
           steps: stepRows.map((s) => ({
             step_name: s.step_name || '',
             role_id: s.role_id != null && s.role_id !== '' ? String(s.role_id) : '',
@@ -313,8 +322,9 @@ const ApprovalLevelsManagementPage = () => {
           await apiService.approvalWorkflow.updateDefinition(editWorkflowDefinitionId, {
             name: workflowDraft.name?.trim() || null,
             active: workflowDraft.active !== false,
+            link_template: workflowDraft.link_template?.trim() || null,
           });
-          setSnackbar({ open: true, message: 'Definition updated (name / active only — in use by requests).', severity: 'success' });
+          setSnackbar({ open: true, message: 'Definition updated (name, active, open link — in use by requests).', severity: 'success' });
         } else {
           const steps = workflowDraft.steps.map((s, idx) => ({
             step_order: idx + 1,
@@ -329,6 +339,7 @@ const ApprovalLevelsManagementPage = () => {
             version: Number(workflowDraft.version) || 1,
             name: workflowDraft.name?.trim() || null,
             active: workflowDraft.active !== false,
+            link_template: workflowDraft.link_template?.trim() || null,
             steps,
           });
           setSnackbar({ open: true, message: 'Workflow definition updated.', severity: 'success' });
@@ -350,6 +361,7 @@ const ApprovalLevelsManagementPage = () => {
           version: Number(workflowDraft.version) || 1,
           name: workflowDraft.name?.trim() || null,
           active: workflowDraft.active !== false,
+          link_template: workflowDraft.link_template?.trim() || null,
           steps,
         });
         setSnackbar({ open: true, message: 'Workflow definition created.', severity: 'success' });
@@ -939,8 +951,8 @@ const ApprovalLevelsManagementPage = () => {
           <Stack spacing={3}>
             {workflowDefinitionLocked && (
               <Alert severity="warning">
-                This definition already has approval requests. Only <strong>display name</strong> and <strong>active</strong> can be changed.
-                To change steps or identifiers, create a <strong>new version</strong> (or code) with &quot;Add workflow definition&quot;.
+                This definition already has approval requests. You can still change <strong>display name</strong>, <strong>active</strong>, and the{' '}
+                <strong>open item link</strong> below. To change steps or <code>entity_type</code>, create a <strong>new version</strong> (or code) with &quot;Add workflow definition&quot;.
               </Alert>
             )}
             <Alert severity="info" variant="outlined">
@@ -1031,6 +1043,22 @@ const ApprovalLevelsManagementPage = () => {
                     value={workflowDraft.name}
                     onChange={(e) => setWorkflowDraft((p) => ({ ...p, name: e.target.value }))}
                     helperText="Shown in admin lists only"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    label="Open item link (optional)"
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    value={workflowDraft.link_template}
+                    onChange={(e) => setWorkflowDraft((p) => ({ ...p, link_template: e.target.value }))}
+                    placeholder="/finance/payment-certificates?pendingMe=1&focusCertificate={{entity_id}}"
+                    helperText={
+                      'In-app path (leading / is optional — it will be added if missing). Placeholders: {{entity_id}}, {{request_id}} (URL-encoded). ' +
+                      'Dashboard “My workflow approvals” uses this for each pending row. For certificates include pendingMe=1 so finance shows only items waiting for this user’s role; example: /finance/payment-certificates?pendingMe=1&focusCertificate={{entity_id}}. Leave blank for built-in defaults by entity type.'
+                    }
+                    inputProps={{ spellCheck: false }}
                   />
                 </Grid>
               </Grid>

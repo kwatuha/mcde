@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
+const auth = require('../middleware/authenticate');
+const privilege = require('../middleware/privilegeMiddleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const approvalWorkflowEngine = require('../services/approvalWorkflowEngine');
 
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads', 'projects');
 if (!fs.existsSync(baseUploadDir)) {
@@ -68,6 +71,28 @@ const queryRows = async (sql, params = []) => {
     return result?.rows || [];
 };
 
+/** Repo root (…/machakos), two levels above this routes file. */
+const REPO_ROOT = path.join(__dirname, '..', '..');
+
+/**
+ * Resolve `projectcertificate.path` to an absolute path on disk.
+ * Legacy rows often stored `/uploads/projects/...`; `path.join(REPO_ROOT, '/uploads/...')` ignores
+ * REPO_ROOT on POSIX and points at filesystem `/uploads/...` (wrong). Strip leading slashes first.
+ * Windows absolute paths (e.g. `D:\...`) are returned normalized when present.
+ */
+function resolveStoredCertificateFilePath(dbPath) {
+    if (dbPath == null) return null;
+    const trimmed = String(dbPath).trim();
+    if (!trimmed) return null;
+    const forward = trimmed.replace(/\\/g, '/');
+    if (/^[a-zA-Z]:\//.test(forward)) {
+        return path.normalize(trimmed);
+    }
+    const relative = forward.replace(/^\/+/, '');
+    if (!relative) return null;
+    return path.join(REPO_ROOT, relative);
+}
+
 // --- CRUD Operations for Project Certificates (projectcertificate) ---
 
 /**
@@ -92,17 +117,298 @@ router.get('/', async (req, res) => {
 router.get('/project/:projectId', async (req, res) => {
     const { projectId } = req.params;
     try {
+        await approvalWorkflowEngine.ensureReady();
         if (isPostgres) await ensurePostgresTable();
-        const rows = await queryRows(
-            isPostgres
-                ? 'SELECT * FROM projectcertificate WHERE "projectId" = $1 AND COALESCE(voided, false) = false ORDER BY "requestDate" DESC, "certificateId" DESC'
-                : 'SELECT * FROM projectcertificate WHERE projectId = ? AND (voided IS NULL OR voided = 0) ORDER BY requestDate DESC, certificateId DESC',
-            [projectId]
-        );
+        /** Same entity_id / entity_type mapping as finance-list and ApprovalWorkflowPanel. */
+        const entityTypes = `('project_certificate','payment_certificate','certificate')`;
+        const sql = isPostgres
+            ? `WITH latest_ar AS (
+                    SELECT DISTINCT ON (entity_id) entity_id, request_id, status
+                    FROM approval_requests
+                    WHERE entity_type IN ${entityTypes}
+                    ORDER BY entity_id, request_id DESC
+                  )
+                  SELECT c.*,
+                    lar.status AS "approvalWorkflowStatus",
+                    lar.request_id AS "approvalRequestId",
+                    (
+                      SELECT si.step_name FROM approval_step_instances si
+                      WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                      ORDER BY si.step_order ASC LIMIT 1
+                    ) AS "approvalCurrentStepName",
+                    (
+                      SELECT si.step_order FROM approval_step_instances si
+                      WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                      ORDER BY si.step_order ASC LIMIT 1
+                    ) AS "approvalCurrentStepOrder",
+                    (
+                      SELECT COUNT(*)::int FROM approval_step_instances si
+                      WHERE si.request_id = lar.request_id
+                    ) AS "approvalTotalSteps"
+                  FROM projectcertificate c
+                  LEFT JOIN latest_ar lar ON lar.entity_id = c."certificateId"::text
+                  WHERE c."projectId" = $1 AND COALESCE(c.voided, false) = false
+                  ORDER BY c."requestDate" DESC NULLS LAST, c."certificateId" DESC`
+            : `SELECT c.*,
+                    (
+                      SELECT ar.status FROM approval_requests ar
+                      WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                        AND ar.entity_type IN ${entityTypes}
+                      ORDER BY ar.request_id DESC LIMIT 1
+                    ) AS approvalWorkflowStatus,
+                    (
+                      SELECT ar.request_id FROM approval_requests ar
+                      WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                        AND ar.entity_type IN ${entityTypes}
+                      ORDER BY ar.request_id DESC LIMIT 1
+                    ) AS approvalRequestId,
+                    (
+                      SELECT si.step_name FROM approval_step_instances si
+                      WHERE si.request_id = (
+                        SELECT ar.request_id FROM approval_requests ar
+                        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                          AND ar.entity_type IN ${entityTypes}
+                        ORDER BY ar.request_id DESC LIMIT 1
+                      )
+                      AND si.status = 'pending'
+                      ORDER BY si.step_order ASC LIMIT 1
+                    ) AS approvalCurrentStepName,
+                    (
+                      SELECT si.step_order FROM approval_step_instances si
+                      WHERE si.request_id = (
+                        SELECT ar.request_id FROM approval_requests ar
+                        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                          AND ar.entity_type IN ${entityTypes}
+                        ORDER BY ar.request_id DESC LIMIT 1
+                      )
+                      AND si.status = 'pending'
+                      ORDER BY si.step_order ASC LIMIT 1
+                    ) AS approvalCurrentStepOrder,
+                    (
+                      SELECT COUNT(*) FROM approval_step_instances si
+                      WHERE si.request_id = (
+                        SELECT ar.request_id FROM approval_requests ar
+                        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                          AND ar.entity_type IN ${entityTypes}
+                        ORDER BY ar.request_id DESC LIMIT 1
+                      )
+                    ) AS approvalTotalSteps
+               FROM projectcertificate c
+               WHERE c.projectId = ? AND (c.voided IS NULL OR c.voided = 0)
+               ORDER BY c.requestDate DESC, c.certificateId DESC`;
+        const rows = await queryRows(sql, [projectId]);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching project certificates by project:', error);
         res.status(500).json({ message: 'Error fetching project certificates', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/project_certificates/finance-list
+ * @description All project certificates with project name (same records as the project Certificates tab).
+ * @query pendingMe=1 — only rows where the current user's role matches the pending approval step (dashboard “pending for me”).
+ * @access Private — document.read_all
+ */
+router.get('/finance-list', auth, privilege(['document.read_all']), async (req, res) => {
+    try {
+        await approvalWorkflowEngine.ensureReady();
+        if (isPostgres) await ensurePostgresTable();
+        /** entity_id on approval_requests matches certificateId as text (see generic workflow). */
+        const entityTypes = `('project_certificate','payment_certificate','certificate')`;
+        const pendingMe =
+            req.query.pendingMe === '1' ||
+            req.query.pendingMe === 'true' ||
+            String(req.query.pendingMe || '').toLowerCase() === 'yes';
+        const roleIdRaw = req.user?.roleId ?? req.user?.roleid;
+        const roleId = roleIdRaw != null ? Number(roleIdRaw) : NaN;
+        const applyPendingMe = pendingMe && Number.isFinite(roleId) && roleId > 0;
+        if (pendingMe && !applyPendingMe) {
+            console.warn(
+                'finance-list: pendingMe was requested but user has no usable roleId; returning full list (re-login after role assignment).'
+            );
+        }
+
+        const pendingFilterPg = applyPendingMe
+            ? ` AND EXISTS (
+                    SELECT 1 FROM approval_requests ar
+                    INNER JOIN approval_step_instances si
+                      ON si.request_id = ar.request_id AND si.status = 'pending'
+                    WHERE ar.entity_type IN ${entityTypes}
+                      AND ar.entity_id = c."certificateId"::text
+                      AND ar.status = 'pending'
+                      AND si.role_id = $1
+                  )`
+            : '';
+
+        const pendingFilterMysql = applyPendingMe
+            ? ` AND EXISTS (
+                    SELECT 1 FROM approval_requests ar
+                    INNER JOIN approval_step_instances si
+                      ON si.request_id = ar.request_id AND si.status = 'pending'
+                    WHERE ar.entity_type IN ${entityTypes}
+                      AND ar.entity_id = CAST(c.certificateId AS CHAR)
+                      AND ar.status = 'pending'
+                      AND si.role_id = ?
+                  )`
+            : '';
+
+        const sql = isPostgres
+            ? `WITH latest_ar AS (
+                    SELECT DISTINCT ON (entity_id) entity_id, request_id, status
+                    FROM approval_requests
+                    WHERE entity_type IN ${entityTypes}
+                    ORDER BY entity_id, request_id DESC
+                  )
+                  SELECT c."certificateId" AS id,
+                      c."projectId" AS "projectId",
+                      p.name AS "projectName",
+                      c.path AS "documentPath",
+                      COALESCE(
+                        NULLIF(TRIM(c."fileName"), ''),
+                        NULLIF(TRIM(c."certNumber"), ''),
+                        CONCAT('Certificate ', c."certificateId"::text)
+                      ) AS "originalFileName",
+                      c."requestDate" AS "createdAt",
+                      c."certType" AS "certType",
+                      c."certSubType" AS "certSubType",
+                      c."certNumber" AS "certNumber",
+                      c."applicationStatus" AS "applicationStatus",
+                      c."progressStatus" AS "progressStatus",
+                      c."awardDate" AS "awardDate",
+                      lar.status AS "approvalWorkflowStatus",
+                      lar.request_id AS "approvalRequestId",
+                      (
+                        SELECT si.step_name FROM approval_step_instances si
+                        WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                        ORDER BY si.step_order ASC LIMIT 1
+                      ) AS "approvalCurrentStepName",
+                      (
+                        SELECT si.step_order FROM approval_step_instances si
+                        WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                        ORDER BY si.step_order ASC LIMIT 1
+                      ) AS "approvalCurrentStepOrder",
+                      (
+                        SELECT COUNT(*)::int FROM approval_step_instances si
+                        WHERE si.request_id = lar.request_id
+                      ) AS "approvalTotalSteps"
+               FROM projectcertificate c
+               INNER JOIN projects p ON p.project_id = c."projectId"
+               LEFT JOIN latest_ar lar ON lar.entity_id = c."certificateId"::text
+               WHERE COALESCE(c.voided, false) = false
+                 AND COALESCE(p.voided, false) = false
+                 ${pendingFilterPg}
+               ORDER BY p.name ASC NULLS LAST, c."requestDate" DESC NULLS LAST, c."certificateId" DESC`
+            : `SELECT c.certificateId AS id,
+                      c.projectId AS projectId,
+                      p.projectName AS projectName,
+                      c.path AS documentPath,
+                      COALESCE(NULLIF(TRIM(c.certNumber), ''), CONCAT('Certificate #', c.certificateId)) AS originalFileName,
+                      c.requestDate AS createdAt,
+                      c.certType AS certType,
+                      c.certSubType AS certSubType,
+                      c.certNumber AS certNumber,
+                      c.applicationStatus AS applicationStatus,
+                      c.progressStatus AS progressStatus,
+                      c.awardDate AS awardDate,
+                      (
+                        SELECT ar.status FROM approval_requests ar
+                        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                          AND ar.entity_type IN ${entityTypes}
+                        ORDER BY ar.request_id DESC LIMIT 1
+                      ) AS approvalWorkflowStatus,
+                      (
+                        SELECT ar.request_id FROM approval_requests ar
+                        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                          AND ar.entity_type IN ${entityTypes}
+                        ORDER BY ar.request_id DESC LIMIT 1
+                      ) AS approvalRequestId,
+                      (
+                        SELECT si.step_name FROM approval_step_instances si
+                        WHERE si.request_id = (
+                          SELECT ar.request_id FROM approval_requests ar
+                          WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                            AND ar.entity_type IN ${entityTypes}
+                          ORDER BY ar.request_id DESC LIMIT 1
+                        )
+                        AND si.status = 'pending'
+                        ORDER BY si.step_order ASC LIMIT 1
+                      ) AS approvalCurrentStepName,
+                      (
+                        SELECT si.step_order FROM approval_step_instances si
+                        WHERE si.request_id = (
+                          SELECT ar.request_id FROM approval_requests ar
+                          WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                            AND ar.entity_type IN ${entityTypes}
+                          ORDER BY ar.request_id DESC LIMIT 1
+                        )
+                        AND si.status = 'pending'
+                        ORDER BY si.step_order ASC LIMIT 1
+                      ) AS approvalCurrentStepOrder,
+                      (
+                        SELECT COUNT(*) FROM approval_step_instances si
+                        WHERE si.request_id = (
+                          SELECT ar.request_id FROM approval_requests ar
+                          WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                            AND ar.entity_type IN ${entityTypes}
+                          ORDER BY ar.request_id DESC LIMIT 1
+                        )
+                      ) AS approvalTotalSteps
+               FROM projectcertificate c
+               INNER JOIN kemri_projects p ON p.id = c.projectId
+               WHERE (c.voided IS NULL OR c.voided = 0) AND (p.voided IS NULL OR p.voided = 0)
+                 ${pendingFilterMysql}
+               ORDER BY p.projectName ASC, c.requestDate DESC, c.certificateId DESC`;
+        const params = applyPendingMe ? [roleId] : [];
+        const rows = await queryRows(sql, params);
+        res.status(200).json(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+        console.error('Error fetching finance certificate list:', error);
+        res.status(500).json({ message: 'Error fetching payment certificates', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/projects/project_certificates/:id/download
+ * @description Download a certificate attachment (must be registered before `/:id` so Express does not treat "download" as an id).
+ * @access Same as finance list — document.read_all (Bearer token required; not for anonymous hotlinking).
+ */
+router.get('/:id/download', privilege(['document.read_all']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        if (isPostgres) await ensurePostgresTable();
+        const rows = await queryRows(
+            isPostgres
+                ? 'SELECT * FROM projectcertificate WHERE "certificateId" = $1'
+                : 'SELECT * FROM projectcertificate WHERE certificateId = ?',
+            [id]
+        );
+        if (!rows.length) {
+            return res.status(404).json({ message: 'Project certificate not found' });
+        }
+
+        const cert = rows[0];
+        const storedPath = cert.path ?? cert.Path;
+        if (!storedPath) {
+            return res.status(404).json({ message: 'Certificate file not found' });
+        }
+
+        const fullPath = resolveStoredCertificateFilePath(storedPath);
+        if (!fullPath || !fs.existsSync(fullPath)) {
+            console.warn(
+                'Certificate download: file missing. certificateId=%s storedPath=%s resolved=%s',
+                id,
+                storedPath,
+                fullPath || '(null)'
+            );
+            return res.status(404).json({ message: 'Certificate file missing on server' });
+        }
+
+        const fallbackName = cert.certNumber ? `${cert.certNumber}` : `certificate-${id}`;
+        return res.download(fullPath, path.basename(fullPath) || fallbackName);
+    } catch (error) {
+        console.error('Error downloading project certificate:', error);
+        res.status(500).json({ message: 'Error downloading project certificate', error: error.message });
     }
 });
 
@@ -254,42 +560,6 @@ router.post('/', async (req, res) => {
 });
 
 /**
- * @route GET /api/projects/project_certificates/:id/download
- * @description Download a certificate attachment.
- */
-router.get('/:id/download', async (req, res) => {
-    const { id } = req.params;
-    try {
-        if (isPostgres) await ensurePostgresTable();
-        const rows = await queryRows(
-            isPostgres
-                ? 'SELECT * FROM projectcertificate WHERE "certificateId" = $1'
-                : 'SELECT * FROM projectcertificate WHERE certificateId = ?',
-            [id]
-        );
-        if (!rows.length) {
-            return res.status(404).json({ message: 'Project certificate not found' });
-        }
-
-        const cert = rows[0];
-        if (!cert.path) {
-            return res.status(404).json({ message: 'Certificate file not found' });
-        }
-
-        const fullPath = path.join(__dirname, '..', '..', cert.path);
-        if (!fs.existsSync(fullPath)) {
-            return res.status(404).json({ message: 'Certificate file missing on server' });
-        }
-
-        const fallbackName = cert.certNumber ? `${cert.certNumber}` : `certificate-${id}`;
-        return res.download(fullPath, path.basename(fullPath) || fallbackName);
-    } catch (error) {
-        console.error('Error downloading project certificate:', error);
-        res.status(500).json({ message: 'Error downloading project certificate', error: error.message });
-    }
-});
-
-/**
  * @route PUT /api/projects/project_certificates/:id
  * @description Update an existing project certificate.
  */
@@ -333,10 +603,10 @@ router.delete('/:id', async (req, res) => {
             deleted = result.affectedRows > 0;
         }
         if (deleted) {
-            const certPath = rows?.[0]?.path;
+            const certPath = rows?.[0]?.path ?? rows?.[0]?.Path;
             if (certPath) {
-                const fullPath = path.join(__dirname, '..', '..', certPath);
-                if (fs.existsSync(fullPath)) {
+                const fullPath = resolveStoredCertificateFilePath(certPath);
+                if (fullPath && fs.existsSync(fullPath)) {
                     fs.unlinkSync(fullPath);
                 }
             }

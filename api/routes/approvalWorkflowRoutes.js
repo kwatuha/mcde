@@ -17,6 +17,9 @@ const canStartRequest = privilege(
     'subprogram.update',
     'approval_levels.update',
     'payment_request.update',
+    'document.create',
+    'project.update',
+    'project.create',
   ],
   { anyOf: true }
 );
@@ -63,7 +66,7 @@ router.put('/definitions/:definitionId', privilege(['approval_levels.create', 'a
 
 router.post('/definitions', privilege(['approval_levels.create', 'approval_levels.update'], { anyOf: true }), async (req, res) => {
   try {
-    const { entity_type, code, version, name, active, steps } = req.body;
+    const { entity_type, code, version, name, active, steps, link_template } = req.body;
     if (!entity_type) return res.status(400).json({ message: 'entity_type is required' });
     const out = await engine.createDefinition({
       entity_type,
@@ -72,6 +75,7 @@ router.post('/definitions', privilege(['approval_levels.create', 'approval_level
       name,
       active: active !== false,
       steps: Array.isArray(steps) ? steps : [],
+      link_template: link_template != null ? String(link_template) : null,
     });
     res.status(201).json(out);
   } catch (e) {

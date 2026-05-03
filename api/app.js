@@ -46,6 +46,7 @@ const citizenProposalsRoutes = require('./routes/citizenProposalsRoutes')
 const comprehensiveProjectRoutes = require('./routes/comprehensiveProjectRoutes')
 const budgetRoutes = require('./routes/budgetRoutes')
 const budgetContainerRoutes = require('./routes/budgetContainerRoutes')
+const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
 
 const port = Number(process.env.PORT) || 3001;
 const app = express();
@@ -108,6 +109,7 @@ app.use('/api/projects', projectRouter);
 app.use('/api/users', userRoutes);
 app.use('/api/organization', orgRoutes);
 app.use('/api/strategy', strategyRoutes);
+app.use('/api/planning', planningIndicatorsRoutes);
 app.use('/api/participants', participantRoutes);
 app.use('/api/general', generalRoutes);
 app.use('/api/dashboard', dashboardRoutes);

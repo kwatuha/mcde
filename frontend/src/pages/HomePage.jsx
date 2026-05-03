@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Box,
@@ -14,6 +14,7 @@ import {
   CircularProgress,
   List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   Divider,
@@ -57,6 +58,7 @@ import {
   HourglassEmpty as HourglassIcon,
   Close as CloseIcon,
   ListAlt as RegistryIcon,
+  FactCheck as FactCheckIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../configs/appConfig';
@@ -66,6 +68,8 @@ import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
 import { isAdmin } from '../utils/privilegeUtils.js';
+import { resolveWorkflowNavigationPath, workflowEntityTypeLabel } from '../utils/workflowNavigation';
+import { getAccessCheckForAppPath } from '../utils/routeAccessHints.js';
 
 /** Same KPI count animation as `FinanceDashboardPage`. */
 const STATUS_COUNT_UP_MS = 500;
@@ -221,6 +225,34 @@ const HomePage = () => {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [pendingProjects, setPendingProjects] = useState([]);
   const [projectsPendingReview, setProjectsPendingReview] = useState([]);
+  /** Generic approval workflow rows where the current user's role matches the pending step (see GET /approval-workflow/requests/pending-me). */
+  const [workflowPendingRows, setWorkflowPendingRows] = useState([]);
+  /** Block navigation and show required privileges (e.g. finance list needs document.read_all). */
+  const [workflowPathAccessModal, setWorkflowPathAccessModal] = useState({
+    open: false,
+    targetPath: '',
+    title: '',
+    detail: '',
+    missing: [],
+  });
+
+  const navigateToWorkflowOrExplain = useCallback(
+    (targetPath) => {
+      const result = getAccessCheckForAppPath(targetPath, (p) => !!(hasPrivilege && hasPrivilege(p)));
+      if (!result.ok) {
+        setWorkflowPathAccessModal({
+          open: true,
+          targetPath,
+          title: result.title || 'This destination needs more access',
+          detail: result.detail || '',
+          missing: result.missing || [],
+        });
+        return;
+      }
+      navigate(targetPath);
+    },
+    [navigate, hasPrivilege]
+  );
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   // Modal state for status projects
@@ -421,6 +453,7 @@ const HomePage = () => {
           setPendingUsers([]);
           setPendingProjects([]);
           setProjectsPendingReview([]);
+          setWorkflowPendingRows([]);
           setLoadingNotifications(false);
         }
         return;
@@ -516,12 +549,23 @@ const HomePage = () => {
         });
         
         setProjectsPendingReview(review.slice(0, 5));
+
+        let wfRows = [];
+        try {
+          const wf = await apiService.approvalWorkflow.listPendingForMe();
+          wfRows = Array.isArray(wf) ? wf : [];
+        } catch (wfErr) {
+          console.warn('Workflow pending list skipped:', wfErr?.response?.data?.message || wfErr.message);
+          wfRows = [];
+        }
+        if (isMounted) setWorkflowPendingRows(wfRows);
       } catch (error) {
         console.error('Error fetching notifications:', error);
         if (isMounted) {
           setPendingUsers([]);
           setPendingProjects([]);
           setProjectsPendingReview([]);
+          setWorkflowPendingRows([]);
         }
       } finally {
         if (isMounted) {
@@ -585,6 +629,19 @@ const HomePage = () => {
       description: projectsPendingReview.length > 0
         ? `${projectsPendingReview.length} project${projectsPendingReview.length > 1 ? 's' : ''} under review`
         : 'No projects pending review',
+    });
+  }
+
+  if (user && workflowPendingRows.length > 0) {
+    notificationItems.push({
+      type: 'workflow-pending-steps',
+      title: 'My workflow approvals',
+      count: workflowPendingRows.length,
+      icon: <FactCheckIcon />,
+      color: '#5e35b1',
+      // Card click opens the first pending item’s resolved URL (link_template or entity fallback), not CIDP.
+      route: resolveWorkflowNavigationPath(workflowPendingRows[0]),
+      description: `${workflowPendingRows.length} step${workflowPendingRows.length > 1 ? 's' : ''} waiting for your role (work plans, payment requests, certificates, etc.). Use the list below to open a specific item.`,
     });
   }
 
@@ -1050,7 +1107,14 @@ const HomePage = () => {
                             boxShadow: `0 2px 8px ${item.color}30`,
                           } : {},
                         }}
-                        onClick={() => item.route && navigate(item.route)}
+                        onClick={() => {
+                          if (!item.route) return;
+                          if (item.type === 'workflow-pending-steps') {
+                            navigateToWorkflowOrExplain(item.route);
+                          } else {
+                            navigate(item.route);
+                          }
+                        }}
                       >
                         <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                           <Box display="flex" alignItems="center" gap={1.5}>
@@ -1098,6 +1162,42 @@ const HomePage = () => {
                         </CardContent>
                       </Card>
                     ))}
+
+                    {workflowPendingRows.length > 0 && (
+                      <Box sx={{ mt: 0.5 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                          Open a pending step
+                        </Typography>
+                        <List dense disablePadding sx={{ borderRadius: 1, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+                          {workflowPendingRows.slice(0, 8).map((row) => {
+                            const rid = row.request_id ?? row.requestId;
+                            const path = resolveWorkflowNavigationPath(row);
+                            return (
+                              <ListItemButton
+                                key={`${rid}-${row.instance_id ?? row.step_order}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToWorkflowOrExplain(path);
+                                }}
+                                sx={{ py: 0.75 }}
+                              >
+                                <ListItemText
+                                  primaryTypographyProps={{ variant: 'caption', fontWeight: 600 }}
+                                  secondaryTypographyProps={{ variant: 'caption' }}
+                                  primary={`${workflowEntityTypeLabel(row.entity_type)} · #${row.entity_id}`}
+                                  secondary={row.step_name ? `${row.step_name}` : `Step ${row.step_order}`}
+                                />
+                              </ListItemButton>
+                            );
+                          })}
+                        </List>
+                        {workflowPendingRows.length > 8 && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            +{workflowPendingRows.length - 8} more — each row above opens the link from that workflow definition.
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
                     
                     {/* Additional quick actions if no pending items */}
                     {notificationItems.length === 1 && notificationItems[0].count === 0 && (
@@ -1523,6 +1623,48 @@ const HomePage = () => {
             >
               Close
             </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={workflowPathAccessModal.open}
+          onClose={() => setWorkflowPathAccessModal((s) => ({ ...s, open: false }))}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Cannot open this workflow link yet</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {workflowPathAccessModal.title}
+            </Typography>
+            {workflowPathAccessModal.detail ? (
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {workflowPathAccessModal.detail}
+              </Typography>
+            ) : null}
+            <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+              Add these privileges to your role (then refresh or sign in again):
+            </Typography>
+            <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+              {(workflowPathAccessModal.missing || []).map((priv) => (
+                <li key={priv}>
+                  <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {priv}
+                  </Typography>
+                </li>
+              ))}
+            </Box>
+            {workflowPathAccessModal.targetPath ? (
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>
+                Target URL:{' '}
+                <Box component="span" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {workflowPathAccessModal.targetPath}
+                </Box>
+              </Typography>
+            ) : null}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setWorkflowPathAccessModal((s) => ({ ...s, open: false }))}>Close</Button>
           </DialogActions>
         </Dialog>
     </Box>

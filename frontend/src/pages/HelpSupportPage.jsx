@@ -138,7 +138,7 @@ const HelpSupportPage = () => {
                 <ListItem>
                   <ListItemText
                     primary="How requests move"
-                    secondary='Each definition uses an entity_type (for example annual_workplan or payment_request). Approvers see items under "My pending approval steps" when their role matches the current step.'
+                    secondary='Each definition uses an entity_type (for example annual_workplan or payment_request). Optional "Open item link" on the definition uses placeholders {{entity_id}} and {{request_id}} for approver deep links. Approvers see items when their role matches the current step (home dashboard + strategic plan accordion).'
                   />
                 </ListItem>
                 <ListItem>

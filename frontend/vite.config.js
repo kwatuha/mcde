@@ -81,6 +81,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Express serves certificate files under /uploads (same host as API). Dev SPA must proxy this too.
+      '/uploads': {
+        target: process.env.VITE_PROXY_TARGET || 'http://api:3000',
+        changeOrigin: true,
+        secure: false,
+      },
     },
     // Performance optimizations
     fs: {

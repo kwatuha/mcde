@@ -416,6 +416,13 @@ const projectService = {
       });
       return response.data;
     },
+    /** All certificates across projects (Finance → Payment Certificates); same data as per-project Certificates tab. */
+    getFinanceList: async (opts = {}) => {
+      const params = {};
+      if (opts.pendingMe) params.pendingMe = '1';
+      const response = await axiosInstance.get('/projects/project_certificates/finance-list', { params });
+      return response.data;
+    },
   },
 
   taxRates: {
@@ -444,6 +451,11 @@ const projectService = {
   bq: {
     getItems: async (projectId) => {
       const response = await axiosInstance.get(`/projects/${projectId}/bq`);
+      return response.data;
+    },
+    /** Latest dated BQ progress log for the project (confirmer name, role, activity) — used on payment certificate PDFs. */
+    getLatestProgressAttribution: async (projectId) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/bq/latest-progress-attribution`);
       return response.data;
     },
     createItem: async (projectId, payload) => {

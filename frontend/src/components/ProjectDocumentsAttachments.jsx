@@ -34,7 +34,6 @@ const documentTypeOptions = [
     { value: 'award_letter', label: 'Award Letter', icon: '📋' },
     { value: 'inspection_certificate', label: 'Inspection Certificate', icon: '🔍' },
     { value: 'evaluation_report', label: 'Evaluation Report', icon: '📊' },
-    { value: 'payment_certificate', label: 'Payment Certificate', icon: '💰' },
     { value: 'completion_letter', label: 'Completion Letter', icon: '✅' },
     { value: 'warning_letter', label: 'Warning Letter', icon: '⚠️' },
     { value: 'request_for_payment', label: 'Request for Payment', icon: '💳' },

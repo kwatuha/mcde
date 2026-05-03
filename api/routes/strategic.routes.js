@@ -100,6 +100,7 @@ async function ensureStrategyTables() {
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr4Budget" NUMERIC(18,2) NULL`);
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "yr5Budget" NUMERIC(18,2) NULL`);
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "totalBudget" NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "planningIndicatorId" BIGINT NULL`);
         await pool.query(`UPDATE subprograms SET "unitOfMeasure" = 'count' WHERE "unitOfMeasure" = 'counts'`);
 
         await runSafeDdl(`ALTER TABLE strategicplans ADD COLUMN IF NOT EXISTS vision TEXT NULL`);
@@ -166,6 +167,12 @@ async function ensureStrategyTables() {
             )
         `);
         await pool.query(`UPDATE subprograms SET unitOfMeasure = 'count' WHERE unitOfMeasure = 'counts'`);
+
+        try {
+            await pool.query('ALTER TABLE subprograms ADD COLUMN planningIndicatorId BIGINT NULL');
+        } catch (e) {
+            if (!String(e?.message || '').includes('Duplicate column')) console.warn('subprograms.planningIndicatorId alter:', e.message);
+        }
 
         try {
             await pool.query('ALTER TABLE strategicplans ADD COLUMN vision TEXT NULL');
@@ -653,8 +660,13 @@ router.post('/subprograms', async (req, res) => {
     try {
         console.log('Inserting Subprogram:', newSubprogram);
         if (isPostgres) {
+            const pid =
+                newSubprogram.planningIndicatorId != null && newSubprogram.planningIndicatorId !== ''
+                    ? Number(newSubprogram.planningIndicatorId)
+                    : null;
+            const planningIndicatorId = Number.isFinite(pid) ? pid : null;
             const result = await pool.query(
-                'INSERT INTO subprograms ("programId", "subProgramName", "subProgramCode", "subProgramme", "keyOutcome", kpi, "unitOfMeasure", baseline, "yr1Targets", "yr2Targets", "yr3Targets", "yr4Targets", "yr5Targets", "yr1Budget", "yr2Budget", "yr3Budget", "yr4Budget", "yr5Budget", "totalBudget", remarks, voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING "subProgramId"',
+                'INSERT INTO subprograms ("programId", "subProgramName", "subProgramCode", "subProgramme", "keyOutcome", kpi, "unitOfMeasure", "planningIndicatorId", baseline, "yr1Targets", "yr2Targets", "yr3Targets", "yr4Targets", "yr5Targets", "yr1Budget", "yr2Budget", "yr3Budget", "yr4Budget", "yr5Budget", "totalBudget", remarks, voided, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING "subProgramId"',
                 [
                     newSubprogram.programId || null,
                     newSubprogram.subProgramme || null,
@@ -663,6 +675,7 @@ router.post('/subprograms', async (req, res) => {
                     newSubprogram.keyOutcome || null,
                     newSubprogram.kpi || null,
                     newSubprogram.unitOfMeasure || null,
+                    planningIndicatorId,
                     newSubprogram.baseline || null,
                     newSubprogram.yr1Targets || null,
                     newSubprogram.yr2Targets || null,
@@ -683,7 +696,14 @@ router.post('/subprograms', async (req, res) => {
             );
             newSubprogram.subProgramId = firstRowFromResult(result)?.subProgramId;
         } else {
-            const [result] = await pool.query('INSERT INTO subprograms SET ?', newSubprogram);
+            const row = { ...newSubprogram };
+            if (row.planningIndicatorId != null && row.planningIndicatorId !== '') {
+                const n = Number(row.planningIndicatorId);
+                row.planningIndicatorId = Number.isFinite(n) ? n : null;
+            } else {
+                row.planningIndicatorId = null;
+            }
+            const [result] = await pool.query('INSERT INTO subprograms SET ?', row);
             if (result.insertId) {
                 newSubprogram.subProgramId = result.insertId;
             }
@@ -709,8 +729,13 @@ router.put('/subprograms/:id', async (req, res) => {
     try {
         console.log(`Updating Subprogram ${id}:`, updatedFields);
         if (isPostgres) {
+            const pidUp =
+                updatedFields.planningIndicatorId != null && updatedFields.planningIndicatorId !== ''
+                    ? Number(updatedFields.planningIndicatorId)
+                    : null;
+            const planningIndicatorIdUp = Number.isFinite(pidUp) ? pidUp : null;
             const result = await pool.query(
-                'UPDATE subprograms SET "subProgramName" = ?, "subProgramCode" = ?, "subProgramme" = ?, "keyOutcome" = ?, kpi = ?, "unitOfMeasure" = ?, baseline = ?, "yr1Targets" = ?, "yr2Targets" = ?, "yr3Targets" = ?, "yr4Targets" = ?, "yr5Targets" = ?, "yr1Budget" = ?, "yr2Budget" = ?, "yr3Budget" = ?, "yr4Budget" = ?, "yr5Budget" = ?, "totalBudget" = ?, remarks = ?, "updatedAt" = ? WHERE "subProgramId" = ?',
+                'UPDATE subprograms SET "subProgramName" = ?, "subProgramCode" = ?, "subProgramme" = ?, "keyOutcome" = ?, kpi = ?, "unitOfMeasure" = ?, "planningIndicatorId" = ?, baseline = ?, "yr1Targets" = ?, "yr2Targets" = ?, "yr3Targets" = ?, "yr4Targets" = ?, "yr5Targets" = ?, "yr1Budget" = ?, "yr2Budget" = ?, "yr3Budget" = ?, "yr4Budget" = ?, "yr5Budget" = ?, "totalBudget" = ?, remarks = ?, "updatedAt" = ? WHERE "subProgramId" = ?',
                 [
                     updatedFields.subProgramme || null,
                     updatedFields.subProgramCode || null,
@@ -718,6 +743,7 @@ router.put('/subprograms/:id', async (req, res) => {
                     updatedFields.keyOutcome || null,
                     updatedFields.kpi || null,
                     updatedFields.unitOfMeasure || null,
+                    planningIndicatorIdUp,
                     updatedFields.baseline || null,
                     updatedFields.yr1Targets || null,
                     updatedFields.yr2Targets || null,
@@ -742,7 +768,14 @@ router.put('/subprograms/:id', async (req, res) => {
                 res.status(404).json({ message: 'Subprogram not found' });
             }
         } else {
-            const [result] = await pool.query('UPDATE subprograms SET ? WHERE subProgramId = ?', [updatedFields, id]);
+            const row = { ...updatedFields };
+            if (row.planningIndicatorId != null && row.planningIndicatorId !== '') {
+                const n = Number(row.planningIndicatorId);
+                row.planningIndicatorId = Number.isFinite(n) ? n : null;
+            } else {
+                row.planningIndicatorId = null;
+            }
+            const [result] = await pool.query('UPDATE subprograms SET ? WHERE subProgramId = ?', [row, id]);
             if (result.affectedRows > 0) {
                 const [rows] = await pool.query('SELECT * FROM subprograms WHERE subProgramId = ?', [id]);
                 res.status(200).json(rows[0]);

@@ -11,7 +11,7 @@ import {
   Visibility as ViewIcon,
   MoreHoriz as MoreHorizIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiService from '../api';
 import strategicPlanningLabels from '../configs/strategicPlanningLabels';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -40,6 +40,7 @@ function StrategicPlanningPage() {
   const colors = tokens(theme.palette.mode);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [strategicPlans, setStrategicPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +97,19 @@ function StrategicPlanningPage() {
   useEffect(() => {
     fetchStrategicPlans();
   }, [fetchStrategicPlans]);
+
+  useEffect(() => {
+    const wid = searchParams.get('focusWorkplan');
+    if (!wid) return;
+    setSnackbar({
+      open: true,
+      severity: 'info',
+      message: `Pending approval for work plan #${wid}: open the strategic plan that contains this work plan, then Sub-programs → Work plans → select the row to use the approval panel.`,
+    });
+    const next = new URLSearchParams(searchParams);
+    next.delete('focusWorkplan');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const handleOpenCreateDialog = () => {
     if (!checkUserPrivilege(user, 'strategic_plan.create')) {

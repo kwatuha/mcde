@@ -68,6 +68,13 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
         return res.status(400).json({ message: 'Missing files or required fields: projectId, documentType, documentCategory, and status.' });
     }
 
+    if (String(documentType).toLowerCase().trim() === 'payment_certificate') {
+        return res.status(400).json({
+            message:
+                'Payment certificates are uploaded from the project Certificates tab, not from general documents.',
+        });
+    }
+
     let connection;
     try {
         connection = await db.getConnection();
@@ -162,7 +169,6 @@ router.get('/project/:projectId', auth, async (req, res) => {
         if (connection) connection.release();
     }
 });
-
 
 // NEW: @route PUT /api/documents/reorder
 // @desc Updates the display order of documents

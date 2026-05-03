@@ -100,6 +100,19 @@ function ProjectManagementPage() {
     setSnackbar, allMetadata, fetchProjects,
   } = useProjectData(user, authLoading, emptyFilterState, { fetchMetadata: false });
 
+  useEffect(() => {
+    const rid = searchParams.get('focusPaymentRequest');
+    if (!rid) return;
+    setSnackbar({
+      open: true,
+      severity: 'info',
+      message: `Pending workflow for payment request #${rid}: open the project, then use Payments / payment request (or your project’s payment area) to review. When the UI calls the generic workflow, approve/reject appears on that screen.`,
+    });
+    const next = new URLSearchParams(searchParams);
+    next.delete('focusPaymentRequest');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, setSnackbar]);
+
   // State to track if all projects are loaded (vs initial limited load)
   const [allProjectsLoaded, setAllProjectsLoaded] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);

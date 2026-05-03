@@ -68,6 +68,19 @@
       ]
     },
     {
+      "id": "finance",
+      "label": "Finance",
+      "icon": "AttachMoneyIcon",
+      "submenus": [
+        {
+          "title": "Payment Certificates",
+          "icon": "DescriptionIcon",
+          "route": "FINANCE_PAYMENT_CERTIFICATES",
+          "permission": "document.read_all"
+        }
+      ]
+    },
+    {
       "id": "reporting",
       "label": "Projects",
       "icon": "AssessmentIcon",
@@ -153,6 +166,16 @@
           "title": "CIDP",
           "icon": "AccountTreeIcon",
           "route": "STRATEGIC_PLANNING"
+        },
+        {
+          "title": "Measurement types",
+          "icon": "StraightenIcon",
+          "to": "/planning/indicators?section=measurement-types"
+        },
+        {
+          "title": "Indicators & KPIs",
+          "icon": "ShowChartIcon",
+          "route": "PLANNING_INDICATORS"
         },
         {
           "title": "ADP-Budget",

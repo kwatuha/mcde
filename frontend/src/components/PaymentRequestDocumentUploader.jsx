@@ -23,12 +23,6 @@ const documentTypeOptions = [
         icon: '🔍'
     },
     { 
-        value: 'payment_certificate', 
-        label: 'Payment Certificate',
-        description: 'Certification of work completion',
-        icon: '🏆'
-    },
-    { 
         value: 'receipt', 
         label: 'Receipt',
         description: 'Proof of payment or expense',

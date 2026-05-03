@@ -1,9 +1,17 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { GoogleMap, useJsApiLoader, StandaloneSearchBox } from '@react-google-maps/api';
-import { CircularProgress, Alert, TextField, Box } from '@mui/material';
+import { CircularProgress, Alert, Box } from '@mui/material';
 
 // Define the Google Maps libraries you'll use
 const libraries = ['places'];
+
+/** Bias place search toward Machakos county (does not restrict results). */
+const MACHAKOS_SEARCH_BOUNDS = {
+  north: -0.92,
+  south: -1.72,
+  east: 38.15,
+  west: 36.75,
+};
 
 /** Search box: `overlay` (default, centered on map) or `above` (toolbar row, map stays unobstructed). */
 function GoogleMapComponent({
@@ -118,45 +126,56 @@ function GoogleMapComponent({
     mapTypeId: mapTypeId || 'roadmap',
   };
 
+  // StandaloneSearchBox uses querySelector('input') on mount — must be a real <input>, not MUI TextField
+  // (otherwise Places can fail silently and Google shows "This page can't load Google Maps correctly" while typing).
+  const searchInputStyle =
+    searchPlacement === 'above'
+      ? {
+          boxSizing: 'border-box',
+          width: '100%',
+          maxWidth: 440,
+          height: 40,
+          padding: '0 14px',
+          borderRadius: 8,
+          border: '1px solid rgba(0, 0, 0, 0.23)',
+          fontSize: 14,
+          fontFamily: 'inherit',
+          outline: 'none',
+          backgroundColor: '#fff',
+        }
+      : {
+          boxSizing: 'border-box',
+          border: '1px solid transparent',
+          width: 240,
+          height: 40,
+          padding: '0 12px',
+          borderRadius: '3px',
+          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3)',
+          fontSize: 14,
+          outline: 'none',
+          textOverflow: 'ellipsis',
+          position: 'absolute',
+          left: '50%',
+          marginLeft: '-120px',
+          top: 10,
+          zIndex: 10,
+          backgroundColor: 'white',
+        };
+
   const searchField = (
     <StandaloneSearchBox
+      bounds={MACHAKOS_SEARCH_BOUNDS}
       onLoad={(ref) => {
         searchBoxRef.current = ref;
       }}
       onPlacesChanged={onPlacesChanged}
     >
-      <TextField
+      <input
         type="text"
+        autoComplete="off"
         placeholder="Search for a place or address…"
-        size="small"
-        variant="outlined"
-        fullWidth
-        sx={
-          searchPlacement === 'above'
-            ? {
-                maxWidth: 440,
-                flexShrink: 0,
-                bgcolor: 'background.paper',
-              }
-            : {
-                boxSizing: 'border-box',
-                border: '1px solid transparent',
-                width: 240,
-                height: 40,
-                padding: '0 12px',
-                borderRadius: '3px',
-                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3)',
-                fontSize: 14,
-                outline: 'none',
-                textOverflow: 'ellipsis',
-                position: 'absolute',
-                left: '50%',
-                marginLeft: '-120px',
-                top: 10,
-                zIndex: 10,
-                backgroundColor: 'white',
-              }
-        }
+        aria-label="Search map"
+        style={searchInputStyle}
       />
     </StandaloneSearchBox>
   );

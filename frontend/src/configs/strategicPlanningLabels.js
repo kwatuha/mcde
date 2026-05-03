@@ -40,6 +40,7 @@ const strategicPlanningLabels = {
     fields: {
       subProgramme: 'Sub-Program', // This is the field name in your DB
       keyOutcome: 'Key Outcome',
+      planningIndicator: 'KPI / indicator',
       kpi: 'KPI',
       unitOfMeasure: 'Unit of Measure',
       baseline: 'Baseline',

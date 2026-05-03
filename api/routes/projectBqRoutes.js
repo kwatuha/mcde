@@ -48,9 +48,11 @@ async function ensureTable() {
                 progress_date DATE NOT NULL,
                 progress_percent NUMERIC(5,2) NOT NULL,
                 remarks TEXT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_by BIGINT NULL
             )
         `);
+        await runSafeDdl(`ALTER TABLE project_bq_progress_logs ADD COLUMN IF NOT EXISTS created_by BIGINT NULL`);
         await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_bq_progress_logs_item_date ON project_bq_progress_logs (bq_item_id, progress_date DESC)`);
     } else {
         await pool.query(`
@@ -81,10 +83,25 @@ async function ensureTable() {
                 progress_percent DECIMAL(5,2) NOT NULL,
                 remarks TEXT NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_by BIGINT NULL,
                 INDEX idx_bq_progress_logs_item_date (bq_item_id, progress_date)
             )
         `);
+        try {
+            await pool.query(`ALTER TABLE project_bq_progress_logs ADD COLUMN created_by BIGINT NULL`);
+        } catch (e) {
+            if (!/Duplicate column name/i.test(String(e.message))) throw e;
+        }
     }
+}
+
+function actorUserId(req) {
+    const u = req.user;
+    if (!u) return null;
+    const id = u.userId ?? u.userid ?? u.id;
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function sanitizePayload(body = {}) {
@@ -197,6 +214,59 @@ router.get('/', async (req, res) => {
     }
 });
 
+/**
+ * Latest dated BQ progress log for the project (who confirmed % on which line), for certificates / audit.
+ * Must stay above `/:itemId/progress` so "latest-progress-attribution" is not parsed as itemId.
+ */
+router.get('/latest-progress-attribution', async (req, res) => {
+    const projectId = Number(req.params.projectId);
+    if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: 'Invalid project id.' });
+    }
+    try {
+        await ensureTable();
+        if (isPostgres) {
+            const result = await pool.query(
+                `SELECT
+                    l.progress_date AS "progressDate",
+                    l.created_at AS "recordedAt",
+                    l.progress_percent AS "progressPercent",
+                    NULLIF(TRIM(CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, ''))), '') AS "fullName",
+                    NULLIF(TRIM(r.name), '') AS "roleName",
+                    COALESCE(NULLIF(TRIM(i.activity_name), ''), NULLIF(TRIM(i.milestone_name), ''), 'BQ item') AS "activityName"
+                 FROM project_bq_progress_logs l
+                 INNER JOIN project_bq_items i ON i.id = l.bq_item_id AND i.project_id = $1 AND i.voided = false
+                 LEFT JOIN users u ON u.userid = l.created_by
+                 LEFT JOIN roles r ON r.roleid = u.roleid
+                 ORDER BY l.created_at DESC NULLS LAST, l.id DESC
+                 LIMIT 1`,
+                [projectId]
+            );
+            return res.status(200).json(result.rows?.[0] || null);
+        }
+        const [rows] = await pool.query(
+            `SELECT
+                l.progress_date AS progressDate,
+                l.created_at AS recordedAt,
+                l.progress_percent AS progressPercent,
+                NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), '') AS fullName,
+                NULLIF(TRIM(r.roleName), '') AS roleName,
+                COALESCE(NULLIF(TRIM(i.activity_name), ''), NULLIF(TRIM(i.milestone_name), ''), 'BQ item') AS activityName
+             FROM project_bq_progress_logs l
+             INNER JOIN project_bq_items i ON i.id = l.bq_item_id AND i.project_id = ? AND i.voided = 0
+             LEFT JOIN users u ON u.userId = l.created_by
+             LEFT JOIN roles r ON r.roleId = u.roleId
+             ORDER BY l.created_at DESC, l.id DESC
+             LIMIT 1`,
+            [projectId]
+        );
+        return res.status(200).json(rows?.[0] || null);
+    } catch (error) {
+        console.error('Error loading latest BQ progress attribution:', error);
+        return res.status(500).json({ message: 'Error loading BQ progress attribution', error: error.message });
+    }
+});
+
 router.post('/', async (req, res) => {
     const projectId = Number(req.params.projectId);
     if (!Number.isFinite(projectId)) {
@@ -297,6 +367,21 @@ router.put('/:itemId', async (req, res) => {
             : null;
 
         if (isPostgres) {
+            const prevR = await pool.query(
+                `SELECT progress_percent FROM project_bq_items WHERE id = $1 AND project_id = $2 AND voided = false`,
+                [itemId, projectId]
+            );
+            if ((prevR.rowCount || 0) === 0) {
+                return res.status(404).json({ message: 'BQ item not found.' });
+            }
+            const rawOld = prevR.rows[0].progress_percent;
+            const oldPct = rawOld == null || rawOld === '' ? null : Number(rawOld);
+            const newPct = Number(p.progressPercent);
+            const progressChanged =
+                oldPct == null || !Number.isFinite(oldPct)
+                    ? !Number.isFinite(newPct) || newPct !== 0
+                    : !Number.isFinite(newPct) || Math.abs(oldPct - newPct) > 1e-9;
+
             const result = await pool.query(
                 `UPDATE project_bq_items
                  SET progress_percent = $1, remarks = $2, completed = $3, completion_date = $4,
@@ -324,8 +409,32 @@ router.put('/:itemId', async (req, res) => {
             if ((result.rowCount || 0) === 0) {
                 return res.status(404).json({ message: 'BQ item not found.' });
             }
+            const uid = actorUserId(req);
+            if (progressChanged && uid) {
+                const today = new Date().toISOString().slice(0, 10);
+                await pool.query(
+                    `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks, created_by)
+                     VALUES ($1,$2,$3,$4,$5)`,
+                    [itemId, today, p.progressPercent, 'Progress updated from BQ item editor', uid]
+                );
+            }
             return res.status(200).json(result.rows?.[0] || null);
         }
+
+        const [prevRows] = await pool.query(
+            `SELECT progress_percent FROM project_bq_items WHERE id = ? AND project_id = ? AND voided = 0`,
+            [itemId, projectId]
+        );
+        if (!prevRows?.length) {
+            return res.status(404).json({ message: 'BQ item not found.' });
+        }
+        const rawOldM = prevRows[0].progress_percent;
+        const oldPctM = rawOldM == null || rawOldM === '' ? null : Number(rawOldM);
+        const newPctM = Number(p.progressPercent);
+        const progressChangedM =
+            oldPctM == null || !Number.isFinite(oldPctM)
+                ? !Number.isFinite(newPctM) || newPctM !== 0
+                : !Number.isFinite(newPctM) || Math.abs(oldPctM - newPctM) > 1e-9;
 
         const [result] = await pool.query(
             `UPDATE project_bq_items
@@ -338,6 +447,15 @@ router.put('/:itemId', async (req, res) => {
         );
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'BQ item not found.' });
+        }
+        const uidM = actorUserId(req);
+        if (progressChangedM && uidM) {
+            const today = new Date().toISOString().slice(0, 10);
+            await pool.query(
+                `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks, created_by)
+                 VALUES (?,?,?,?,?)`,
+                [itemId, today, p.progressPercent, 'Progress updated from BQ item editor', uidM]
+            );
         }
         const [rows] = await pool.query(
             `SELECT
@@ -471,11 +589,12 @@ router.post('/:itemId/progress', async (req, res) => {
             );
             if ((itemCheck.rowCount || 0) === 0) return res.status(404).json({ message: 'BQ item not found.' });
 
+            const uid = actorUserId(req);
             const insert = await pool.query(
-                `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks)
-                 VALUES ($1,$2,$3,$4)
-                 RETURNING id, progress_date AS "progressDate", progress_percent AS "progressPercent", remarks, created_at AS "createdAt"`,
-                [itemId, progressDate, progressPercent, remarks]
+                `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks, created_by)
+                 VALUES ($1,$2,$3,$4,$5)
+                 RETURNING id, progress_date AS "progressDate", progress_percent AS "progressPercent", remarks, created_at AS "createdAt", created_by AS "createdBy"`,
+                [itemId, progressDate, progressPercent, remarks, uid]
             );
             const completed = progressPercent >= 100;
             await pool.query(
@@ -496,10 +615,11 @@ router.post('/:itemId/progress', async (req, res) => {
         );
         if (!itemCheck?.length) return res.status(404).json({ message: 'BQ item not found.' });
 
+        const uid = actorUserId(req);
         const [insert] = await pool.query(
-            `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks)
-             VALUES (?,?,?,?)`,
-            [itemId, progressDate, progressPercent, remarks]
+            `INSERT INTO project_bq_progress_logs (bq_item_id, progress_date, progress_percent, remarks, created_by)
+             VALUES (?,?,?,?,?)`,
+            [itemId, progressDate, progressPercent, remarks, uid]
         );
         const completed = progressPercent >= 100 ? 1 : 0;
         await pool.query(
@@ -509,7 +629,7 @@ router.post('/:itemId/progress', async (req, res) => {
             [progressPercent, completed, completed, progressDate, itemId, projectId]
         );
         const [rows] = await pool.query(
-            `SELECT id, progress_date AS progressDate, progress_percent AS progressPercent, remarks, created_at AS createdAt
+            `SELECT id, progress_date AS progressDate, progress_percent AS progressPercent, remarks, created_at AS createdAt, created_by AS createdBy
              FROM project_bq_progress_logs WHERE id = ?`,
             [insert.insertId]
         );

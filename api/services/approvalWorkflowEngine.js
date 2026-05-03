@@ -105,6 +105,9 @@ async function ensureTables() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await runSafe(
+      `ALTER TABLE approval_workflow_definitions ADD COLUMN IF NOT EXISTS link_template TEXT`
+    );
   } else {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS approval_workflow_definitions (
@@ -180,6 +183,12 @@ async function ensureTables() {
         CONSTRAINT fk_awf_act_req FOREIGN KEY (request_id) REFERENCES approval_requests(request_id) ON DELETE CASCADE
       )
     `);
+    try {
+      await pool.query(`ALTER TABLE approval_workflow_definitions ADD COLUMN link_template TEXT NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (e?.code !== 'ER_DUP_FIELDNAME' && !msg.includes('Duplicate column')) throw e;
+    }
   }
 
   tablesEnsured = true;
@@ -254,6 +263,7 @@ async function updateDefinition(definitionId, patch) {
     name: nameIn,
     active: activeIn,
     steps: stepsIn,
+    link_template: linkTemplateIn,
   } = patch;
 
   const now = new Date();
@@ -275,15 +285,33 @@ async function updateDefinition(definitionId, patch) {
     }
     const nextName = nameIn !== undefined ? nameIn : existing.name;
     const nextActive = activeIn !== undefined ? activeIn !== false && activeIn !== 0 : existingActive;
-    if (isPostgres) {
+    const nextLink =
+      linkTemplateIn !== undefined
+        ? linkTemplateIn === '' || linkTemplateIn === null
+          ? null
+          : String(linkTemplateIn).trim() || null
+        : undefined;
+    if (nextLink === undefined) {
+      if (isPostgres) {
+        await pool.query(
+          `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+          [nextName || null, nextActive, now, id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
+          [nextName || null, nextActive ? 1 : 0, now, id]
+        );
+      }
+    } else if (isPostgres) {
       await pool.query(
-        `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
-        [nextName || null, nextActive, now, id]
+        `UPDATE approval_workflow_definitions SET name = ?, active = ?, link_template = ?, updated_at = ? WHERE definition_id = ?`,
+        [nextName || null, nextActive, nextLink, now, id]
       );
     } else {
       await pool.query(
-        `UPDATE approval_workflow_definitions SET name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
-        [nextName || null, nextActive ? 1 : 0, now, id]
+        `UPDATE approval_workflow_definitions SET name = ?, active = ?, link_template = ?, updated_at = ? WHERE definition_id = ?`,
+        [nextName || null, nextActive ? 1 : 0, nextLink, now, id]
       );
     }
     return getDefinitionById(id);
@@ -294,6 +322,14 @@ async function updateDefinition(definitionId, patch) {
   const ver = versionIn != null ? Number(versionIn) : existingVersion;
   const nm = nameIn !== undefined ? nameIn : existing.name;
   const nextActiveFull = activeIn !== undefined ? activeIn !== false && activeIn !== 0 : existingActive;
+  const nextLinkFull =
+    linkTemplateIn !== undefined
+      ? linkTemplateIn === '' || linkTemplateIn === null
+        ? null
+        : String(linkTemplateIn).trim() || null
+      : existing.link_template != null
+        ? String(existing.link_template).trim() || null
+        : null;
 
   const dup = firstRow(
     await pool.query(
@@ -309,13 +345,13 @@ async function updateDefinition(definitionId, patch) {
 
   if (isPostgres) {
     await pool.query(
-      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
-      [et, cd, ver, nm || null, nextActiveFull, now, id]
+      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, link_template = ?, updated_at = ? WHERE definition_id = ?`,
+      [et, cd, ver, nm || null, nextActiveFull, nextLinkFull, now, id]
     );
   } else {
     await pool.query(
-      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, updated_at = ? WHERE definition_id = ?`,
-      [et, cd, ver, nm || null, nextActiveFull ? 1 : 0, now, id]
+      `UPDATE approval_workflow_definitions SET entity_type = ?, code = ?, version = ?, name = ?, active = ?, link_template = ?, updated_at = ? WHERE definition_id = ?`,
+      [et, cd, ver, nm || null, nextActiveFull ? 1 : 0, nextLinkFull, now, id]
     );
   }
 
@@ -338,21 +374,36 @@ async function updateDefinition(definitionId, patch) {
   return getDefinitionById(id);
 }
 
-async function createDefinition({ entity_type, code = 'default', version = 1, name, active = true, steps = [] }) {
+async function createDefinition({ entity_type, code = 'default', version = 1, name, active = true, steps = [], link_template = null }) {
   await ensureReady();
   const now = new Date();
+  const linkVal =
+    link_template === '' || link_template === null || link_template === undefined
+      ? null
+      : String(link_template).trim() || null;
   let definitionId;
   if (isPostgres) {
     const ins = await pool.query(
-      `INSERT INTO approval_workflow_definitions (entity_type, code, version, name, active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING definition_id`,
-      [entity_type, code, version, name || null, active, now, now]
+      `INSERT INTO approval_workflow_definitions (entity_type, code, version, name, active, link_template, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING definition_id`,
+      [entity_type, code, version, name || null, active, linkVal, now, now]
     );
     definitionId = firstRow(ins)?.definition_id;
   } else {
     const [res] = await pool.query(
       'INSERT INTO approval_workflow_definitions SET ?',
-      [{ entity_type, code, version, name: name || null, active: active ? 1 : 0, created_at: now, updated_at: now }]
+      [
+        {
+          entity_type,
+          code,
+          version,
+          name: name || null,
+          active: active ? 1 : 0,
+          link_template: linkVal,
+          created_at: now,
+          updated_at: now,
+        },
+      ]
     );
     definitionId = res.insertId;
   }
@@ -522,16 +573,70 @@ async function startRequest({ entityType, entityId, definitionId, submittedBy, p
   return getRequestDetail(requestId);
 }
 
+/**
+ * Enrich step rows with human-readable signer + role for completed approvals (PDF / UI).
+ */
+async function attachSignerDetailsToSteps(requestId, steps) {
+  if (!steps || !steps.length) return steps;
+  const sql = isPostgres
+    ? `SELECT si.instance_id AS "instanceId",
+              NULLIF(TRIM(CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, ''))), '') AS "signerFullName",
+              NULLIF(TRIM(r.name), '') AS "stepApproverRoleName"
+       FROM approval_step_instances si
+       LEFT JOIN users u ON u.userid = si.completed_by
+       LEFT JOIN roles r ON r.roleid = si.role_id
+       WHERE si.request_id = ? AND si.status = 'approved'`
+    : `SELECT si.instance_id AS instanceId,
+              NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), '') AS signerFullName,
+              NULLIF(TRIM(r.roleName), '') AS stepApproverRoleName
+       FROM approval_step_instances si
+       LEFT JOIN users u ON u.userId = si.completed_by
+       LEFT JOIN roles r ON r.roleId = si.role_id
+       WHERE si.request_id = ? AND si.status = 'approved'`;
+  let rows = [];
+  try {
+    rows = rowsFromResult(await pool.query(sql, [requestId]));
+  } catch (e) {
+    console.warn('attachSignerDetailsToSteps: join failed (users/roles schema?)', e.message);
+    return steps;
+  }
+  const byInstance = new Map(
+    rows.map((row) => {
+      const iid = row.instanceId ?? row.instance_id;
+      return [Number(iid), row];
+    })
+  );
+  return steps.map((s) => {
+    const iid = Number(s.instance_id ?? s.instanceId);
+    const extra = byInstance.get(iid);
+    if (!extra) return s;
+    const signer =
+      extra.signerFullName ??
+      extra.signerfullname ??
+      (typeof extra.signer_full_name === 'string' ? extra.signer_full_name : null);
+    const roleNm =
+      extra.stepApproverRoleName ??
+      extra.stepapproverrolename ??
+      (typeof extra.step_approver_role_name === 'string' ? extra.step_approver_role_name : null);
+    return {
+      ...s,
+      signerFullName: signer || null,
+      stepApproverRoleName: roleNm || null,
+    };
+  });
+}
+
 async function getRequestDetail(requestId) {
   await ensureReady();
   const reqRow = firstRow(await pool.query('SELECT * FROM approval_requests WHERE request_id = ?', [requestId]));
   if (!reqRow) return null;
-  const steps = rowsFromResult(
+  const stepsRaw = rowsFromResult(
     await pool.query(
       'SELECT * FROM approval_step_instances WHERE request_id = ? ORDER BY step_order ASC',
       [requestId]
     )
   );
+  const steps = await attachSignerDetailsToSteps(requestId, stepsRaw);
   const actions = rowsFromResult(
     await pool.query('SELECT * FROM approval_actions WHERE request_id = ? ORDER BY created_at ASC', [requestId])
   );
@@ -670,9 +775,10 @@ async function listPendingForUser(user) {
   const roleId = user.roleId != null ? Number(user.roleId) : -1;
   const r = await pool.query(
     `
-    SELECT r.*, si.instance_id, si.step_order, si.step_name, si.due_at
+    SELECT r.*, si.instance_id, si.step_order, si.step_name, si.due_at, d.link_template AS link_template
     FROM approval_requests r
     JOIN approval_step_instances si ON si.request_id = r.request_id AND si.status = 'pending'
+    JOIN approval_workflow_definitions d ON d.definition_id = r.definition_id
     WHERE r.status = 'pending' AND si.role_id = ?
     ORDER BY r.created_at ASC
   `,
@@ -743,6 +849,7 @@ async function seedAnnualWorkplanExample() {
     version: 1,
     name: 'Annual work plan (default)',
     active: true,
+    link_template: '/strategic-planning?focusWorkplan={{entity_id}}',
     steps: [
       { step_order: 1, step_name: 'Level 1 review', role_id: r1, sla_hours: 72, escalation_role_id: r2 },
       { step_order: 2, step_name: 'Level 2 review', role_id: r2, sla_hours: 120, escalation_role_id: null },
@@ -786,6 +893,7 @@ async function seedPaymentRequestExample() {
     version: 1,
     name: 'Payment request (generic example)',
     active: true,
+    link_template: '/projects?focusPaymentRequest={{entity_id}}',
     steps: [
       { step_order: 1, step_name: 'Departmental review', role_id: r1, sla_hours: 48, escalation_role_id: r2 },
       { step_order: 2, step_name: 'Finance review', role_id: r2, sla_hours: 72, escalation_role_id: r3 },

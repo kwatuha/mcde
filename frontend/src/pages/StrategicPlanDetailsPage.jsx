@@ -36,6 +36,8 @@ import {
 import { downloadStrategicPlanExcel } from '../utils/exportStrategicPlanExcel';
 // Labels
 import strategicPlanningLabels from '../configs/strategicPlanningLabels';
+import { ROUTES } from '../configs/appConfig';
+import { resolveWorkflowNavigationPath } from '../utils/workflowNavigation';
 
 
 function StrategicPlanDetailsPage() {
@@ -162,14 +164,36 @@ function StrategicPlanDetailsPage() {
     setMyPendingLoading(true);
     try {
       const rows = await apiService.approvalWorkflow.listPendingForMe();
-      const list = Array.isArray(rows) ? rows : [];
-      setMyPendingSteps(list.filter((r) => r.entity_type === 'annual_workplan'));
+      setMyPendingSteps(Array.isArray(rows) ? rows : []);
     } catch {
       setMyPendingSteps([]);
     } finally {
       setMyPendingLoading(false);
     }
   }, []);
+
+  const openPendingItemContext = useCallback(
+    (row) => {
+      const path = resolveWorkflowNavigationPath(row);
+      const et = row?.entity_type;
+      const eid = row?.entity_id;
+      if (et === 'annual_workplan' && eid != null && path.includes('focusWorkplan=')) {
+        const wid = String(eid);
+        const wp = (annualWorkPlans || []).find((w) => String(w.workplanId) === wid);
+        if (wp) {
+          const sub = (subprograms || []).find((s) => String(s.subProgramId) === String(wp.subProgramId));
+          if (sub) {
+            setSelectedSubprogram(sub);
+            setWorkplanApprovalSelected(wp);
+            setOpenWorkplansDialog(true);
+            return;
+          }
+        }
+      }
+      navigate(path);
+    },
+    [annualWorkPlans, subprograms, navigate]
+  );
 
   useEffect(() => {
     if (pendingAccordionOpen) {
@@ -195,7 +219,14 @@ function StrategicPlanDetailsPage() {
     switch (dialogType) {
       case 'strategicPlan': return <StrategicPlanForm {...commonFormProps} />;
       case 'program': return <ProgramForm {...commonFormProps} />;
-      case 'subprogram': return <SubprogramForm {...commonFormProps} readOnly={isViewMode} />;
+      case 'subprogram':
+        return (
+          <SubprogramForm
+            key={formData.subProgramId ?? `new-${formData.programId ?? 'sp'}`}
+            {...commonFormProps}
+            readOnly={isViewMode}
+          />
+        );
       case 'workplan': return <AnnualWorkPlanForm {...commonFormProps} />;
       default: return <Typography>No form available for this type.</Typography>;
     }
@@ -401,8 +432,7 @@ function StrategicPlanDetailsPage() {
                       <TableHead sx={{ '& .MuiTableCell-root': { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, fontWeight: 'bold', borderBottom: 'none' } }}>
                         <TableRow>
                           <TableCell>{strategicPlanningLabels.subprogram.fields.subProgramme}</TableCell>
-                          <TableCell>{strategicPlanningLabels.subprogram.fields.kpi}</TableCell>
-                            <TableCell>{strategicPlanningLabels.subprogram.fields.unitOfMeasure}</TableCell>
+                          <TableCell>{strategicPlanningLabels.subprogram.fields.planningIndicator}</TableCell>
                             <TableCell>{strategicPlanningLabels.subprogram.fields.baseline}</TableCell>
                           <TableCell>{strategicPlanningLabels.subprogram.fields.totalBudget}</TableCell>
                           <TableCell align="right">Actions</TableCell>
@@ -415,8 +445,13 @@ function StrategicPlanDetailsPage() {
                             .map((subprogram) => (
                               <TableRow key={subprogram.subProgramId}>
                                 <TableCell>{subprogram.subProgramme || '—'}</TableCell>
-                                <TableCell>{subprogram.kpi || '—'}</TableCell>
-                                <TableCell>{subprogram.unitOfMeasure || '—'}</TableCell>
+                                <TableCell>
+                                  {subprogram.kpi
+                                    ? `${subprogram.kpi}${
+                                        subprogram.unitOfMeasure ? ` · ${subprogram.unitOfMeasure}` : ''
+                                      }`
+                                    : '—'}
+                                </TableCell>
                                 <TableCell>{subprogram.baseline || '—'}</TableCell>
                                 <TableCell>{formatCurrency(subprogram.totalBudget) || '—'}</TableCell>
                                 <TableCell align="right">
@@ -472,8 +507,8 @@ function StrategicPlanDetailsPage() {
                               </TableRow>
                             ))
                         ) : (
-                          <TableRow>
-                            <TableCell colSpan={6}>
+                            <TableRow>
+                            <TableCell colSpan={5}>
                               <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                                 No sub-programs available for this program.
                               </Typography>
@@ -636,25 +671,33 @@ function StrategicPlanDetailsPage() {
           {myPendingLoading ? (
             <CircularProgress size={22} />
           ) : myPendingSteps.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No pending work plan steps for your role.</Typography>
+            <Typography variant="body2" color="text.secondary">No pending workflow steps for your role on this plan.</Typography>
           ) : (
             <TableContainer component={Paper} variant="outlined">
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Request</TableCell>
-                    <TableCell>Work plan ID</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Item ID</TableCell>
                     <TableCell>Step</TableCell>
                     <TableCell>Due</TableCell>
+                    <TableCell align="right">Open</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {myPendingSteps.map((row) => (
                     <TableRow key={`${row.request_id}-${row.instance_id ?? row.step_order}`} hover>
                       <TableCell>{row.request_id}</TableCell>
+                      <TableCell>{row.entity_type || '—'}</TableCell>
                       <TableCell>{row.entity_id}</TableCell>
                       <TableCell>{row.step_name || row.step_order}</TableCell>
                       <TableCell>{row.due_at ? new Date(row.due_at).toLocaleString() : '—'}</TableCell>
+                      <TableCell align="right">
+                        <Button size="small" variant="outlined" onClick={() => openPendingItemContext(row)}>
+                          Open
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -662,7 +705,7 @@ function StrategicPlanDetailsPage() {
             </TableContainer>
           )}
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-            Open the sub-program work plans dialog and select the work plan row to approve or reject.
+            For work plans on this CIDP, Open jumps to the work plan approval dialog. Other types go to Projects or Strategic Planning.
           </Typography>
         </AccordionDetails>
       </Accordion>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   Alert,
@@ -24,15 +24,24 @@ import {
   Tooltip,
   Typography,
   Chip,
+  Collapse,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
   Download as DownloadIcon,
   UploadFile as UploadFileIcon,
+  FactCheck as FactCheckIcon,
+  PictureAsPdf as PictureAsPdfIcon,
 } from '@mui/icons-material';
+import apiService from '../api';
 import projectService from '../api/projectService';
+import { useAuth } from '../context/AuthContext.jsx';
+import ApprovalWorkflowPanel from './approval/ApprovalWorkflowPanel.jsx';
+import { workflowChipProps, workflowDetailLine } from '../utils/certificateWorkflowDisplay.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+/** Same emblem as the login page (county / GPRIS branding). */
+import countyLogoUrl from '../assets/gpris.png';
 
 const CERTIFICATE_TYPES = [
   'Interim Payment Certificate',
@@ -48,11 +57,45 @@ const CERT_DEFAULTS = {
   countyName: import.meta.env.VITE_CERT_COUNTY_NAME || '',
 };
 
+/** Parse `projectcertificate.certificateData` JSON for PDF regeneration. */
+function parseStoredCertificateData(cert) {
+  let data = {};
+  try {
+    const raw = cert.certificateData ?? cert.certificatedata;
+    if (typeof raw === 'string') data = JSON.parse(raw);
+    else if (raw && typeof raw === 'object') data = { ...raw };
+  } catch {
+    /* ignore */
+  }
+  return data;
+}
+
+function formFieldsFromCertificateRow(cert) {
+  return {
+    certType: cert.certType || cert.certtype || 'Interim Payment Certificate',
+    certSubType: cert.certSubType || cert.certsubtype || '',
+    certNumber: cert.certNumber || cert.certnumber || '',
+    progressStatus: cert.progressStatus || cert.progressstatus || '',
+    applicationStatus: cert.applicationStatus || cert.applicationstatus || 'pending',
+    requesterRemarks: cert.requesterRemarks || cert.requesterremarks || '',
+    requestDate: cert.requestDate || cert.requestdate
+      ? String(cert.requestDate || cert.requestdate).slice(0, 10)
+      : new Date().toISOString().slice(0, 10),
+  };
+}
+
+const CERTIFICATE_APPROVAL_ENTITY = 'project_certificate';
+
 const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
+  const { user } = useAuth();
+  /** Data URL for jsPDF `addImage` (preloaded from bundled asset). */
+  const countyLogoDataUrlRef = useRef(null);
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
+  const [workflowOpenForId, setWorkflowOpenForId] = useState(null);
+  const [pdfWithApprovalsBusyId, setPdfWithApprovalsBusyId] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [form, setForm] = useState({
@@ -101,6 +144,29 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   useEffect(() => {
     loadCertificates();
   }, [loadCertificates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(countyLogoUrl);
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = reject;
+          fr.readAsDataURL(blob);
+        });
+        if (!cancelled) countyLogoDataUrlRef.current = dataUrl;
+      } catch {
+        /* PDF works without logo */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const loadBqItems = async () => {
@@ -174,7 +240,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     return `PC-${projectId}-${year}-${padded}`;
   }, [certificates, projectId]);
 
-  const calculateCertificateAmounts = useCallback(() => {
+  const calculateCertificateAmounts = useCallback((draftSnapshot) => {
+    const d = draftSnapshot || draft;
     const parseMoney = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
     const rateLookup = taxRates.reduce((acc, row) => {
       acc[String(row.tax_type || '').toLowerCase()] = {
@@ -207,8 +274,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const computedRetentionAmount = totalExclusive * (retentionRate / 100);
     // VAT withholding is applied on work done (tax exclusive), not on VAT amount.
     const vatDeduction = totalExclusive * (vatWithholdingRate / 100);
-    const advanceRecovery = parseMoney(draft.advanceRecovery);
-    const previousCumulative = parseMoney(draft.previousCumulative);
+    const advanceRecovery = parseMoney(d.advanceRecovery);
+    const previousCumulative = parseMoney(d.previousCumulative);
     const computedInclusive = totalExclusive + computedVatAmount;
     const computedGross = computedInclusive - computedWithholdingAmount - vatDeduction - computedRetentionAmount;
     const computedNet = computedGross - advanceRecovery - previousCumulative;
@@ -230,15 +297,21 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       vatWithholdingRate,
       retentionRate,
     };
-  }, [bqItems, draft.advanceRecovery, draft.previousCumulative, taxRates]);
+  }, [bqItems, draft, taxRates]);
 
-  const createCertificatePdfFile = () => {
+  const createCertificatePdfFile = (params = {}) => {
+    const d = { ...draft, ...(params.draft || {}) };
+    const f = { ...form, ...(params.form || {}) };
+    const workflowDetail = params.workflowDetail ?? null;
+    const bqProgressAttribution = params.bqProgressAttribution ?? null;
+
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const margin = 40;
     const pageWidth = doc.internal.pageSize.getWidth();
-    const today = form.requestDate || new Date().toISOString().slice(0, 10);
-    const certNo = form.certNumber || suggestedCertificateNumber || 'N/A';
-    const title = draft.projectTitle || `Project #${projectId}`;
+    const pageH = doc.internal.pageSize.getHeight();
+    const today = f.requestDate || new Date().toISOString().slice(0, 10);
+    const certNo = f.certNumber || suggestedCertificateNumber || 'N/A';
+    const title = d.projectTitle || `Project #${projectId}`;
     const {
       normalizedBq,
       totalBqAmount,
@@ -256,34 +329,69 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       withholdingTaxRate,
       vatWithholdingRate,
       retentionRate,
-    } = calculateCertificateAmounts();
-    const contractSumValue = Number(String(draft.contractSum || '').replace(/,/g, '')) || 0;
+    } = calculateCertificateAmounts(d);
+    const contractSumValue = Number(String(d.contractSum || '').replace(/,/g, '')) || 0;
     const contractSumFormatted = contractSumValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    let y = 44;
+    const contractor = String(d.contractorName || '').trim();
+    const clientMinistry = String(d.clientMinistry || '').trim();
+
+    let y = 32;
+    const logoData = countyLogoDataUrlRef.current;
+    if (logoData) {
+      const lw = 68;
+      const lh = 68;
+      const lx = (pageWidth - lw) / 2;
+      try {
+        doc.addImage(logoData, 'PNG', lx, y, lw, lh);
+        y += lh + 12;
+      } catch {
+        y = 40;
+      }
+    } else {
+      y = 40;
+    }
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('REPUBLIC OF KENYA', pageWidth / 2, y, { align: 'center' });
     y += 18;
-    doc.text(draft.countyName || CERT_DEFAULTS.countyName || 'COUNTY GOVERNMENT', pageWidth / 2, y, { align: 'center' });
+    doc.text(d.countyName || CERT_DEFAULTS.countyName || 'COUNTY GOVERNMENT', pageWidth / 2, y, { align: 'center' });
     y += 18;
     doc.text(
-      (draft.issuingMinistry || 'MINISTRY / DEPARTMENT').toUpperCase(),
+      (d.issuingMinistry || 'MINISTRY / DEPARTMENT').toUpperCase(),
       pageWidth / 2,
       y,
       { align: 'center' }
     );
+    y += 16;
 
-    y += 24;
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    if (contractor) {
+      const line = `Contractor: ${contractor}`;
+      doc.splitTextToSize(line, pageWidth - margin * 2).forEach((ln) => {
+        doc.text(ln, margin, y);
+        y += 11;
+      });
+    }
+    if (clientMinistry) {
+      const line = `Client ministry / department: ${clientMinistry}`;
+      doc.splitTextToSize(line, pageWidth - margin * 2).forEach((ln) => {
+        doc.text(ln, margin, y);
+        y += 11;
+      });
+    }
+    y += 8;
+
     doc.setFontSize(10);
-    doc.text(`Ref No: ${draft.referenceNo || '-'}`, margin, y);
+    doc.text(`Ref No: ${d.referenceNo || '-'}`, margin, y);
     doc.text(`Date: ${today}`, pageWidth - margin, y, { align: 'right' });
 
     y += 20;
-    doc.text(`To: ${draft.recipientOffice || '-'}`, margin, y);
+    doc.text(`To: ${d.recipientOffice || '-'}`, margin, y);
     y += 14;
-    const recipientAddress = draft.recipientAddress || '-';
+    const recipientAddress = d.recipientAddress || '-';
     const wrappedAddress = doc.splitTextToSize(recipientAddress, pageWidth - margin * 2);
     doc.text(wrappedAddress, margin, y);
     y += wrappedAddress.length * 12 + 12;
@@ -291,9 +399,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     doc.setFont('helvetica', 'bold');
     doc.text(`RE: ${title.toUpperCase()}`, margin, y);
     y += 16;
-    doc.text(`TENDER NO: ${draft.tenderNo || '-'}`, margin, y);
+    doc.text(`TENDER NO: ${d.tenderNo || '-'}`, margin, y);
     y += 16;
-    doc.text(`${(form.certType || 'PAYMENT CERTIFICATE').toUpperCase()} NO. ${certNo}`, margin, y);
+    doc.text(`${(f.certType || 'PAYMENT CERTIFICATE').toUpperCase()} NO. ${certNo}`, margin, y);
     y += 18;
 
     doc.setFont('helvetica', 'normal');
@@ -313,8 +421,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
         [`Withholding Tax (${withholdingTaxRate.toFixed(2)}%)`, computedWithholdingAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
         [`VAT Deduction (${vatWithholdingRate.toFixed(2)}% of Work Done)`, vatDeduction.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
         [`Retention Amount (${retentionRate.toFixed(2)}%)`, computedRetentionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
-        ['Advance Recovery', draft.advanceRecovery || '0.00'],
-        ['Previous Cumulative Certificates', draft.previousCumulative || '0.00'],
+        ['Advance Recovery', d.advanceRecovery || '0.00'],
+        ['Previous Cumulative Certificates', d.previousCumulative || '0.00'],
         ['Gross Amount', computedGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
         ['Net Amount Due', computedNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
       ],
@@ -365,30 +473,203 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       y += 24;
     }
 
+    const lineHg = 11;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(55, 65, 81);
+    const att = bqProgressAttribution;
+    const attName = att?.fullName || att?.full_name || '';
+    const attRole = att?.roleName || att?.role_name || '';
+    const attAct = att?.activityName || att?.activity_name || '';
+    const attPct = att?.progressPercent ?? att?.progress_percent;
+    const attProgDate = att?.progressDate || att?.progress_date;
+    const attRec = att?.recordedAt || att?.recorded_at;
+    const progDateStr = attProgDate ? new Date(attProgDate).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
+    const recDateStr = attRec ? new Date(attRec).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
+    const flushAttLines = (text) => {
+      doc.splitTextToSize(text, pageWidth - margin * 2).forEach((ln) => {
+        if (y > pageH - 48) {
+          doc.addPage();
+          y = 44;
+        }
+        doc.text(ln, margin, y);
+        y += lineHg;
+      });
+    };
+    if (att && attName) {
+      const rolePart = attRole ? ` (${attRole})` : '';
+      const pctTxt = attPct != null && attPct !== '' ? `${Number(attPct).toFixed(2)}%` : '—';
+      flushAttLines(
+        `Progress assessed by: ${attName}${rolePart}. BQ line: ${attAct || '—'}. Completion ${pctTxt} as at ${progDateStr || '—'}, recorded electronically ${recDateStr || '—'}.`
+      );
+    } else if (att && !attName) {
+      const pctTxt = attPct != null && attPct !== '' ? `${Number(attPct).toFixed(2)}%` : '—';
+      flushAttLines(
+        `Progress: latest BQ entry (${pctTxt}, ${attAct || 'BQ item'}, dated ${progDateStr || '—'}) predates user attribution. Save a new dated progress entry on the BQ tab to record who confirmed progress on the certificate.`
+      );
+    } else {
+      flushAttLines(
+        'Progress assessed by: no dated BQ progress history found for this project. Record progress on the Bill of Quantities tab before generating this certificate.'
+      );
+    }
+    doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'normal');
-    const contractor = draft.contractorName || '-';
-    const clientMinistry = draft.clientMinistry || '-';
-    doc.text(`Contractor: ${contractor}`, margin, y);
-    y += 14;
-    doc.text(`Client Ministry/Department: ${clientMinistry}`, margin, y);
-    y += 14;
-    doc.text(`Remarks: ${form.requesterRemarks || '-'}`, margin, y);
-    y += 28;
-    doc.text('Prepared by: ___________________________', margin, y);
-    doc.text('Approved by: ___________________________', margin + 240, y);
+    doc.setFontSize(10);
+    y += 6;
+
+    doc.text(`Remarks: ${f.requesterRemarks || '-'}`, margin, y);
+    y += 22;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('Prepared by', margin, y);
+    y += 12;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text('___________________________', margin, y);
+    y += 22;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('ELECTRONIC APPROVALS', margin, y);
+    y += 10;
+
+    const wfSteps = (workflowDetail?.steps || [])
+      .slice()
+      .sort(
+        (a, b) =>
+          (Number(a.step_order ?? a.stepOrder) || 0) - (Number(b.step_order ?? b.stepOrder) || 0)
+      );
+
+    const statusLower = (s) => String(s.status || '').toLowerCase();
+
+    let approvalBodyRows;
+    if (wfSteps.length > 0) {
+      approvalBodyRows = wfSteps.map((s) => {
+        const ord = s.step_order ?? s.stepOrder;
+        const nm = s.step_name || s.stepName || 'Step';
+        const stepLabel =
+          ord !== '' && ord != null && !Number.isNaN(Number(ord)) ? `${ord}. ${nm}` : nm;
+        const role = s.stepApproverRoleName || s.step_approver_role_name || '—';
+        const st = statusLower(s);
+        let approvedBy = '—';
+        let dateStr = '—';
+        if (st === 'approved') {
+          approvedBy = s.signerFullName || s.signer_full_name || '—';
+          const rawDt = s.completed_at || s.completedAt;
+          dateStr = rawDt
+            ? new Date(rawDt).toLocaleDateString(undefined, { dateStyle: 'medium' })
+            : '—';
+        } else if (st === 'pending') {
+          approvedBy = 'Pending (electronic)';
+        } else if (st === 'waiting') {
+          approvedBy = 'Awaiting prior steps';
+        } else if (st === 'rejected') {
+          approvedBy = 'Rejected (electronic)';
+          const rawDt = s.completed_at || s.completedAt;
+          dateStr = rawDt
+            ? new Date(rawDt).toLocaleDateString(undefined, { dateStyle: 'medium' })
+            : '—';
+        }
+        return [stepLabel, role, approvedBy, dateStr, ''];
+      });
+    } else {
+      approvalBodyRows = [
+        ['—', '—', 'No approval workflow attached for this certificate yet.', '—', ''],
+      ];
+    }
+
+    if (y > pageH - 100) {
+      doc.addPage();
+      y = 44;
+    }
+
+    autoTable(doc, {
+      startY: y,
+      theme: 'grid',
+      head: [['STEP', 'ROLE', 'APPROVED BY (ELECTRONIC)', 'DATE', 'SIGNATURE']],
+      body: approvalBodyRows,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', minCellHeight: 26 },
+      headStyles: { fillColor: [80, 80, 80], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 70 },
+        2: { cellWidth: 110 },
+        3: { cellWidth: 64 },
+        4: { cellWidth: 84 },
+      },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.column.index === 4) {
+          const c = data.cell;
+          doc.setDrawColor(170, 170, 170);
+          doc.setLineWidth(0.35);
+          const bottom = c.y + c.height - 4;
+          doc.line(c.x + 4, bottom, c.x + c.width - 4, bottom);
+        }
+      },
+    });
+
+    y = (doc.lastAutoTable?.finalY || y) + 6;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    doc.setTextColor(85, 85, 85);
+    doc.text(
+      'Sign in the Signature column on the physical copy where required. Regenerate this PDF after further electronic approvals to refresh the table.',
+      margin,
+      y
+    );
+    doc.setTextColor(0, 0, 0);
 
     const blob = doc.output('blob');
     const safeCertNo = String(certNo).replace(/[^a-zA-Z0-9-_]/g, '_');
     return new File([blob], `payment-certificate-${safeCertNo}.pdf`, { type: 'application/pdf' });
   };
-  const handleGenerateDraftPdf = () => {
+  const handleGenerateDraftPdf = async () => {
     setError('');
     try {
-      const generated = createCertificatePdfFile();
+      let bqProgressAttribution = null;
+      try {
+        bqProgressAttribution = await projectService.bq.getLatestProgressAttribution(projectId);
+      } catch {
+        /* non-blocking */
+      }
+      const generated = createCertificatePdfFile({ workflowDetail: null, bqProgressAttribution });
       setGeneratedPdfFile(generated);
       setMessage('Certificate PDF draft generated. Save to upload it.');
     } catch (err) {
       setError(err?.message || 'Failed to generate certificate PDF draft.');
+    }
+  };
+
+  const handleGeneratePdfWithApprovals = async (cert) => {
+    const cid = cert.certificateId ?? cert.certificateid;
+    if (cid == null) return;
+    setPdfWithApprovalsBusyId(cid);
+    setError('');
+    try {
+      const [workflowDetail, bqProgressAttribution] = await Promise.all([
+        apiService.approvalWorkflow
+          .getByEntity(CERTIFICATE_APPROVAL_ENTITY, String(cid))
+          .catch((e) => {
+            if (e?.response?.status === 404) return null;
+            throw e;
+          }),
+        projectService.bq.getLatestProgressAttribution(projectId).catch(() => null),
+      ]);
+      const stored = { ...draft, ...parseStoredCertificateData(cert) };
+      const f = formFieldsFromCertificateRow(cert);
+      const file = createCertificatePdfFile({ draft: stored, form: f, workflowDetail, bqProgressAttribution });
+      const blobUrl = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+      setMessage('PDF with current approval signatures downloaded.');
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to generate PDF with approvals.');
+    } finally {
+      setPdfWithApprovalsBusyId(null);
     }
   };
 
@@ -494,7 +775,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             Payment Certificates
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Upload certificates used to request payment for completed work.
+            Upload certificates used to request payment for completed work. Use the PDF icon on a row to download a
+            certificate PDF that lists completed approval steps with signer name, role, and date.
           </Typography>
         </Box>
         {canModify && (
@@ -529,49 +811,109 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 <TableRow>
                   <TableCell>Cert Number</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>Application</TableCell>
+                  <TableCell>Workflow</TableCell>
                   <TableCell>Request Date</TableCell>
                   <TableCell>Source</TableCell>
                   <TableCell>File</TableCell>
+                  <TableCell align="center">Approval</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {certificates.map((cert) => (
-                  <TableRow key={cert.certificateId}>
-                    <TableCell>{cert.certNumber || '-'}</TableCell>
-                    <TableCell>{cert.certType || '-'}</TableCell>
-                    <TableCell>{cert.applicationStatus || '-'}</TableCell>
-                    <TableCell>{cert.requestDate ? String(cert.requestDate).slice(0, 10) : '-'}</TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        label={getUploadSource(cert) === 'generated' ? 'Generated' : 'Attached'}
-                        color={getUploadSource(cert) === 'generated' ? 'success' : 'default'}
-                        variant={getUploadSource(cert) === 'generated' ? 'filled' : 'outlined'}
-                      />
-                    </TableCell>
-                    <TableCell>{cert.fileName || 'attachment'}</TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Download">
-                        <IconButton onClick={() => handleDownload(cert)} size="small" color="primary">
-                          <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {canModify && (
-                        <Tooltip title="Delete">
-                          <IconButton
-                            onClick={() => handleDelete(cert.certificateId)}
+                {certificates.map((cert) => {
+                  const cid = cert.certificateId ?? cert.certificateid ?? cert.id;
+                  const approvalOpen = workflowOpenForId === cid;
+                  return (
+                    <Fragment key={cid}>
+                      <TableRow>
+                        <TableCell>{cert.certNumber || '-'}</TableCell>
+                        <TableCell>{cert.certType || '-'}</TableCell>
+                        <TableCell>{cert.applicationStatus || '-'}</TableCell>
+                        <TableCell>
+                          <Tooltip title={workflowDetailLine(cert)} placement="top" enterDelay={400}>
+                            <Chip size="small" variant="outlined" {...workflowChipProps(cert)} />
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>{cert.requestDate ? String(cert.requestDate).slice(0, 10) : '-'}</TableCell>
+                        <TableCell>
+                          <Chip
                             size="small"
-                            color="error"
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                            label={getUploadSource(cert) === 'generated' ? 'Generated' : 'Attached'}
+                            color={getUploadSource(cert) === 'generated' ? 'success' : 'default'}
+                            variant={getUploadSource(cert) === 'generated' ? 'filled' : 'outlined'}
+                          />
+                        </TableCell>
+                        <TableCell>{cert.fileName || 'attachment'}</TableCell>
+                        <TableCell align="center">
+                          <Tooltip title={approvalOpen ? 'Hide approval' : 'Submit or track approval'}>
+                            <IconButton
+                              size="small"
+                              color={approvalOpen ? 'primary' : 'default'}
+                              onClick={() => setWorkflowOpenForId(approvalOpen ? null : cid)}
+                              aria-expanded={approvalOpen}
+                              aria-label="Certificate approval workflow"
+                            >
+                              <FactCheckIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="PDF with approvals (name, role, date per completed step)">
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="secondary"
+                                disabled={pdfWithApprovalsBusyId === cid}
+                                onClick={() => handleGeneratePdfWithApprovals(cert)}
+                                aria-label="Download PDF including workflow approvals"
+                              >
+                                {pdfWithApprovalsBusyId === cid ? (
+                                  <CircularProgress color="inherit" size={18} />
+                                ) : (
+                                  <PictureAsPdfIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title="Download stored file">
+                            <IconButton onClick={() => handleDownload(cert)} size="small" color="primary">
+                              <DownloadIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          {canModify && (
+                            <Tooltip title="Delete">
+                              <IconButton
+                                onClick={() => handleDelete(cid)}
+                                size="small"
+                                color="error"
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={9} sx={{ py: 0, borderBottom: approvalOpen ? undefined : 'none' }}>
+                          <Collapse in={approvalOpen} timeout="auto" unmountOnExit>
+                            <Box sx={{ py: 1.5, px: 1, bgcolor: 'background.default' }}>
+                              <ApprovalWorkflowPanel
+                                entityType={CERTIFICATE_APPROVAL_ENTITY}
+                                entityId={String(cid)}
+                                user={user}
+                                compact
+                                onChanged={() => {
+                                  loadCertificates();
+                                }}
+                              />
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
@@ -690,7 +1032,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 BQ-based payable summary in PDF uses current BQ items ({bqItems.length} rows). Amount per row = Budget x % Complete.
               </Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                Applied rates for {form.requestDate || 'today'} -> VAT: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.rate_percent || 0).toFixed(2)}%, Withholding Tax: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'withholding_tax')?.rate_percent || 0).toFixed(2)}%, VAT Withholding: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.withholding_rate || 0).toFixed(2)}%, Retention: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'retention')?.rate_percent || 0).toFixed(2)}%.
+                Applied rates for {form.requestDate || 'today'}
+                {' '}
+                → VAT: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.rate_percent || 0).toFixed(2)}%, Withholding Tax: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'withholding_tax')?.rate_percent || 0).toFixed(2)}%, VAT Withholding: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'vat')?.withholding_rate || 0).toFixed(2)}%, Retention: {Number(taxRates.find((r) => String(r.tax_type).toLowerCase() === 'retention')?.rate_percent || 0).toFixed(2)}%.
               </Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                 Financial totals are auto-generated from BQ progress and active tax rates.

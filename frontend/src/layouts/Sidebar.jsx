@@ -56,6 +56,9 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import CategoryIcon from '@mui/icons-material/Category';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import DescriptionIcon from '@mui/icons-material/Description';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+import StraightenIcon from '@mui/icons-material/Straighten';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -91,6 +94,9 @@ const ICON_MAP = {
   ApartmentIcon,
   CategoryIcon,
   MenuBookIcon,
+  DescriptionIcon,
+  ShowChartIcon,
+  StraightenIcon,
 };
 
 const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {
@@ -274,8 +280,9 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   const location = useLocation();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
-  const [selected, setSelected] = useState(location.pathname);
-  const previousPathnameRef = useRef(location.pathname);
+  const fullPath = `${location.pathname}${location.search || ''}`;
+  const [selected, setSelected] = useState(fullPath);
+  const previousFullPathRef = useRef(fullPath);
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isAdminLike = isAdmin(user);
   
@@ -337,20 +344,14 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
       });
   }, [selectedCategory, hasPrivilege, user]);
   
-  // Update selected state when route changes - use ref to prevent infinite loops
+  // Update selected state when route changes (pathname + query for e.g. planning indicators section)
   useEffect(() => {
-    const currentPath = location.pathname;
-    if (currentPath !== previousPathnameRef.current) {
-      previousPathnameRef.current = currentPath;
-      // Use functional update to avoid dependency on setSelected
-      setSelected(prev => {
-        if (prev !== currentPath) {
-          return currentPath;
-        }
-        return prev;
-      });
+    const currentFull = `${location.pathname}${location.search || ''}`;
+    if (currentFull !== previousFullPathRef.current) {
+      previousFullPathRef.current = currentFull;
+      setSelected((prev) => (prev !== currentFull ? currentFull : prev));
     }
-  }, [location.pathname]); // Only depend on pathname
+  }, [location.pathname, location.search]);
 
   // Organized menu groups
   const dashboardItems = [

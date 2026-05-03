@@ -14,7 +14,8 @@ const routeTitles = {
   '/project-analytics': { title: 'Project Analytics', subtitle: 'Performance Metrics & Statistics' },
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },
   '/project-by-sector-dashboard': { title: 'Project By Sector', subtitle: 'Sector spread & registry alignment' },
-  
+  '/finance/payment-certificates': { title: 'Payment Certificates', subtitle: 'All projects' },
+
   // Reporting routes
   '/reports': { title: 'Reports', subtitle: 'Analytics & Insights' },
   '/view-reports': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
@@ -34,6 +35,10 @@ const routeTitles = {
   '/maps/import-data': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/map-data-import': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/strategic-planning': { title: 'CIDP', subtitle: 'County Integrated Development Plan' },
+  '/planning/indicators': {
+    title: 'Indicators & KPIs',
+    subtitle: 'Planning — measurement types, KPIs & indicators',
+  },
   '/budget-management': { title: 'ADP-Budget', subtitle: 'Annual Development Plan & budget containers' },
   '/strategic-planning/import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },
   '/strategic-data-import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },
@@ -69,9 +74,17 @@ export const usePageTitleEffect = () => {
 
   useEffect(() => {
     const path = location.pathname;
-    
+    const searchParams = new URLSearchParams(location.search || '');
+
     // Find exact match first (most specific routes first)
     let titleInfo = routeTitles[path];
+
+    if (path === '/planning/indicators' && searchParams.get('section') === 'measurement-types') {
+      titleInfo = {
+        title: 'Measurement types',
+        subtitle: 'Planning — units for KPIs, indicators & sub-program targets',
+      };
+    }
     
     // If no exact match, try to find partial matches
     // Sort routes by length (longest first) to match most specific routes first
@@ -137,7 +150,7 @@ export const usePageTitleEffect = () => {
     }
     
     updatePageTitle(titleInfo.title, titleInfo.subtitle);
-  }, [location.pathname, updatePageTitle]);
+  }, [location.pathname, location.search, updatePageTitle]);
 };
 
 

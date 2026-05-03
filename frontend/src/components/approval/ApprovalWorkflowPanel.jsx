@@ -4,6 +4,7 @@ import {
 } from '@mui/material';
 import apiService from '../../api';
 import { checkUserPrivilege } from '../../utils/helpers';
+import { isAdmin } from '../../utils/privilegeUtils.js';
 
 /**
  * Loads / drives generic approval workflow for a given entity (e.g. annual_workplan).
@@ -23,8 +24,16 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
       const d = await apiService.approvalWorkflow.getByEntity(entityType, entityId);
       setDetail(d);
     } catch (e) {
-      if (e.response?.status === 404) setDetail(null);
-      else setErr(e.response?.data?.message || e.message || 'Failed to load workflow');
+      if (e?.response?.status === 404) setDetail(null);
+      else {
+        const msg =
+          (e && typeof e === 'object' && (e.message || e.error)) ||
+          (typeof e === 'string' ? e : null) ||
+          e?.response?.data?.message ||
+          e?.message ||
+          'Failed to load workflow';
+        setErr(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -35,18 +44,28 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
   }, [load]);
 
   const canStart =
+    isAdmin(user) ||
     checkUserPrivilege(user, 'workplan.update') ||
     checkUserPrivilege(user, 'strategic_plan.update') ||
     checkUserPrivilege(user, 'subprogram.update') ||
-    checkUserPrivilege(user, 'approval_levels.update');
+    checkUserPrivilege(user, 'payment_request.update') ||
+    checkUserPrivilege(user, 'approval_levels.update') ||
+    checkUserPrivilege(user, 'document.create') ||
+    checkUserPrivilege(user, 'project.update') ||
+    checkUserPrivilege(user, 'project.create');
 
   const currentPending = detail?.steps?.find((s) => s.status === 'pending');
   const adminBypass = checkUserPrivilege(user, 'approval_levels.update');
-  const userRoleId = user?.roleId != null ? Number(user.roleId) : null;
+  const userRoleId =
+    user?.roleId != null
+      ? Number(user.roleId)
+      : user?.roleid != null
+        ? Number(user.roleid)
+        : null;
+  const stepRoleId = currentPending?.role_id ?? currentPending?.roleId;
   const canAct =
     currentPending &&
-    (adminBypass ||
-      (currentPending.role_id != null && userRoleId === Number(currentPending.role_id)));
+    (adminBypass || (stepRoleId != null && userRoleId != null && userRoleId === Number(stepRoleId)));
 
   const handleStart = async () => {
     setBusy(true);
@@ -55,7 +74,9 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
       await load();
       onChanged?.();
     } catch (e) {
-      setErr(e.response?.data?.message || e.message);
+      const msg =
+        (e && typeof e === 'object' && (e.message || e.error)) || (typeof e === 'string' ? e : null) || e?.message;
+      setErr(msg || 'Submit failed');
     } finally {
       setBusy(false);
     }
@@ -71,7 +92,9 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
       await load();
       onChanged?.();
     } catch (e) {
-      setErr(e.response?.data?.message || e.message);
+      const msg =
+        (e && typeof e === 'object' && (e.message || e.error)) || (typeof e === 'string' ? e : null) || e?.message;
+      setErr(msg || 'Approve failed');
     } finally {
       setBusy(false);
     }
@@ -87,7 +110,9 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
       await load();
       onChanged?.();
     } catch (e) {
-      setErr(e.response?.data?.message || e.message);
+      const msg =
+        (e && typeof e === 'object' && (e.message || e.error)) || (typeof e === 'string' ? e : null) || e?.message;
+      setErr(msg || 'Reject failed');
     } finally {
       setBusy(false);
     }
@@ -127,7 +152,9 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
       {!detail ? (
         <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            No active approval request for this item.
+            {canStart
+              ? 'Not submitted yet. Use the button below once an active workflow exists for this certificate type (e.g. entity type project_certificate in Approvals & workflows).'
+              : 'Not submitted yet. You need project create/update (or similar) rights to start approval, or ask someone who does.'}
           </Typography>
           {canStart && (
             <Button size="small" variant="contained" disabled={busy} onClick={handleStart}>
@@ -151,12 +178,42 @@ function ApprovalWorkflowPanel({ entityType, entityId, user, onChanged, compact 
             />
             <Chip size="small" variant="outlined" label={`Request #${rid}`} />
           </Stack>
-          {(detail.steps || []).map((s) => (
-            <Typography key={s.instance_id} variant="caption" display="block" color="text.secondary">
-              Step {s.step_order} ({s.step_name || '—'}): {s.status}
-              {s.due_at ? ` · due ${new Date(s.due_at).toLocaleString()}` : ''}
-            </Typography>
-          ))}
+          {(detail.steps || []).map((s) => {
+            const iid = s.instance_id ?? s.instanceId;
+            const isApproved = String(s.status || '').toLowerCase() === 'approved';
+            const signerBit = isApproved
+              ? ` · ${s.signerFullName || '—'}${s.stepApproverRoleName ? ` (${s.stepApproverRoleName})` : ''}${
+                  s.completed_at ? ` · ${new Date(s.completed_at).toLocaleDateString()}` : ''
+                }`
+              : '';
+            return (
+              <Typography key={iid} variant="caption" display="block" color="text.secondary">
+                Step {s.step_order} ({s.step_name || '—'}): {s.status}
+                {signerBit}
+                {s.due_at ? ` · due ${new Date(s.due_at).toLocaleString()}` : ''}
+                {s.comment ? ` · note: ${s.comment}` : ''}
+              </Typography>
+            );
+          })}
+          {(detail.actions || []).length > 0 && (
+            <>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" display="block" sx={{ mt: 1 }}>
+                Activity log
+              </Typography>
+              {(detail.actions || []).map((a) => (
+                <Typography
+                  key={a.action_id ?? `${a.created_at}-${a.action_type}`}
+                  variant="caption"
+                  display="block"
+                  color="text.secondary"
+                  sx={{ pl: 0.5, borderLeft: '2px solid', borderColor: 'divider', ml: 0.25, mb: 0.25 }}
+                >
+                  {a.created_at ? new Date(a.created_at).toLocaleString() : '—'} · {a.action_type || '—'}
+                  {a.comment ? ` — ${a.comment}` : ''}
+                </Typography>
+              ))}
+            </>
+          )}
           <Divider sx={{ my: 1 }} />
           {detail.request.status === 'pending' && canAct && (
             <>
