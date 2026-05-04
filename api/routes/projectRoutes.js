@@ -3,6 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const pool = require('../config/db'); // Import the database connection pool
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 const orgScope = require('../services/organizationScopeService');
 const multer = require('multer');
 const xlsx = require('xlsx');
@@ -5807,7 +5808,16 @@ router.post('/', validateProject, async (req, res) => {
             } else {
                 await connection.commit();
             }
-            
+
+            const displayName = project?.name || project?.projectName || project?.project_name;
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.PROJECT_CREATE,
+                entityType: 'project',
+                entityId: String(newProjectId),
+                details: { name: displayName || null },
+            });
+
             res.status(201).json(project || { id: newProjectId, message: 'Project created' });
         } catch (error) {
             if (DB_TYPE === 'postgresql') {
@@ -6162,6 +6172,16 @@ router.put('/:id', validateProject, async (req, res) => {
             const project = result.rows && result.rows.length > 0 ? result.rows[0] : null;
             
             await pool.query('COMMIT');
+
+            const displayName = project?.name || project?.projectName || project?.project_name;
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.PROJECT_UPDATE,
+                entityType: 'project',
+                entityId: String(id),
+                details: { name: displayName || null },
+            });
+
             res.status(200).json(project);
         } catch (error) {
             await pool.query('ROLLBACK');
@@ -6192,6 +6212,13 @@ router.delete('/:id', async (req, res) => {
             if (!result.rowCount) {
                 return res.status(404).json({ message: 'Project not found or already deleted' });
             }
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.PROJECT_DELETE,
+                entityType: 'project',
+                entityId: String(id),
+                details: { soft: true },
+            });
             return res.status(200).json({ message: 'Project soft-deleted successfully' });
         }
 
@@ -6204,6 +6231,13 @@ router.delete('/:id', async (req, res) => {
                 return res.status(404).json({ message: 'Project not found or already deleted' });
             }
             await connection.commit();
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.PROJECT_DELETE,
+                entityType: 'project',
+                entityId: String(id),
+                details: { soft: true },
+            });
             return res.status(200).json({ message: 'Project soft-deleted successfully' });
         } catch (error) {
             await connection.rollback();

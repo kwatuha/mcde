@@ -39,6 +39,7 @@ const ContractorManagementPage = lazy(() => import('./pages/ContractorManagement
 const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
 const DashboardConfigManager = lazy(() => import('./pages/DashboardConfigManager'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const AuditTrailPage = lazy(() => import('./pages/AuditTrailPage'));
 const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage'));
 const ApprovalLevelsManagementPage = lazy(() => import('./pages/ApprovalLevelsManagementPage'));
 const FeedbackManagementPage = lazy(() => import('./pages/FeedbackManagementPage'));
@@ -91,6 +92,10 @@ const router = createBrowserRouter([
       {
         path: 'admin',
         element: <LazyRoute component={AdminPage} />,
+      },
+      {
+        path: 'audit-trail',
+        element: <LazyRoute component={AuditTrailPage} />,
       },
       {
         path: 'contractor-dashboard',

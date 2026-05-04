@@ -13,11 +13,12 @@ import {
   Dashboard as DashboardIcon,
   Security as SecurityIcon,
   Settings as SettingsIcon,
-  People as PeopleIcon
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import { tokens } from '../../pages/dashboard/theme';
 import UserAccessControlManager from './UserAccessControlManager';
 import DashboardConfigManager from '../DashboardConfigManager';
+import AuditTrailViewer from './AuditTrailViewer';
 
 const AdminDashboard = () => {
   const theme = useTheme();
@@ -54,6 +55,11 @@ const AdminDashboard = () => {
               iconPosition="start"
             />
             <Tab 
+              label="Audit trail" 
+              icon={<HistoryIcon />} 
+              iconPosition="start"
+            />
+            <Tab 
               label="System Settings" 
               icon={<SettingsIcon />} 
               iconPosition="start"
@@ -70,8 +76,13 @@ const AdminDashboard = () => {
             <UserAccessControlManager />
           </TabPanel>
 
-          {/* System Settings Tab */}
+          {/* Audit trail */}
           <TabPanel value={activeTab} index={2}>
+            <AuditTrailViewer />
+          </TabPanel>
+
+          {/* System Settings Tab */}
+          <TabPanel value={activeTab} index={3}>
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <SettingsIcon sx={{ fontSize: 64, color: colors.grey[500], mb: 2 }} />
               <Typography variant="h6" color="textSecondary">

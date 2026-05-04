@@ -57,6 +57,7 @@ import WorkflowManagementPage from './pages/WorkflowManagementPage';
 import ApprovalLevelsManagementPage from './pages/ApprovalLevelsManagementPage';
 // ✨ NEW: Import the AdminPage component
 import AdminPage from './pages/AdminPage';
+import AuditTrailPage from './pages/AuditTrailPage';
 // ✨ NEW: Import the FeedbackManagementPage component
 import FeedbackManagementPage from './pages/FeedbackManagementPage';
 // ✨ NEW: Import the AbsorptionReport component
@@ -193,6 +194,10 @@ const router = createBrowserRouter([
       {
         path: 'admin',
         element: <AdminPage />,
+      },
+      {
+        path: 'audit-trail',
+        element: <AuditTrailPage />,
       },
       {
         path: 'contractor-dashboard',

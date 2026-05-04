@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const approvalWorkflowEngine = require('../services/approvalWorkflowEngine');
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads', 'projects');
 if (!fs.existsSync(baseUploadDir)) {
@@ -525,6 +526,18 @@ router.post('/upload', upload.single('document'), async (req, res) => {
             const [result] = await pool.query('INSERT INTO projectcertificate SET ?', payload);
             certificateId = result.insertId;
         }
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.CERTIFICATE_UPLOAD,
+            entityType: 'project',
+            entityId: String(projectId),
+            details: {
+                certificateId: certificateId != null ? String(certificateId) : null,
+                certNumber: certNumber || null,
+                certType: certType || null,
+                fileName: req.file?.originalname || null,
+            },
+        });
         res.status(201).json({
             certificateId,
             ...payload,
@@ -549,9 +562,20 @@ router.post('/', async (req, res) => {
     };
     try {
         const [result] = await pool.query('INSERT INTO projectcertificate SET ?', newCertificate);
-        if (result.insertId) {
+        if (result && result.insertId) {
             newCertificate.certificateId = result.insertId;
         }
+        const cid = newCertificate.certificateId ?? (result && result.insertId) ?? null;
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.CERTIFICATE_CREATE,
+            entityType: 'certificate',
+            entityId: cid != null ? String(cid) : null,
+            details: {
+                projectId: newCertificate.projectId != null ? String(newCertificate.projectId) : null,
+                certNumber: newCertificate.certNumber || null,
+            },
+        });
         res.status(201).json(newCertificate);
     } catch (error) {
         console.error('Error creating project certificate:', error);
@@ -570,6 +594,13 @@ router.put('/:id', async (req, res) => {
         const [result] = await pool.query('UPDATE projectcertificate SET ? WHERE certificateId = ?', [updatedFields, id]);
         if (result.affectedRows > 0) {
             const [rows] = await pool.query('SELECT * FROM projectcertificate WHERE certificateId = ?', [id]);
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.CERTIFICATE_UPDATE,
+                entityType: 'certificate',
+                entityId: String(id),
+                details: { fields: Object.keys(updatedFields || {}) },
+            });
             res.status(200).json(rows[0]);
         } else {
             res.status(404).json({ message: 'Project certificate not found' });
@@ -610,6 +641,13 @@ router.delete('/:id', async (req, res) => {
                     fs.unlinkSync(fullPath);
                 }
             }
+            void recordAudit({
+                req,
+                action: AUDIT_ACTIONS.CERTIFICATE_DELETE,
+                entityType: 'certificate',
+                entityId: String(id),
+                details: {},
+            });
             res.status(204).send();
         } else {
             res.status(404).json({ message: 'Project certificate not found' });

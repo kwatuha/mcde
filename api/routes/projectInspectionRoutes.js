@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const pool = require('../config/db');
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
 const router = express.Router();
 
@@ -180,6 +181,13 @@ router.post('/:projectId/inspections', async (req, res) => {
         }
         const rows = await getInspectionsForProject(projectId);
         const created = rows.find((r) => r.inspectionId === inspectionId);
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.INSPECTION_CREATE,
+            entityType: 'project',
+            entityId: String(projectId),
+            details: { inspectionId, inspectionDate },
+        });
         return res.status(201).json(created || { inspectionId });
     } catch (err) {
         console.error('Error creating inspection:', err);
@@ -227,6 +235,13 @@ router.put('/:projectId/inspections/:inspectionId', async (req, res) => {
         }
         const rows = await getInspectionsForProject(projectId);
         const updated = rows.find((r) => r.inspectionId === inspectionId);
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.INSPECTION_UPDATE,
+            entityType: 'inspection',
+            entityId: String(inspectionId),
+            details: { projectId, inspectionDate },
+        });
         return res.status(200).json(updated || { inspectionId });
     } catch (err) {
         console.error('Error updating inspection:', err);
@@ -263,6 +278,13 @@ router.post('/:projectId/inspections/:inspectionId/files', upload.array('files')
 
         const rows = await getInspectionsForProject(projectId);
         const updated = rows.find((r) => r.inspectionId === inspectionId);
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.INSPECTION_FILES_UPLOAD,
+            entityType: 'inspection',
+            entityId: String(inspectionId),
+            details: { projectId, fileCount: req.files.length, fileCategory },
+        });
         return res.status(200).json(updated || { inspectionId });
     } catch (err) {
         console.error('Error uploading inspection files:', err);

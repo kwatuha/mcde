@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
 const multer = require('multer');
@@ -217,6 +218,17 @@ router.post('/', auth, privilege(['document.create']), upload.array('documents')
         }
         
         await connection.commit();
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.DOCUMENT_UPLOAD,
+            entityType: 'project',
+            entityId: String(projectId),
+            details: {
+                fileCount: files.length,
+                documentType,
+                documentCategory,
+            },
+        });
         res.status(201).json({ message: 'Documents uploaded successfully.' });
 
     } catch (error) {
@@ -477,6 +489,13 @@ router.put('/:documentId', auth, privilege(['document.update']), async (req, res
             `UPDATE ${T_PROJECT_DOCUMENTS} SET ${sets.join(', ')} WHERE "id" = ? AND "voided" = false`,
             params
         );
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.DOCUMENT_UPDATE,
+            entityType: 'document',
+            entityId: String(documentId),
+            details: { hasDescription, hasFlag },
+        });
         res.status(200).json({ message: 'Document updated successfully.' });
     } catch (error) {
         console.error('Error updating document:', error);
@@ -499,6 +518,13 @@ router.delete('/:documentId', auth, privilege(['document.delete']), async (req, 
             `UPDATE ${T_PROJECT_DOCUMENTS} SET "voided" = true, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
             [documentId]
         );
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.DOCUMENT_DELETE,
+            entityType: 'document',
+            entityId: String(documentId),
+            details: { soft: true },
+        });
         res.status(200).json({ message: 'Document deleted successfully.' });
     } catch (error) {
         console.error('Error deleting document:', error);

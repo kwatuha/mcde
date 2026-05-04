@@ -74,6 +74,8 @@ export const ROUTES = {
     REGIONAL_REPORTING: '/regional-reports',
     REGIONAL_DASHBOARD: '/regional-dashboard',
     USER_MANAGEMENT: '/user-management',
+    /** Admin-only security and operations event log (sidebar under Admin). */
+    AUDIT_TRAIL: '/audit-trail',
     STRATEGIC_PLANNING: '/strategic-planning',
     PLANNING_INDICATORS: '/planning/indicators',
     METADATA_MANAGEMENT: '/metadata-management',

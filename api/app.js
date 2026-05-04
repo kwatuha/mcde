@@ -50,6 +50,7 @@ const comprehensiveProjectRoutes = require('./routes/comprehensiveProjectRoutes'
 const budgetRoutes = require('./routes/budgetRoutes')
 const budgetContainerRoutes = require('./routes/budgetContainerRoutes')
 const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
+const auditTrailRoutes = require('./routes/auditTrailRoutes')
 
 const port = Number(process.env.PORT) || 3001;
 const app = express();
@@ -115,6 +116,7 @@ app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers
 app.use('/api/users', userRoutes);
+app.use('/api/audit-trail', auditTrailRoutes);
 app.use('/api/organization', orgRoutes);
 app.use('/api/strategy', strategyRoutes);
 app.use('/api/planning', planningIndicatorsRoutes);

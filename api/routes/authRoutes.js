@@ -15,6 +15,7 @@ const {
     verifyLoginOtpChallenge,
     readOtpEnabledFlag,
 } = require('../services/loginOtpService');
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
 // Env is loaded by ../config/db (api/.env); avoid a second cwd-based dotenv here.
 
@@ -568,6 +569,15 @@ router.post('/login', async (req, res) => {
                     firstName,
                     lastName,
                 });
+                void recordAudit({
+                    req,
+                    action: AUDIT_ACTIONS.AUTH_LOGIN_OTP_SENT,
+                    entityType: 'user',
+                    entityId: String(userId),
+                    details: { username: user.username },
+                    actorUserId: null,
+                    actorUsername: user.username,
+                });
                 return res.status(200).json({
                     otpRequired: true,
                     otpChallengeId: challengeId,
@@ -640,6 +650,14 @@ router.post('/login/verify-otp', async (req, res) => {
                 requiresApproval: true,
             });
         }
+
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.AUTH_LOGIN_OTP_VERIFIED,
+            entityType: 'user',
+            entityId: String(verified.userId),
+            details: { username: user.username || user.email },
+        });
 
         await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword: false });
     } catch (err) {

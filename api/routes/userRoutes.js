@@ -7,6 +7,7 @@ const { isSuperAdminRequester, normalizeRoleForCompare } = require('../utils/rol
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
 const { ensureLoginOtpSchema } = require('../services/loginOtpService');
 const { setMustChangePassword } = require('../services/passwordPolicyService');
+const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
 const ALLOWED_ASSIGNMENT_ROLES_FOR_MDA_ICT_ADMIN = new Set([
     'data entry officer',
@@ -583,6 +584,13 @@ router.post('/users', async (req, res) => {
                     oneTimePassword: password,
                 });
                 emailSent = true;
+                void recordAudit({
+                    req,
+                    action: AUDIT_ACTIONS.USER_INITIAL_CREDENTIALS_EMAIL_SENT,
+                    entityType: 'user',
+                    entityId: String(insertedUserId),
+                    details: { username, context: 'user_create' },
+                });
             } catch (mailErr) {
                 console.error('Initial account email failed:', mailErr.message);
             }
@@ -676,6 +684,14 @@ router.post('/users/:id/resend-credentials', async (req, res) => {
             fullName,
             username,
             oneTimePassword,
+        });
+
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.USER_INITIAL_CREDENTIALS_EMAIL_SENT,
+            entityType: 'user',
+            entityId: String(id),
+            details: { username, context: 'resend_credentials' },
         });
 
         const salt = await bcrypt.genSalt(10);

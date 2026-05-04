@@ -26,6 +26,7 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import HistoryIcon from '@mui/icons-material/History';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -86,6 +87,7 @@ const ICON_MAP = {
   ShowChartIcon,
   StraightenIcon,
   VerifiedUserIcon,
+  HistoryIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching

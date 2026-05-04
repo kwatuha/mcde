@@ -265,6 +265,11 @@
           "route": "USER_MANAGEMENT"
         },
         {
+          "title": "Audit trail",
+          "icon": "HistoryIcon",
+          "route": "AUDIT_TRAIL"
+        },
+        {
           "title": "Workflow mgmt",
           "icon": "AccountTreeIcon",
           "route": "WORKFLOW_MANAGEMENT",

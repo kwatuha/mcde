@@ -59,6 +59,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
+import HistoryIcon from '@mui/icons-material/History';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -382,6 +383,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   const adminItems = [
     { title: "Admin Dashboard", to: ROUTES.ADMIN, icon: <SettingsIcon /> },
     { title: "User Management", to: ROUTES.USER_MANAGEMENT, icon: <GroupIcon /> },
+    { title: "Audit trail", to: ROUTES.AUDIT_TRAIL, icon: <HistoryIcon /> },
     // { title: "Workflow Management", to: ROUTES.WORKFLOW_MANAGEMENT, icon: <AccountTreeIcon />, privilege: () => hasPrivilege('project_workflow.read') },
     // { title: "Approval Levels", to: ROUTES.APPROVAL_LEVELS_MANAGEMENT, icon: <SettingsIcon />, privilege: () => hasPrivilege('approval_levels.read') },
     // { title: "Feedback Management", to: ROUTES.FEEDBACK_MANAGEMENT, icon: <Comment />, privilege: () => hasPrivilege('feedback.respond') || isAdminLike },
