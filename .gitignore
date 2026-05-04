@@ -17,6 +17,7 @@ api/.env.remote
 *.env
 # Real deploy secrets on the server / local — keep scripts and .env.deploy.example in git
 deploy/.env.deploy
+deploy/.env.deploy.db
 
 
 

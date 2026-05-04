@@ -12,6 +12,7 @@ const routeTitles = {
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
   '/projects/feedback-by-project': { title: 'Project Feedback', subtitle: 'Public feedback by project' },
+  '/verify-certificate': { title: 'Verify Certificate', subtitle: 'Confirm a project payment certificate by number' },
   '/contractor-dashboard': { title: 'Personal Dashboard', subtitle: 'My Activities' },
   '/project-analytics': { title: 'Project Analytics', subtitle: 'Performance Metrics & Statistics' },
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },

@@ -15,6 +15,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const DashboardLandingPage = lazy(() => import('./pages/DashboardLandingPage'));
 const ProjectManagementPage = lazy(() => import('./pages/ProjectManagementPage'));
 const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackByProjectPage'));
+const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
 const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
 const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
@@ -114,6 +115,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/feedback-by-project',
         element: <LazyRoute component={ProjectFeedbackByProjectPage} />,
+      },
+      {
+        path: 'verify-certificate',
+        element: <LazyRoute component={VerifyCertificatePage} />,
       },
       {
         path: 'data-import',

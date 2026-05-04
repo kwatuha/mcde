@@ -299,7 +299,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     };
   }, [bqItems, draft, taxRates]);
 
-  const createCertificatePdfFile = (params = {}) => {
+  const createCertificatePdfFile = async (params = {}) => {
     const d = { ...draft, ...(params.draft || {}) };
     const f = { ...form, ...(params.form || {}) };
     const workflowDetail = params.workflowDetail ?? null;
@@ -620,6 +620,33 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     );
     doc.setTextColor(0, 0, 0);
 
+    try {
+      const portalOrigin =
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUBLIC_PORTAL_ORIGIN?.replace(/\/$/, '')) || '';
+      const base = portalOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
+      const cn = String(certNo || '').trim();
+      if (base && cn && cn !== 'N/A') {
+        const verifyUrl = `${base}/verify-certificate?cert=${encodeURIComponent(cn)}`;
+        const QRCode = (await import('qrcode')).default;
+        const dataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180, errorCorrectionLevel: 'M' });
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setPage(pageCount);
+        const pw = doc.internal.pageSize.getWidth();
+        const ph = doc.internal.pageSize.getHeight();
+        const qrSize = 72;
+        const qrX = pw - margin - qrSize;
+        const qrY = ph - margin - qrSize - 16;
+        doc.addImage(dataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(60, 60, 60);
+        doc.text('Scan to verify this certificate', qrX + qrSize / 2, ph - margin - 4, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+      }
+    } catch (e) {
+      console.warn('Certificate PDF QR skipped:', e?.message || e);
+    }
+
     const blob = doc.output('blob');
     const safeCertNo = String(certNo).replace(/[^a-zA-Z0-9-_]/g, '_');
     return new File([blob], `payment-certificate-${safeCertNo}.pdf`, { type: 'application/pdf' });
@@ -633,7 +660,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       } catch {
         /* non-blocking */
       }
-      const generated = createCertificatePdfFile({ workflowDetail: null, bqProgressAttribution });
+      const generated = await createCertificatePdfFile({ workflowDetail: null, bqProgressAttribution });
       setGeneratedPdfFile(generated);
       setMessage('Certificate PDF draft generated. Save to upload it.');
     } catch (err) {
@@ -658,7 +685,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       ]);
       const stored = { ...draft, ...parseStoredCertificateData(cert) };
       const f = formFieldsFromCertificateRow(cert);
-      const file = createCertificatePdfFile({ draft: stored, form: f, workflowDetail, bqProgressAttribution });
+      const file = await createCertificatePdfFile({ draft: stored, form: f, workflowDetail, bqProgressAttribution });
       const blobUrl = URL.createObjectURL(file);
       const a = document.createElement('a');
       a.href = blobUrl;

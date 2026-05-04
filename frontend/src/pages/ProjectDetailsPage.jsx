@@ -442,32 +442,20 @@ function ProjectDetailsPage() {
     const [projectUpdatesHistory, setProjectUpdatesHistory] = useState([]);
     const [loadingUpdatesHistory, setLoadingUpdatesHistory] = useState(false);
     const [updatesHistoryError, setUpdatesHistoryError] = useState(null);
-    // Feedback tab form state
-    const [feedbackForm, setFeedbackForm] = useState({ feedbackEnabled: true, complaintsReceived: '', commonFeedback: '' });
-    const [savingFeedback, setSavingFeedback] = useState(false);
-
-    // Sync Updates/Feedback form from project when user switches to those tabs
+    // Sync Updates form from project when user opens the Updates tab
     useEffect(() => {
-        if (!project || (activeTab !== 6 && activeTab !== 7)) return;
-        if (activeTab === 6) {
-            setUpdatesForm({
-                progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
-                overallProgress: project?.overallProgress != null ? String(project.overallProgress) : '',
-                status: project?.status || '',
-                statusReason: project?.statusReason || ''
-            });
-        } else {
-            setFeedbackForm({
-                feedbackEnabled: project?.feedbackEnabled === true || project?.feedbackEnabled === 1,
-                complaintsReceived: project?.complaintsReceived != null ? String(project.complaintsReceived) : '',
-                commonFeedback: project?.commonFeedback || ''
-            });
-        }
+        if (!project || activeTab !== 6) return;
+        setUpdatesForm({
+            progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
+            overallProgress: project?.overallProgress != null ? String(project.overallProgress) : '',
+            status: project?.status || '',
+            statusReason: project?.statusReason || ''
+        });
     }, [activeTab, project]);
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6:Updates,7:Feedback,8=BQ,9=Certificates,10=Map,11=Funds)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6=Updates,7=BQ,8=Certificates,9=Map,10=Funds)
             fetchJobCategories();
             fetchProjectJobs();
         }
@@ -635,7 +623,7 @@ function ProjectDetailsPage() {
     }, [projectId]);
 
     useEffect(() => {
-        if (activeTab === 11) {
+        if (activeTab === 10) {
             fetchFundingData();
         }
     }, [activeTab, fetchFundingData]);
@@ -1297,29 +1285,6 @@ function ProjectDetailsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save updates.', severity: 'error' });
         } finally {
             setSavingUpdates(false);
-        }
-    };
-
-    const handleSaveFeedback = async () => {
-        if (!projectId) return;
-        if (!canModifyOrCreateProjects) {
-            setSnackbar({ open: true, message: 'You do not have permission to modify projects.', severity: 'error' });
-            return;
-        }
-        setSavingFeedback(true);
-        try {
-            const payload = {
-                feedbackEnabled: feedbackForm.feedbackEnabled,
-                complaintsReceived: feedbackForm.complaintsReceived === '' ? undefined : parseInt(feedbackForm.complaintsReceived, 10),
-                commonFeedback: feedbackForm.commonFeedback.trim() || null
-            };
-            await apiService.projects.updateProject(projectId, payload);
-            await fetchProjectDetails();
-            setSnackbar({ open: true, message: 'Feedback settings saved successfully.', severity: 'success' });
-        } catch (err) {
-            setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save feedback.', severity: 'error' });
-        } finally {
-            setSavingFeedback(false);
         }
     };
 
@@ -2617,7 +2582,7 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=Feedback, 8=BQ, 9=Certificates, 10=Map, 11=Funds (documents: /projects/documents-by-project) */}
+                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=BQ, 8=Certificates, 9=Map, 10=Funds (documents: /projects/documents-by-project) */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
@@ -2625,7 +2590,6 @@ function ProjectDetailsPage() {
                     <Tab label="Teams" icon={<GroupIcon />} iconPosition="start" />
                     <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
                     <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
-                    <Tab label="Feedback" icon={<FeedbackIcon />} iconPosition="start" />
                     <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
@@ -4593,60 +4557,6 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 7 && (
-                    <Box>
-                        {/* Feedback Tab */}
-                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
-                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
-                                Feedback settings
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Manage whether feedback is enabled and record complaints or common feedback for this project.
-                            </Typography>
-                            <Stack spacing={2} sx={{ maxWidth: 640 }}>
-                                <FormControlLabel
-                                    control={
-                                        <Switch
-                                            checked={feedbackForm.feedbackEnabled}
-                                            onChange={(e) => setFeedbackForm((prev) => ({ ...prev, feedbackEnabled: e.target.checked }))}
-                                            color="primary"
-                                        />
-                                    }
-                                    label="Feedback enabled"
-                                />
-                                <TextField
-                                    label="Complaints received"
-                                    type="number"
-                                    value={feedbackForm.complaintsReceived}
-                                    onChange={(e) => setFeedbackForm((prev) => ({ ...prev, complaintsReceived: e.target.value }))}
-                                    inputProps={{ min: 0 }}
-                                    placeholder="Number of complaints"
-                                    sx={{ maxWidth: 200 }}
-                                />
-                                <TextField
-                                    label="Common feedback"
-                                    value={feedbackForm.commonFeedback}
-                                    onChange={(e) => setFeedbackForm((prev) => ({ ...prev, commonFeedback: e.target.value }))}
-                                    multiline
-                                    rows={4}
-                                    fullWidth
-                                    placeholder="Summarise recurring or common feedback from the public..."
-                                />
-                                <Box>
-                                    <Button
-                                        variant="contained"
-                                        onClick={handleSaveFeedback}
-                                        disabled={savingFeedback || !canModifyOrCreateProjects}
-                                        startIcon={savingFeedback ? <CircularProgress size={18} /> : <FeedbackIcon />}
-                                    >
-                                        {savingFeedback ? 'Saving…' : 'Save feedback'}
-                                    </Button>
-                                </Box>
-                            </Stack>
-                        </Paper>
-                    </Box>
-                )}
-
                 {activeTab === 2 && (
                     <Box>
                         {/* Sites Tab – toolbar, filters, then grid */}
@@ -5582,7 +5492,7 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 8 && (
+                {activeTab === 7 && (
                     <Box>
                         <ProjectBQTab
                             projectId={projectId}
@@ -5591,7 +5501,7 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 9 && (
+                {activeTab === 8 && (
                     <Box>
                         <ProjectCertificatesTab
                             projectId={projectId}
@@ -5600,13 +5510,13 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {activeTab === 10 && (
+                {activeTab === 9 && (
                     <Box>
                         <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
                     </Box>
                 )}
 
-                {activeTab === 11 && (
+                {activeTab === 10 && (
                     <Box>
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
                             <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>

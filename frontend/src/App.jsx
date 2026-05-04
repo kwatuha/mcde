@@ -15,6 +15,7 @@ import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
+import VerifyCertificatePage from './pages/VerifyCertificatePage';
 import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
@@ -372,6 +373,10 @@ const router = createBrowserRouter([
       {
         path: 'help-support',
         element: <HelpSupportPage />,
+      },
+      {
+        path: 'verify-certificate',
+        element: <VerifyCertificatePage />,
       },
       {
         path: 'budgets',

@@ -97,10 +97,9 @@
           "permissionsAny": ["document.read_all", "document.create"]
         },
         {
-          "title": "Project Feedback",
-          "icon": "FeedbackIcon",
-          "route": "PROJECT_FEEDBACK_BY_PROJECT",
-          "permissionsAny": ["feedback.respond", "public_content.approve"]
+          "title": "Verify Certificate",
+          "icon": "VerifiedUserIcon",
+          "route": "VERIFY_CERTIFICATE"
         },
         {
           "title": "Upload Projects",

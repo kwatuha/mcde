@@ -179,6 +179,18 @@ server.listen(port, bindHost, async () => {
     } catch (e) {
         console.warn('Login OTP schema ensure failed (non-fatal):', e.message);
     }
+    try {
+        const { canSendEmail } = require('./services/accountEmailService');
+        if (canSendEmail()) {
+            console.log('Outbound email (SMTP): configured (OTP emails can be sent).');
+        } else {
+            console.warn(
+                'Outbound email (SMTP): NOT configured — set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in api/.env (deploy rsync excludes api/.env; copy SMTP block from your laptop manually on the server). Optional: SMTP_BCC=addr for BCC copies of outbound mail when testing.'
+            );
+        }
+    } catch (e) {
+        console.warn('SMTP check skipped:', e.message);
+    }
 });
 
 module.exports = { app, server, io };

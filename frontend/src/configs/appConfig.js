@@ -63,8 +63,10 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
-    /** Public feedback linked to projects, grouped by project (sidebar under Projects). */
+    /** Public feedback linked to projects, grouped by project (optional direct URL; not in main ribbon). */
     PROJECT_FEEDBACK_BY_PROJECT: '/projects/feedback-by-project',
+    /** Public certificate verification (no login); same path when opened from the Projects menu while signed in. */
+    VERIFY_CERTIFICATE: '/verify-certificate',
     REPORTS: '/reports',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',

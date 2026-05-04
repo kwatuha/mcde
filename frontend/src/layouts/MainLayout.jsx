@@ -69,7 +69,12 @@ function MainLayoutContent() {
   };
   
   useEffect(() => {
-    if (user && normalizedRole === 'contractor' && location.pathname !== ROUTES.CONTRACTOR_DASHBOARD) {
+    if (
+      user &&
+      normalizedRole === 'contractor' &&
+      location.pathname !== ROUTES.CONTRACTOR_DASHBOARD &&
+      location.pathname !== ROUTES.VERIFY_CERTIFICATE
+    ) {
         navigate(ROUTES.CONTRACTOR_DASHBOARD, { replace: true });
         return;
     }
@@ -89,6 +94,16 @@ function MainLayoutContent() {
   }
 
   if (!token) {
+    if (location.pathname === ROUTES.VERIFY_CERTIFICATE) {
+      return (
+        <>
+          <CssBaseline />
+          <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+            <Outlet />
+          </Box>
+        </>
+      );
+    }
     return <Navigate to={ROUTES.LOGIN} replace />;
   }
   if (mustChangePassword) {

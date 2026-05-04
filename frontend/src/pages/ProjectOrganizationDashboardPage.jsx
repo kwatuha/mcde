@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  Grid,
   InputLabel,
   MenuItem,
   Select,
@@ -27,6 +28,9 @@ import {
 } from '@mui/material';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import PaymentsIcon from '@mui/icons-material/Payments';
 import projectService from '../api/projectService';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isAdmin } from '../utils/privilegeUtils.js';
@@ -47,6 +51,7 @@ function getOrgLabel(row, level) {
 export default function ProjectOrganizationDashboardPage() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isLight = theme.palette.mode === 'light';
   const { user, hasPrivilege } = useAuth();
   const [level, setLevel] = useState('state_department');
   const [loading, setLoading] = useState(true);
@@ -172,25 +177,145 @@ export default function ProjectOrganizationDashboardPage() {
         <Alert severity="error">{error}</Alert>
       ) : (
         <>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2} sx={{ mb: 2 }} useFlexGap flexWrap="wrap">
-            <Chip
-              icon={<AccountTreeIcon />}
-              label={`${summary.orgCount} organizations`}
-              sx={{ bgcolor: colors.blueAccent[700], color: colors.grey[100], fontWeight: 600 }}
-            />
-            <Chip
-              label={`${summary.totalProjects.toLocaleString()} projects`}
-              sx={{ bgcolor: colors.greenAccent[700], color: colors.grey[100], fontWeight: 600 }}
-            />
-            <Chip
-              label={`Allocated: KES ${summary.totalAllocated.toLocaleString()}`}
-              sx={{ bgcolor: colors.orange?.[700] || colors.yellowAccent[700], color: colors.grey[100], fontWeight: 600 }}
-            />
-            <Chip
-              label={`Disbursed: KES ${summary.totalDisbursed.toLocaleString()}`}
-              sx={{ bgcolor: colors.purple?.[700] || colors.blueAccent[800], color: colors.grey[100], fontWeight: 600 }}
-            />
-          </Stack>
+          <Box
+            sx={{
+              mb: 2,
+              overflowX: 'auto',
+              '&::-webkit-scrollbar': {
+                height: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: isLight ? colors.grey[100] : colors.grey[800],
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: isLight ? colors.grey[400] : colors.grey[600],
+                borderRadius: '4px',
+                '&:hover': {
+                  background: isLight ? colors.grey[500] : colors.grey[500],
+                },
+              },
+            }}
+          >
+            <Grid container spacing={1} sx={{ display: 'flex', flexWrap: 'nowrap', pb: 1 }}>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    height: '100%',
+                    background: `linear-gradient(135deg, ${colors.blueAccent[600]} 0%, ${colors.blueAccent[800]} 100%)`,
+                    color: colors.grey[100],
+                    border: 'none',
+                    transition: 'transform 0.2s',
+                    '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                        Organizations
+                      </Typography>
+                      <AccountTreeIcon sx={{ fontSize: 20, opacity: 0.85 }} />
+                    </Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {summary.orgCount.toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.85, fontSize: '0.65rem' }}>
+                      In this view
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    height: '100%',
+                    background: `linear-gradient(135deg, ${colors.greenAccent[600]} 0%, ${colors.greenAccent[800]} 100%)`,
+                    color: colors.grey[100],
+                    border: 'none',
+                    transition: 'transform 0.2s',
+                    '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                        Projects
+                      </Typography>
+                      <FolderOpenIcon sx={{ fontSize: 20, opacity: 0.85 }} />
+                    </Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                      {summary.totalProjects.toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.85, fontSize: '0.65rem' }}>
+                      Across organizations
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    height: '100%',
+                    background: theme.palette.mode === 'dark'
+                      ? `linear-gradient(135deg, ${colors.orange?.[600] || colors.yellowAccent[600]} 0%, ${colors.orange?.[800] || colors.yellowAccent[800]} 100%)`
+                      : 'linear-gradient(135deg, #fb923c 0%, #ea580c 100%)',
+                    color: colors.grey[100],
+                    border: 'none',
+                    transition: 'transform 0.2s',
+                    '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                        Allocated
+                      </Typography>
+                      <AccountBalanceWalletIcon sx={{ fontSize: 20, opacity: 0.85 }} />
+                    </Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.25rem', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                      {formatKes(summary.totalAllocated)}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.85, fontSize: '0.65rem' }}>
+                      KES {summary.totalAllocated.toLocaleString()}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    height: '100%',
+                    background: theme.palette.mode === 'dark'
+                      ? `linear-gradient(135deg, ${colors.purple?.[600] || colors.blueAccent[600]} 0%, ${colors.purple?.[800] || colors.blueAccent[900]} 100%)`
+                      : 'linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)',
+                    color: colors.grey[100],
+                    border: 'none',
+                    transition: 'transform 0.2s',
+                    '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                        Disbursed
+                      </Typography>
+                      <PaymentsIcon sx={{ fontSize: 20, opacity: 0.85 }} />
+                    </Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.25rem', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                      {formatKes(summary.totalDisbursed)}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.85, fontSize: '0.65rem' }}>
+                      KES {summary.totalDisbursed.toLocaleString()}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Box>
 
           <Card
             sx={{

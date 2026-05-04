@@ -80,6 +80,22 @@ function getEnvelopeFrom() {
     return getRequiredEnv('SMTP_USER') || getFromAddress();
 }
 
+/**
+ * Optional BCC (e.g. monitoring@…) so script/API mail appears in that inbox for testing.
+ * Set SMTP_BCC=monitoring@icskenya.co.ke or comma-separated list. Skips addresses equal to primary To.
+ */
+function attachBccIfConfigured(mailOptions, primaryTo) {
+    const raw = process.env.SMTP_BCC;
+    if (raw == null || String(raw).trim() === '') return;
+    const primary = normalizeEmail(primaryTo);
+    const list = String(raw)
+        .split(',')
+        .map((s) => normalizeEmail(s.trim()))
+        .filter((b) => b && b !== primary);
+    if (!list.length) return;
+    mailOptions.bcc = list.length === 1 ? list[0] : list;
+}
+
 async function sendInitialCredentialsEmail({ email, fullName, username, oneTimePassword }) {
     const tx = getTransporter();
     if (!tx) throw new Error('SMTP is not configured.');
@@ -87,7 +103,7 @@ async function sendInitialCredentialsEmail({ email, fullName, username, oneTimeP
 
     const loginUrl = getLoginUrl();
     const from = getFromAddress();
-    await tx.sendMail({
+    const mail = {
         from,
         to: email,
         envelope: { from: getEnvelopeFrom(), to: email },
@@ -101,7 +117,9 @@ One-time password: ${oneTimePassword}
 Login link: ${loginUrl}
 
 Please sign in and change your password immediately.`,
-    });
+    };
+    attachBccIfConfigured(mail, email);
+    await tx.sendMail(mail);
     return true;
 }
 
@@ -112,7 +130,7 @@ async function sendLoginOtpEmail({ email, fullName, username, code }) {
 
     const loginUrl = getLoginUrl();
     const from = getFromAddress();
-    await tx.sendMail({
+    const mail = {
         from,
         to: email,
         envelope: { from: getEnvelopeFrom(), to: email },
@@ -128,7 +146,9 @@ Username: ${username}
 If you did not attempt to sign in, ignore this email and ensure your password is secure.
 
 Login page: ${loginUrl}`,
-    });
+    };
+    attachBccIfConfigured(mail, email);
+    await tx.sendMail(mail);
     return true;
 }
 
@@ -139,7 +159,7 @@ async function sendPasswordResetEmail({ email, fullName, username, oneTimePasswo
 
     const loginUrl = getLoginUrl();
     const from = getFromAddress();
-    await tx.sendMail({
+    const mail = {
         from,
         to: email,
         envelope: { from: getEnvelopeFrom(), to: email },
@@ -154,7 +174,9 @@ Login link: ${loginUrl}
 
 Please sign in using the temporary password and change it immediately.
 If you did not request this reset, contact support.`,
-    });
+    };
+    attachBccIfConfigured(mail, email);
+    await tx.sendMail(mail);
     return true;
 }
 
@@ -166,7 +188,7 @@ async function sendSmtpTestEmail(to) {
     if (!addr) throw new Error('Recipient address is required.');
     const loginUrl = getLoginUrl();
     const from = getFromAddress();
-    const info = await tx.sendMail({
+    const mail = {
         from,
         to: addr,
         envelope: { from: getEnvelopeFrom(), to: addr },
@@ -177,7 +199,9 @@ If you received this, outbound mail from this server is working.
 
 Login URL configured: ${loginUrl}
 Sent at: ${new Date().toISOString()}`,
-    });
+    };
+    attachBccIfConfigured(mail, addr);
+    const info = await tx.sendMail(mail);
     return { ok: true, messageId: info.messageId, response: info.response };
 }
 

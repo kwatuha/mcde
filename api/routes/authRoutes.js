@@ -468,6 +468,10 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
+    const loginKey = String(username || '').trim().toLowerCase();
+    if (!loginKey) {
+        return res.status(400).json({ error: 'Username or email is required.' });
+    }
 
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
@@ -475,15 +479,19 @@ router.post('/login', async (req, res) => {
         
         if (DB_TYPE === 'postgresql') {
             // PostgreSQL schema: roles has 'name' column, roleid as PK
+            // Case-insensitive + trimmed match: avoids "worked yesterday" failures when DB has
+            // different casing or accidental spaces than what the user types.
             query = `
                 SELECT 
                     u.*, 
                     r.name AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleid = r.roleid
-                WHERE (u.username = $1 OR u.email = $1) AND u.voided = false
+                WHERE (
+                    lower(trim(u.username)) = $1 OR lower(trim(u.email)) = $1
+                ) AND u.voided = false
             `;
-            const result = await pool.query(query, [username]);
+            const result = await pool.query(query, [loginKey]);
             users = result.rows || [];
         } else {
             // MySQL uses camelCase column names
@@ -493,9 +501,11 @@ router.post('/login', async (req, res) => {
                     r.roleName AS role
                 FROM users u
                 LEFT JOIN roles r ON u.roleId = r.roleId
-                WHERE (u.username = ? OR u.email = ?) AND u.voided = 0
+                WHERE (
+                    lower(trim(u.username)) = ? OR lower(trim(u.email)) = ?
+                ) AND u.voided = 0
             `;
-            const result = await pool.execute(query, [username, username]);
+            const result = await pool.execute(query, [loginKey, loginKey]);
             users = Array.isArray(result) ? result[0] : result.rows || result;
         }
 
@@ -561,7 +571,8 @@ router.post('/login', async (req, res) => {
                 return res.status(200).json({
                     otpRequired: true,
                     otpChallengeId: challengeId,
-                    message: 'A verification code was sent to your email. Enter it to complete sign-in.',
+                    message:
+                        'A verification code was sent to your email. Each password sign-in sends a new code and invalidates older ones — use only the code from your most recent email.',
                 });
             } catch (sendErr) {
                 console.error('OTP login email failed:', sendErr);

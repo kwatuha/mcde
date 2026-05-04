@@ -42,6 +42,7 @@ function BudgetManagementPage() {
   const { user, hasPrivilege } = useAuth();
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isLight = theme.palette.mode === 'light';
 
   // Container-based state
   const [containers, setContainers] = useState([]);
@@ -1683,145 +1684,171 @@ function BudgetManagementPage() {
         </Stack>
       </Box>
 
-      {/* Summary Statistics Cards */}
+      {/* Summary Statistics Cards — flex row + horizontal scroll (aligned with project-by-status-dashboard) */}
       {activeTab === 0 && containers.length > 0 && (
-        <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          <Grid item xs={6} sm={4} md={2.4}>
-            <Card 
-              elevation={0}
-              sx={{ 
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                border: 'none',
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 }
-              }}
-            >
-              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                    Total Budgets
+        <Box
+          sx={{
+            mb: 2,
+            overflowX: 'auto',
+            '&::-webkit-scrollbar': {
+              height: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: isLight ? colors.grey[100] : colors.grey[800],
+              borderRadius: '4px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: isLight ? colors.grey[400] : colors.grey[600],
+              borderRadius: '4px',
+              '&:hover': {
+                background: isLight ? colors.grey[500] : colors.grey[500],
+              },
+            },
+          }}
+        >
+          <Grid container spacing={1} sx={{ display: 'flex', flexWrap: 'nowrap', pb: 1 }}>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      Total Budgets
+                    </Typography>
+                    <WalletIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                    {summaryStats.totalBudgets}
                   </Typography>
-                  <WalletIcon sx={{ fontSize: 20, opacity: 0.8 }} />
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                  {summaryStats.totalBudgets}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
-                  {summaryStats.totalItems} items
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2.4}>
-            <Card 
-              elevation={0}
-              sx={{ 
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                color: 'white',
-                border: 'none',
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 }
-              }}
-            >
-              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                    Total Amount
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    {summaryStats.totalItems} items
                   </Typography>
-                  <MoneyIcon sx={{ fontSize: 20, opacity: 0.8 }} />
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                  {formatCurrency(summaryStats.totalAmount)}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
-                  All budgets
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2.4}>
-            <Card 
-              elevation={0}
-              sx={{ 
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                color: 'white',
-                border: 'none',
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 }
-              }}
-            >
-              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                    Approved
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      Total Amount
+                    </Typography>
+                    <MoneyIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                    {formatCurrency(summaryStats.totalAmount)}
                   </Typography>
-                  <CheckCircleIcon sx={{ fontSize: 20, opacity: 0.8 }} />
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                  {summaryStats.approvedCount}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
-                  {summaryStats.totalBudgets > 0 ? Math.round((summaryStats.approvedCount / summaryStats.totalBudgets) * 100) : 0}% of total
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2.4}>
-            <Card 
-              elevation={0}
-              sx={{ 
-                background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                color: 'white',
-                border: 'none',
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 }
-              }}
-            >
-              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                    Pending
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    All budgets
                   </Typography>
-                  <PendingIcon sx={{ fontSize: 20, opacity: 0.8 }} />
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                  {summaryStats.pendingCount}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
-                  Awaiting approval
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2.4}>
-            <Card 
-              elevation={0}
-              sx={{ 
-                background: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
-                color: 'white',
-                border: 'none',
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 }
-              }}
-            >
-              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                    Draft
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      Approved
+                    </Typography>
+                    <CheckCircleIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                    {summaryStats.approvedCount}
                   </Typography>
-                  <EditIcon sx={{ fontSize: 20, opacity: 0.8 }} />
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                  {summaryStats.draftCount}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
-                  In progress
-                </Typography>
-              </CardContent>
-            </Card>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    {summaryStats.totalBudgets > 0 ? Math.round((summaryStats.approvedCount / summaryStats.totalBudgets) * 100) : 0}% of total
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      Pending
+                    </Typography>
+                    <PendingIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                    {summaryStats.pendingCount}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    Awaiting approval
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      Draft
+                    </Typography>
+                    <EditIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                    {summaryStats.draftCount}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    In progress
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
           </Grid>
-        </Grid>
+        </Box>
       )}
 
       {/* Compact Tabs */}

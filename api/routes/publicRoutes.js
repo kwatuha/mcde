@@ -2612,5 +2612,110 @@ router.get('/ministries', async (req, res) => {
     }
 });
 
+// ==================== CERTIFICATE VERIFICATION (no auth) ====================
+
+/**
+ * @route GET /api/public/certificates/verify
+ * @description Look up a payment / project certificate by its printed certificate number (case-insensitive).
+ * @query number — certificate number (alias: cert)
+ * @access Public
+ */
+router.get('/certificates/verify', async (req, res) => {
+    try {
+        const raw = String(req.query.number ?? req.query.cert ?? '').trim();
+        if (!raw) {
+            return res.status(200).json({ valid: false, message: 'Enter a certificate number.' });
+        }
+
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const pg = DB_TYPE === 'postgresql';
+
+        if (pg) {
+            const q = `
+                SELECT c."certificateId" AS "certificateId",
+                       NULLIF(TRIM(c."certNumber"), '') AS "certNumber",
+                       c."certType" AS "certType",
+                       c."requestDate" AS "requestDate",
+                       c."applicationStatus" AS "applicationStatus",
+                       c."progressStatus" AS "progressStatus",
+                       p.project_id AS "projectId",
+                       p.name AS "projectName",
+                       COALESCE(p.progress->>'status', '') AS "projectStatus"
+                FROM projectcertificate c
+                INNER JOIN projects p ON p.project_id = c."projectId"
+                WHERE COALESCE(c.voided, false) = false
+                  AND COALESCE(p.voided, false) = false
+                  AND LENGTH(TRIM(COALESCE(c."certNumber", ''))) > 0
+                  AND LOWER(TRIM(c."certNumber")) = LOWER(TRIM($1))
+                ORDER BY c."certificateId" DESC
+                LIMIT 1`;
+            const r = await pool.query(q, [raw]);
+            const row = r.rows?.[0];
+            if (!row || !row.certNumber) {
+                return res.status(200).json({ valid: false, message: 'Invalid certificate number — no matching record was found.' });
+            }
+            return res.status(200).json({
+                valid: true,
+                certificate: {
+                    certificateId: row.certificateId,
+                    certNumber: row.certNumber,
+                    certType: row.certType || null,
+                    requestDate: row.requestDate || null,
+                    applicationStatus: row.applicationStatus || null,
+                    progressStatus: row.progressStatus || null,
+                },
+                project: {
+                    projectId: row.projectId,
+                    projectName: row.projectName || null,
+                    status: row.projectStatus || null,
+                },
+            });
+        }
+
+        const q = `
+            SELECT c.certificateId AS certificateId,
+                   NULLIF(TRIM(c.certNumber), '') AS certNumber,
+                   c.certType AS certType,
+                   c.requestDate AS requestDate,
+                   c.applicationStatus AS applicationStatus,
+                   c.progressStatus AS progressStatus,
+                   p.id AS projectId,
+                   p.projectName AS projectName,
+                   p.status AS projectStatus
+            FROM projectcertificate c
+            INNER JOIN kemri_projects p ON p.id = c.projectId
+            WHERE (c.voided IS NULL OR c.voided = 0)
+              AND (p.voided IS NULL OR p.voided = 0)
+              AND LENGTH(TRIM(COALESCE(c.certNumber, ''))) > 0
+              AND LOWER(TRIM(c.certNumber)) = LOWER(TRIM(?))
+            ORDER BY c.certificateId DESC
+            LIMIT 1`;
+        const [rows] = await pool.query(q, [raw]);
+        const row = Array.isArray(rows) ? rows[0] : null;
+        if (!row || !row.certNumber) {
+            return res.status(200).json({ valid: false, message: 'Invalid certificate number — no matching record was found.' });
+        }
+        return res.status(200).json({
+            valid: true,
+            certificate: {
+                certificateId: row.certificateId,
+                certNumber: row.certNumber,
+                certType: row.certType || null,
+                requestDate: row.requestDate || null,
+                applicationStatus: row.applicationStatus || null,
+                progressStatus: row.progressStatus || null,
+            },
+            project: {
+                projectId: row.projectId,
+                projectName: row.projectName || null,
+                status: row.projectStatus || null,
+            },
+        });
+    } catch (error) {
+        console.error('Error verifying certificate:', error);
+        res.status(500).json({ error: 'Certificate verification failed', details: error.message });
+    }
+});
+
 module.exports = router;
 

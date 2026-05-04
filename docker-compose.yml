@@ -24,6 +24,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./frontend:/app
+      # Anonymous volume: after package.json or lockfile changes, run `docker compose exec frontend npm install` so new dependencies exist in the container.
       - /app/node_modules
     depends_on:
       - api

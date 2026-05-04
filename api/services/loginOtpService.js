@@ -80,6 +80,7 @@ async function createLoginOtpChallenge(pool, { userId, email, username, firstNam
     const expires = new Date(Date.now() + 10 * 60 * 1000);
 
     if (DB_TYPE === 'postgresql') {
+        // One row per user: a second password-login before verify deletes the first challenge — older emails show stale codes.
         await pool.query('DELETE FROM login_otp_challenges WHERE user_id = $1', [userId]);
         await pool.query(
             'INSERT INTO login_otp_challenges (id, user_id, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
@@ -110,10 +111,12 @@ async function verifyLoginOtpChallenge(pool, challengeId, plainCode) {
     await ensureLoginOtpSchema(pool);
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
     const id = String(challengeId || '').trim();
-    const code = String(plainCode || '').trim();
-    if (!id || !/^\d{6}$/.test(code)) {
-        return { ok: false, error: 'Invalid code format.' };
+    // Accept pasted text like "Your code: 123456" or "123 456" (email clients add noise).
+    const digitsOnly = String(plainCode || '').replace(/\D/g, '');
+    if (!id || digitsOnly.length !== 6) {
+        return { ok: false, error: 'Enter the 6-digit code from your email (exactly 6 numbers).' };
     }
+    const code = digitsOnly;
 
     let row;
     if (DB_TYPE === 'postgresql') {
@@ -146,7 +149,12 @@ async function verifyLoginOtpChallenge(pool, challengeId, plainCode) {
         return { ok: false, error: 'Code expired. Sign in again with your password.' };
     }
 
-    const match = await bcrypt.compare(code, row.otp_hash);
+    const storedHash = row.otp_hash || row.otpHash;
+    if (!storedHash || typeof storedHash !== 'string') {
+        return { ok: false, error: 'Code expired or invalid. Request a new sign-in.' };
+    }
+
+    const match = await bcrypt.compare(code, storedHash);
     if (!match) {
         return { ok: false, error: 'Incorrect code.' };
     }

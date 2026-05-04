@@ -7,6 +7,23 @@ import react from '@vitejs/plugin-react';
  * Vite before SPA fallback and return HTTP 404. Rewrite HTML navigations to "/" so index.html
  * is served; the browser URL is unchanged so React Router still sees the real path.
  */
+/** When the browser uses nginx (e.g. :8084) but Vite listens on :5173, HMR must use the public port or the client throws and the app never mounts. */
+function deriveHmrClientPort() {
+  if (process.env.VITE_HMR_CLIENT_PORT) {
+    const n = parseInt(String(process.env.VITE_HMR_CLIENT_PORT), 10);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
+  const origin = process.env.VITE_DEV_PUBLIC_URL;
+  if (!origin) return undefined;
+  try {
+    const u = new URL(origin);
+    if (u.port) return parseInt(u.port, 10);
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function spaDeepLinkFallback() {
   return {
     name: 'spa-deep-link-fallback',
@@ -43,6 +60,8 @@ function spaDeepLinkFallback() {
   };
 }
 
+const hmrClientPort = deriveHmrClientPort();
+
 export default defineConfig({
   plugins: [spaDeepLinkFallback(), react()],
   base: '/',  // Serve app from domain root
@@ -59,19 +78,19 @@ export default defineConfig({
       // Reduce file system events for better performance
       ignored: ['**/node_modules/**', '**/.git/**']
     },
-    hmr: {
-      // Disable HMR overlay for production-like deployments to prevent errors
-      overlay: false,
-      // Use the external port when accessed from outside
-      clientPort: process.env.VITE_HMR_CLIENT_PORT || 5176,
-      port: 5173,
-      protocol: 'ws',
-      host: process.env.VITE_HMR_HOST || 'localhost',
-      // Timeout faster so it doesn't block the app
-      timeout: 3000
-    },
-    // Disable HMR completely if VITE_HMR_DISABLED is set
-    ...(process.env.VITE_HMR_DISABLED === 'true' ? { hmr: false } : {}),
+    // Disable HMR completely if VITE_HMR_DISABLED is set; otherwise match browser-visible port when VITE_DEV_PUBLIC_URL is set (Docker + nginx).
+    ...(process.env.VITE_HMR_DISABLED === 'true'
+      ? { hmr: false }
+      : {
+          hmr: {
+            overlay: false,
+            ...(hmrClientPort != null ? { clientPort: hmrClientPort } : {}),
+            port: 5173,
+            protocol: 'ws',
+            host: process.env.VITE_HMR_HOST || 'localhost',
+            timeout: 3000,
+          },
+        }),
     proxy: {
       '/api': {
         // Must match API PORT (docker-compose sets 3002; nginx /api/ proxies to 3002).

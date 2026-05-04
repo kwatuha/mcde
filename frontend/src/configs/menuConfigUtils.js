@@ -43,6 +43,7 @@ export const ICON_MAP = {
   WorkIcon: () => import('@mui/icons-material/Work').then(m => m.default),
   DescriptionIcon: () => import('@mui/icons-material/Description').then(m => m.default),
   GavelIcon: () => import('@mui/icons-material/Gavel').then(m => m.default),
+  VerifiedUserIcon: () => import('@mui/icons-material/VerifiedUser').then(m => m.default),
 };
 
 // Get icon component by name

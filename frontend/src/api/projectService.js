@@ -426,6 +426,13 @@ const projectService = {
       const response = await axiosInstance.get('/projects/project_certificates/finance-list', { params });
       return response.data;
     },
+    /** Public — no login. Returns { valid, message?, certificate?, project? }. */
+    verifyByNumberPublic: async (certNumber) => {
+      const response = await axiosInstance.get('/public/certificates/verify', {
+        params: { number: String(certNumber || '').trim() },
+      });
+      return response.data;
+    },
   },
 
   taxRates: {

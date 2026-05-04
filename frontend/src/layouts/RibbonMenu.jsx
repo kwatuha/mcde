@@ -25,6 +25,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -84,6 +85,7 @@ const ICON_MAP = {
   AttachMoneyIcon,
   ShowChartIcon,
   StraightenIcon,
+  VerifiedUserIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching
@@ -169,7 +171,7 @@ export default function RibbonMenu({ isAdmin = false }) {
     if (!selectedCategoryId) return;
 
     const currentPath = location.pathname;
-    const standaloneAllowedRoutes = new Set([ROUTES.HELP_SUPPORT]);
+    const standaloneAllowedRoutes = new Set([ROUTES.HELP_SUPPORT, ROUTES.VERIFY_CERTIFICATE]);
     if (standaloneAllowedRoutes.has(currentPath)) {
       manualSelectionRef.current = false;
       return;

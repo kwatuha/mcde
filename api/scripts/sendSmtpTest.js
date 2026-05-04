@@ -3,6 +3,7 @@
  * Usage: node scripts/sendSmtpTest.js [recipient@email.com]
  *
  * Optional: SMTP_DEBUG=true for nodemailer protocol logs.
+ * Optional: SMTP_BCC=monitoring@icskenya.co.ke — BCC copies of OTP / test / account mail for debugging (see accountEmailService.js).
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -24,6 +25,8 @@ function summarizeEnv() {
     const from = (process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
     console.log('Using SMTP_HOST=', JSON.stringify(host), 'PORT=', port, 'SECURE=', secure);
     console.log('SMTP_USER=', JSON.stringify(user), 'SMTP_FROM=', JSON.stringify(from));
+    const bcc = (process.env.SMTP_BCC || '').trim();
+    if (bcc) console.log('SMTP_BCC=', JSON.stringify(bcc));
     if (String(port) === '465' && !secure) {
         console.warn('Warning: port 465 usually requires SMTP_SECURE=true (implicit TLS).');
     }
