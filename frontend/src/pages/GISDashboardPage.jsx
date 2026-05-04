@@ -14,23 +14,20 @@ import {
   Typography,
 } from '@mui/material';
 import { InfoWindowF, MarkerF, PolygonF } from '@react-google-maps/api';
+import { useNavigate } from 'react-router-dom';
 import GoogleMapComponent from '../components/gis/GoogleMapComponent';
 import projectService from '../api/projectService';
+import { ROUTES } from '../configs/appConfig';
+import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
 
 const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
 
-const normalizeKey = (value) =>
-  String(value || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[\/_-]+/g, ' ')
-    .replace(/\s+/g, ' ');
 const toNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
 };
 const toMoney = (value) => toNumber(value).toLocaleString();
-const normalizeStatus = (value) => normalizeKey(value || 'UNKNOWN');
+const normalizeStatus = (value) => normalizeWardKey(value || 'UNKNOWN');
 const STATUS_COLORS = {
   COMPLETED: '#16A34A',
   IN_PROGRESS: '#2563EB',
@@ -40,22 +37,6 @@ const STATUS_COLORS = {
   UNKNOWN: '#9CA3AF',
 };
 const statusToColor = (statusKey) => STATUS_COLORS[statusKey] || STATUS_COLORS.UNKNOWN;
-
-const getProjectWardKey = (project) =>
-  normalizeKey(
-    String(
-      project?.wardName ||
-      project?.wardNames ||
-      project?.ward ||
-      project?.ward_name ||
-      project?.countyAssName ||
-      project?.countyA1 ||
-      project?.location?.ward ||
-      ''
-    )
-      .split(',')[0]
-      .trim()
-  );
 
 const getProjectPoint = (project) => {
   const candidates = [
@@ -85,6 +66,7 @@ const geometryToGooglePaths = (geometry) => {
 };
 
 function GISDashboardPage() {
+  const navigate = useNavigate();
   const [countyGeo, setCountyGeo] = useState(null);
   const [constituencyGeo, setConstituencyGeo] = useState(null);
   const [wardGeo, setWardGeo] = useState(null);
@@ -94,7 +76,6 @@ function GISDashboardPage() {
   const [metric, setMetric] = useState('count');
   const [showMarkers, setShowMarkers] = useState('yes');
   const [hoverWard, setHoverWard] = useState(null);
-  const [selectedWard, setSelectedWard] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
   const [mapBaseStyle, setMapBaseStyle] = useState('roadmap');
 
@@ -173,7 +154,7 @@ function GISDashboardPage() {
     return features.flatMap((feature, index) => {
       const pathsList = geometryToGooglePaths(feature.geometry);
       const wardName = feature?.properties?.ward_name || feature?.properties?.COUNTY_A_1 || `Ward ${index + 1}`;
-      const wardKey = normalizeKey(wardName);
+      const wardKey = normalizeWardKey(wardName);
       const values = wardMetrics.get(wardKey) || { count: 0, budget: 0, disbursed: 0, statusCounts: {} };
       const dominantStatus = Object.entries(values.statusCounts || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
       const fillColor = statusToColor(dominantStatus);
@@ -367,14 +348,9 @@ function GISDashboardPage() {
                 });
               }}
               onMouseOut={() => setHoverWard(null)}
-              onClick={(event) => {
-                setSelectedWard({
-                  ...ward,
-                  position: {
-                    lat: event?.latLng?.lat?.() ?? ward.paths?.[0]?.lat ?? MACHAKOS_CENTER.lat,
-                    lng: event?.latLng?.lng?.() ?? ward.paths?.[0]?.lng ?? MACHAKOS_CENTER.lng,
-                  },
-                });
+              onClick={() => {
+                const q = encodeURIComponent(ward.wardName);
+                navigate(`${ROUTES.PROJECTS}?ward=${q}`);
               }}
             />
           ))}
@@ -388,21 +364,6 @@ function GISDashboardPage() {
               <div>
                 <strong>{hoverWard.wardName}</strong><br />
                 Projects: {hoverWard.count}
-              </div>
-            </InfoWindowF>
-          )}
-
-          {selectedWard && (
-            <InfoWindowF
-              position={selectedWard.position}
-              onCloseClick={() => setSelectedWard(null)}
-            >
-              <div>
-                <strong>{selectedWard.wardName}</strong><br />
-                Dominant status: {selectedWard.dominantStatus.replace(/_/g, ' ')}<br />
-                Projects: {selectedWard.values.count}<br />
-                Budget: {toMoney(selectedWard.values.budget)}<br />
-                Disbursed: {toMoney(selectedWard.values.disbursed)}
               </div>
             </InfoWindowF>
           )}

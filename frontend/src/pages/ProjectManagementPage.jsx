@@ -38,6 +38,7 @@ import {
   sectorRegistryBucketKey,
 } from '../utils/organizationChartLabels';
 import { isVoidedProject } from '../utils/sectorGapDrilldown';
+import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
 import { ROUTES } from '../configs/appConfig';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
 
@@ -168,43 +169,52 @@ function ProjectManagementPage() {
   // State for global search (must be declared before filteredProjects)
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Filter projects based on search query
+  const appliedWardFromQueryRef = useRef('');
+  const [wardGisFilterKey, setWardGisFilterKey] = useState(null);
+  const [wardGisFilterLabel, setWardGisFilterLabel] = useState('');
+
+  // Filter projects based on search query and optional GIS ward deep-link
   const filteredProjects = useMemo(() => {
     const list = Array.isArray(projects) ? projects : [];
-    if (!searchQuery.trim()) {
-      return list;
+    let next = list;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      next = next.filter(project => {
+        const searchableFields = [
+          project.projectName || '',
+          project.id?.toString() || '',
+          project.departmentName || '',
+          project.departmentAlias || '',
+          project.financialYearName || '',
+          project.programName || '',
+          project.subProgramName || '',
+          project.countyNames || '',
+          project.constituencyNames || '',
+          project.subcountyNames || '',
+          project.wardNames || '',
+          project.directorate || '',
+          project.sectionName || '',
+          project.principalInvestigator || '',
+          project.pi_firstName || '',
+          project.status || '',
+          project.description || '',
+          project.overallProgress?.toString() || '',
+          `${project.overallProgress || 0}%`,
+        ];
+
+        return searchableFields.some(field =>
+          field.toLowerCase().includes(query)
+        );
+      });
     }
 
-    const query = searchQuery.toLowerCase().trim();
-    return list.filter(project => {
-      // Search in multiple fields
-      const searchableFields = [
-        project.projectName || '',
-        project.id?.toString() || '',
-        project.departmentName || '',
-        project.departmentAlias || '',
-        project.financialYearName || '',
-        project.programName || '',
-        project.subProgramName || '',
-        project.countyNames || '',
-        project.constituencyNames || '',
-        project.subcountyNames || '',
-        project.wardNames || '',
-        project.directorate || '',
-        project.sectionName || '',
-        project.principalInvestigator || '',
-        project.pi_firstName || '',
-        project.status || '',
-        project.description || '',
-        project.overallProgress?.toString() || '',
-        `${project.overallProgress || 0}%`,
-      ];
+    if (wardGisFilterKey) {
+      next = next.filter((project) => getProjectWardKey(project) === wardGisFilterKey);
+    }
 
-      return searchableFields.some(field => 
-        field.toLowerCase().includes(query)
-      );
-    });
-  }, [projects, searchQuery]);
+    return next;
+  }, [projects, searchQuery, wardGisFilterKey]);
 
   // Custom hook for table sorting
   const { order, orderBy, handleRequestSort, sortedData: sortedProjects } = useTableSort(
@@ -579,7 +589,47 @@ function ProjectManagementPage() {
         setLoadingAll(false);
       });
   }, [searchParams, setSearchParams, loading, authLoading, fetchProjects]);
-  
+
+  useEffect(() => {
+    const raw = searchParams.get('ward');
+    const param = raw == null ? '' : String(raw).trim();
+    if (!param) {
+      appliedWardFromQueryRef.current = '';
+      return;
+    }
+    if (loading || authLoading) return;
+
+    let decoded = param;
+    try {
+      decoded = decodeURIComponent(param);
+    } catch {
+      decoded = param;
+    }
+    const key = normalizeWardKey(decoded);
+    if (!key) {
+      appliedWardFromQueryRef.current = '';
+      return;
+    }
+    if (appliedWardFromQueryRef.current === key) return;
+    appliedWardFromQueryRef.current = key;
+
+    setWardGisFilterKey(key);
+    setWardGisFilterLabel(decoded.trim());
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('ward');
+    setSearchParams(nextParams, { replace: true });
+
+    setLoadingAll(true);
+    fetchProjects(true)
+      .then(() => {
+        setAllProjectsLoaded(true);
+      })
+      .finally(() => {
+        setLoadingAll(false);
+      });
+  }, [searchParams, setSearchParams, loading, authLoading, fetchProjects]);
+
   // State for export loading
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -1992,7 +2042,7 @@ function ProjectManagementPage() {
               },
             }}
           />
-          {(searchQuery || (filterModel.items && filterModel.items.length > 0) || sectorRegistryClientFilter) && (
+          {(searchQuery || (filterModel.items && filterModel.items.length > 0) || sectorRegistryClientFilter || wardGisFilterKey) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
               <Chip
                 label={`${dataGridFilteredProjects.length} project${dataGridFilteredProjects.length !== 1 ? 's' : ''} found`}
@@ -2028,6 +2078,18 @@ function ProjectManagementPage() {
                   onDelete={() => {
                     setSectorRegistryClientFilter(null);
                     appliedSectorRegistryFromQueryRef.current = '';
+                  }}
+                  size="small"
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              )}
+              {wardGisFilterKey && (
+                <Chip
+                  label={`Ward: ${wardGisFilterLabel || wardGisFilterKey}`}
+                  onDelete={() => {
+                    setWardGisFilterKey(null);
+                    setWardGisFilterLabel('');
+                    appliedWardFromQueryRef.current = '';
                   }}
                   size="small"
                   sx={{ fontSize: '0.7rem' }}
@@ -2696,9 +2758,9 @@ function ProjectManagementPage() {
           No projects match your search query "{searchQuery}". Try different keywords or clear the search.
         </Alert>
       )}
-      {!loading && !error && projects.length > 0 && (filterModel.items?.length > 0 || sectorRegistryClientFilter) && dataGridFilteredProjects?.length === 0 && (
+      {!loading && !error && projects.length > 0 && (filterModel.items?.length > 0 || sectorRegistryClientFilter || wardGisFilterKey) && dataGridFilteredProjects?.length === 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
-          No projects match the current filter. Try adjusting your filters, clear the sector filter chip, or use &quot;Load all projects&quot; if the rows you need are not in the first page of results.
+          No projects match the current filter. Try adjusting your filters, clear the sector or ward filter chip, or use &quot;Load all projects&quot; if the rows you need are not in the first page of results.
         </Alert>
       )}
 
