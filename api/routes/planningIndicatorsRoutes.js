@@ -54,6 +54,62 @@ async function ensureTables() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await runSafe(`
+      CREATE TABLE IF NOT EXISTS planning_project_activities (
+        id BIGSERIAL PRIMARY KEY,
+        activity_code TEXT NOT NULL,
+        activity_name TEXT NOT NULL,
+        indicator_id BIGINT NOT NULL REFERENCES planning_indicators(id),
+        description TEXT NULL,
+        voided BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_planning_proj_act_code UNIQUE (activity_code)
+      )
+    `);
+    await runSafe(
+      `CREATE INDEX IF NOT EXISTS idx_planning_proj_act_indicator ON planning_project_activities(indicator_id)`
+    );
+    await runSafe(`
+      CREATE TABLE IF NOT EXISTS planning_project_risks (
+        id BIGSERIAL PRIMARY KEY,
+        risk_code TEXT NOT NULL,
+        risk_name TEXT NOT NULL,
+        description TEXT NULL,
+        voided BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_planning_proj_risk_code UNIQUE (risk_code)
+      )
+    `);
+    await runSafe(`
+      CREATE TABLE IF NOT EXISTS project_planning_activity_links (
+        id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        planning_activity_id BIGINT NOT NULL REFERENCES planning_project_activities(id),
+        notes TEXT NULL,
+        voided BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_proj_plan_act_link UNIQUE (project_id, planning_activity_id)
+      )
+    `);
+    await runSafe(
+      `CREATE INDEX IF NOT EXISTS idx_ppactlink_project ON project_planning_activity_links(project_id)`
+    );
+    await runSafe(`
+      CREATE TABLE IF NOT EXISTS project_planning_risk_links (
+        id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        planning_risk_id BIGINT NOT NULL REFERENCES planning_project_risks(id),
+        notes TEXT NULL,
+        voided BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_proj_plan_risk_link UNIQUE (project_id, planning_risk_id)
+      )
+    `);
+    await runSafe(`CREATE INDEX IF NOT EXISTS idx_pprisklink_project ON project_planning_risk_links(project_id)`);
   } else {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS planning_measurement_types (
@@ -77,6 +133,58 @@ async function ensureTables() {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         CONSTRAINT fk_planning_ind_mt FOREIGN KEY (measurement_type_id) REFERENCES planning_measurement_types(id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS planning_project_activities (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        activity_code VARCHAR(128) NOT NULL,
+        activity_name VARCHAR(512) NOT NULL,
+        indicator_id BIGINT NOT NULL,
+        description TEXT NULL,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_planning_proj_act_code (activity_code),
+        CONSTRAINT fk_planning_proj_act_ind FOREIGN KEY (indicator_id) REFERENCES planning_indicators(id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS planning_project_risks (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        risk_code VARCHAR(128) NOT NULL,
+        risk_name VARCHAR(512) NOT NULL,
+        description TEXT NULL,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_planning_proj_risk_code (risk_code)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_planning_activity_links (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        planning_activity_id BIGINT NOT NULL,
+        notes TEXT NULL,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_proj_plan_act_link (project_id, planning_activity_id),
+        CONSTRAINT fk_ppactlink_act FOREIGN KEY (planning_activity_id) REFERENCES planning_project_activities(id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_planning_risk_links (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        planning_risk_id BIGINT NOT NULL,
+        notes TEXT NULL,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_proj_plan_risk_link (project_id, planning_risk_id),
+        CONSTRAINT fk_pprisklink_risk FOREIGN KEY (planning_risk_id) REFERENCES planning_project_risks(id)
       )
     `);
   }
@@ -371,4 +479,287 @@ router.delete('/indicators/:id', canWrite, async (req, res) => {
   }
 });
 
+/** Catalog of measurable project activities, each linked to a KPI / indicator (for M&E and future project linking). */
+router.get('/project-activities', canRead, async (req, res) => {
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `SELECT a.id, a.activity_code AS "activityCode", a.activity_name AS "activityName",
+                a.indicator_id AS "indicatorId", a.description, a.voided,
+                a.created_at AS "createdAt", a.updated_at AS "updatedAt",
+                i.name AS "indicatorName",
+                mt.code AS "measurementTypeCode", mt.label AS "measurementTypeLabel"
+         FROM planning_project_activities a
+         INNER JOIN planning_indicators i ON i.id = a.indicator_id AND i.voided = false
+         INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = false
+         WHERE a.voided = false
+         ORDER BY a.activity_code ASC`
+      );
+      return res.json(r.rows || []);
+    }
+    const [rows] = await pool.query(
+      `SELECT a.id, a.activity_code AS activityCode, a.activity_name AS activityName,
+              a.indicator_id AS indicatorId, a.description, a.voided,
+              a.created_at AS createdAt, a.updated_at AS updatedAt,
+              i.name AS indicatorName,
+              mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel
+       FROM planning_project_activities a
+       INNER JOIN planning_indicators i ON i.id = a.indicator_id AND i.voided = 0
+       INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = 0
+       WHERE a.voided = 0
+       ORDER BY a.activity_code ASC`
+    );
+    res.json(rows || []);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.post('/project-activities', canWrite, async (req, res) => {
+  const activityCode = String(req.body.activityCode || req.body.activity_code || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  const activityName = String(req.body.activityName || req.body.activity_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  const indicatorId = Number(req.body.indicatorId ?? req.body.indicator_id);
+  if (!activityCode || !activityName) return res.status(400).json({ message: 'activityCode and activityName are required.' });
+  if (!Number.isFinite(indicatorId)) return res.status(400).json({ message: 'indicatorId is required.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `INSERT INTO planning_project_activities (activity_code, activity_name, indicator_id, description)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, activity_code AS "activityCode", activity_name AS "activityName",
+                   indicator_id AS "indicatorId", description, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [activityCode, activityName, indicatorId, description]
+      );
+      const row = r.rows?.[0];
+      const ind = firstRow(
+        await pool.query(
+          `SELECT i.name AS "indicatorName", mt.code AS "measurementTypeCode", mt.label AS "measurementTypeLabel"
+           FROM planning_indicators i
+           INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = false
+           WHERE i.id = $1 AND i.voided = false`,
+          [indicatorId]
+        )
+      );
+      return res.status(201).json({ ...row, ...ind });
+    }
+    const [ins] = await pool.query(
+      `INSERT INTO planning_project_activities (activity_code, activity_name, indicator_id, description) VALUES (?,?,?,?)`,
+      [activityCode, activityName, indicatorId, description]
+    );
+    const [rows] = await pool.query(
+      `SELECT a.id, a.activity_code AS activityCode, a.activity_name AS activityName,
+              a.indicator_id AS indicatorId, a.description, a.voided,
+              a.created_at AS createdAt, a.updated_at AS updatedAt,
+              i.name AS indicatorName,
+              mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel
+       FROM planning_project_activities a
+       INNER JOIN planning_indicators i ON i.id = a.indicator_id
+       INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = 0
+       WHERE a.id = ?`,
+      [ins.insertId]
+    );
+    res.status(201).json(rows?.[0]);
+  } catch (e) {
+    if (String(e.message).includes('unique') || String(e.code) === '23505') {
+      return res.status(409).json({ message: 'An activity with this code already exists.' });
+    }
+    if (String(e.message).includes('foreign key') || String(e.code) === '23503') {
+      return res.status(400).json({ message: 'Invalid indicator or indicator is not available.' });
+    }
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.put('/project-activities/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  const activityName = String(req.body.activityName || req.body.activity_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  const indicatorId = Number(req.body.indicatorId ?? req.body.indicator_id);
+  if (!activityName) return res.status(400).json({ message: 'activityName is required.' });
+  if (!Number.isFinite(indicatorId)) return res.status(400).json({ message: 'indicatorId is required.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE planning_project_activities
+         SET activity_name = $1, indicator_id = $2, description = $3, updated_at = NOW()
+         WHERE id = $4 AND voided = false
+         RETURNING id, activity_code AS "activityCode", activity_name AS "activityName",
+                   indicator_id AS "indicatorId", description, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [activityName, indicatorId, description, id]
+      );
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+      const ind = firstRow(
+        await pool.query(
+          `SELECT i.name AS "indicatorName", mt.code AS "measurementTypeCode", mt.label AS "measurementTypeLabel"
+           FROM planning_indicators i
+           INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = false
+           WHERE i.id = $1 AND i.voided = false`,
+          [indicatorId]
+        )
+      );
+      return res.json({ ...r.rows[0], ...ind });
+    }
+    const [u] = await pool.query(
+      `UPDATE planning_project_activities SET activity_name = ?, indicator_id = ?, description = ?, updated_at = NOW() WHERE id = ? AND voided = 0`,
+      [activityName, indicatorId, description, id]
+    );
+    if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    const [rows] = await pool.query(
+      `SELECT a.id, a.activity_code AS activityCode, a.activity_name AS activityName,
+              a.indicator_id AS indicatorId, a.description, a.voided,
+              a.created_at AS createdAt, a.updated_at AS updatedAt,
+              i.name AS indicatorName,
+              mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel
+       FROM planning_project_activities a
+       INNER JOIN planning_indicators i ON i.id = a.indicator_id
+       INNER JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = 0
+       WHERE a.id = ?`,
+      [id]
+    );
+    res.json(rows?.[0]);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.delete('/project-activities/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(`UPDATE planning_project_activities SET voided = true, updated_at = NOW() WHERE id = $1`, [id]);
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+    } else {
+      const [u] = await pool.query(`UPDATE planning_project_activities SET voided = 1, updated_at = NOW() WHERE id = ?`, [id]);
+      if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+/** Standard project risk register (code, name, description). */
+router.get('/project-risks', canRead, async (req, res) => {
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `SELECT id, risk_code AS "riskCode", risk_name AS "riskName", description, voided,
+                created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM planning_project_risks
+         WHERE voided = false
+         ORDER BY risk_code ASC`
+      );
+      return res.json(r.rows || []);
+    }
+    const [rows] = await pool.query(
+      `SELECT id, risk_code AS riskCode, risk_name AS riskName, description, voided,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_project_risks
+       WHERE voided = 0
+       ORDER BY risk_code ASC`
+    );
+    res.json(rows || []);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.post('/project-risks', canWrite, async (req, res) => {
+  const riskCode = String(req.body.riskCode || req.body.risk_code || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  const riskName = String(req.body.riskName || req.body.risk_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  if (!riskCode || !riskName) return res.status(400).json({ message: 'riskCode and riskName are required.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `INSERT INTO planning_project_risks (risk_code, risk_name, description)
+         VALUES ($1, $2, $3)
+         RETURNING id, risk_code AS "riskCode", risk_name AS "riskName", description, voided,
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [riskCode, riskName, description]
+      );
+      return res.status(201).json(r.rows?.[0]);
+    }
+    const [ins] = await pool.query(
+      `INSERT INTO planning_project_risks (risk_code, risk_name, description) VALUES (?,?,?)`,
+      [riskCode, riskName, description]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, risk_code AS riskCode, risk_name AS riskName, description, voided,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_project_risks WHERE id = ?`,
+      [ins.insertId]
+    );
+    res.status(201).json(rows?.[0]);
+  } catch (e) {
+    if (String(e.message).includes('unique') || String(e.code) === '23505') {
+      return res.status(409).json({ message: 'A risk with this code already exists.' });
+    }
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.put('/project-risks/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  const riskName = String(req.body.riskName || req.body.risk_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  if (!riskName) return res.status(400).json({ message: 'riskName is required.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE planning_project_risks
+         SET risk_name = $1, description = $2, updated_at = NOW()
+         WHERE id = $3 AND voided = false
+         RETURNING id, risk_code AS "riskCode", risk_name AS "riskName", description, voided,
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [riskName, description, id]
+      );
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+      return res.json(r.rows[0]);
+    }
+    const [u] = await pool.query(
+      `UPDATE planning_project_risks SET risk_name = ?, description = ?, updated_at = NOW() WHERE id = ? AND voided = 0`,
+      [riskName, description, id]
+    );
+    if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    const [rows] = await pool.query(
+      `SELECT id, risk_code AS riskCode, risk_name AS riskName, description, voided,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_project_risks WHERE id = ?`,
+      [id]
+    );
+    res.json(rows?.[0]);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.delete('/project-risks/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(`UPDATE planning_project_risks SET voided = true, updated_at = NOW() WHERE id = $1`, [id]);
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+    } else {
+      const [u] = await pool.query(`UPDATE planning_project_risks SET voided = 1, updated_at = NOW() WHERE id = ?`, [id]);
+      if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.ensurePlanningIndicatorTables = ensureTables;
 module.exports = router;

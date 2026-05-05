@@ -20,6 +20,7 @@ import {
   Tooltip,
   Stack,
   useTheme,
+  Link as MuiLink,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -29,8 +30,9 @@ import {
   Flag as FlagIcon,
 } from '@mui/icons-material';
 import { DataGrid } from '@mui/x-data-grid';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import apiService from '../api';
+import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import Header from './dashboard/Header';
 import { tokens } from './dashboard/theme';
@@ -432,16 +434,30 @@ function PlanningIndicatorsPage() {
                 )}
 
                 {section === 'indicators' && (
-                  <Box sx={{ height: 480, width: '100%' }}>
-                    <DataGrid
-                      rows={indicators}
-                      columns={indColumns}
-                      getRowId={(r) => r.id}
-                      disableRowSelectionOnClick
-                      pageSizeOptions={[10, 25]}
-                      initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
-                    />
-                  </Box>
+                  <>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      For delivery lines that should roll up to these KPIs, maintain the{' '}
+                      <MuiLink component={Link} to={ROUTES.PLANNING_PROJECT_ACTIVITIES} fontWeight={600}>
+                        Project Activities
+                      </MuiLink>{' '}
+                      catalog (activity code, name, linked indicator). Projects can reference those activities later for
+                      measurable outcomes. Maintain reusable{' '}
+                      <MuiLink component={Link} to={ROUTES.PLANNING_PROJECT_RISKS} fontWeight={600}>
+                        Project Risks
+                      </MuiLink>{' '}
+                      alongside this catalog.
+                    </Alert>
+                    <Box sx={{ height: 480, width: '100%' }}>
+                      <DataGrid
+                        rows={indicators}
+                        columns={indColumns}
+                        getRowId={(r) => r.id}
+                        disableRowSelectionOnClick
+                        pageSizeOptions={[10, 25]}
+                        initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
+                      />
+                    </Box>
+                  </>
                 )}
               </>
             )}

@@ -146,6 +146,32 @@ const projectService = {
       const response = await axiosInstance.get(url);
       return response.data;
     },
+    /** Planning activity catalog rows linked to a project */
+    getPlanningCatalogActivityLinks: async (projectId) => {
+      const { data } = await axiosInstance.get(`/projects/${projectId}/planning-catalog/activities`);
+      return data;
+    },
+    addPlanningCatalogActivityLink: async (projectId, payload) => {
+      const { data } = await axiosInstance.post(`/projects/${projectId}/planning-catalog/activities`, payload);
+      return data;
+    },
+    removePlanningCatalogActivityLink: async (projectId, linkId) => {
+      const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/activities/${linkId}`);
+      return data;
+    },
+    /** Planning risk catalog rows linked to a project */
+    getPlanningCatalogRiskLinks: async (projectId) => {
+      const { data } = await axiosInstance.get(`/projects/${projectId}/planning-catalog/risks`);
+      return data;
+    },
+    addPlanningCatalogRiskLink: async (projectId, payload) => {
+      const { data } = await axiosInstance.post(`/projects/${projectId}/planning-catalog/risks`, payload);
+      return data;
+    },
+    removePlanningCatalogRiskLink: async (projectId, linkId) => {
+      const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/risks/${linkId}`);
+      return data;
+    },
   },
 
   // --- Project Analytics API Calls ---

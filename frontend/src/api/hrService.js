@@ -15,8 +15,10 @@ const hrService = {
   // NEW: Employee Export functions
   exportEmployeesToExcel: (headers) => 
     axiosInstance.post('/hr/export/employees-excel', { headers }, { responseType: 'blob' }).then(processResponse),
-  exportEmployeesToPdf: (tableHtml) => 
-    axiosInstance.post('/hr/export/employees-pdf', { tableHtml }, { responseType: 'blob' }).then(processResponse),
+  exportEmployeesToPdf: (tableHtml) =>
+    axiosInstance
+      .post('/hr/export/employees-pdf', { tableHtml }, { responseType: 'blob', timeout: 120000 })
+      .then(processResponse),
 
   // --- Performance Reviews ---
   addPerformanceReview: (data) => axiosInstance.post('/hr/employees/performance', data).then(processResponse),

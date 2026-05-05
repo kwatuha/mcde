@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
-    Box, Typography, Button, Stack, IconButton, CircularProgress, Tooltip,
-    Card, Chip, Menu, MenuItem, ListItemIcon, ListItemText
+    Box, Typography, Button, Stack, IconButton, Tooltip,
+    Card, Chip, Menu, MenuItem, ListItemIcon, ListItemText, Divider
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import { 
@@ -32,9 +32,11 @@ export default function LeaveApplicationsSection({
 }) {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
+    const isDark = theme.palette.mode === 'dark';
     const { hasPrivilege } = useAuth();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [editedItem, setEditedItem] = useState(null);
     const [rowActionMenuAnchor, setRowActionMenuAnchor] = useState(null);
     const [selectedRow, setSelectedRow] = useState(null);
@@ -60,7 +62,13 @@ export default function LeaveApplicationsSection({
     const handleCloseModal = () => {
         setIsAddModalOpen(false);
         setIsEditModalOpen(false);
+        setIsViewModalOpen(false);
         setEditedItem(null);
+    };
+
+    const handleOpenViewModal = (item) => {
+        setEditedItem(item);
+        setIsViewModalOpen(true);
     };
 
     const showApprovalModal = (app) => {
@@ -240,37 +248,43 @@ export default function LeaveApplicationsSection({
             filterable: false,
             align: 'center',
             headerAlign: 'center',
-            width: 60,
-            minWidth: 60,
+            width: 100,
+            minWidth: 100,
             renderCell: (params) => (
-                <Tooltip title="Actions">
-                    <IconButton
-                        size="small"
-                        onClick={(e) => {
-                            setSelectedRow(params.row);
-                            setRowActionMenuAnchor(e.currentTarget);
-                        }}
-                        sx={{ color: colors.blueAccent[300] }}
-                    >
-                        <MoreVertIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
+                <Stack direction="row" spacing={0} alignItems="center" justifyContent="center">
+                    {hasPrivilege('leave.read_all') && (
+                        <Tooltip title="View details">
+                            <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenViewModal(params.row);
+                                }}
+                                sx={{ color: colors.blueAccent[300] }}
+                            >
+                                <VisibilityIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                    <Tooltip title="More actions">
+                        <IconButton
+                            size="small"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedRow(params.row);
+                                setRowActionMenuAnchor(e.currentTarget);
+                            }}
+                            sx={{ color: colors.blueAccent[300] }}
+                        >
+                            <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                </Stack>
             ),
             renderHeader: () => (
-                <Tooltip title="Actions">
-                    <IconButton
-                        size="small"
-                        sx={{ 
-                            color: 'inherit',
-                            padding: '4px',
-                            '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                            }
-                        }}
-                    >
-                        <MoreVertIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    Actions
+                </Typography>
             ),
         },
     ];
@@ -344,7 +358,9 @@ export default function LeaveApplicationsSection({
                             backgroundColor: `${colors.blueAccent[700]} !important`,
                         },
                         "& .MuiDataGrid-row:hover": {
-                            backgroundColor: `${colors.primary[500]} !important`,
+                            backgroundColor: isDark
+                                ? `${colors.primary[500]} !important`
+                                : `${theme.palette.action.hover} !important`,
                         },
                         "& .MuiCheckbox-root": {
                             color: `${colors.greenAccent[200]} !important`,
@@ -355,7 +371,7 @@ export default function LeaveApplicationsSection({
                         rows={leaveApplications}
                         columns={columns}
                         getRowId={(row) => row.id}
-                        loading={!leaveApplications.length}
+                        loading={false}
                         pageSizeOptions={[10, 25, 50, 100]}
                         initialState={{
                             pagination: {
@@ -390,6 +406,31 @@ export default function LeaveApplicationsSection({
             >
                 {selectedRow && (
                     <>
+                        {hasPrivilege('leave.read_all') && (
+                            <>
+                                <MenuItem onClick={() => {
+                                    handleOpenViewModal(selectedRow);
+                                    setRowActionMenuAnchor(null);
+                                    setSelectedRow(null);
+                                }}>
+                                    <ListItemIcon>
+                                        <VisibilityIcon fontSize="small" color="info" />
+                                    </ListItemIcon>
+                                    <ListItemText>View details</ListItemText>
+                                </MenuItem>
+                                {(
+                                    (selectedRow.status === 'Pending' && hasPrivilege('leave.approve')) ||
+                                    (selectedRow.status === 'Pending' && hasPrivilege('leave.update')) ||
+                                    (selectedRow.status === 'Approved' &&
+                                        !selectedRow.actualReturnDate &&
+                                        hasPrivilege('leave.complete')) ||
+                                    ((selectedRow.status === 'Pending' || selectedRow.status === 'Rejected') &&
+                                        hasPrivilege('leave.delete'))
+                                ) ? (
+                                    <Divider sx={{ my: 0.5 }} />
+                                ) : null}
+                            </>
+                        )}
                         {selectedRow.status === 'Pending' && hasPrivilege('leave.approve') && (
                             <>
                                 <MenuItem onClick={() => {
@@ -403,8 +444,7 @@ export default function LeaveApplicationsSection({
                                     <ListItemText>Approve</ListItemText>
                                 </MenuItem>
                                 <MenuItem onClick={() => {
-                                    setSelectedApplication(selectedRow);
-                                    handleUpdateLeaveStatus('Rejected');
+                                    handleUpdateLeaveStatus('Rejected', selectedRow);
                                     setRowActionMenuAnchor(null);
                                     setSelectedRow(null);
                                 }}>
@@ -460,13 +500,14 @@ export default function LeaveApplicationsSection({
             </Menu>
 
             <AddEditLeaveApplicationModal
-                isOpen={isAddModalOpen || isEditModalOpen}
+                isOpen={isAddModalOpen || isEditModalOpen || isViewModalOpen}
                 onClose={handleCloseModal}
                 editedItem={editedItem}
                 employees={employees}
                 leaveTypes={leaveTypes}
                 showNotification={showNotification}
                 refreshData={refreshData}
+                readOnly={isViewModalOpen}
             />
         </Box>
     );

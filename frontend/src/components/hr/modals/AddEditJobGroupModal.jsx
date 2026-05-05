@@ -30,24 +30,31 @@ export default function AddEditJobGroupModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const action = isEditMode ? 'updateJobGroup' : 'addJobGroup';
-    const apiFunction = apiService.hr[`${action.charAt(0).toLowerCase() + action.slice(1)}`];
-
+    const apiFunction = isEditMode ? apiService.hr.updateJobGroup : apiService.hr.addJobGroup;
     if (!apiFunction) {
-      showNotification(`API function for ${action} not found.`, 'error');
+      showNotification('Job group API is not available.', 'error');
       return;
     }
 
     try {
-      const payload = { ...formData, userId: 1 };
+      const rawScale = formData.salaryScale;
+      const salaryScale =
+        rawScale === '' || rawScale === undefined || rawScale === null
+          ? null
+          : Number(rawScale);
+      const payload = {
+        ...formData,
+        salaryScale: Number.isFinite(salaryScale) ? salaryScale : null,
+        userId: 1,
+      };
       if (isEditMode) {
         await apiFunction(editedItem.id, payload);
       } else {
         await apiFunction(payload);
       }
+      await refreshData();
       showNotification(`Job group ${isEditMode ? 'updated' : 'added'} successfully.`, 'success');
       onClose();
-      refreshData();
     } catch (error) {
       showNotification(error.response?.data?.message || `Failed to ${isEditMode ? 'update' : 'add'} job group.`, 'error');
     }

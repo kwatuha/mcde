@@ -1,8 +1,8 @@
 // src/pages/HrModule.jsx
 
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress, Stack, Button, Snackbar, Alert, Tabs, Tab, useTheme, FormControl } from '@mui/material';
-import { People as PeopleIcon, WorkHistory as WorkHistoryIcon, Settings as SettingsIcon } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
+import { Box, Typography, CircularProgress, Snackbar, Alert, useTheme } from '@mui/material';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext';
 import Employee360ViewSection from '../components/hr/Employee360ViewSection';
@@ -11,7 +11,6 @@ import LeaveApplicationsSection from '../components/hr/LeaveApplicationsSection'
 import LeaveTypesSection from '../components/hr/LeaveTypesSection';
 import JobGroupsSection from '../components/hr/JobGroupsSection';
 import AttendanceSection from '../components/hr/AttendanceSection';
-import LeaveEntitlementsSection from '../components/hr/LeaveEntitlementsSection';
 import PublicHolidaysSection from '../components/hr/PublicHolidaysSection';
 import ConfirmDeleteModal from '../components/hr/modals/ConfirmDeleteModal';
 import ApproveLeaveModal from '../components/hr/modals/ApproveLeaveModal';
@@ -20,17 +19,17 @@ import AddEditEmployeeModal from '../components/hr/modals/AddEditEmployeeModal';
 import AddEditLeaveTypeModal from '../components/hr/modals/AddEditLeaveTypeModal';
 import AddEditLeaveApplicationModal from '../components/hr/modals/AddEditLeaveApplicationModal';
 import AddEditJobGroupModal from '../components/hr/modals/AddEditJobGroupModal';
-import Header from "./dashboard/Header";
 import { tokens } from "./dashboard/theme";
 
 export default function HrModule() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === 'dark';
   const { hasPrivilege } = useAuth();
+  const [searchParams] = useSearchParams();
   const CURRENT_USER_ID = 1;
 
   const [currentPage, setCurrentPage] = useState('employees');
-  const [adminSubTab, setAdminSubTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [employee360View, setEmployee360View] = useState(null);
@@ -55,6 +54,7 @@ export default function HrModule() {
   const [isLeaveApplicationModalOpen, setIsLeaveApplicationModalOpen] = useState(false);
   const [isJobGroupModalOpen, setIsJobGroupModalOpen] = useState(false);
   const [editedItem, setEditedItem] = useState(null);
+  const [publicHolidaysReloadSignal, setPublicHolidaysReloadSignal] = useState(0);
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
@@ -95,12 +95,15 @@ export default function HrModule() {
     try {
       const apiFunction = apiService.hr[apiFunctionName];
       await apiFunction(itemToDelete.id);
+      const deletedType = itemToDelete.type;
       showNotification(`${itemToDelete.name} deleted successfully.`, 'success');
       setIsDeleteConfirmModalOpen(false);
       setItemToDelete(null);
-      
+
       if (currentPage === 'employee360') {
         fetchEmployee360View(currentEmployeeInView.staffId);
+      } else if (deletedType === 'holiday') {
+        setPublicHolidaysReloadSignal((n) => n + 1);
       } else {
         fetchData(currentPage);
       }
@@ -124,29 +127,71 @@ export default function HrModule() {
           setAttendanceRecords(attendanceRecordsData);
           break;
         case 'employees':
-        case 'administration':
-             const [employeesData, leaveTypesData, jobGroupsData] = await Promise.all([
+        case 'jobGroups':
+        case 'leaveTypes': {
+            // Use allSettled so one failing endpoint (e.g. employees) still refreshes job groups / leave types after a save.
+            const settled = await Promise.allSettled([
                 apiService.hr.getEmployees(),
                 apiService.hr.getLeaveTypes(),
-                apiService.hr.getJobGroups()
+                apiService.hr.getJobGroups(),
             ]);
-            setEmployees(employeesData);
-            setLeaveTypes(leaveTypesData);
-            setJobGroups(jobGroupsData);
+            const labels = ['employees', 'leave types', 'job groups'];
+            settled.forEach((r, i) => {
+                if (r.status === 'fulfilled') {
+                    if (i === 0) setEmployees(Array.isArray(r.value) ? r.value : []);
+                    if (i === 1) setLeaveTypes(Array.isArray(r.value) ? r.value : []);
+                    if (i === 2) setJobGroups(Array.isArray(r.value) ? r.value : []);
+                } else {
+                    console.error(`HR fetch failed (${labels[i]}):`, r.reason);
+                }
+            });
+            const failed = settled.filter((r) => r.status === 'rejected');
+            if (failed.length === settled.length) {
+                const first = failed[0].reason;
+                const detail =
+                    first?.response?.data?.message ||
+                    (typeof first?.response?.data === 'string' ? first.response.data : null) ||
+                    first?.message;
+                throw new Error(detail || 'All HR list requests failed');
+            }
+            if (failed.length > 0) {
+                const failedNames = settled
+                    .map((r, i) => (r.status === 'rejected' ? labels[i] : null))
+                    .filter(Boolean);
+                showNotification(`Could not load: ${failedNames.join(', ')}.`, 'warning');
+            }
             break;
+        }
         default:
           break;
       }
     } catch (error) {
-      showNotification(`Failed to fetch data for ${page}.`, 'error');
+      const detail =
+        error.response?.data?.message ||
+        (typeof error.response?.data === 'string' ? error.response.data : null) ||
+        error.message;
+      showNotification(`Failed to fetch data for ${page}. ${detail || ''}`.trim(), 'error');
     } finally {
       setLoading(false);
     }
   };
   
   useEffect(() => {
-    fetchData('employees');
-  }, []);
+    const view = searchParams.get('view') || 'employees';
+    if (view === 'personnel') {
+      setCurrentPage('leaveApplications');
+    } else if (view === 'administration') {
+      setCurrentPage('jobGroups');
+    } else if (view === 'jobGroups') {
+      setCurrentPage('jobGroups');
+    } else if (view === 'leaveTypes') {
+      setCurrentPage('leaveTypes');
+    } else if (view === 'publicHolidays') {
+      setCurrentPage('publicHolidays');
+    } else {
+      setCurrentPage('employees');
+    }
+  }, [searchParams]);
 
   const fetchEmployee360View = async (employeeId) => {
     setLoading(true);
@@ -170,18 +215,25 @@ export default function HrModule() {
   };
 
   useEffect(() => {
-    if (currentPage === 'leaveApplications' || currentPage === 'attendance' || currentPage === 'administration') {
-        fetchData(currentPage);
+    if (currentPage === 'leaveApplications' || currentPage === 'attendance') {
+      fetchData(currentPage);
+    } else if (currentPage === 'employees' || currentPage === 'jobGroups' || currentPage === 'leaveTypes') {
+      fetchData(currentPage);
     }
   }, [currentPage]);
 
-  const handleUpdateLeaveStatus = async (status) => {
+  const handleUpdateLeaveStatus = async (status, applicationOverride = null) => {
     if (!hasPrivilege('leave.approve')) { showNotification('Permission denied to approve or reject leave.', 'error'); return; }
+    const app = applicationOverride ?? selectedApplication;
+    if (!app?.id) {
+      showNotification('No leave application selected.', 'error');
+      return;
+    }
     setLoading(true);
     try {
       const payload = { status, userId: CURRENT_USER_ID };
       if (status === 'Approved') { payload.approvedStartDate = approvedDates.startDate; payload.approvedEndDate = approvedDates.endDate; }
-      await apiService.hr.updateLeaveStatus(selectedApplication.id, payload);
+      await apiService.hr.updateLeaveStatus(app.id, payload);
       showNotification(`Leave application ${status.toLowerCase()} successfully.`, 'success');
       fetchData('leaveApplications');
       setIsApprovalModalOpen(false);
@@ -244,7 +296,7 @@ export default function HrModule() {
   const handleCloseJobGroupModal = () => setIsJobGroupModalOpen(false);
 
   const renderContent = () => {
-    if (loading && employees.length === 0) {
+    if (loading && employees.length === 0 && currentPage !== 'publicHolidays') {
       return (
         <Box display="flex" justifyContent="center" alignItems="center" height="40vh">
           <CircularProgress />
@@ -261,32 +313,37 @@ export default function HrModule() {
         return <LeaveApplicationsSection {...{ leaveApplications, employees, leaveTypes, showNotification, refreshData: () => fetchData('leaveApplications'), handleUpdateLeaveStatus, setSelectedApplication, setIsApprovalModalOpen, setIsReturnModalOpen, setApprovedDates, setActualReturnDate, handleOpenDeleteConfirmModal, handleOpenAddLeaveApplicationModal, handleOpenEditApplicationModal: handleOpenAddLeaveApplicationModal }} />;
       case 'attendance':
         return <AttendanceSection {...{ employees, attendanceRecords, handleAttendance, showNotification, refreshData: () => fetchData('attendance') }} />;
-      
-      case 'administration':
-        const handleAdminSubTabChange = (event, newValue) => { setAdminSubTab(newValue); };
+      case 'jobGroups':
         return (
-            <Box>
-                <Tabs value={adminSubTab} onChange={handleAdminSubTabChange} sx={{ borderBottom: 1, borderColor: 'divider', "& .MuiTabs-indicator": { backgroundColor: colors.blueAccent[500] } }}>
-                    <Tab label="Job Groups" sx={{ color: adminSubTab === 0 ? colors.blueAccent[500] : colors.grey[100] }} />
-                    <Tab label="Leave Types" sx={{ color: adminSubTab === 1 ? colors.blueAccent[500] : colors.grey[100] }} />
-                    <Tab label="Leave Entitlements" sx={{ color: adminSubTab === 2 ? colors.blueAccent[500] : colors.grey[100] }} />
-                    <Tab label="Public Holidays" sx={{ color: adminSubTab === 3 ? colors.blueAccent[500] : colors.grey[100] }} />
-                </Tabs>
-                <Box sx={{ pt: 3 }}>
-                    {adminSubTab === 0 && (
-                        <JobGroupsSection {...{ jobGroups, showNotification, refreshData: () => fetchData('administration'), handleOpenDeleteConfirmModal, handleOpenAddJobGroupModal, handleOpenEditJobGroupModal: handleOpenAddJobGroupModal }} />
-                    )}
-                    {adminSubTab === 1 && (
-                        <LeaveTypesSection {...{ leaveTypes, showNotification, refreshData: () => fetchData('administration'), handleOpenDeleteConfirmModal, handleOpenAddLeaveTypeModal, handleOpenEditLeaveTypeModal: handleOpenAddLeaveTypeModal }} />
-                    )}
-                    {adminSubTab === 2 && (
-                        <LeaveEntitlementsSection {...{ employees, leaveTypes, showNotification, handleOpenDeleteConfirmModal }} />
-                    )}
-                    {adminSubTab === 3 && (
-                        <PublicHolidaysSection {...{ showNotification, handleOpenDeleteConfirmModal }} />
-                    )}
-                </Box>
-            </Box>
+          <JobGroupsSection
+            {...{
+              jobGroups,
+              showNotification,
+              refreshData: () => fetchData('jobGroups'),
+              handleOpenDeleteConfirmModal,
+              handleOpenAddJobGroupModal,
+              handleOpenEditJobGroupModal: handleOpenAddJobGroupModal,
+            }}
+          />
+        );
+      case 'leaveTypes':
+        return (
+          <LeaveTypesSection
+            {...{
+              leaveTypes,
+              showNotification,
+              refreshData: () => fetchData('leaveTypes'),
+              handleOpenDeleteConfirmModal,
+              handleOpenAddLeaveTypeModal,
+              handleOpenEditLeaveTypeModal: handleOpenAddLeaveTypeModal,
+            }}
+          />
+        );
+      case 'publicHolidays':
+        return (
+          <PublicHolidaysSection
+            {...{ showNotification, handleOpenDeleteConfirmModal, reloadSignal: publicHolidaysReloadSignal }}
+          />
         );
       default:
         return null;
@@ -294,43 +351,10 @@ export default function HrModule() {
   };
 
   return (
-    <Box sx={{ p: 3, background: colors.primary[400], minHeight: '100vh' }}>
-      <Header title="HR MODULE" subtitle="Manage employees, leave, and administration" />
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 4 }}>
-        <Stack direction="row" spacing={2} role="tablist">
-          <Button variant={currentPage === 'employees' || currentPage === 'employee360' ? 'contained' : 'text'} onClick={() => setCurrentPage('employees')} startIcon={<PeopleIcon />}
-            sx={{
-              backgroundColor: currentPage === 'employees' || currentPage === 'employee360' ? colors.blueAccent[700] : 'transparent',
-              color: currentPage === 'employees' || currentPage === 'employee360' ? colors.white : colors.grey[100],
-              '&:hover': {
-                backgroundColor: colors.blueAccent[600],
-              }
-            }}
-          >Employees</Button>
-          <Button variant={currentPage === 'leaveApplications' || currentPage === 'attendance' ? 'contained' : 'text'} onClick={() => setCurrentPage('leaveApplications')} startIcon={<WorkHistoryIcon />}
-            sx={{
-              backgroundColor: currentPage === 'leaveApplications' || currentPage === 'attendance' ? colors.blueAccent[700] : 'transparent',
-              color: currentPage === 'leaveApplications' || currentPage === 'attendance' ? colors.white : colors.grey[100],
-              '&:hover': {
-                backgroundColor: colors.blueAccent[600],
-              }
-            }}
-          >Personnel Actions</Button>
-          <Button variant={currentPage === 'administration' ? 'contained' : 'text'} onClick={() => setCurrentPage('administration')} startIcon={<SettingsIcon />}
-            sx={{
-              backgroundColor: currentPage === 'administration' ? colors.blueAccent[700] : 'transparent',
-              color: currentPage === 'administration' ? colors.white : colors.grey[100],
-              '&:hover': {
-                backgroundColor: colors.blueAccent[600],
-              }
-            }}
-          >Administration</Button>
-        </Stack>
-      </Box>
-
+    <Box sx={{ p: 3, pt: 2, background: colors.primary[400], minHeight: '100vh' }}>
       {/* Main container for all grid content with consistent styling and overflow fix */}
       <Box
-        m="40px 0 0 0"
+        m="0"
         height="75vh"
         sx={{
           "& .MuiPaper-root": {
@@ -338,7 +362,7 @@ export default function HrModule() {
           },
           "& .MuiTableContainer-root": {
             borderRadius: "8px",
-            maxHeight: "calc(100vh - 300px)",
+            maxHeight: "calc(100vh - 200px)",
             boxShadow: theme.palette.mode === 'dark' ? '0px 4px 20px rgba(0, 0, 0, 0.5)' : '0px 4px 20px rgba(0, 0, 0, 0.1)',
             overflow: "hidden",
             overflowY: 'auto' // Fix for scrollbar
@@ -355,7 +379,7 @@ export default function HrModule() {
           },
           "& .MuiTableBody-root .MuiTableRow-root": {
               "&:hover": {
-                  backgroundColor: colors.primary[500],
+                  backgroundColor: isDark ? colors.primary[500] : theme.palette.action.hover,
               }
           },
           // Dropdown fix
@@ -373,9 +397,9 @@ export default function HrModule() {
       
       <AddEditEmployeeModal isOpen={isEmployeeModalOpen} onClose={handleCloseEmployeeModal} editedItem={editedItem} employees={employees} jobGroups={jobGroups} showNotification={showNotification} refreshData={() => fetchData('employees')} />
       
-      <AddEditLeaveTypeModal isOpen={isLeaveTypeModalOpen} onClose={handleCloseLeaveTypeModal} editedItem={editedItem} showNotification={showNotification} refreshData={() => fetchData('administration')} />
+      <AddEditLeaveTypeModal isOpen={isLeaveTypeModalOpen} onClose={handleCloseLeaveTypeModal} editedItem={editedItem} showNotification={showNotification} refreshData={() => fetchData('leaveTypes')} />
       <AddEditLeaveApplicationModal isOpen={isLeaveApplicationModalOpen} onClose={handleCloseLeaveApplicationModal} editedItem={editedItem} employees={employees} leaveTypes={leaveTypes} leaveBalances={leaveBalances} showNotification={showNotification} refreshData={() => fetchData('leaveApplications')} />
-      <AddEditJobGroupModal isOpen={isJobGroupModalOpen} onClose={handleCloseJobGroupModal} editedItem={editedItem} showNotification={showNotification} refreshData={() => fetchData('administration')} />
+      <AddEditJobGroupModal isOpen={isJobGroupModalOpen} onClose={handleCloseJobGroupModal} editedItem={editedItem} showNotification={showNotification} refreshData={() => fetchData('jobGroups')} />
       
       <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
         <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>

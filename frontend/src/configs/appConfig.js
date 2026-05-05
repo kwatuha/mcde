@@ -63,6 +63,10 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
+    /** Link registry planning activities to projects (Projects sidebar). */
+    PROJECT_PLANNING_ACTIVITY_LINKS: '/projects/planning-activity-links',
+    /** Link registry planning risks to projects (Projects sidebar). */
+    PROJECT_PLANNING_RISK_LINKS: '/projects/planning-risk-links',
     /** Public feedback linked to projects, grouped by project (optional direct URL; not in main ribbon). */
     PROJECT_FEEDBACK_BY_PROJECT: '/projects/feedback-by-project',
     /** Public certificate verification (no login); same path when opened from the Projects menu while signed in. */
@@ -78,8 +82,18 @@ export const ROUTES = {
     AUDIT_TRAIL: '/audit-trail',
     STRATEGIC_PLANNING: '/strategic-planning',
     PLANNING_INDICATORS: '/planning/indicators',
+    /** Measurable activity catalog (linked to KPIs / indicators) for projects & M&E. */
+    PLANNING_PROJECT_ACTIVITIES: '/planning/project-activities',
+    /** Standard risk register entries for projects (code, name, description). */
+    PLANNING_PROJECT_RISKS: '/planning/project-risks',
     METADATA_MANAGEMENT: '/metadata-management',
-    HR: '/hr-module', // New route for the HR module
+    HR: '/hr-module',
+    /** HR ribbon deep-links (query `view` synced in HrModulePage). */
+    HR_EMPLOYEES: '/hr-module?view=employees',
+    HR_PERSONNEL: '/hr-module?view=personnel',
+    HR_JOB_GROUPS: '/hr-module?view=jobGroups',
+    HR_LEAVE_TYPES: '/hr-module?view=leaveTypes',
+    HR_PUBLIC_HOLIDAYS: '/hr-module?view=publicHolidays',
     WORKFLOW_MANAGEMENT: '/workflow-management',
     APPROVAL_LEVELS_MANAGEMENT: '/approval-levels-management', // ✨ NEW: Add the approval levels management route
     FEEDBACK_MANAGEMENT: '/feedback-management', // ✨ NEW: Public feedback management route

@@ -17,6 +17,7 @@ import { tokens } from "../../pages/dashboard/theme";
 export default function JobGroupsSection({ jobGroups, showNotification, refreshData, handleOpenDeleteConfirmModal }) {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
+    const isDark = theme.palette.mode === 'dark';
     const { hasPrivilege } = useAuth();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editedItem, setEditedItem] = useState(null);
@@ -218,7 +219,9 @@ export default function JobGroupsSection({ jobGroups, showNotification, refreshD
                             backgroundColor: `${colors.blueAccent[700]} !important`,
                         },
                         "& .MuiDataGrid-row:hover": {
-                            backgroundColor: `${colors.primary[500]} !important`,
+                            backgroundColor: isDark
+                                ? `${colors.primary[500]} !important`
+                                : `${theme.palette.action.hover} !important`,
                         },
                         "& .MuiCheckbox-root": {
                             color: `${colors.greenAccent[200]} !important`,
@@ -229,7 +232,7 @@ export default function JobGroupsSection({ jobGroups, showNotification, refreshD
                         rows={jobGroups}
                         columns={columns}
                         getRowId={(row) => row.id}
-                        loading={!jobGroups.length}
+                        loading={false}
                         pageSizeOptions={[10, 25, 50, 100]}
                         initialState={{
                             pagination: {

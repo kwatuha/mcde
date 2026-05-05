@@ -1,13 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
+const { mapRows } = require('../utils/camelSnakeKeys');
+
+async function pgq(sql, params) {
+    const r = await db.query(sql, params || []);
+    if (r.rows) r.rows = mapRows(r.rows);
+    return r;
+}
+const notVoided = (alias = '') =>
+    `COALESCE(${alias ? `${alias}.` : ''}voided::text, '0') IN ('0', 'false', 'f')`;
 const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
 const ExcelJS = require('exceljs');
 const puppeteer = require('puppeteer');
 const path = require('path');
+const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
 
-// Helper function to format dates for MySQL (YYYY-MM-DD)
+// Helper function to format dates for PostgreSQL / ISO date (YYYY-MM-DD)
 const formatDate = (dateString) => {
     if (!dateString) return null;
     try {
@@ -18,48 +28,132 @@ const formatDate = (dateString) => {
     }
 };
 
-// --- Employee Management ---
-router.get('/employees', auth, privilege(['employee.read_all']), async (req, res) => {
+/** MUI forms often send '' for unset Selects; Postgres integer columns reject ''. */
+const intOrNull = (v) => {
+    if (v === '' || v === undefined || v === null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+};
+
+/** RHS of `s.department_id = …` — legacy uses "departmentId", HR migration uses department_id */
+let departmentsPkJoinMemo;
+async function departmentsPkJoinExpr() {
+    if (departmentsPkJoinMemo !== undefined) return departmentsPkJoinMemo;
     try {
+        const { rows } = await db.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'departments'`
+        );
+        const cols = new Set(rows.map((r) => r.column_name));
+        if (cols.size === 0) {
+            departmentsPkJoinMemo = 'd."departmentId"';
+        } else {
+            departmentsPkJoinMemo = cols.has('departmentId') ? 'd."departmentId"' : 'd.department_id';
+        }
+    } catch (e) {
+        console.error('departmentsPkJoinExpr:', e);
+        departmentsPkJoinMemo = 'd."departmentId"';
+    }
+    return departmentsPkJoinMemo;
+}
+
+/** job_groups title column: legacy quoted "groupName", some schemas use group_name only */
+let jobGroupTitleMemo;
+async function jobGroupTitleSelectFragment() {
+    if (jobGroupTitleMemo !== undefined) return jobGroupTitleMemo;
+    try {
+        const { rows } = await db.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'job_groups'`
+        );
+        const cols = new Set(rows.map((r) => r.column_name));
+        if (cols.has('groupName')) jobGroupTitleMemo = 'jg."groupName"';
+        else if (cols.has('group_name')) jobGroupTitleMemo = 'jg.group_name';
+        else jobGroupTitleMemo = 'NULL::text';
+    } catch (e) {
+        console.error('jobGroupTitleSelectFragment:', e);
+        jobGroupTitleMemo = 'NULL::text';
+    }
+    return jobGroupTitleMemo;
+}
+
+function resetHrJoinSchemaMemo() {
+    departmentsPkJoinMemo = undefined;
+    jobGroupTitleMemo = undefined;
+}
+
+// --- Employee Management ---
+router.get('/employees', auth, privilege(['employee.read_all', 'hr.access'], { anyOf: true }), async (req, res) => {
+    const fallbackSql = `
+        SELECT s.*, NULL::text AS department, NULL::text AS title
+        FROM staff s
+        WHERE ${notVoided('s')}
+        ORDER BY s.first_name NULLS LAST, s.last_name NULLS LAST
+    `;
+    try {
+        const dPk = await departmentsPkJoinExpr();
+        const jgTitle = await jobGroupTitleSelectFragment();
         const sql = `
             SELECT
                 s.*,
                 d.name AS department,
-                jg.groupName AS title
+                ${jgTitle} AS title
             FROM staff s
-            LEFT JOIN departments d ON s.departmentId = d.departmentId AND d.voided = 0
-            LEFT JOIN job_groups jg ON s.jobGroupId = jg.id
-            WHERE s.voided = 0
+            LEFT JOIN departments d ON s.department_id = ${dPk} AND ${notVoided('d')}
+            LEFT JOIN job_groups jg ON s.job_group_id = jg.id
+            WHERE ${notVoided('s')}
+            ORDER BY s.first_name NULLS LAST, s.last_name NULLS LAST
         `;
-        const [rows] = await db.query(sql);
-        res.json(rows);
+        try {
+            const { rows } = await pgq(sql);
+            return res.json(rows);
+        } catch (joinErr) {
+            console.error('GET /hr/employees joined query failed, retrying staff-only:', joinErr.message);
+            resetHrJoinSchemaMemo();
+            const { rows } = await pgq(fallbackSql);
+            return res.json(rows);
+        }
     } catch (err) {
         console.error('Error fetching employees:', err);
-        res.status(500).send('Error fetching employees');
+        res.status(500).json({ message: err.message || 'Error fetching employees' });
     }
 });
 
 // NEW: Export employees to Excel
-router.post('/export/employees-excel', auth, privilege(['employee.read_all']), async (req, res) => {
+router.post('/export/employees-excel', auth, privilege(['employee.read_all', 'hr.access'], { anyOf: true }), async (req, res) => {
     try {
         const { headers } = req.body;
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Employees');
 
+        const dPk = await departmentsPkJoinExpr();
+        const jgTitle = await jobGroupTitleSelectFragment();
         const sql = `
             SELECT
                 s.*,
                 d.name AS department,
-                jg.groupName AS title,
-                CONCAT(m.firstName, ' ', m.lastName) AS managerName
+                ${jgTitle} AS title,
+                CONCAT(m.first_name, ' ', m.last_name) AS manager_name
             FROM staff s
-            LEFT JOIN departments d ON s.departmentId = d.departmentId AND d.voided = 0
-            LEFT JOIN job_groups jg ON s.jobGroupId = jg.id
-            LEFT JOIN staff m ON s.managerId = m.staffId
-            WHERE s.voided = 0
-            ORDER BY s.firstName, s.lastName
+            LEFT JOIN departments d ON s.department_id = ${dPk} AND ${notVoided('d')}
+            LEFT JOIN job_groups jg ON s.job_group_id = jg.id
+            LEFT JOIN staff m ON s.manager_id = m.staff_id
+            WHERE ${notVoided('s')}
+            ORDER BY s.first_name, s.last_name
         `;
-        const [employees] = await db.query(sql);
+        let employees;
+        try {
+            ({ rows: employees } = await pgq(sql));
+        } catch (e) {
+            console.error('employees-excel joined query failed, staff-only fallback:', e.message);
+            resetHrJoinSchemaMemo();
+            ({ rows: employees } = await pgq(`
+                SELECT s.*, NULL::text AS department, NULL::text AS title,
+                    CONCAT(m.first_name, ' ', m.last_name) AS manager_name
+                FROM staff s
+                LEFT JOIN staff m ON s.manager_id = m.staff_id
+                WHERE ${notVoided('s')}
+                ORDER BY s.first_name, s.last_name
+            `));
+        }
 
         const columns = Object.keys(headers).map(key => ({
             header: headers[key],
@@ -70,7 +164,7 @@ router.post('/export/employees-excel', auth, privilege(['employee.read_all']), a
 
         employees.forEach(emp => {
             const rowData = {};
-            rowData.manager = emp.managerName || 'N/A';
+            rowData.manager = emp.managerName || emp.manager_name || 'N/A';
             Object.keys(emp).forEach(key => {
                 rowData[key] = emp[key];
             });
@@ -88,51 +182,79 @@ router.post('/export/employees-excel', auth, privilege(['employee.read_all']), a
 });
 
 // NEW: Export employees to PDF
-router.post('/export/employees-pdf', auth, privilege(['employee.read_all']), async (req, res) => {
-    try {
-        const { tableHtml } = req.body;
-        const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-        const page = await browser.newPage();
+router.post(
+    '/export/employees-pdf',
+    auth,
+    privilege(['employee.read_all', 'hr.access'], { anyOf: true }),
+    async (req, res) => {
+        let browser;
+        try {
+            const { tableHtml } = req.body;
+            if (!tableHtml || typeof tableHtml !== 'string') {
+                return res.status(400).json({ message: 'tableHtml is required.' });
+            }
 
-        await page.setContent(tableHtml, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' }
-        });
+            browser = await puppeteer.launch(getPuppeteerLaunchOptions());
+            const page = await browser.newPage();
+            // Full document + domcontentloaded: networkidle0 often hangs or times out on static HTML (no network).
+            const wrappedHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Employees</title>
+</head>
+<body>
+${tableHtml}
+</body>
+</html>`;
+            await page.setContent(wrappedHtml, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            const pdfBuffer = await page.pdf({
+                format: 'A4',
+                printBackground: true,
+                margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+            });
 
-        await browser.close();
-
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'attachment; filename=employees_report.pdf');
-        res.send(pdfBuffer);
-    } catch (err) {
-        console.error('Error exporting employees to PDF:', err);
-        res.status(500).send('Error exporting employees to PDF');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'attachment; filename=employees_report.pdf');
+            res.send(pdfBuffer);
+        } catch (err) {
+            console.error('Error exporting employees to PDF:', err);
+            res.status(500).json({ message: err.message || 'Error exporting employees to PDF' });
+        } finally {
+            if (browser) {
+                try {
+                    await browser.close();
+                } catch (closeErr) {
+                    console.warn('employees-pdf: browser.close failed:', closeErr.message);
+                }
+            }
+        }
     }
-});
+);
 
 router.post('/employees', auth, privilege(['employee.create']), async (req, res) => {
     const { firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, placeOfBirth, bloodType, religion, nationalId, kraPin, userId } = req.body;
     
     const sql = `
         INSERT INTO staff (
-            firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName,
-            emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, placeOfBirth, bloodType, religion,
-            nationalId, kraPin, userId
+            first_name, last_name, email, phone_number, department_id, job_group_id, gender, date_of_birth, employment_status, start_date, emergency_contact_name,
+            emergency_contact_relationship, emergency_contact_phone, nationality, marital_status, employment_type, manager_id, role, place_of_birth, blood_type, religion,
+            national_id, kra_pin, user_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING staff_id
     `;
     
     try {
-        const [result] = await db.query(sql, [
-            firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
-            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role,
-            placeOfBirth, bloodType, religion, nationalId, kraPin, userId
+        const result = await pgq(sql, [
+            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
+            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, intOrNull(managerId), role ?? null,
+            placeOfBirth, bloodType, religion, nationalId, kraPin, intOrNull(userId)
         ]);
-        res.status(201).json({ staffId: result.insertId, message: 'Employee added successfully' });
+        res.status(201).json({ staffId: result.rows[0].staffId, message: 'Employee added successfully' });
     } catch (err) {
         console.error('Error adding employee:', err);
-        res.status(500).send('Error adding employee');
+        res.status(500).json({ message: err.message || 'Error adding employee' });
     }
 });
 
@@ -142,36 +264,36 @@ router.put('/employees/:id', auth, privilege(['employee.update']), async (req, r
     
     const sql = `
         UPDATE staff SET
-            firstName = ?, lastName = ?, email = ?, phoneNumber = ?, departmentId = ?, jobGroupId = ?, gender = ?, dateOfBirth = ?, employmentStatus = ?,
-            startDate = ?, emergencyContactName = ?, emergencyContactRelationship = ?, emergencyContactPhone = ?, nationality = ?, maritalStatus = ?,
-            employmentType = ?, managerId = ?, role = ?, placeOfBirth = ?, bloodType = ?, religion = ?, nationalId = ?, kraPin = ?, userId = ?,
-            updatedAt = CURRENT_TIMESTAMP
-        WHERE staffId = ?
+            first_name = ?, last_name = ?, email = ?, phone_number = ?, department_id = ?, job_group_id = ?, gender = ?, date_of_birth = ?, employment_status = ?,
+            start_date = ?, emergency_contact_name = ?, emergency_contact_relationship = ?, emergency_contact_phone = ?, nationality = ?, marital_status = ?,
+            employment_type = ?, manager_id = ?, role = ?, place_of_birth = ?, blood_type = ?, religion = ?, national_id = ?, kra_pin = ?, user_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE staff_id = ?
     `;
     
     try {
-        const [result] = await db.query(sql, [
-            firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
-            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role,
-            placeOfBirth, bloodType, religion, nationalId, kraPin, userId, id
+        const result = await pgq(sql, [
+            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
+            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, intOrNull(managerId), role ?? null,
+            placeOfBirth, bloodType, religion, nationalId, kraPin, intOrNull(userId), id
         ]);
         
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
         }
         res.status(200).json({ message: 'Employee updated successfully' });
     } catch (err) {
         console.error('Error updating employee:', err);
-        res.status(500).send('Error updating employee');
+        res.status(500).json({ message: err.message || 'Error updating employee' });
     }
 });
 
 router.delete('/employees/:id', auth, privilege(['employee.delete']), async (req, res) => {
     const { id } = req.params;
-    const sql = 'UPDATE staff SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE staffId = ?';
+    const sql = 'UPDATE staff SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE staff_id = ?';
     try {
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
         }
         res.status(200).json({ message: 'Employee deleted successfully' });
@@ -185,17 +307,30 @@ router.delete('/employees/:id', auth, privilege(['employee.delete']), async (req
 router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee.read_360']), async (req, res) => {
     const { id } = req.params;
     try {
+        const dPk = await departmentsPkJoinExpr();
+        const jgTitle = await jobGroupTitleSelectFragment();
         const sql = `
             SELECT
                 s.*,
-                d.name AS departmentName,
-                jg.groupName AS jobGroupName
+                d.name AS department_name,
+                ${jgTitle} AS job_group_name
             FROM staff s
-            LEFT JOIN departments d ON s.departmentId = d.departmentId AND d.voided = 0
-            LEFT JOIN job_groups jg ON s.jobGroupId = jg.id
-            WHERE s.staffId = ? AND s.voided = 0
+            LEFT JOIN departments d ON s.department_id = ${dPk} AND ${notVoided('d')}
+            LEFT JOIN job_groups jg ON s.job_group_id = jg.id
+            WHERE s.staff_id = ? AND ${notVoided('s')}
         `;
-        const [employeeRows] = await db.query(sql, [id]);
+        let employeeRows;
+        try {
+            ({ rows: employeeRows } = await pgq(sql, [id]));
+        } catch (e) {
+            console.error('employee 360 profile joined query failed, fallback:', e.message);
+            resetHrJoinSchemaMemo();
+            ({ rows: employeeRows } = await pgq(
+                `SELECT s.*, NULL::text AS department_name, NULL::text AS job_group_name
+                 FROM staff s WHERE s.staff_id = ? AND ${notVoided('s')}`,
+                [id]
+            ));
+        }
 
         if (employeeRows.length === 0) {
             return res.status(404).json({ message: 'Employee not found.' });
@@ -203,59 +338,59 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
         const profile = employeeRows[0];
 
         const dataPromises = [
-            db.query('SELECT * FROM employee_performance WHERE staffId = ? AND voided = 0 ORDER BY reviewDate DESC', [id]),
-            db.query('SELECT * FROM employee_compensation WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_training WHERE staffId = ? AND voided = 0 ORDER BY completionDate DESC', [id]),
-            db.query('SELECT * FROM employee_disciplinary WHERE staffId = ? AND voided = 0 ORDER BY actionDate DESC', [id]),
-            db.query('SELECT * FROM employee_contracts WHERE staffId = ? AND voided = 0 ORDER BY contractStartDate DESC', [id]),
-            db.query('SELECT * FROM employee_retirements WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_loans WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM monthly_payroll WHERE staffId = ? AND voided = 0 ORDER BY payPeriod DESC', [id]),
-            db.query('SELECT * FROM employee_dependants WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_terminations WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_bank_details WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_memberships WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_benefits WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM assigned_assets WHERE staffId = ? AND voided = 0', [id]),
-            db.query('SELECT * FROM employee_promotions WHERE staffId = ? AND voided = 0 ORDER BY promotionDate DESC', [id]),
-            db.query('SELECT * FROM employee_project_assignments WHERE staffId = ? AND voided = 0', [id]),
-            db.query(`
+            pgq('SELECT * FROM employee_performance WHERE staff_id = ? AND voided = 0 ORDER BY review_date DESC', [id]),
+            pgq('SELECT * FROM employee_compensation WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_training WHERE staff_id = ? AND voided = 0 ORDER BY completion_date DESC', [id]),
+            pgq('SELECT * FROM employee_disciplinary WHERE staff_id = ? AND voided = 0 ORDER BY action_date DESC', [id]),
+            pgq('SELECT * FROM employee_contracts WHERE staff_id = ? AND voided = 0 ORDER BY contract_start_date DESC', [id]),
+            pgq('SELECT * FROM employee_retirements WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_loans WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM monthly_payroll WHERE staff_id = ? AND voided = 0 ORDER BY pay_period DESC', [id]),
+            pgq('SELECT * FROM employee_dependants WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_terminations WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_bank_details WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_memberships WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_benefits WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM assigned_assets WHERE staff_id = ? AND voided = 0', [id]),
+            pgq('SELECT * FROM employee_promotions WHERE staff_id = ? AND voided = 0 ORDER BY promotion_date DESC', [id]),
+            pgq('SELECT * FROM employee_project_assignments WHERE staff_id = ? AND voided = 0', [id]),
+            pgq(`
                 SELECT
                     la.*,
-                    lt.name as leaveTypeName,
-                    hs.firstName AS handoverFirstName,
-                    hs.lastName AS handoverLastName
+                    lt.name as leave_type_name,
+                    hs.first_name AS handover_first_name,
+                    hs.last_name AS handover_last_name
                 FROM leave_applications la
-                JOIN leave_types lt ON la.leaveTypeId = lt.id
-                LEFT JOIN staff hs ON la.handoverStaffId = hs.staffId
-                WHERE la.staffId = ? AND la.voided = 0
-                ORDER BY la.startDate DESC
+                JOIN leave_types lt ON la.leave_type_id = lt.id AND ${notVoided('lt')}
+                LEFT JOIN staff hs ON la.handover_staff_id = hs.staff_id
+                WHERE la.staff_id = ? AND ${notVoided('la')}
+                ORDER BY la.start_date DESC
             `, [id]),
-            db.query('SELECT * FROM job_groups WHERE voided = 0')
+            pgq(`SELECT * FROM job_groups WHERE ${notVoided()}`)
         ];
 
         const results = await Promise.all(dataPromises);
 
         res.json({
             profile: profile,
-            performanceReviews: results[0][0],
-            compensations: results[1][0],
-            trainings: results[2][0],
-            disciplinaries: results[3][0],
-            contracts: results[4][0],
-            retirements: results[5][0],
-            loans: results[6][0],
-            payrolls: results[7][0],
-            dependants: results[8][0],
-            terminations: results[9][0],
-            bankDetails: results[10][0],
-            memberships: results[11][0],
-            benefits: results[12][0],
-            assignedAssets: results[13][0],
-            promotions: results[14][0],
-            projectAssignments: results[15][0],
-            leaveApplications: results[16][0],
-            jobGroups: results[17][0],
+            performanceReviews: results[0].rows,
+            compensations: results[1].rows,
+            trainings: results[2].rows,
+            disciplinaries: results[3].rows,
+            contracts: results[4].rows,
+            retirements: results[5].rows,
+            loans: results[6].rows,
+            payrolls: results[7].rows,
+            dependants: results[8].rows,
+            terminations: results[9].rows,
+            bankDetails: results[10].rows,
+            memberships: results[11].rows,
+            benefits: results[12].rows,
+            assignedAssets: results[13].rows,
+            promotions: results[14].rows,
+            projectAssignments: results[15].rows,
+            leaveApplications: results[16].rows,
+            jobGroups: results[17].rows,
         });
 
     } catch (err) {
@@ -268,8 +403,8 @@ router.get('/employees/:id/360', auth, privilege(['employee.read_all', 'employee
 router.post('/employees/performance', auth, privilege(['employee.performance.create']), async (req, res) => {
     const { staffId, reviewDate, reviewScore, comments, reviewerId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_performance (staffId, reviewDate, reviewScore, comments, reviewerId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(reviewDate), reviewScore, comments, reviewerId]);
-        res.status(201).json({ id: result.insertId, message: 'Performance review added successfully' });
+        const result = await pgq('INSERT INTO employee_performance (staff_id, review_date, review_score, comments, reviewer_id) VALUES (?, ?, ?, ?, ?) RETURNING id', [staffId, formatDate(reviewDate), reviewScore, comments, reviewerId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Performance review added successfully' });
     } catch (err) {
         console.error('Error adding performance review:', err);
         res.status(500).send('Error adding performance review');
@@ -279,10 +414,10 @@ router.post('/employees/performance', auth, privilege(['employee.performance.cre
 router.put('/employees/performance/:id', auth, privilege(['employee.performance.update']), async (req, res) => {
     const { id } = req.params;
     const { reviewDate, reviewScore, comments, reviewerId } = req.body;
-    const sql = 'UPDATE employee_performance SET reviewDate = ?, reviewScore = ?, comments = ?, reviewerId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE employee_performance SET review_date = ?, review_score = ?, comments = ?, reviewer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [formatDate(reviewDate), reviewScore, comments, reviewerId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [formatDate(reviewDate), reviewScore, comments, reviewerId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Performance review not found.' });
         }
         res.status(200).json({ message: 'Performance review updated successfully' });
@@ -294,10 +429,10 @@ router.put('/employees/performance/:id', auth, privilege(['employee.performance.
 
 router.delete('/employees/performance/:id', auth, privilege(['employee.performance.delete']), async (req, res) => {
     const { id } = req.params;
-    const sql = 'UPDATE employee_performance SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE employee_performance SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Performance review not found.' });
         }
         res.status(200).json({ message: 'Performance review deleted successfully' });
@@ -310,7 +445,7 @@ router.delete('/employees/performance/:id', auth, privilege(['employee.performan
 // --- Leave Types Management ---
 router.get('/leave-types', async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT * FROM leave_types WHERE voided = 0');
+        const { rows } = await pgq(`SELECT * FROM leave_types WHERE ${notVoided()}`);
         res.json(rows);
     } catch (err) {
         console.error('Error fetching leave types:', err);
@@ -321,8 +456,8 @@ router.get('/leave-types', async (req, res) => {
 router.post('/leave-types', auth, privilege(['leave.type.create']), async (req, res) => {
     const { name, description, numberOfDays, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO leave_types (name, description, numberOfDays, userId) VALUES (?, ?, ?, ?)', [name, description, numberOfDays, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Leave type added successfully' });
+        const result = await pgq('INSERT INTO leave_types (name, description, number_of_days, user_id) VALUES (?, ?, ?, ?) RETURNING id', [name, description, numberOfDays, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Leave type added successfully' });
     } catch (err) {
         console.error('Error adding leave type:', err);
         res.status(500).send('Error adding leave type');
@@ -332,10 +467,10 @@ router.post('/leave-types', auth, privilege(['leave.type.create']), async (req, 
 router.put('/leave-types/:id', auth, privilege(['leave.type.update']), async (req, res) => {
     const { id } = req.params;
     const { name, description, numberOfDays, userId } = req.body;
-    const sql = 'UPDATE leave_types SET name = ?, description = ?, numberOfDays = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE leave_types SET name = ?, description = ?, number_of_days = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [name, description, numberOfDays, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [name, description, numberOfDays, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave type not found.' });
         }
         res.status(200).json({ message: 'Leave type updated successfully' });
@@ -347,10 +482,10 @@ router.put('/leave-types/:id', auth, privilege(['leave.type.update']), async (re
 
 router.delete('/leave-types/:id', auth, privilege(['leave.type.delete']), async (req, res) => {
     const { id } = req.params;
-    const sql = 'UPDATE leave_types SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE leave_types SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave type not found.' });
         }
         res.status(200).json({ message: 'Leave type deleted successfully' });
@@ -364,28 +499,58 @@ router.delete('/leave-types/:id', auth, privilege(['leave.type.delete']), async 
 // --- Leave Application Management ---
 router.get('/leave-applications', auth, privilege(['leave.read_all']), async (req, res) => {
     const sql = `
-        SELECT la.id, la.staffId, la.leaveTypeId, la.handoverStaffId, la.startDate, la.endDate, la.numberOfDays, la.reason, la.handoverComments, la.status, la.approvedStartDate, la.approvedEndDate, la.actualReturnDate, s.firstName, s.lastName, lt.name AS leaveTypeName, hs.firstName AS handoverFirstName, hs.lastName AS handoverLastName
-        FROM leave_applications la JOIN staff s ON la.staffId = s.staffId JOIN leave_types lt ON la.leaveTypeId = lt.id LEFT JOIN staff hs ON la.handoverStaffId = hs.staffId
-        WHERE la.voided = 0 ORDER BY la.createdAt DESC
+        SELECT la.id, la.staff_id, la.leave_type_id, la.handover_staff_id, la.start_date, la.end_date, la.number_of_days, la.reason, la.handover_comments, la.status, la.approved_start_date, la.approved_end_date, la.actual_return_date, s.first_name, s.last_name, lt.name AS leave_type_name, hs.first_name AS handover_first_name, hs.last_name AS handover_last_name
+        FROM leave_applications la
+        JOIN staff s ON la.staff_id = s.staff_id AND ${notVoided('s')}
+        JOIN leave_types lt ON la.leave_type_id = lt.id AND ${notVoided('lt')}
+        LEFT JOIN staff hs ON la.handover_staff_id = hs.staff_id
+        WHERE ${notVoided('la')}
+        ORDER BY la.created_at DESC
     `;
     try {
-        const [rows] = await db.query(sql);
+        const { rows } = await pgq(sql);
         res.json(rows);
     } catch (err) {
         console.error('Error fetching leave applications:', err);
-        res.status(500).send('Error fetching leave applications');
+        res.status(500).json({ message: err.message || 'Error fetching leave applications' });
     }
 });
 
 router.post('/leave-applications', auth, privilege(['leave.apply']), async (req, res) => {
     const { staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId } = req.body;
-    const sql = 'INSERT INTO leave_applications (staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const sid = intOrNull(staffId);
+    const lid = intOrNull(leaveTypeId);
+    const sd = formatDate(startDate);
+    const ed = formatDate(endDate);
+    if (sid == null || lid == null) {
+        return res.status(400).json({ message: 'staffId and leaveTypeId are required.' });
+    }
+    if (!sd || !ed) {
+        return res.status(400).json({ message: 'startDate and endDate are required.' });
+    }
+    const days =
+        numberOfDays === '' || numberOfDays === undefined || numberOfDays === null
+            ? null
+            : Number(numberOfDays);
+    const daysParam = Number.isFinite(days) ? days : null;
+    const sql =
+        'INSERT INTO leave_applications (staff_id, leave_type_id, start_date, end_date, number_of_days, reason, handover_staff_id, handover_comments, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id';
     try {
-        const [result] = await db.query(sql, [staffId, leaveTypeId, formatDate(startDate), formatDate(endDate), numberOfDays, reason, handoverStaffId, handoverComments, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Leave application submitted' });
+        const result = await pgq(sql, [
+            sid,
+            lid,
+            sd,
+            ed,
+            daysParam,
+            reason ?? null,
+            intOrNull(handoverStaffId),
+            handoverComments ?? null,
+            intOrNull(userId),
+        ]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Leave application submitted' });
     } catch (err) {
         console.error('Error submitting leave application:', err);
-        res.status(500).send('Error submitting leave application');
+        res.status(500).json({ message: err.message || 'Error submitting leave application' });
     }
 });
 
@@ -395,15 +560,15 @@ router.put('/leave-applications/:id', auth, privilege(['leave.approve']), async 
 
     let sql, params;
     if (status === 'Approved') {
-        sql = 'UPDATE leave_applications SET status = ?, approvedStartDate = ?, approvedEndDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
-        params = [status, formatDate(approvedStartDate), formatDate(approvedEndDate), userId, id];
+        sql = 'UPDATE leave_applications SET status = ?, approved_start_date = ?, approved_end_date = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+        params = [status, formatDate(approvedStartDate), formatDate(approvedEndDate), intOrNull(userId), id];
     } else {
-        sql = 'UPDATE leave_applications SET status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
-        params = [status, userId, id];
+        sql = 'UPDATE leave_applications SET status = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+        params = [status, intOrNull(userId), id];
     }
 
     try {
-        await db.query(sql, params);
+        await pgq(sql, params);
         res.status(200).json({ message: 'Leave status updated successfully' });
     } catch (err) {
         console.error('Error updating leave status:', err);
@@ -414,25 +579,41 @@ router.put('/leave-applications/:id', auth, privilege(['leave.approve']), async 
 router.put('/leave-applications/:id/edit', auth, privilege(['leave.update']), async (req, res) => {
     const { staffId, leaveTypeId, startDate, endDate, numberOfDays, reason, handoverStaffId, handoverComments, userId } = req.body;
     const { id } = req.params;
-    const sql = 'UPDATE leave_applications SET staffId = ?, leaveTypeId = ?, startDate = ?, endDate = ?, numberOfDays = ?, reason = ?, handoverStaffId = ?, handoverComments = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const days =
+        numberOfDays === '' || numberOfDays === undefined || numberOfDays === null
+            ? null
+            : Number(numberOfDays);
+    const daysParam = Number.isFinite(days) ? days : null;
+    const sql = 'UPDATE leave_applications SET staff_id = ?, leave_type_id = ?, start_date = ?, end_date = ?, number_of_days = ?, reason = ?, handover_staff_id = ?, handover_comments = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [staffId, leaveTypeId, formatDate(startDate), formatDate(endDate), numberOfDays, reason, handoverStaffId, handoverComments, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [
+            intOrNull(staffId),
+            intOrNull(leaveTypeId),
+            formatDate(startDate),
+            formatDate(endDate),
+            daysParam,
+            reason ?? null,
+            intOrNull(handoverStaffId),
+            handoverComments ?? null,
+            intOrNull(userId),
+            id,
+        ]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave application not found.' });
         }
         res.status(200).json({ message: 'Leave application updated successfully' });
     } catch (err) {
         console.error('Error updating leave application:', err);
-        res.status(500).send('Error updating leave application');
+        res.status(500).json({ message: err.message || 'Error updating leave application' });
     }
 });
 
 router.put('/leave-applications/:id/return', auth, privilege(['leave.complete']), async (req, res) => {
     const { actualReturnDate, userId } = req.body;
     const { id } = req.params;
-    const sql = 'UPDATE leave_applications SET actualReturnDate = ?, status = "Completed", userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = "UPDATE leave_applications SET actual_return_date = ?, status = 'Completed', user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
     try {
-        await db.query(sql, [formatDate(actualReturnDate), userId, id]);
+        await pgq(sql, [formatDate(actualReturnDate), intOrNull(userId), id]);
         res.status(200).json({ message: 'Actual return date recorded successfully' });
     } catch (err) {
         console.error('Error recording actual return date:', err);
@@ -442,10 +623,10 @@ router.put('/leave-applications/:id/return', auth, privilege(['leave.complete'])
 
 router.delete('/leave-applications/:id', auth, privilege(['leave.delete']), async (req, res) => {
     const { id } = req.params;
-    const sql = 'UPDATE leave_applications SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE leave_applications SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave application not found.' });
         }
         res.status(200).json({ message: 'Leave application deleted successfully' });
@@ -459,11 +640,11 @@ router.delete('/leave-applications/:id', auth, privilege(['leave.delete']), asyn
 // --- Attendance Management ---
 router.get('/attendance/today', auth, privilege(['attendance.read_all']), async (req, res) => {
     const sql = `
-        SELECT id, staffId, date, checkInTime, checkOutTime, userId, createdAt, updatedAt FROM attendance
-        WHERE date = CURDATE() AND voided = 0 ORDER BY checkInTime DESC
+        SELECT id, staff_id, date, check_in_time, check_out_time, user_id, created_at, updated_at FROM attendance
+        WHERE date = CURRENT_DATE AND voided = 0 ORDER BY check_in_time DESC
     `;
     try {
-        const [rows] = await db.query(sql);
+        const { rows } = await pgq(sql);
         res.json(rows);
     } catch (err) {
         console.error("Error fetching today's attendance:", err);
@@ -474,8 +655,8 @@ router.get('/attendance/today', auth, privilege(['attendance.read_all']), async 
 router.post('/attendance/check-in', auth, privilege(['attendance.create']), async (req, res) => {
     const { staffId, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO attendance (staffId, date, checkInTime, userId) VALUES (?, CURDATE(), NOW(), ?)', [staffId, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Check-in recorded successfully' });
+        const result = await pgq('INSERT INTO attendance (staff_id, date, check_in_time, user_id) VALUES (?, CURRENT_DATE, NOW(), ?) RETURNING id', [staffId, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Check-in recorded successfully' });
     } catch (err) {
         console.error('Error recording check-in:', err);
         res.status(500).send('Error recording check-in');
@@ -486,8 +667,8 @@ router.put('/attendance/check-out/:id', auth, privilege(['attendance.create']), 
     const { id } = req.params;
     const { userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE attendance SET checkOutTime = NOW(), userId = ?, updatedAt = NOW() WHERE id = ?', [userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE attendance SET check_out_time = NOW(), user_id = ?, updated_at = NOW() WHERE id = ?', [userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).send('Attendance record not found.');
         }
         res.status(200).json({ message: 'Check-out recorded successfully' });
@@ -501,8 +682,8 @@ router.put('/attendance/check-out/:id', auth, privilege(['attendance.create']), 
 router.post('/employee-compensation', auth, privilege(['compensation.create']), async (req, res) => {
     const { staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_compensation (staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Compensation record added successfully' });
+        const result = await pgq('INSERT INTO employee_compensation (staff_id, base_salary, allowances, bonuses, bank_name, account_number, pay_frequency, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id', [staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Compensation record added successfully' });
     } catch (err) {
         console.error('Error adding compensation record:', err);
         res.status(500).send('Error adding compensation record');
@@ -513,8 +694,8 @@ router.put('/employee-compensation/:id', auth, privilege(['compensation.update']
     const { id } = req.params;
     const { staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_compensation SET staffId = ?, baseSalary = ?, allowances = ?, bonuses = ?, bankName = ?, accountNumber = ?, payFrequency = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_compensation SET staff_id = ?, base_salary = ?, allowances = ?, bonuses = ?, bank_name = ?, account_number = ?, pay_frequency = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, baseSalary, allowances, bonuses, bankName, accountNumber, payFrequency, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Compensation record not found.' });
         }
         res.status(200).json({ message: 'Compensation record updated successfully' });
@@ -527,8 +708,8 @@ router.put('/employee-compensation/:id', auth, privilege(['compensation.update']
 router.delete('/employee-compensation/:id', auth, privilege(['compensation.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_compensation SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_compensation SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Compensation record not found.' });
         }
         res.status(200).json({ message: 'Compensation record deleted successfully' });
@@ -542,8 +723,8 @@ router.delete('/employee-compensation/:id', auth, privilege(['compensation.delet
 router.post('/employee-training', auth, privilege(['training.create']), async (req, res) => {
     const { staffId, courseName, institution, certificationName, completionDate, expiryDate, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_training (staffId, courseName, institution, certificationName, completionDate, expiryDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId]);
-        res.status(201).json({ id: result.insertId, message: 'Training record added successfully' });
+        const result = await pgq('INSERT INTO employee_training (staff_id, course_name, institution, certification_name, completion_date, expiry_date, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Training record added successfully' });
     } catch (err) {
         console.error('Error adding training record:', err);
         res.status(500).send('Error adding training record');
@@ -554,8 +735,8 @@ router.put('/employee-training/:id', auth, privilege(['training.update']), async
     const { id } = req.params;
     const { staffId, courseName, institution, certificationName, completionDate, expiryDate, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_training SET staffId = ?, courseName = ?, institution = ?, certificationName = ?, completionDate = ?, expiryDate = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_training SET staff_id = ?, course_name = ?, institution = ?, certification_name = ?, completion_date = ?, expiry_date = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, courseName, institution, certificationName, formatDate(completionDate), formatDate(expiryDate), userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Training record not found.' });
         }
         res.status(200).json({ message: 'Training record updated successfully' });
@@ -567,10 +748,10 @@ router.put('/employee-training/:id', auth, privilege(['training.update']), async
 
 router.delete('/employee-training/:id', auth, privilege(['training.delete']), async (req, res) => {
     const { id } = req.params;
-    const sql = 'UPDATE employee_training SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
+    const sql = 'UPDATE employee_training SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     try {
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Training record not found.' });
         }
         res.status(200).json({ message: 'Training record deleted successfully' });
@@ -583,7 +764,7 @@ router.delete('/employee-training/:id', auth, privilege(['training.delete']), as
 // --- Job Groups ---
 router.get('/job-groups', auth, privilege(['job_group.read_all']), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT * FROM job_groups WHERE voided = 0');
+        const { rows } = await pgq(`SELECT * FROM job_groups WHERE ${notVoided()}`);
         res.json(rows);
     } catch (err) {
         console.error('Error fetching job groups:', err);
@@ -593,12 +774,23 @@ router.get('/job-groups', auth, privilege(['job_group.read_all']), async (req, r
 
 router.post('/job-groups', auth, privilege(['job_group.create']), async (req, res) => {
     const { groupName, salaryScale, description, userId } = req.body;
+    const scale =
+        salaryScale === '' || salaryScale === undefined || salaryScale === null
+            ? null
+            : Number(salaryScale);
+    const salaryParam = Number.isFinite(scale) ? scale : null;
     try {
-        const [result] = await db.query('INSERT INTO job_groups (groupName, salaryScale, description, userId) VALUES (?, ?, ?, ?)', [groupName, salaryScale, description, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Job group added successfully' });
+        // Legacy DBs define id INTEGER NOT NULL without SERIAL/default; supply next id explicitly.
+        const result = await pgq(
+            `INSERT INTO job_groups (id, "groupName", "salaryScale", description, "userId")
+             SELECT COALESCE((SELECT MAX(id) FROM job_groups), 0) + 1, ?, ?, ?, ?
+             RETURNING id`,
+            [groupName, salaryParam, description ?? null, userId ?? null]
+        );
+        res.status(201).json({ id: result.rows[0].id, message: 'Job group added successfully' });
     } catch (err) {
         console.error('Error adding job group:', err);
-        res.status(500).send('Error adding job group');
+        res.status(500).json({ message: err.message || 'Error adding job group' });
     }
 });
 
@@ -606,22 +798,25 @@ router.put('/job-groups/:id', auth, privilege(['job_group.update']), async (req,
     const { id } = req.params;
     const { groupName, salaryScale, description, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE job_groups SET groupName = ?, salaryScale = ?, description = ?, userId = ? WHERE id = ?', [groupName, salaryScale, description, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(
+            'UPDATE job_groups SET "groupName" = ?, "salaryScale" = ?, description = ?, "userId" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?',
+            [groupName, salaryScale, description ?? null, userId ?? null, id]
+        );
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Job group not found.' });
         }
         res.status(200).json({ message: 'Job group updated successfully' });
     } catch (err) {
         console.error('Error updating job group:', err);
-        res.status(500).send('Error updating job group');
+        res.status(500).json({ message: err.message || 'Error updating job group' });
     }
 });
 
 router.delete('/job-groups/:id', auth, privilege(['job_group.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE job_groups SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE job_groups SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Job group not found.' });
         }
         res.status(200).json({ message: 'Job group deleted successfully' });
@@ -635,8 +830,8 @@ router.delete('/job-groups/:id', auth, privilege(['job_group.delete']), async (r
 router.post('/employee-promotions', auth, privilege(['promotion.create']), async (req, res) => {
     const { staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_promotions (staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Promotion record added successfully' });
+        const result = await pgq('INSERT INTO employee_promotions (staff_id, old_job_group_id, new_job_group_id, promotion_date, comments, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Promotion record added successfully' });
     } catch (err) {
         console.error('Error adding promotion record:', err);
         res.status(500).send('Error adding promotion record');
@@ -647,8 +842,8 @@ router.put('/employee-promotions/:id', auth, privilege(['promotion.update']), as
     const { id } = req.params;
     const { staffId, oldJobGroupId, newJobGroupId, promotionDate, comments, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_promotions SET staffId = ?, oldJobGroupId = ?, newJobGroupId = ?, promotionDate = ?, comments = ?, userId = ? WHERE id = ?', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_promotions SET staff_id = ?, old_job_group_id = ?, new_job_group_id = ?, promotion_date = ?, comments = ?, user_id = ? WHERE id = ?', [staffId, oldJobGroupId, newJobGroupId, formatDate(promotionDate), comments, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Promotion record not found.' });
         }
         res.status(200).json({ message: 'Promotion record updated successfully' });
@@ -661,8 +856,8 @@ router.put('/employee-promotions/:id', auth, privilege(['promotion.update']), as
 router.delete('/employee-promotions/:id', auth, privilege(['promotion.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_promotions SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_promotions SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Promotion record not found.' });
         }
         res.status(200).json({ message: 'Promotion record deleted successfully' });
@@ -676,8 +871,8 @@ router.delete('/employee-promotions/:id', auth, privilege(['promotion.delete']),
 router.post('/employee-disciplinary', auth, privilege(['disciplinary.create']), async (req, res) => {
     const { staffId, actionType, actionDate, reason, comments, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_disciplinary (staffId, actionType, actionDate, reason, comments, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, actionType, formatDate(actionDate), reason, comments, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Disciplinary action added successfully' });
+        const result = await pgq('INSERT INTO employee_disciplinary (staff_id, action_type, action_date, reason, comments, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, actionType, formatDate(actionDate), reason, comments, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Disciplinary action added successfully' });
     } catch (err) {
         console.error('Error adding disciplinary action:', err);
         res.status(500).send('Error adding disciplinary action');
@@ -688,8 +883,8 @@ router.put('/employee-disciplinary/:id', auth, privilege(['disciplinary.update']
     const { id } = req.params;
     const { staffId, actionType, actionDate, reason, comments, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_disciplinary SET staffId = ?, actionType = ?, actionDate = ?, reason = ?, comments = ?, userId = ? WHERE id = ?', [staffId, actionType, formatDate(actionDate), reason, comments, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_disciplinary SET staff_id = ?, action_type = ?, action_date = ?, reason = ?, comments = ?, user_id = ? WHERE id = ?', [staffId, actionType, formatDate(actionDate), reason, comments, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Disciplinary record not found.' });
         }
         res.status(200).json({ message: 'Disciplinary action updated successfully' });
@@ -702,8 +897,8 @@ router.put('/employee-disciplinary/:id', auth, privilege(['disciplinary.update']
 router.delete('/employee-disciplinary/:id', auth, privilege(['disciplinary.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_disciplinary SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_disciplinary SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Disciplinary record not found.' });
         }
         res.status(200).json({ message: 'Disciplinary action deleted successfully' });
@@ -717,8 +912,8 @@ router.delete('/employee-disciplinary/:id', auth, privilege(['disciplinary.delet
 router.post('/employee-contracts', auth, privilege(['contracts.create']), async (req, res) => {
     const { staffId, contractType, contractStartDate, contractEndDate, status, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_contracts (staffId, contractType, contractStartDate, contractEndDate, status, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Contract added successfully' });
+        const result = await pgq('INSERT INTO employee_contracts (staff_id, contract_type, contract_start_date, contract_end_date, status, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Contract added successfully' });
     } catch (err) {
         console.error('Error adding contract:', err);
         res.status(500).send('Error adding contract');
@@ -729,8 +924,8 @@ router.put('/employee-contracts/:id', auth, privilege(['contracts.update']), asy
     const { id } = req.params;
     const { staffId, contractType, contractStartDate, contractEndDate, status, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_contracts SET staffId = ?, contractType = ?, contractStartDate = ?, contractEndDate = ?, status = ?, userId = ? WHERE id = ?', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_contracts SET staff_id = ?, contract_type = ?, contract_start_date = ?, contract_end_date = ?, status = ?, user_id = ? WHERE id = ?', [staffId, contractType, formatDate(contractStartDate), formatDate(contractEndDate), status, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Contract not found.' });
         }
         res.status(200).json({ message: 'Contract updated successfully' });
@@ -743,8 +938,8 @@ router.put('/employee-contracts/:id', auth, privilege(['contracts.update']), asy
 router.delete('/employee-contracts/:id', auth, privilege(['contracts.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_contracts SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_contracts SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Contract not found.' });
         }
         res.status(200).json({ message: 'Contract deleted successfully' });
@@ -758,8 +953,8 @@ router.delete('/employee-contracts/:id', auth, privilege(['contracts.delete']), 
 router.post('/employee-retirements', auth, privilege(['retirements.create']), async (req, res) => {
     const { staffId, retirementDate, retirementType, comments, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_retirements (staffId, retirementDate, retirementType, comments, userId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(retirementDate), retirementType, comments, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Retirement record added successfully' });
+        const result = await pgq('INSERT INTO employee_retirements (staff_id, retirement_date, retirement_type, comments, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id', [staffId, formatDate(retirementDate), retirementType, comments, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Retirement record added successfully' });
     } catch (err) {
         console.error('Error adding retirement record:', err);
         res.status(500).send('Error adding retirement record');
@@ -770,8 +965,8 @@ router.put('/employee-retirements/:id', auth, privilege(['retirements.update']),
     const { id } = req.params;
     const { staffId, retirementDate, retirementType, comments, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_retirements SET staffId = ?, retirementDate = ?, retirementType = ?, comments = ?, userId = ? WHERE id = ?', [staffId, formatDate(retirementDate), retirementType, comments, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_retirements SET staff_id = ?, retirement_date = ?, retirement_type = ?, comments = ?, user_id = ? WHERE id = ?', [staffId, formatDate(retirementDate), retirementType, comments, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Retirement record not found.' });
         }
         res.status(200).json({ message: 'Retirement record updated successfully' });
@@ -784,8 +979,8 @@ router.put('/employee-retirements/:id', auth, privilege(['retirements.update']),
 router.delete('/employee-retirements/:id', auth, privilege(['retirements.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_retirements SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_retirements SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Retirement record not found.' });
         }
         res.status(200).json({ message: 'Retirement record deleted successfully' });
@@ -799,8 +994,8 @@ router.delete('/employee-retirements/:id', auth, privilege(['retirements.delete'
 router.post('/employee-loans', auth, privilege(['loans.create']), async (req, res) => {
     const { staffId, loanAmount, loanDate, status, repaymentSchedule, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_loans (staffId, loanAmount, loanDate, status, repaymentSchedule, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Loan record added successfully' });
+        const result = await pgq('INSERT INTO employee_loans (staff_id, loan_amount, loan_date, status, repayment_schedule, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Loan record added successfully' });
     } catch (err) {
         console.error('Error adding loan record:', err);
         res.status(500).send('Error adding loan record');
@@ -811,8 +1006,8 @@ router.put('/employee-loans/:id', auth, privilege(['loans.update']), async (req,
     const { id } = req.params;
     const { staffId, loanAmount, loanDate, status, repaymentSchedule, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_loans SET staffId = ?, loanAmount = ?, loanDate = ?, status = ?, repaymentSchedule = ?, userId = ? WHERE id = ?', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_loans SET staff_id = ?, loan_amount = ?, loan_date = ?, status = ?, repayment_schedule = ?, user_id = ? WHERE id = ?', [staffId, loanAmount, formatDate(loanDate), status, repaymentSchedule, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Loan record not found.' });
         }
         res.status(200).json({ message: 'Loan record updated successfully' });
@@ -825,8 +1020,8 @@ router.put('/employee-loans/:id', auth, privilege(['loans.update']), async (req,
 router.delete('/employee-loans/:id', auth, privilege(['loans.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_loans SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_loans SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Loan record not found.' });
         }
         res.status(200).json({ message: 'Loan record deleted successfully' });
@@ -840,8 +1035,8 @@ router.delete('/employee-loans/:id', auth, privilege(['loans.delete']), async (r
 router.post('/monthly-payroll', auth, privilege(['payroll.create']), async (req, res) => {
     const { staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO monthly_payroll (staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId) VALUES (?, ?, ?, ?, ?, ?, ?)', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Payroll record added successfully' });
+        const result = await pgq('INSERT INTO monthly_payroll (staff_id, pay_period, gross_salary, net_salary, allowances, deductions, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Payroll record added successfully' });
     } catch (err) {
         console.error('Error adding payroll record:', err);
         res.status(500).send('Error adding payroll record');
@@ -852,8 +1047,8 @@ router.put('/monthly-payroll/:id', auth, privilege(['payroll.update']), async (r
     const { id } = req.params;
     const { staffId, payPeriod, grossSalary, netSalary, allowances, deductions, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE monthly_payroll SET staffId = ?, payPeriod = ?, grossSalary = ?, netSalary = ?, allowances = ?, deductions = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE monthly_payroll SET staff_id = ?, pay_period = ?, gross_salary = ?, net_salary = ?, allowances = ?, deductions = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(payPeriod), grossSalary, netSalary, allowances, deductions, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Payroll record not found.' });
         }
         res.status(200).json({ message: 'Payroll record updated successfully' });
@@ -866,8 +1061,8 @@ router.put('/monthly-payroll/:id', auth, privilege(['payroll.update']), async (r
 router.delete('/monthly-payroll/:id', auth, privilege(['payroll.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE monthly_payroll SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE monthly_payroll SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Payroll record not found.' });
         }
         res.status(200).json({ message: 'Payroll record deleted successfully' });
@@ -881,8 +1076,8 @@ router.delete('/monthly-payroll/:id', auth, privilege(['payroll.delete']), async
 router.post('/employee-dependants', auth, privilege(['dependants.create']), async (req, res) => {
     const { staffId, dependantName, relationship, dateOfBirth, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_dependants (staffId, dependantName, relationship, dateOfBirth, userId) VALUES (?, ?, ?, ?, ?)', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId]);
-        res.status(201).json({ id: result.insertId, message: 'Dependant record added successfully' });
+        const result = await pgq('INSERT INTO employee_dependants (staff_id, dependant_name, relationship, date_of_birth, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Dependant record added successfully' });
     } catch (err) {
         console.error('Error adding dependant record:', err);
         res.status(500).send('Error adding dependant record');
@@ -893,8 +1088,8 @@ router.put('/employee-dependants/:id', auth, privilege(['dependants.update']), a
     const { id } = req.params;
     const { staffId, dependantName, relationship, dateOfBirth, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_dependants SET staffId = ?, dependantName = ?, relationship = ?, dateOfBirth = ?, userId = ? WHERE id = ?', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_dependants SET staff_id = ?, dependant_name = ?, relationship = ?, date_of_birth = ?, user_id = ? WHERE id = ?', [staffId, dependantName, relationship, formatDate(dateOfBirth), userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Dependant record not found.' });
         }
         res.status(200).json({ message: 'Dependant record updated successfully' });
@@ -907,8 +1102,8 @@ router.put('/employee-dependants/:id', auth, privilege(['dependants.update']), a
 router.delete('/employee-dependants/:id', auth, privilege(['dependants.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_dependants SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_dependants SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Dependant record not found.' });
         }
         res.status(200).json({ message: 'Dependant record deleted successfully' });
@@ -922,8 +1117,8 @@ router.delete('/employee-dependants/:id', auth, privilege(['dependants.delete'])
 router.post('/employee-terminations', auth, privilege(['terminations.create']), async (req, res) => {
     const { staffId, exitDate, reason, exitInterviewDetails, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_terminations (staffId, exitDate, reason, exitInterviewDetails, userId) VALUES (?, ?, ?, ?, ?)', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Termination record added successfully' });
+        const result = await pgq('INSERT INTO employee_terminations (staff_id, exit_date, reason, exit_interview_details, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Termination record added successfully' });
     } catch (err) {
         console.error('Error adding termination record:', err);
         res.status(500).send('Error adding termination record');
@@ -934,8 +1129,8 @@ router.put('/employee-terminations/:id', auth, privilege(['terminations.update']
     const { id } = req.params;
     const { staffId, exitDate, reason, exitInterviewDetails, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_terminations SET staffId = ?, exitDate = ?, reason = ?, exitInterviewDetails = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_terminations SET staff_id = ?, exit_date = ?, reason = ?, exit_interview_details = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, formatDate(exitDate), reason, exitInterviewDetails, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Termination record not found.' });
         }
         res.status(200).json({ message: 'Termination record updated successfully' });
@@ -948,8 +1143,8 @@ router.put('/employee-terminations/:id', auth, privilege(['terminations.update']
 router.delete('/employee-terminations/:id', auth, privilege(['terminations.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_terminations SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_terminations SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Termination record not found.' });
         }
         res.status(200).json({ message: 'Termination record deleted successfully' });
@@ -963,8 +1158,8 @@ router.delete('/employee-terminations/:id', auth, privilege(['terminations.delet
 router.post('/employee-bank-details', auth, privilege(['bank_details.create']), async (req, res) => {
     const { staffId, bankName, accountNumber, branchName, isPrimary, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_bank_details (staffId, bankName, accountNumber, branchName, isPrimary, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, bankName, accountNumber, branchName, isPrimary, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Bank details added successfully' });
+        const result = await pgq('INSERT INTO employee_bank_details (staff_id, bank_name, account_number, branch_name, is_primary, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, bankName, accountNumber, branchName, isPrimary, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Bank details added successfully' });
     } catch (err) {
         console.error('Error adding bank details:', err);
         res.status(500).send('Error adding bank details');
@@ -975,8 +1170,8 @@ router.put('/employee-bank-details/:id', auth, privilege(['bank_details.update']
     const { id } = req.params;
     const { staffId, bankName, accountNumber, branchName, isPrimary, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_bank_details SET staffId = ?, bankName = ?, accountNumber = ?, branchName = ?, isPrimary = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, bankName, accountNumber, branchName, isPrimary, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_bank_details SET staff_id = ?, bank_name = ?, account_number = ?, branch_name = ?, is_primary = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, bankName, accountNumber, branchName, isPrimary, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Bank details not found.' });
         }
         res.status(200).json({ message: 'Bank details updated successfully' });
@@ -989,8 +1184,8 @@ router.put('/employee-bank-details/:id', auth, privilege(['bank_details.update']
 router.delete('/employee-bank-details/:id', auth, privilege(['bank_details.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_bank_details SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_bank_details SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Bank details not found.' });
         }
         res.status(200).json({ message: 'Bank details deleted successfully' });
@@ -1004,8 +1199,8 @@ router.delete('/employee-bank-details/:id', auth, privilege(['bank_details.delet
 router.post('/employee-memberships', auth, privilege(['memberships.create']), async (req, res) => {
     const { staffId, organizationName, membershipNumber, startDate, endDate, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_memberships (staffId, organizationName, membershipNumber, startDate, endDate, userId) VALUES (?, ?, ?, ?, ?, ?)', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId]);
-        res.status(201).json({ id: result.insertId, message: 'Membership record added successfully' });
+        const result = await pgq('INSERT INTO employee_memberships (staff_id, organization_name, membership_number, start_date, end_date, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Membership record added successfully' });
     } catch (err) {
         console.error('Error adding membership record:', err);
         res.status(500).send('Error adding membership record');
@@ -1016,8 +1211,8 @@ router.put('/employee-memberships/:id', auth, privilege(['memberships.update']),
     const { id } = req.params;
     const { staffId, organizationName, membershipNumber, startDate, endDate, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_memberships SET staffId = ?, organizationName = ?, membershipNumber = ?, startDate = ?, endDate = ?, userId = ? WHERE id = ?', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_memberships SET staff_id = ?, organization_name = ?, membership_number = ?, start_date = ?, end_date = ?, user_id = ? WHERE id = ?', [staffId, organizationName, membershipNumber, formatDate(startDate), formatDate(endDate), userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Membership record not found.' });
         }
         res.status(200).json({ message: 'Membership record updated successfully' });
@@ -1030,8 +1225,8 @@ router.put('/employee-memberships/:id', auth, privilege(['memberships.update']),
 router.delete('/employee-memberships/:id', auth, privilege(['memberships.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_memberships SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_memberships SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Membership record not found.' });
         }
         res.status(200).json({ message: 'Membership record deleted successfully' });
@@ -1045,8 +1240,8 @@ router.delete('/employee-memberships/:id', auth, privilege(['memberships.delete'
 router.post('/employee-benefits', auth, privilege(['benefits.create']), async (req, res) => {
     const { staffId, benefitName, enrollmentDate, status, userId } = req.body;
     try {
-        const [result] = await db.query('INSERT INTO employee_benefits (staffId, benefitName, enrollmentDate, status, userId) VALUES (?, ?, ?, ?, ?)', [staffId, benefitName, formatDate(enrollmentDate), status, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Benefit record added successfully' });
+        const result = await pgq('INSERT INTO employee_benefits (staff_id, benefit_name, enrollment_date, status, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id', [staffId, benefitName, formatDate(enrollmentDate), status, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Benefit record added successfully' });
     } catch (err) {
         console.error('Error adding benefit record:', err);
         res.status(500).send('Error adding benefit record');
@@ -1057,8 +1252,8 @@ router.put('/employee-benefits/:id', auth, privilege(['benefits.update']), async
     const { id } = req.params;
     const { staffId, benefitName, enrollmentDate, status, userId } = req.body;
     try {
-        const [result] = await db.query('UPDATE employee_benefits SET staffId = ?, benefitName = ?, enrollmentDate = ?, status = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [staffId, benefitName, formatDate(enrollmentDate), status, userId, id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_benefits SET staff_id = ?, benefit_name = ?, enrollment_date = ?, status = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [staffId, benefitName, formatDate(enrollmentDate), status, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Benefit record not found.' });
         }
         res.status(200).json({ message: 'Benefit record updated successfully' });
@@ -1071,8 +1266,8 @@ router.put('/employee-benefits/:id', auth, privilege(['benefits.update']), async
 router.delete('/employee-benefits/:id', auth, privilege(['benefits.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE employee_benefits SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE employee_benefits SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Benefit record not found.' });
         }
         res.status(200).json({ message: 'Benefit record deleted successfully' });
@@ -1086,9 +1281,9 @@ router.delete('/employee-benefits/:id', auth, privilege(['benefits.delete']), as
 router.post('/assigned-assets', auth, privilege(['assets.create']), async (req, res) => {
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
-        const sql = 'INSERT INTO assigned_assets (staffId, assetName, serialNumber, assignmentDate, returnDate, `condition`, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const [result] = await db.query(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Asset assignment recorded successfully' });
+        const sql = 'INSERT INTO assigned_assets (staff_id, asset_name, serial_number, assignment_date, return_date, asset_condition, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id';
+        const result = await pgq(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Asset assignment recorded successfully' });
     } catch (err) {
         console.error('Error adding asset assignment:', err);
         res.status(500).send('Error adding asset assignment');
@@ -1099,9 +1294,9 @@ router.put('/assigned-assets/:id', auth, privilege(['assets.update']), async (re
     const { id } = req.params;
     const { staffId, assetName, serialNumber, assignmentDate, returnDate, condition, userId } = req.body;
     try {
-        const sql = 'UPDATE assigned_assets SET staffId = ?, assetName = ?, serialNumber = ?, assignmentDate = ?, returnDate = ?, `condition` = ?, userId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?';
-        const [result] = await db.query(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId, id]);
-        if (result.affectedRows === 0) {
+        const sql = 'UPDATE assigned_assets SET staff_id = ?, asset_name = ?, serial_number = ?, assignment_date = ?, return_date = ?, asset_condition = ?, user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+        const result = await pgq(sql, [staffId, assetName, serialNumber, formatDate(assignmentDate), formatDate(returnDate), condition, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Asset assignment not found.' });
         }
         res.status(200).json({ message: 'Asset assignment updated successfully' });
@@ -1114,8 +1309,8 @@ router.put('/assigned-assets/:id', auth, privilege(['assets.update']), async (re
 router.delete('/assigned-assets/:id', auth, privilege(['assets.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE assigned_assets SET voided = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE assigned_assets SET voided = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Asset assignment not found.' });
         }
         res.status(200).json({ message: 'Asset assignment deleted successfully' });
@@ -1129,9 +1324,9 @@ router.delete('/assigned-assets/:id', auth, privilege(['assets.delete']), async 
 router.post('/project-assignments', auth, privilege(['project.assignments.create']), async (req, res) => {
     const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
     try {
-        const sql = 'INSERT INTO employee_project_assignments (staffId, projectId, milestoneName, role, status, dueDate, userId) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const [result] = await db.query(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId]);
-        res.status(201).json({ id: result.insertId, message: 'Project assignment added successfully' });
+        const sql = 'INSERT INTO employee_project_assignments (staff_id, project_id, milestone_name, role, status, due_date, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id';
+        const result = await pgq(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Project assignment added successfully' });
     } catch (err) {
         console.error('Error adding project assignment:', err);
         res.status(500).send('Error adding project assignment');
@@ -1142,9 +1337,9 @@ router.put('/project-assignments/:id', auth, privilege(['project.assignments.upd
     const { id } = req.params;
     const { staffId, projectId, milestoneName, role, status, dueDate, userId } = req.body;
     try {
-        const sql = 'UPDATE employee_project_assignments SET staffId = ?, projectId = ?, milestoneName = ?, role = ?, status = ?, dueDate = ?, userId = ? WHERE id = ?';
-        const [result] = await db.query(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId, id]);
-        if (result.affectedRows === 0) {
+        const sql = 'UPDATE employee_project_assignments SET staff_id = ?, project_id = ?, milestone_name = ?, role = ?, status = ?, due_date = ?, user_id = ? WHERE id = ?';
+        const result = await pgq(sql, [staffId, projectId, milestoneName, role, status, formatDate(dueDate), userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Project assignment not found.' });
         }
         res.status(200).json({ message: 'Project assignment updated successfully' });
@@ -1158,8 +1353,8 @@ router.delete('/project-assignments/:id', auth, privilege(['project.assignments.
     const { id } = req.params;
     try {
         const sql = 'UPDATE employee_project_assignments SET voided = 1 WHERE id = ?';
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Project assignment not found.' });
         }
         res.status(200).json({ message: 'Project assignment deleted successfully' });
@@ -1174,13 +1369,13 @@ router.get('/employees/:id/leave-entitlements', auth, privilege(['leave.entitlem
     const { id } = req.params;
     try {
         const sql = `
-            SELECT le.*, lt.name as leaveTypeName
+            SELECT le.*, lt.name as leave_type_name
             FROM employee_leave_entitlements le
-            JOIN leave_types lt ON le.leaveTypeId = lt.id
-            WHERE le.staffId = ? AND le.voided = 0
+            JOIN leave_types lt ON le.leave_type_id = lt.id
+            WHERE le.staff_id = ? AND le.voided = 0
             ORDER BY le.year DESC, lt.name ASC
         `;
-        const [entitlements] = await db.query(sql, [id]);
+        const { rows: entitlements } = await pgq(sql, [id]);
         res.json(entitlements);
     } catch (err) {
         console.error('Error fetching leave entitlements:', err);
@@ -1191,9 +1386,9 @@ router.get('/employees/:id/leave-entitlements', auth, privilege(['leave.entitlem
 router.post('/leave-entitlements', auth, privilege(['leave.entitlement.create']), async (req, res) => {
     const { staffId, leaveTypeId, year, allocatedDays, userId } = req.body;
     try {
-        const sql = 'INSERT INTO employee_leave_entitlements (staffId, leaveTypeId, year, allocatedDays, userId) VALUES (?, ?, ?, ?, ?)';
-        const [result] = await db.query(sql, [staffId, leaveTypeId, year, allocatedDays, userId]);
-        res.status(201).json({ id: result.insertId, message: 'Leave entitlement added successfully' });
+        const sql = 'INSERT INTO employee_leave_entitlements (staff_id, leave_type_id, year, allocated_days, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id';
+        const result = await pgq(sql, [staffId, leaveTypeId, year, allocatedDays, userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Leave entitlement added successfully' });
     } catch (err) {
         console.error('Error adding leave entitlement:', err);
         res.status(500).send('Error adding leave entitlement');
@@ -1204,9 +1399,9 @@ router.put('/leave-entitlements/:id', auth, privilege(['leave.entitlement.update
     const { id } = req.params;
     const { staffId, leaveTypeId, year, allocatedDays, userId } = req.body;
     try {
-        const sql = 'UPDATE employee_leave_entitlements SET staffId = ?, leaveTypeId = ?, year = ?, allocatedDays = ?, userId = ? WHERE id = ?';
-        const [result] = await db.query(sql, [staffId, leaveTypeId, year, allocatedDays, userId, id]);
-        if (result.affectedRows === 0) {
+        const sql = 'UPDATE employee_leave_entitlements SET staff_id = ?, leave_type_id = ?, year = ?, allocated_days = ?, user_id = ? WHERE id = ?';
+        const result = await pgq(sql, [staffId, leaveTypeId, year, allocatedDays, userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave entitlement not found.' });
         }
         res.status(200).json({ message: 'Leave entitlement updated successfully' });
@@ -1220,8 +1415,8 @@ router.delete('/leave-entitlements/:id', auth, privilege(['leave.entitlement.del
     const { id } = req.params;
     try {
         const sql = 'UPDATE employee_leave_entitlements SET voided = 1 WHERE id = ?';
-        const [result] = await db.query(sql, [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq(sql, [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Leave entitlement not found.' });
         }
         res.status(200).json({ message: 'Leave entitlement deleted successfully' });
@@ -1239,28 +1434,28 @@ router.get('/employees/:id/leave-balance', auth, async (req, res) => {
     try {
         const sql = `
             SELECT
-                lt.id AS leaveTypeId,
-                lt.name AS leaveTypeName,
-                COALESCE(le.allocatedDays, 0) AS allocated,
-                COALESCE(SUM(la.numberOfDays), 0) AS taken,
-                (COALESCE(le.allocatedDays, 0) - COALESCE(SUM(la.numberOfDays), 0)) AS balance
+                lt.id AS leave_type_id,
+                lt.name AS leave_type_name,
+                COALESCE(le.allocated_days, 0) AS allocated,
+                COALESCE(SUM(la.number_of_days), 0) AS taken,
+                (COALESCE(le.allocated_days, 0) - COALESCE(SUM(la.number_of_days), 0)) AS balance
             FROM
                 leave_types lt
             LEFT JOIN
-                employee_leave_entitlements le ON lt.id = le.leaveTypeId
-                AND le.staffId = ?
+                employee_leave_entitlements le ON lt.id = le.leave_type_id
+                AND le.staff_id = ?
                 AND le.year = ?
             LEFT JOIN
-                leave_applications la ON lt.id = la.leaveTypeId
-                AND la.staffId = ?
-                AND YEAR(la.startDate) = ?
+                leave_applications la ON lt.id = la.leave_type_id
+                AND la.staff_id = ?
+                AND EXTRACT(YEAR FROM la.start_date)::int = ?
                 AND la.status IN ('Approved', 'Completed')
             WHERE
                 lt.voided = 0
             GROUP BY
-                lt.id, lt.name, le.allocatedDays;
+                lt.id, lt.name, le.allocated_days
         `;
-        const [balances] = await db.query(sql, [id, year, id, year]);
+        const { rows: balances } = await pgq(sql, [id, year, id, year]);
         res.json(balances);
     } catch (err) {
         console.error('Error fetching leave balance:', err);
@@ -1277,11 +1472,11 @@ router.get('/calculate-working-days', auth, async (req, res) => {
     }
 
     try {
-        const [holidays] = await db.query(
-            'SELECT holidayDate FROM public_holidays WHERE holidayDate BETWEEN ? AND ?',
+        const { rows: holidays } = await pgq(
+            'SELECT holiday_date FROM public_holidays WHERE holiday_date BETWEEN ? AND ?',
             [startDate, endDate]
         );
-        const holidaySet = new Set(holidays.map(h => new Date(h.holidayDate).toISOString().slice(0, 10)));
+        const holidaySet = new Set(holidays.map((h) => new Date(h.holidayDate).toISOString().slice(0, 10)));
 
         let workingDays = 0;
         let currentDate = new Date(startDate);
@@ -1306,7 +1501,7 @@ router.get('/calculate-working-days', auth, async (req, res) => {
 // --- Public Holidays Management ---
 router.get('/public-holidays', auth, privilege(['holiday.read']), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT * FROM public_holidays WHERE voided = 0 ORDER BY holidayDate DESC');
+        const { rows } = await pgq('SELECT * FROM public_holidays WHERE voided = 0 ORDER BY holiday_date DESC');
         res.json(rows);
     } catch (err) {
         console.error('Error fetching public holidays:', err);
@@ -1317,9 +1512,9 @@ router.get('/public-holidays', auth, privilege(['holiday.read']), async (req, re
 router.post('/public-holidays', auth, privilege(['holiday.create']), async (req, res) => {
     const { holidayName, holidayDate, userId } = req.body;
     try {
-        const sql = 'INSERT INTO public_holidays (holidayName, holidayDate, userId) VALUES (?, ?, ?)';
-        const [result] = await db.query(sql, [holidayName, formatDate(holidayDate), userId]);
-        res.status(201).json({ id: result.insertId, message: 'Public holiday added successfully' });
+        const sql = 'INSERT INTO public_holidays (holiday_name, holiday_date, user_id) VALUES (?, ?, ?) RETURNING id';
+        const result = await pgq(sql, [holidayName, formatDate(holidayDate), userId]);
+        res.status(201).json({ id: result.rows[0].id, message: 'Public holiday added successfully' });
     } catch (err) {
         console.error('Error adding public holiday:', err);
         res.status(500).send('Error adding public holiday');
@@ -1330,9 +1525,9 @@ router.put('/public-holidays/:id', auth, privilege(['holiday.update']), async (r
     const { id } = req.params;
     const { holidayName, holidayDate, userId } = req.body;
     try {
-        const sql = 'UPDATE public_holidays SET holidayName = ?, holidayDate = ?, userId = ? WHERE id = ?';
-        const [result] = await db.query(sql, [holidayName, formatDate(holidayDate), userId, id]);
-        if (result.affectedRows === 0) {
+        const sql = 'UPDATE public_holidays SET holiday_name = ?, holiday_date = ?, user_id = ? WHERE id = ?';
+        const result = await pgq(sql, [holidayName, formatDate(holidayDate), userId, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Public holiday not found.' });
         }
         res.status(200).json({ message: 'Public holiday updated successfully' });
@@ -1345,8 +1540,8 @@ router.put('/public-holidays/:id', auth, privilege(['holiday.update']), async (r
 router.delete('/public-holidays/:id', auth, privilege(['holiday.delete']), async (req, res) => {
     const { id } = req.params;
     try {
-        const [result] = await db.query('UPDATE public_holidays SET voided = 1 WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
+        const result = await pgq('UPDATE public_holidays SET voided = 1 WHERE id = ?', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Public holiday not found.' });
         }
         res.status(200).json({ message: 'Public holiday deleted successfully' });

@@ -26,6 +26,14 @@ const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
 const StrategicPlanningPage = lazy(() => import('./pages/StrategicPlanningPage'));
 const PlanningIndicatorsPage = lazy(() => import('./pages/PlanningIndicatorsPage'));
+const PlanningProjectActivitiesPage = lazy(() => import('./pages/PlanningProjectActivitiesPage'));
+const PlanningProjectRisksPage = lazy(() => import('./pages/PlanningProjectRisksPage'));
+const ProjectPlanningActivityLinksPage = lazy(() =>
+  import('./pages/ProjectPlanningCatalogLinksPages').then((m) => ({ default: m.ProjectPlanningActivityLinksPage }))
+);
+const ProjectPlanningRiskLinksPage = lazy(() =>
+  import('./pages/ProjectPlanningCatalogLinksPages').then((m) => ({ default: m.ProjectPlanningRiskLinksPage }))
+);
 const StrategicPlanDetailsPage = lazy(() => import('./pages/StrategicPlanDetailsPage'));
 const DataImportPage = lazy(() => import('./pages/DataImportPage'));
 const KdspProjectDetailsPage = lazy(() => import('./pages/KdspProjectDetailsPage'));
@@ -122,6 +130,14 @@ const router = createBrowserRouter([
         element: <LazyRoute component={ProjectFeedbackByProjectPage} />,
       },
       {
+        path: 'projects/planning-activity-links',
+        element: <LazyRoute component={ProjectPlanningActivityLinksPage} />,
+      },
+      {
+        path: 'projects/planning-risk-links',
+        element: <LazyRoute component={ProjectPlanningRiskLinksPage} />,
+      },
+      {
         path: 'verify-certificate',
         element: <LazyRoute component={VerifyCertificatePage} />,
       },
@@ -192,6 +208,14 @@ const router = createBrowserRouter([
       {
         path: 'planning/indicators',
         element: <LazyRoute component={PlanningIndicatorsPage} />,
+      },
+      {
+        path: 'planning/project-activities',
+        element: <LazyRoute component={PlanningProjectActivitiesPage} />,
+      },
+      {
+        path: 'planning/project-risks',
+        element: <LazyRoute component={PlanningProjectRisksPage} />,
       },
       {
         path: 'strategic-planning/:planId',

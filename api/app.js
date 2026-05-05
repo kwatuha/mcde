@@ -52,7 +52,8 @@ const budgetContainerRoutes = require('./routes/budgetContainerRoutes')
 const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
 const auditTrailRoutes = require('./routes/auditTrailRoutes')
 
-const port = Number(process.env.PORT) || 3001;
+// Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
+const port = Number(process.env.PORT) || 3002;
 const app = express();
 const server = http.createServer(app);
 

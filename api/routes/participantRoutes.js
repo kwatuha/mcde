@@ -4,6 +4,7 @@ const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 const ExcelJS = require('exceljs'); // For Excel export
 const puppeteer = require('puppeteer'); // For PDF export
+const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
 
 // --- CRUD Operations for Study Participants (studyparticipants) ---
 
@@ -321,15 +322,14 @@ router.post('/study_participants/export/excel', async (req, res) => {
 router.post('/study_participants/export/pdf', async (req, res) => {
     const { filters, tableHtml, orderBy = 'individualId', order = 'ASC' } = req.body;
 
+    let browser;
     try {
-        const browser = await puppeteer.launch({
-            headless: true, // Use 'new' for Puppeteer v22+
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Docker/Linux environments
-        });
+        browser = await puppeteer.launch(getPuppeteerLaunchOptions());
         const page = await browser.newPage();
 
         // Set content to the provided HTML. You might want to wrap it in a full HTML document.
-        await page.setContent(`
+        await page.setContent(
+            `
             <!DOCTYPE html>
             <html>
             <head>
@@ -355,25 +355,33 @@ router.post('/study_participants/export/pdf', async (req, res) => {
                 </div>
             </body>
             </html>
-        `, { waitUntil: 'networkidle0' });
+        `,
+            { waitUntil: 'domcontentloaded', timeout: 45000 }
+        );
 
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
             displayHeaderFooter: true,
             headerTemplate: '<div style="font-size: 8px; margin-left: 20px;">KEMRI Report</div>',
-            footerTemplate: '<div style="font-size: 8px; margin-right: 20px; margin-left: 20px; width: 100%; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
+            footerTemplate:
+                '<div style="font-size: 8px; margin-right: 20px; margin-left: 20px; width: 100%; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
         });
-
-        await browser.close();
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'attachment; filename=participants_report.pdf');
         res.send(pdfBuffer);
-
     } catch (error) {
         console.error('Error exporting study participants to PDF:', error);
         res.status(500).json({ message: 'Error exporting data to PDF', error: error.message });
+    } finally {
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (e) {
+                console.warn('participants export/pdf: browser.close failed:', e.message);
+            }
+        }
     }
 });
 

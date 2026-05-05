@@ -11,6 +11,14 @@ const routeTitles = {
   '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
+  '/projects/planning-activity-links': {
+    title: 'Project activity links',
+    subtitle: 'Associate Planning catalog activities with projects',
+  },
+  '/projects/planning-risk-links': {
+    title: 'Project risk links',
+    subtitle: 'Associate Planning catalog risks with projects',
+  },
   '/projects/feedback-by-project': { title: 'Project Feedback', subtitle: 'Public feedback by project' },
   '/verify-certificate': { title: 'Verify Certificate', subtitle: 'Confirm a project payment certificate by number' },
   '/contractor-dashboard': { title: 'Personal Dashboard', subtitle: 'My Activities' },
@@ -41,6 +49,14 @@ const routeTitles = {
   '/planning/indicators': {
     title: 'Indicators & KPIs',
     subtitle: 'Planning — measurement types, KPIs & indicators',
+  },
+  '/planning/project-activities': {
+    title: 'Project Activities',
+    subtitle: 'Planning — measurable activities linked to indicators',
+  },
+  '/planning/project-risks': {
+    title: 'Project Risks',
+    subtitle: 'Planning — standard risk register (code, name, description)',
   },
   '/budget-management': { title: 'ADP-Budget', subtitle: 'Annual Development Plan & budget containers' },
   '/strategic-planning/import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },
@@ -120,6 +136,10 @@ export const usePageTitleEffect = () => {
         titleInfo = { title: 'Project Feedback', subtitle: 'Public feedback by project' };
       } else if (path === '/projects/documents-by-project') {
         titleInfo = { title: 'Project Documents', subtitle: 'Attachments by project' };
+      } else if (path === '/projects/planning-activity-links') {
+        titleInfo = { title: 'Project activity links', subtitle: 'Associate Planning catalog activities with projects' };
+      } else if (path === '/projects/planning-risk-links') {
+        titleInfo = { title: 'Project risk links', subtitle: 'Associate Planning catalog risks with projects' };
       } else if (path.includes('/gantt-chart')) {
         titleInfo = { title: 'Gantt Chart', subtitle: 'Project Timeline' };
       } else if (path.includes('/kdsp-details')) {

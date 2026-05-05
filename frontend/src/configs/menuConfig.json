@@ -97,6 +97,18 @@
           "permissionsAny": ["document.read_all", "document.create"]
         },
         {
+          "title": "Project Activities",
+          "icon": "TaskAltIcon",
+          "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
+          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
+          "title": "Project Risks",
+          "icon": "ReportProblemIcon",
+          "route": "PROJECT_PLANNING_RISK_LINKS",
+          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
           "title": "Verify Certificate",
           "icon": "VerifiedUserIcon",
           "route": "VERIFY_CERTIFICATE"
@@ -189,6 +201,16 @@
           "route": "PLANNING_INDICATORS"
         },
         {
+          "title": "Project Activities",
+          "icon": "TaskAltIcon",
+          "route": "PLANNING_PROJECT_ACTIVITIES"
+        },
+        {
+          "title": "Project Risks",
+          "icon": "ReportProblemIcon",
+          "route": "PLANNING_PROJECT_RISKS"
+        },
+        {
           "title": "ADP-Budget",
           "icon": "AttachMoneyIcon",
           "route": "BUDGET_MANAGEMENT"
@@ -198,6 +220,48 @@
           "icon": "ApprovalIcon",
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
+          "roles": ["admin"]
+        }
+      ]
+    },
+    {
+      "id": "hr",
+      "label": "HR",
+      "icon": "PeopleIcon",
+      "submenus": [
+        {
+          "title": "Employees",
+          "icon": "PeopleIcon",
+          "route": "HR_EMPLOYEES",
+          "permission": "hr.access",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Personnel actions",
+          "icon": "WorkHistoryIcon",
+          "route": "HR_PERSONNEL",
+          "permission": "hr.access",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Job groups",
+          "icon": "GroupsIcon",
+          "route": "HR_JOB_GROUPS",
+          "permission": "hr.access",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Leave types",
+          "icon": "EventNoteIcon",
+          "route": "HR_LEAVE_TYPES",
+          "permission": "hr.access",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Public holidays",
+          "icon": "CelebrationIcon",
+          "route": "HR_PUBLIC_HOLIDAYS",
+          "permission": "hr.access",
           "roles": ["admin"]
         }
       ]

@@ -35,6 +35,38 @@ const planningService = {
     const { data } = await axiosInstance.delete(`${base}/indicators/${id}`);
     return data;
   },
+  getProjectActivities: async () => {
+    const { data } = await axiosInstance.get(`${base}/project-activities`);
+    return data;
+  },
+  createProjectActivity: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/project-activities`, payload);
+    return data;
+  },
+  updateProjectActivity: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/project-activities/${id}`, payload);
+    return data;
+  },
+  deleteProjectActivity: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/project-activities/${id}`);
+    return data;
+  },
+  getProjectRisks: async () => {
+    const { data } = await axiosInstance.get(`${base}/project-risks`);
+    return data;
+  },
+  createProjectRisk: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/project-risks`, payload);
+    return data;
+  },
+  updateProjectRisk: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/project-risks/${id}`, payload);
+    return data;
+  },
+  deleteProjectRisk: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/project-risks/${id}`);
+    return data;
+  },
 };
 
 export default planningService;

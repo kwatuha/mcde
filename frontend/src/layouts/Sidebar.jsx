@@ -60,6 +60,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import HistoryIcon from '@mui/icons-material/History';
+import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -98,6 +99,8 @@ const ICON_MAP = {
   DescriptionIcon,
   ShowChartIcon,
   StraightenIcon,
+  HistoryIcon,
+  WorkHistoryIcon,
 };
 
 const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {
@@ -375,8 +378,6 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
 
   const managementItems = [
     { title: "Central Data Import", to: "/data-import", icon: <CloudUploadIcon /> },
-    // HR Module - Hidden
-    // { title: "HR Module", to: ROUTES.HR, icon: <PeopleIcon />, privilege: () => hasPrivilege('hr.access') },
   ];
 
   /* SCOPE_DOWN: hide workflow, approval-levels (admin); feedback-management, county-proposed-projects, project-announcements (public). Re-enable when restoring. */

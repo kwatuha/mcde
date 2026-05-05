@@ -17,6 +17,7 @@ import { tokens } from "../../pages/dashboard/theme";
 export default function LeaveTypesSection({ leaveTypes, showNotification, refreshData, handleOpenDeleteConfirmModal }) {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
+    const isDark = theme.palette.mode === 'dark';
     const { hasPrivilege } = useAuth();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -222,7 +223,9 @@ export default function LeaveTypesSection({ leaveTypes, showNotification, refres
                             backgroundColor: `${colors.blueAccent[700]} !important`,
                         },
                         "& .MuiDataGrid-row:hover": {
-                            backgroundColor: `${colors.primary[500]} !important`,
+                            backgroundColor: isDark
+                                ? `${colors.primary[500]} !important`
+                                : `${theme.palette.action.hover} !important`,
                         },
                         "& .MuiCheckbox-root": {
                             color: `${colors.greenAccent[200]} !important`,

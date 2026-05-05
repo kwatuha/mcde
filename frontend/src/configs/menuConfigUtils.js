@@ -44,6 +44,14 @@ export const ICON_MAP = {
   DescriptionIcon: () => import('@mui/icons-material/Description').then(m => m.default),
   GavelIcon: () => import('@mui/icons-material/Gavel').then(m => m.default),
   VerifiedUserIcon: () => import('@mui/icons-material/VerifiedUser').then(m => m.default),
+  GroupsIcon: () => import('@mui/icons-material/Groups').then(m => m.default),
+  EventNoteIcon: () => import('@mui/icons-material/EventNote').then(m => m.default),
+  CelebrationIcon: () => import('@mui/icons-material/Celebration').then(m => m.default),
+  WorkHistoryIcon: () => import('@mui/icons-material/WorkHistory').then(m => m.default),
+  ShowChartIcon: () => import('@mui/icons-material/ShowChart').then(m => m.default),
+  StraightenIcon: () => import('@mui/icons-material/Straighten').then(m => m.default),
+  TaskAltIcon: () => import('@mui/icons-material/TaskAlt').then(m => m.default),
+  ReportProblemIcon: () => import('@mui/icons-material/ReportProblem').then(m => m.default),
 };
 
 // Get icon component by name
@@ -102,7 +110,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
   if (!isExecutiveViewer) {
-    return categories;
+    return categories.filter((c) => (c.submenus || []).length > 0);
   }
 
   // Executive Viewer: allow dashboards plus Projects tab with Registry only.

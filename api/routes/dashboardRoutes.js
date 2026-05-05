@@ -5,6 +5,7 @@ const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 const ExcelJS = require('exceljs'); // For Excel export
 const puppeteer = require('puppeteer'); // For PDF export
+const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
 
 /**
  * @file Backend routes for Dashboard data and analytics.
@@ -316,15 +317,14 @@ router.post('/export/excel', async (req, res) => {
  */
 router.post('/export/pdf', async (req, res) => {
     const { filters, tableHtml } = req.body; // tableHtml is expected to be the HTML string of the table
+    let browser;
     try {
-        const browser = await puppeteer.launch({
-            headless: true, // Use 'new' for Puppeteer v22+
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Docker/Linux environments
-        });
+        browser = await puppeteer.launch(getPuppeteerLaunchOptions());
         const page = await browser.newPage();
 
         // Set content to the provided HTML. You might want to wrap it in a full HTML document.
-        await page.setContent(`
+        await page.setContent(
+            `
             <!DOCTYPE html>
             <html>
             <head>
@@ -342,19 +342,26 @@ router.post('/export/pdf', async (req, res) => {
                 ${tableHtml}
             </body>
             </html>
-        `, { waitUntil: 'networkidle0' });
+        `,
+            { waitUntil: 'domcontentloaded', timeout: 45000 }
+        );
 
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-
-        await browser.close();
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'attachment; filename=report.pdf');
         res.send(pdfBuffer);
-
     } catch (error) {
         console.error('Error exporting to PDF:', error);
         res.status(500).json({ message: 'Error exporting to PDF', error: error.message });
+    } finally {
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (e) {
+                console.warn('dashboard export/pdf: browser.close failed:', e.message);
+            }
+        }
     }
 });
 

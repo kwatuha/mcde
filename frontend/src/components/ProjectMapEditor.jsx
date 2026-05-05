@@ -11,6 +11,7 @@ import GoogleMapComponent from './gis/GoogleMapComponent';
 import { MarkerF, PolylineF, PolygonF } from '@react-google-maps/api';
 import apiService from '../api';
 import { INITIAL_MAP_POSITION } from '../configs/appConfig';
+import { normalizeWardKey } from '../utils/projectWardKey';
 
 // Helper function for safe date formatting
 const formatDateSafe = (dateString) => {
@@ -31,6 +32,26 @@ const formatDateSafe = (dateString) => {
     console.error('Error formatting date:', dateString, error);
     return 'N/A';
   }
+};
+
+const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
+
+const flattenGeometryCoordinates = (geometry) => {
+  if (!geometry?.type || !geometry?.coordinates) return [];
+  if (geometry.type === 'Polygon') return geometry.coordinates.flat(1);
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates.flat(2);
+  return [];
+};
+
+const getWardCentroidFromFeature = (feature) => {
+  const coords = flattenGeometryCoordinates(feature?.geometry).filter(
+    (c) => Array.isArray(c) && c.length >= 2 && Number.isFinite(Number(c[0])) && Number.isFinite(Number(c[1]))
+  );
+  if (!coords.length) return null;
+  const lng = coords.reduce((sum, c) => sum + Number(c[0]), 0) / coords.length;
+  const lat = coords.reduce((sum, c) => sum + Number(c[1]), 0) / coords.length;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
 };
 
 const ProjectMapEditor = ({ projectId, projectName }) => {
@@ -57,6 +78,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
   const latestEditedPathRef = useRef(null); // Store the latest edited path
   const mapCenterRef = useRef(null); // Store latest map center for onCreated callback
   const mapZoomRef = useRef(null); // Store latest map zoom for onCreated callback
+  const machakosWardsGeoRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [tempMarkerPosition, setTempMarkerPosition] = useState(null);
   const [markerIcon, setMarkerIcon] = useState(null);
@@ -280,68 +302,119 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
         console.error('[ProjectMapEditor] Error parsing map data for centering:', err);
       }
     }
-    // If there's no existing map data, try to zoom to the project's ward location
-    // Fetch ward coordinates BEFORE opening the modal so map initializes with correct center
+    // If there's no existing map data, try to zoom to the selected ward location first.
     if (!mapData && projectId) {
       console.log('[ProjectMapEditor] No map data exists, will fetch ward coordinates for project:', projectId);
       try {
-        console.log('[ProjectMapEditor] Fetching ward coordinates for project:', projectId);
-        // Fetch project wards - junctions is at top level of apiService, not inside projects
-        const wards = await apiService.junctions.getProjectWards(projectId);
-        console.log('[ProjectMapEditor] Received wards response:', wards);
-        console.log('[ProjectMapEditor] Wards array length:', Array.isArray(wards) ? wards.length : 'not an array');
-        
-        // Find the first ward with coordinates
-        const wardWithCoords = wards.find(w => w.geoLat && w.geoLon && w.geoLat !== null && w.geoLon !== null);
-        
-        if (wardWithCoords) {
-          console.log('[ProjectMapEditor] Found ward with coordinates:', wardWithCoords);
-          const targetLat = parseFloat(wardWithCoords.geoLat);
-          const targetLng = parseFloat(wardWithCoords.geoLon);
-          
-          if (!isNaN(targetLat) && !isNaN(targetLng)) {
-            // Set map center and zoom to ward location BEFORE opening modal
-            const newCenter = { lat: targetLat, lng: targetLng };
-            const newZoom = 15;
-            setMapCenter(newCenter);
-            setMapZoom(newZoom);
-            // Update refs immediately so onCreated callback can use them
-            mapCenterRef.current = newCenter;
-            mapZoomRef.current = newZoom;
-            console.log('[ProjectMapEditor] Set map center to ward:', newCenter, 'zoom:', newZoom);
-            setSuccess(`Map will center on: ${wardWithCoords.wardName || 'Ward location'}`);
+        let centered = false;
+        let centeredLabel = null;
+
+        // 1) Prefer exact ward geometry centroid from Machakos GIS ward polygons (same source as GIS dashboard).
+        try {
+          const project = await apiService.projects.getProjectById(projectId);
+          const projectWard =
+            project?.ward ||
+            project?.wardName ||
+            project?.ward_name ||
+            project?.location?.ward ||
+            null;
+          const wardKey = projectWard ? normalizeWardKey(projectWard) : '';
+
+          if (wardKey) {
+            if (!machakosWardsGeoRef.current) {
+              const wardRes = await fetch('/gis/machakos/machakos-wards.geojson');
+              if (wardRes.ok) {
+                machakosWardsGeoRef.current = await wardRes.json();
+              }
+            }
+            const wardFeatures = machakosWardsGeoRef.current?.features || [];
+            const matched = wardFeatures.find((f) => {
+              const name = f?.properties?.ward_name || f?.properties?.COUNTY_A_1 || '';
+              return normalizeWardKey(name) === wardKey;
+            });
+            const centroid = getWardCentroidFromFeature(matched);
+            if (centroid) {
+              const newCenter = centroid;
+              const newZoom = 13;
+              setMapCenter(newCenter);
+              setMapZoom(newZoom);
+              mapCenterRef.current = newCenter;
+              mapZoomRef.current = newZoom;
+              centered = true;
+              centeredLabel = projectWard;
+            }
           }
-        } else {
-          console.log('[ProjectMapEditor] No ward coordinates found, trying subcounty');
-          // Fallback: try subcounty if no ward coordinates
+        } catch (geoWardErr) {
+          console.warn('[ProjectMapEditor] Ward-geometry centering skipped:', geoWardErr?.message || geoWardErr);
+        }
+
+        // 2) Fallback to project ward junction geo coordinates.
+        if (!centered) {
+          const wards = await apiService.junctions.getProjectWards(projectId);
+          const wardWithCoords = Array.isArray(wards)
+            ? wards.find((w) => w.geoLat && w.geoLon && w.geoLat !== null && w.geoLon !== null)
+            : null;
+          if (wardWithCoords) {
+            const targetLat = parseFloat(wardWithCoords.geoLat);
+            const targetLng = parseFloat(wardWithCoords.geoLon);
+            if (!Number.isNaN(targetLat) && !Number.isNaN(targetLng)) {
+              const newCenter = { lat: targetLat, lng: targetLng };
+              const newZoom = 15;
+              setMapCenter(newCenter);
+              setMapZoom(newZoom);
+              mapCenterRef.current = newCenter;
+              mapZoomRef.current = newZoom;
+              centered = true;
+              centeredLabel = wardWithCoords.wardName || 'Ward location';
+            }
+          }
+        }
+
+        // 3) Fallback to project subcounty coordinates.
+        if (!centered) {
           try {
             const subcounties = await apiService.junctions.getProjectSubcounties(projectId);
-            const subcountyWithCoords = subcounties.find(sc => sc.geoLat && sc.geoLon && sc.geoLat !== null && sc.geoLon !== null);
-            
+            const subcountyWithCoords = Array.isArray(subcounties)
+              ? subcounties.find((sc) => sc.geoLat && sc.geoLon && sc.geoLat !== null && sc.geoLon !== null)
+              : null;
             if (subcountyWithCoords) {
-              console.log('[ProjectMapEditor] Found subcounty with coordinates:', subcountyWithCoords);
               const targetLat = parseFloat(subcountyWithCoords.geoLat);
               const targetLng = parseFloat(subcountyWithCoords.geoLon);
-              
-              if (!isNaN(targetLat) && !isNaN(targetLng)) {
+              if (!Number.isNaN(targetLat) && !Number.isNaN(targetLng)) {
                 const newCenter = { lat: targetLat, lng: targetLng };
                 const newZoom = 13;
                 setMapCenter(newCenter);
                 setMapZoom(newZoom);
-                // Update refs immediately so onCreated callback can use them
                 mapCenterRef.current = newCenter;
                 mapZoomRef.current = newZoom;
-                setSuccess(`Map will center on: ${subcountyWithCoords.subcountyName || 'Subcounty location'}`);
+                centered = true;
+                centeredLabel = subcountyWithCoords.subcountyName || 'Subcounty location';
               }
             }
           } catch (subcountyErr) {
             console.error('[ProjectMapEditor] Error fetching subcounty coordinates:', subcountyErr);
           }
         }
+
+        // 4) Final fallback to Machakos center.
+        if (!centered) {
+          setMapCenter(MACHAKOS_CENTER);
+          setMapZoom(10);
+          mapCenterRef.current = MACHAKOS_CENTER;
+          mapZoomRef.current = 10;
+          centeredLabel = 'Machakos county';
+        }
+
+        if (centeredLabel) {
+          setSuccess(`Map will center on: ${centeredLabel}`);
+        }
       } catch (err) {
         console.error('[ProjectMapEditor] Error fetching ward coordinates:', err);
-        // Don't show this as an error - it's just a convenience feature
-        // But still allow editing to proceed
+        // Keep editing flow smooth and still center to Machakos if lookup fails.
+        setMapCenter(MACHAKOS_CENTER);
+        setMapZoom(10);
+        mapCenterRef.current = MACHAKOS_CENTER;
+        mapZoomRef.current = 10;
       }
     } else {
       console.log('[ProjectMapEditor] Map data exists or projectId missing - skipping ward fetch');

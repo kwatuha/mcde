@@ -25,8 +25,11 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import HistoryIcon from '@mui/icons-material/History';
+import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -39,6 +42,7 @@ const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   finance: 'FINANCE_PAYMENT_CERTIFICATES',
   reporting: 'PROJECTS',
   management: 'BUDGET_MANAGEMENT',
+  hr: 'HR_EMPLOYEES',
   public: 'PUBLIC_APPROVAL',
   admin: 'USER_MANAGEMENT',
 };
@@ -88,6 +92,9 @@ const ICON_MAP = {
   StraightenIcon,
   VerifiedUserIcon,
   HistoryIcon,
+  WorkHistoryIcon,
+  TaskAltIcon,
+  ReportProblemIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching

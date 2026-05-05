@@ -15,9 +15,10 @@ import AddEditPublicHolidayModal from './modals/AddEditPublicHolidayModal';
 import { useTheme } from '@mui/material';
 import { tokens } from "../../pages/dashboard/theme";
 
-export default function PublicHolidaysSection({ showNotification, handleOpenDeleteConfirmModal }) {
+export default function PublicHolidaysSection({ showNotification, handleOpenDeleteConfirmModal, reloadSignal = 0 }) {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
+    const isDark = theme.palette.mode === 'dark';
     const { hasPrivilege } = useAuth();
     const [holidays, setHolidays] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -41,6 +42,12 @@ export default function PublicHolidaysSection({ showNotification, handleOpenDele
     useEffect(() => {
         fetchData();
     }, []);
+
+    useEffect(() => {
+        if (reloadSignal > 0) {
+            fetchData();
+        }
+    }, [reloadSignal]);
 
     const handleOpenAddModal = () => {
         setEditedItem(null);
@@ -219,7 +226,9 @@ export default function PublicHolidaysSection({ showNotification, handleOpenDele
                             backgroundColor: `${colors.blueAccent[700]} !important`,
                         },
                         "& .MuiDataGrid-row:hover": {
-                            backgroundColor: `${colors.primary[500]} !important`,
+                            backgroundColor: isDark
+                                ? `${colors.primary[500]} !important`
+                                : `${theme.palette.action.hover} !important`,
                         },
                         "& .MuiCheckbox-root": {
                             color: `${colors.greenAccent[200]} !important`,

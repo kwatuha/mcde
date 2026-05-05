@@ -14,20 +14,46 @@ const pool = require('../../config/db'); // Correct path for the new folder stru
 router.get('/', async (req, res) => {
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
-        let query;
-        
+
         if (DB_TYPE === 'postgresql') {
-            query = `SELECT d."departmentId", d.name, d.alias, d.location, d."ministryId", d."createdAt", d."updatedAt", d."userId",
-                m.name AS "ministryName"
-                FROM departments d
-                LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
-                WHERE d.voided = false`;
-        } else {
-            query = 'SELECT departmentId, name, alias, location, createdAt, updatedAt, userId FROM departments WHERE voided = 0';
+            const { rows: colRows } = await pool.query(
+                `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'departments'`
+            );
+            const cols = new Set(colRows.map((r) => r.column_name));
+
+            let result;
+            if (cols.has('department_id')) {
+                // HR module / snake_case departments (see api/migrations/create_hr_module_pg.sql)
+                result = await pool.query(`
+                    SELECT
+                        d.department_id AS "departmentId",
+                        d.name,
+                        ''::text AS alias,
+                        NULL::text AS location,
+                        NULL::integer AS "ministryId",
+                        NULL::text AS "ministryName",
+                        d.created_at AS "createdAt",
+                        d.updated_at AS "updatedAt",
+                        NULL::integer AS "userId"
+                    FROM departments d
+                    WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+                    ORDER BY d.name
+                `);
+            } else {
+                result = await pool.query(`
+                    SELECT d."departmentId", d.name, d.alias, d.location, d."ministryId", d."createdAt", d."updatedAt", d."userId",
+                        m.name AS "ministryName"
+                    FROM departments d
+                    LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
+                    WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+                `);
+            }
+            return res.status(200).json(result.rows);
         }
-        
+
+        const query = 'SELECT departmentId, name, alias, location, createdAt, updatedAt, userId FROM departments WHERE voided = 0';
         const result = await pool.query(query);
-        const rows = DB_TYPE === 'postgresql' ? result.rows : (Array.isArray(result) ? result[0] : result);
+        const rows = Array.isArray(result) ? result[0] : result;
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching departments:', error);

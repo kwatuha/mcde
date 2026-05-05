@@ -359,11 +359,24 @@ export default function EmployeeSection({
         setSelectedEmployee(null);
     }, []);
 
+    const escapeHtml = (unsafe) => {
+        if (unsafe === null || unsafe === undefined) return 'N/A';
+        return String(unsafe)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+
     const handleExportPdf = async () => {
         setExportingPdf(true);
         try {
-            const allEmployeesResponse = await apiService.hr.getEmployees();
-            const allEmployees = allEmployeesResponse;
+            const allEmployees = Array.isArray(employees) ? employees : [];
+            if (allEmployees.length === 0) {
+                showNotification('No employees to export.', 'warning');
+                return;
+            }
 
             const tableColumnsForPdf = columns.filter(col => col.field !== 'actions');
 
@@ -377,7 +390,7 @@ export default function EmployeeSection({
               <table>
                 <thead>
                   <tr>
-                    ${tableColumnsForPdf.map(col => `<th>${col.headerName}</th>`).join('')}
+                    ${tableColumnsForPdf.map(col => `<th>${escapeHtml(col.headerName)}</th>`).join('')}
                   </tr>
                 </thead>
                 <tbody>
@@ -412,7 +425,7 @@ export default function EmployeeSection({
                           } else {
                               value = employee[col.field] !== null && employee[col.field] !== undefined ? String(employee[col.field]) : 'N/A';
                           }
-                          return `<td>${value}</td>`;
+                          return `<td>${escapeHtml(value)}</td>`;
                       }).join('')}
                     </tr>
                   `).join('')}
@@ -422,6 +435,18 @@ export default function EmployeeSection({
 
             const data = await apiService.hr.exportEmployeesToPdf(tableHtml);
             const blob = new Blob([data], { type: 'application/pdf' });
+            if (blob.size < 64) {
+                const text = await blob.text();
+                let msg = 'Server did not return a valid PDF.';
+                try {
+                    const j = JSON.parse(text);
+                    if (j.message) msg = j.message;
+                } catch {
+                    if (text) msg = text;
+                }
+                showNotification(msg, 'error');
+                return;
+            }
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -433,7 +458,26 @@ export default function EmployeeSection({
             showNotification('Employee data exported to PDF.', 'success');
         } catch (err) {
             console.error('Error exporting to PDF:', err);
-            showNotification('Failed to export employee data to PDF.', 'error');
+            let detail = err.message;
+            const body = err.response?.data;
+            if (body instanceof Blob) {
+                try {
+                    const t = await body.text();
+                    try {
+                        const j = JSON.parse(t);
+                        if (j.message) detail = j.message;
+                    } catch {
+                        if (t) detail = t;
+                    }
+                } catch {
+                    /* keep err.message */
+                }
+            } else if (body?.message) {
+                detail = body.message;
+            } else if (typeof body === 'string') {
+                detail = body;
+            }
+            showNotification(detail || 'Failed to export employee data to PDF.', 'error');
         } finally {
             setExportingPdf(false);
         }
@@ -609,13 +653,14 @@ export default function EmployeeSection({
                         rows={employees || []}
                         columns={columns}
                         getRowId={(row) => {
-                            const id = row?.staffId || row?.id || row?.staff_id;
-                            if (!id) {
-                                console.warn('EmployeeSection: Row missing ID:', row);
+                            const id = row?.staffId ?? row?.staff_id ?? row?.id;
+                            if (id == null || id === '') {
+                                console.warn('EmployeeSection: Row missing staff id', row);
+                                return ['missing', row.email, row.firstName, row.lastName].filter(Boolean).join('-') || 'missing-row';
                             }
-                            return id || Math.random();
+                            return id;
                         }}
-                        loading={!employees || employees.length === 0}
+                        loading={false}
                         onRowClick={(params) => {
                             console.log('EmployeeSection: Row clicked:', params.row);
                         }}

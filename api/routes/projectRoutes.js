@@ -5991,6 +5991,12 @@ router.put('/:id', validateProject, async (req, res) => {
             const existingPublicEngagement = existing.public_engagement || {};
             const existingLocation = existing.location || {};
             const existingGeocoordinates = existingLocation.geocoordinates || {};
+            const normalizeOptionalText = (value) => {
+                if (value === undefined || value === null) return null;
+                const text = typeof value === 'string' ? value : String(value);
+                const trimmed = text.trim();
+                return trimmed === '' ? null : trimmed;
+            };
 
             // Convert empty strings to null for dates
             const normalizedStartDate = startDate !== undefined 
@@ -6012,7 +6018,7 @@ router.put('/:id', validateProject, async (req, res) => {
                 contracted: Contracted !== undefined ? Contracted : (existingBudget.contracted || false),
                 budget_id: existingBudget.budget_id || null,
                 source: budgetSource !== undefined 
-                    ? (budgetSource && budgetSource.trim() !== '' ? budgetSource.trim() : null)
+                    ? normalizeOptionalText(budgetSource)
                     : (existingBudget.source || null)
             });
 
@@ -6062,16 +6068,16 @@ router.put('/:id', validateProject, async (req, res) => {
 
             // Build location JSONB object with county, constituency, ward, and geocoordinates
             const location = JSON.stringify({
-                county: county !== undefined ? (county && county.trim() !== '' ? county.trim() : null) : (existingLocation.county || null),
-                constituency: constituency !== undefined ? (constituency && constituency.trim() !== '' ? constituency.trim() : null) : (existingLocation.constituency || null),
-                ward: ward !== undefined ? (ward && ward.trim() !== '' ? ward.trim() : null) : (existingLocation.ward || null),
+                county: county !== undefined ? normalizeOptionalText(county) : (existingLocation.county || null),
+                constituency: constituency !== undefined ? normalizeOptionalText(constituency) : (existingLocation.constituency || null),
+                ward: ward !== undefined ? normalizeOptionalText(ward) : (existingLocation.ward || null),
                 geocoordinates: {
                     lat: latitude !== undefined 
                         ? (latitude && latitude !== '' ? parseFloat(latitude) : null)
-                        : (existingGeocoordinates.lat || null),
+                        : (existingGeocoordinates.lat ?? null),
                     lng: longitude !== undefined
                         ? (longitude && longitude !== '' ? parseFloat(longitude) : null)
-                        : (existingGeocoordinates.lng || null)
+                        : (existingGeocoordinates.lng ?? null)
                 }
             });
 

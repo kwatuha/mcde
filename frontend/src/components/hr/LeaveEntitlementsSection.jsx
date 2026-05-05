@@ -18,6 +18,7 @@ import { tokens } from "../../pages/dashboard/theme";
 export default function LeaveEntitlementsSection({ employees, leaveTypes, showNotification, handleOpenDeleteConfirmModal }) {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
+    const isDark = theme.palette.mode === 'dark';
     const { hasPrivilege } = useAuth();
 
     const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -194,9 +195,9 @@ export default function LeaveEntitlementsSection({ employees, leaveTypes, showNo
                     sx={{ 
                         p: 2, 
                         mb: 3,
-                        backgroundColor: colors.primary[500],
+                        backgroundColor: isDark ? colors.primary[500] : theme.palette.background.paper,
                         borderRadius: '6px',
-                        border: `1px solid ${colors.grey[700]}`
+                        border: `1px solid ${isDark ? colors.grey[700] : theme.palette.divider}`,
                     }}
                 >
                     <Grid container spacing={2} alignItems="center">
@@ -212,13 +213,16 @@ export default function LeaveEntitlementsSection({ employees, leaveTypes, showNo
                                         label="Select Employee to Manage" 
                                         sx={{
                                             '& .MuiOutlinedInput-root': {
-                                                backgroundColor: colors.primary[400],
+                                                backgroundColor: isDark ? colors.primary[400] : theme.palette.common.white,
                                                 '& fieldset': {
-                                                    borderColor: colors.grey[700],
+                                                    borderColor: isDark ? colors.grey[700] : theme.palette.divider,
                                                 },
                                             },
                                             '& .MuiInputLabel-root': {
-                                                color: colors.grey[300],
+                                                color: isDark ? colors.grey[300] : theme.palette.text.secondary,
+                                            },
+                                            '& .MuiInputLabel-root.Mui-focused': {
+                                                color: isDark ? colors.grey[100] : theme.palette.primary.main,
                                             },
                                         }}
                                     />
@@ -274,7 +278,9 @@ export default function LeaveEntitlementsSection({ employees, leaveTypes, showNo
                             backgroundColor: `${colors.blueAccent[700]} !important`,
                         },
                         "& .MuiDataGrid-row:hover": {
-                            backgroundColor: `${colors.primary[500]} !important`,
+                            backgroundColor: isDark
+                                ? `${colors.primary[500]} !important`
+                                : `${theme.palette.action.hover} !important`,
                         },
                         "& .MuiCheckbox-root": {
                             color: `${colors.greenAccent[200]} !important`,

@@ -28,6 +28,12 @@ import HelpSupportPage from './pages/HelpSupportPage';
 // Import the StrategicPlanningPage
 import StrategicPlanningPage from './pages/StrategicPlanningPage';
 import PlanningIndicatorsPage from './pages/PlanningIndicatorsPage';
+import PlanningProjectActivitiesPage from './pages/PlanningProjectActivitiesPage';
+import PlanningProjectRisksPage from './pages/PlanningProjectRisksPage';
+import {
+  ProjectPlanningActivityLinksPage,
+  ProjectPlanningRiskLinksPage,
+} from './pages/ProjectPlanningCatalogLinksPages';
 // Import the StrategicPlanDetailsPage
 import StrategicPlanDetailsPage from './pages/StrategicPlanDetailsPage';
 // Import the DataImportPage
@@ -220,6 +226,14 @@ const router = createBrowserRouter([
         element: <ProjectFeedbackByProjectPage />,
       },
       {
+        path: 'projects/planning-activity-links',
+        element: <ProjectPlanningActivityLinksPage />,
+      },
+      {
+        path: 'projects/planning-risk-links',
+        element: <ProjectPlanningRiskLinksPage />,
+      },
+      {
         path: 'projects/:projectId',
         element: <ProjectDetailsPage />,
       },
@@ -302,6 +316,14 @@ const router = createBrowserRouter([
       {
         path: 'planning/indicators',
         element: <PlanningIndicatorsPage />,
+      },
+      {
+        path: 'planning/project-activities',
+        element: <PlanningProjectActivitiesPage />,
+      },
+      {
+        path: 'planning/project-risks',
+        element: <PlanningProjectRisksPage />,
       },
       {
         path: 'strategic-planning/:planId',
