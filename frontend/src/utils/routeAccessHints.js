@@ -53,6 +53,13 @@ export function getAccessCheckForAppPath(fullPath, hasPrivilege) {
         'Project risks require strategic_plan.read_all (same as indicators). Add it to your role if you should open this link.',
     },
     {
+      test: (p) => p === '/projects/status',
+      requiredAny: ['project.read_all', 'project.update'],
+      title: 'Project status',
+      detail:
+        'Project status listing and editing requires project.read_all or project.update. Add one of these privileges to your role if you should open this link.',
+    },
+    {
       test: (p) => p === '/projects/planning-activity-links' || p === '/projects/planning-risk-links',
       requiredAny: ['project.read_all', 'strategic_plan.read_all'],
       title: 'Project ↔ Planning catalog links',

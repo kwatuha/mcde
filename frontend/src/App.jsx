@@ -13,6 +13,7 @@ import DashboardPage from './pages/DashboardPage';
 import DashboardLandingPage from './pages/DashboardLandingPage';
 import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
+import ProjectStatusPage from './pages/ProjectStatusPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
 import VerifyCertificatePage from './pages/VerifyCertificatePage';
@@ -220,6 +221,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/documents-by-project',
         element: <ProjectDocumentsByProjectPage />,
+      },
+      {
+        path: 'projects/status',
+        element: <ProjectStatusPage />,
       },
       {
         path: 'projects/feedback-by-project',

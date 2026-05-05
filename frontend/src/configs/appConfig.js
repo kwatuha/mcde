@@ -63,6 +63,8 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
+    /** Project-wide status/progress updates screen. */
+    PROJECT_STATUS: '/projects/status',
     /** Link registry planning activities to projects (Projects sidebar). */
     PROJECT_PLANNING_ACTIVITY_LINKS: '/projects/planning-activity-links',
     /** Link registry planning risks to projects (Projects sidebar). */

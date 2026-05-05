@@ -97,6 +97,12 @@
           "permissionsAny": ["document.read_all", "document.create"]
         },
         {
+          "title": "Project Status",
+          "icon": "UpdateIcon",
+          "route": "PROJECT_STATUS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
           "title": "Project Activities",
           "icon": "TaskAltIcon",
           "route": "PROJECT_PLANNING_ACTIVITY_LINKS",

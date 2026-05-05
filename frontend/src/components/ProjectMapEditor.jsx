@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import {
-  Box, Typography, Button, Paper, Grid, TextField, ToggleButton,
+  Box, Typography, Button, Paper, TextField, ToggleButton,
   ToggleButtonGroup, Alert, CircularProgress, FormControl, InputLabel,
   Select, MenuItem, FormHelperText, Stack, Dialog, DialogTitle, DialogContent,
   DialogActions, IconButton, Snackbar
@@ -54,6 +54,14 @@ const getWardCentroidFromFeature = (feature) => {
   return { lat, lng };
 };
 
+const makeMarkerIcon = (url, size = 32) => {
+  if (typeof window !== 'undefined' && window.google?.maps?.Size) {
+    return { url, scaledSize: new window.google.maps.Size(size, size) };
+  }
+  // Safe fallback before Google Maps SDK is ready.
+  return { url };
+};
+
 const ProjectMapEditor = ({ projectId, projectName }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -65,6 +73,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   
   const [mapData, setMapData] = useState(null);
+  const [projectGeoDetails, setProjectGeoDetails] = useState({ constituency: '', ward: '' });
   const [geometryType, setGeometryType] = useState('Point');
   const [coordinates, setCoordinates] = useState({
     latitude: '',
@@ -214,6 +223,41 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
     if (projectId) {
       fetchMapData();
     }
+  }, [projectId]);
+
+  // Fetch project geographical labels (for top summary cards).
+  useEffect(() => {
+    let mounted = true;
+    const fetchProjectGeoDetails = async () => {
+      if (!projectId) return;
+      try {
+        const project = await apiService.projects.getProjectById(projectId);
+        if (!mounted) return;
+        setProjectGeoDetails({
+          constituency:
+            project?.constituency ||
+            project?.constituencyName ||
+            project?.constituencyNames ||
+            project?.location?.constituency ||
+            '',
+          ward:
+            project?.ward ||
+            project?.wardName ||
+            project?.wardNames ||
+            project?.location?.ward ||
+            '',
+        });
+      } catch (geoErr) {
+        console.warn('[ProjectMapEditor] Unable to load project geo details:', geoErr?.message || geoErr);
+        if (mounted) {
+          setProjectGeoDetails({ constituency: '', ward: '' });
+        }
+      }
+    };
+    fetchProjectGeoDetails();
+    return () => {
+      mounted = false;
+    };
   }, [projectId]);
 
   // Update map center when coordinates change
@@ -865,23 +909,88 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
       {/* Display existing map data if available */}
       {mapData && (
         <>
-          <Paper elevation={2} sx={{ p: 3, mt: 2, mb: 2 }}>
-            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-              Current Coordinates
-            </Typography>
-            {geometryType === 'Point' && coordinates.latitude && coordinates.longitude && (
-              <Typography variant="body2" color="text.secondary">
-                Latitude: {coordinates.latitude}, Longitude: {coordinates.longitude}
-              </Typography>
-            )}
-            {(geometryType === 'LineString' || geometryType === 'MultiPoint' || geometryType === 'Polygon') && coordinates.multiPointData && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {geometryType === 'Polygon' ? 'Polygon' : geometryType === 'LineString' ? 'Line' : 'Multi-Point'} with {coordinates.multiPointData.split('\n').filter(l => l.trim()).length} point{coordinates.multiPointData.split('\n').filter(l => l.trim()).length !== 1 ? 's' : ''}
-              </Typography>
-            )}
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Last updated: {formatDateSafe(mapData.updatedAt || mapData.updated_at || mapData.createdAt || mapData.created_at)}
-            </Typography>
+          <Paper elevation={2} sx={{ p: 2.5, mt: 2, mb: 2 }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1.4fr 1.2fr 1fr 1fr' },
+                gap: 2,
+                width: '100%',
+              }}
+            >
+              <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <LocationOnIcon color="primary" fontSize="small" />
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Coordinates
+                    </Typography>
+                  </Stack>
+                  {geometryType === 'Point' && coordinates.latitude && coordinates.longitude ? (
+                    <>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        Latitude: {coordinates.latitude}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        Longitude: {coordinates.longitude}
+                      </Typography>
+                    </>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      {geometryType === 'Polygon' ? 'Polygon' : geometryType === 'LineString' ? 'Line' : 'Multi-Point'} with{' '}
+                      {coordinates.multiPointData.split('\n').filter(l => l.trim()).length} point
+                      {coordinates.multiPointData.split('\n').filter(l => l.trim()).length !== 1 ? 's' : ''}
+                    </Typography>
+                  )}
+                </Paper>
+
+              <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    Geometry Type
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                    {geometryType}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Last updated
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatDateSafe(mapData.updatedAt || mapData.updated_at || mapData.createdAt || mapData.created_at)}
+                  </Typography>
+                </Paper>
+
+              <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <LocationOnIcon color="primary" fontSize="small" />
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Geographical Details
+                    </Typography>
+                  </Stack>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Constituency: {projectGeoDetails.constituency || 'N/A'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Ward: {projectGeoDetails.ward || 'N/A'}
+                  </Typography>
+                </Paper>
+
+              <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    Quick Actions
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Need to refine placement or shape?
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<EditIcon />}
+                    onClick={handleEdit}
+                    fullWidth
+                  >
+                    Edit Map
+                  </Button>
+                </Paper>
+            </Box>
           </Paper>
 
           {/* Read-only map display */}
@@ -974,10 +1083,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                 {geometryType === 'Point' && getPointCoordinates() && (
                   <MarkerF
                     position={getPointCoordinates()}
-                    icon={{
-                      url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-                      scaledSize: new window.google.maps.Size(32, 32),
-                    }}
+                    icon={makeMarkerIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png', 32)}
                     title={projectName || 'Project Location'}
                   />
                 )}
@@ -1302,10 +1408,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                   mapRef.current = map;
                   setMapReady(true);
                   if (window.google && window.google.maps) {
-                    setMarkerIcon({
-                      url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-                      scaledSize: new window.google.maps.Size(32, 32),
-                    });
+                    setMarkerIcon(makeMarkerIcon('http://maps.google.com/mapfiles/ms/icons/red-dot.png', 32));
                     
                     // Ensure zoom controls are visible and properly positioned
                     map.setOptions({
@@ -1357,10 +1460,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                 {tempMarkerPosition && markerIcon && (
                   <MarkerF
                     position={{ lat: tempMarkerPosition[0], lng: tempMarkerPosition[1] }}
-                    icon={{
-                      url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-                      scaledSize: new window.google.maps.Size(32, 32),
-                    }}
+                    icon={makeMarkerIcon('http://maps.google.com/mapfiles/ms/icons/blue-dot.png', 32)}
                   />
                 )}
 
@@ -1451,10 +1551,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                       <MarkerF
                         key={`vertex-${index}`}
                         position={point}
-                        icon={{
-                          url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-                          scaledSize: new window.google.maps.Size(20, 20),
-                        }}
+                        icon={makeMarkerIcon('http://maps.google.com/mapfiles/ms/icons/blue-dot.png', 20)}
                         draggable={true}
                         onDragEnd={(e) => {
                           if (e.latLng) {
@@ -1580,10 +1677,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                       <MarkerF
                         key={`vertex-${index}`}
                         position={point}
-                        icon={{
-                          url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-                          scaledSize: new window.google.maps.Size(20, 20),
-                        }}
+                        icon={makeMarkerIcon('http://maps.google.com/mapfiles/ms/icons/blue-dot.png', 20)}
                         draggable={true}
                         onDragEnd={(e) => {
                           if (e.latLng) {

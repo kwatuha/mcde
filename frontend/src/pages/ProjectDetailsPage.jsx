@@ -435,53 +435,64 @@ function ProjectDetailsPage() {
     const [activeTab, setActiveTab] = useState(0);
     const [projectPhotos, setProjectPhotos] = useState([]);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
+    const [planningSnapshot, setPlanningSnapshot] = useState({ activities: [], risks: [] });
+    const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
+    const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
+    const [planningSnapshotError, setPlanningSnapshotError] = useState(null);
+    const canViewProjectDocuments =
+        checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
 
-    // Updates tab form state (progress summary, percentage, and optional status update)
-    const [updatesForm, setUpdatesForm] = useState({ progressSummary: '', overallProgress: '', status: '', statusReason: '' });
-    const [savingUpdates, setSavingUpdates] = useState(false);
-    const [projectUpdatesHistory, setProjectUpdatesHistory] = useState([]);
-    const [loadingUpdatesHistory, setLoadingUpdatesHistory] = useState(false);
-    const [updatesHistoryError, setUpdatesHistoryError] = useState(null);
-    // Sync Updates form from project when user opens the Updates tab
-    useEffect(() => {
-        if (!project || activeTab !== 6) return;
-        setUpdatesForm({
-            progressSummary: project?.progressSummary || project?.latestUpdateSummary || '',
-            overallProgress: project?.overallProgress != null ? String(project.overallProgress) : '',
-            status: project?.status || '',
-            statusReason: project?.statusReason || ''
-        });
-    }, [activeTab, project]);
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6=Updates,7=BQ,8=Certificates,9=Map,10=Funds)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6=Updates+BQ,7=Certificates,8=Map)
             fetchJobCategories();
             fetchProjectJobs();
         }
     }, [activeTab, fetchJobCategories, fetchProjectJobs]);
 
-    const fetchProjectUpdatesHistory = useCallback(async () => {
-        if (!projectId) return;
-        setLoadingUpdatesHistory(true);
-        setUpdatesHistoryError(null);
-        try {
-            const rows = await projectService.projects.getProjectUpdates(projectId);
-            setProjectUpdatesHistory(Array.isArray(rows) ? rows : []);
-        } catch (err) {
-            console.error('Error fetching project update history:', err);
-            setUpdatesHistoryError(err?.response?.data?.message || err?.message || 'Failed to load update history.');
-            setProjectUpdatesHistory([]);
-        } finally {
-            setLoadingUpdatesHistory(false);
-        }
-    }, [projectId]);
-
     useEffect(() => {
-        if (activeTab === 6) {
-            fetchProjectUpdatesHistory();
-        }
-    }, [activeTab, fetchProjectUpdatesHistory]);
+        if (activeTab !== 0 || !projectId) return;
+        let mounted = true;
+        const loadPlanningSnapshot = async () => {
+            setLoadingPlanningSnapshot(true);
+            setPlanningSnapshotError(null);
+            try {
+                const [activities, risks, documents] = await Promise.all([
+                    projectService.projects.getPlanningCatalogActivityLinks(projectId),
+                    projectService.projects.getPlanningCatalogRiskLinks(projectId),
+                    canViewProjectDocuments
+                        ? projectService.documents.getProjectDocuments(projectId)
+                        : Promise.resolve([]),
+                ]);
+                if (!mounted) return;
+                setPlanningSnapshot({
+                    activities: Array.isArray(activities) ? activities : [],
+                    risks: Array.isArray(risks) ? risks : [],
+                });
+                const documentRows = Array.isArray(documents)
+                    ? documents
+                    : Array.isArray(documents?.documents)
+                        ? documents.documents
+                        : Array.isArray(documents?.rows)
+                            ? documents.rows
+                            : [];
+                setPlanningDocumentsCount(documentRows.length);
+            } catch (err) {
+                if (!mounted) return;
+                setPlanningSnapshot({ activities: [], risks: [] });
+                setPlanningDocumentsCount(0);
+                setPlanningSnapshotError(err?.response?.data?.message || err?.message || 'Failed to load planning snapshot.');
+            } finally {
+                if (mounted) setLoadingPlanningSnapshot(false);
+            }
+        };
+        loadPlanningSnapshot();
+        return () => {
+            mounted = false;
+        };
+    }, [activeTab, projectId, canViewProjectDocuments]);
+
 
     const getTeamMemberRef = useCallback((member) => {
         if (!member || typeof member !== 'object') return '';
@@ -623,7 +634,7 @@ function ProjectDetailsPage() {
     }, [projectId]);
 
     useEffect(() => {
-        if (activeTab === 10) {
+        if (activeTab === 1) {
             fetchFundingData();
         }
     }, [activeTab, fetchFundingData]);
@@ -1259,32 +1270,6 @@ function ProjectDetailsPage() {
             setSnackbar({ open: true, message: 'Team member deleted successfully!', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || 'Failed to delete team member.', severity: 'error' });
-        }
-    };
-
-    const handleSaveUpdates = async () => {
-        if (!projectId) return;
-        if (!canModifyOrCreateProjects) {
-            setSnackbar({ open: true, message: 'You do not have permission to modify projects.', severity: 'error' });
-            return;
-        }
-        setSavingUpdates(true);
-        try {
-            const payload = {
-                progressSummary: updatesForm.progressSummary.trim() || null,
-                overallProgress: updatesForm.overallProgress === '' ? undefined : parseFloat(updatesForm.overallProgress),
-                // Optional: allow status updates alongside progress
-                status: updatesForm.status === '' ? undefined : updatesForm.status,
-                statusReason: updatesForm.statusReason.trim() === '' ? undefined : updatesForm.statusReason.trim(),
-            };
-            await projectService.projects.createProjectUpdate(projectId, payload);
-            await fetchProjectDetails();
-            await fetchProjectUpdatesHistory();
-            setSnackbar({ open: true, message: 'Updates saved successfully.', severity: 'success' });
-        } catch (err) {
-            setSnackbar({ open: true, message: err?.response?.data?.message || err?.message || 'Failed to save updates.', severity: 'error' });
-        } finally {
-            setSavingUpdates(false);
         }
     };
 
@@ -2582,18 +2567,16 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials, 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=Updates, 7=BQ, 8=Certificates, 9=Map, 10=Funds (documents: /projects/documents-by-project) */}
+                    {/* Tab indices: 0=Overview, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=BQ, 7=Certificates, 8=Map (documents: /projects/documents-by-project) */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
                     <Tab label="Teams" icon={<GroupIcon />} iconPosition="start" />
                     <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
-                    <Tab label="Updates" icon={<UpdateIcon />} iconPosition="start" />
                     <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
-                    <Tab label="Funds" icon={<AccountBalanceWalletIcon />} iconPosition="start" />
                 </Tabs>
             </Box>
 
@@ -2623,21 +2606,9 @@ function ProjectDetailsPage() {
                     <InfoIcon sx={{ mr: 0.5, fontSize: '1rem', opacity: 0.9 }} />
                     Project Overview
                 </Typography>
-                {hasPrivilege &&
-                    (hasPrivilege('document.read_all') || hasPrivilege('document.create')) &&
-                    projectId && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                            <RouterLink
-                                to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}
-                                style={{ fontWeight: 600 }}
-                            >
-                                Project Documents
-                            </RouterLink>
-                        </Typography>
-                    )}
                 <Grid container spacing={1}>
                     {/* First Column: Key Information */}
-                    <Grid item xs={12} md={4}>
+                    <Grid item xs={12}>
                         <Box sx={{
                             p: 1.25,
                             borderRadius: 2,
@@ -2656,7 +2627,15 @@ function ProjectDetailsPage() {
                             }}>
                                 Key Information
                             </Typography>
-                            <Stack spacing={0.3}>
+                            <Box
+                                sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                                    columnGap: 2,
+                                    rowGap: 0.4,
+                                    alignItems: 'start',
+                                }}
+                            >
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
@@ -2717,8 +2696,8 @@ function ProjectDetailsPage() {
                                 }}>
                                     <strong style={{ color: theme.palette.primary.main }}>Last Updated:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.updatedAt) || 'N/A'}</span>
                                 </Typography>
-                                <Divider sx={{ my: 0.3 }} />
-                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Divider sx={{ my: 0.3, gridColumn: { md: '1 / -1' } }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gridColumn: { md: '1 / -1' } }}>
                                     <Typography variant="body1" sx={{ 
                                         color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                         fontSize: '0.9rem'
@@ -2739,7 +2718,7 @@ function ProjectDetailsPage() {
                                         />
                                     )}
                                 </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gridColumn: { md: '1 / -1' } }}>
                                     <Typography variant="body1" sx={{ 
                                         color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                         fontSize: '0.9rem'
@@ -2754,7 +2733,7 @@ function ProjectDetailsPage() {
                                         sx={{ fontSize: '0.7rem', height: '22px' }}
                                     />
                                 </Box>
-                            </Stack>
+                            </Box>
                         </Box>
                     </Grid>
                     {/* Full-width row for Project Description */}
@@ -2824,7 +2803,6 @@ function ProjectDetailsPage() {
                         </Box>
                     </Grid>
 
-                    {/* Full-width row for Coordinates */}
                     <Grid item xs={12}>
                         <Box sx={{
                             p: 1.25,
@@ -2833,49 +2811,116 @@ function ProjectDetailsPage() {
                             border: `1px solid ${theme.palette.divider}`,
                             mt: 0.5,
                         }}>
-                            <Typography variant="subtitle2" sx={{ 
-                                fontWeight: 600, 
-                                mb: 0.75,
-                                color: theme.palette.text.secondary,
-                                textAlign: 'center',
+                            <Box sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
                                 borderBottom: `1px solid ${theme.palette.divider}`,
                                 pb: 0.5,
-                                fontSize: '0.8rem'
+                                mb: 0.75,
                             }}>
-                                Coordinates
-                            </Typography>
-                            <Grid container spacing={1.5}>
-                                <Grid item xs={12} sm={6}>
-                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
-                                        Latitude:
-                                    </Typography>
-                                    <Typography variant="body2" sx={{ 
-                                        color: 'text.primary',
-                                        pl: 1,
-                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
-                                        py: 0.25,
-                                        fontSize: '0.875rem'
-                                    }}>
-                                        {project?.latitude != null && String(project.latitude).trim() !== '' ? project.latitude : 'N/A'}
-                                    </Typography>
+                                <Typography variant="subtitle2" sx={{
+                                    fontWeight: 600,
+                                    color: theme.palette.text.secondary,
+                                    textAlign: 'center',
+                                    fontSize: '0.8rem',
+                                }}>
+                                    Planning & Documents Snapshot
+                                </Typography>
+                                <Stack direction="row" spacing={1}>
+                                    <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_PLANNING_ACTIVITY_LINKS}?projectId=${encodeURIComponent(projectId)}`}>View Activities</Button>
+                                    <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_PLANNING_RISK_LINKS}?projectId=${encodeURIComponent(projectId)}`}>View Risks</Button>
+                                    {canViewProjectDocuments && (
+                                        <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}>View Documents</Button>
+                                    )}
+                                </Stack>
+                            </Box>
+
+                            {loadingPlanningSnapshot ? (
+                                <Box sx={{ py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <CircularProgress size={16} />
+                                    <Typography variant="body2" color="text.secondary">Loading planning snapshot...</Typography>
+                                </Box>
+                            ) : planningSnapshotError ? (
+                                <Alert severity="warning">{planningSnapshotError}</Alert>
+                            ) : (
+                                <Grid container spacing={1.5}>
+                                    <Grid item xs={12} md={4}>
+                                        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
+                                                Activities ({planningSnapshot.activities.length})
+                                            </Typography>
+                                            <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                                                {planningSnapshot.activities.slice(0, 3).map((item) => (
+                                                    <Typography key={item.linkId || item.planningActivityId || item.activityId} variant="body2">
+                                                        {item.activityName || item.name || 'Unnamed activity'}
+                                                    </Typography>
+                                                ))}
+                                                {planningSnapshot.activities.length === 0 && (
+                                                    <Typography variant="body2" color="text.secondary">No linked activities yet.</Typography>
+                                                )}
+                                                {planningSnapshot.activities.length > 3 && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        +{planningSnapshot.activities.length - 3} more
+                                                    </Typography>
+                                                )}
+                                            </Stack>
+                                        </Paper>
+                                    </Grid>
+                                    <Grid item xs={12} md={4}>
+                                        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
+                                                Risks ({planningSnapshot.risks.length})
+                                            </Typography>
+                                            <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                                                {planningSnapshot.risks.slice(0, 3).map((item) => (
+                                                    <Typography key={item.linkId || item.planningRiskId || item.riskId} variant="body2">
+                                                        {item.riskName || item.name || 'Unnamed risk'}
+                                                    </Typography>
+                                                ))}
+                                                {planningSnapshot.risks.length === 0 && (
+                                                    <Typography variant="body2" color="text.secondary">No linked risks yet.</Typography>
+                                                )}
+                                                {planningSnapshot.risks.length > 3 && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        +{planningSnapshot.risks.length - 3} more
+                                                    </Typography>
+                                                )}
+                                            </Stack>
+                                        </Paper>
+                                    </Grid>
+                                    <Grid item xs={12} md={4}>
+                                        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
+                                                Documents ({canViewProjectDocuments ? planningDocumentsCount : '—'})
+                                            </Typography>
+                                            <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                                                {canViewProjectDocuments ? (
+                                                    <>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            Documents linked to this project.
+                                                        </Typography>
+                                                        {planningDocumentsCount === 0 ? (
+                                                            <Typography variant="body2" color="text.secondary">No documents uploaded yet.</Typography>
+                                                        ) : (
+                                                            <Typography variant="body2">
+                                                                {planningDocumentsCount} document{planningDocumentsCount === 1 ? '' : 's'} available.
+                                                            </Typography>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Requires document.read_all or document.create to view document totals.
+                                                    </Typography>
+                                                )}
+                                            </Stack>
+                                        </Paper>
+                                    </Grid>
                                 </Grid>
-                                <Grid item xs={12} sm={6}>
-                                    <Typography variant="body2" sx={{ mb: 0.25, fontWeight: 600, color: theme.palette.primary.main }}>
-                                        Longitude:
-                                    </Typography>
-                                    <Typography variant="body2" sx={{ 
-                                        color: 'text.primary',
-                                        pl: 1,
-                                        borderLeft: `3px solid ${theme.palette.primary.main}`,
-                                        py: 0.25,
-                                        fontSize: '0.875rem'
-                                    }}>
-                                        {project?.longitude != null && String(project.longitude).trim() !== '' ? project.longitude : 'N/A'}
-                                    </Typography>
-                                </Grid>
-                            </Grid>
+                            )}
                         </Box>
                     </Grid>
+
                 </Grid>
             </Paper>
                     </Box>
@@ -2884,47 +2929,203 @@ function ProjectDetailsPage() {
                 {activeTab === 1 && (
                     <Box>
                         {/* Financials Tab */}
-                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2, maxWidth: 560 }}>
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2, mb: 2 }}>
                             <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
                                 Financial Details
                             </Typography>
-                            <Stack spacing={0.3}>
-                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Start Date:</strong>{' '}
-                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.startDate)}</span>
-                                </Typography>
-                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>End Date:</strong>{' '}
-                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatDate(project?.endDate)}</span>
-                                </Typography>
-                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Budget Source:</strong>{' '}
-                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.budgetSource || 'N/A'}</span>
-                                </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], fontWeight: 600, fontSize: '0.75rem', mb: 0.5 }}>Budget Breakdown</Typography>
-                                <Typography variant="body1" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900], fontSize: '0.9rem' }}>
-                                    <strong style={{ color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600] }}>Total Budget:</strong>{' '}
-                                    <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{formatCurrency(totalBudget)}</span>
-                                </Typography>
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
-                                    <Typography variant="body2">Disbursed:</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 600, color: colors.greenAccent[500] }}>
-                                        {formatCurrency(paidAmount)} ({disbursementRate.toFixed(1)}%)
-                                    </Typography>
+                            <Grid container spacing={1.5}>
+                                <Grid item xs={12} md={4}>
+                                    <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, height: '100%' }}>
+                                        <Stack spacing={0.6}>
+                                            <Typography variant="body2"><strong>Start Date:</strong> {formatDate(project?.startDate)}</Typography>
+                                            <Typography variant="body2"><strong>End Date:</strong> {formatDate(project?.endDate)}</Typography>
+                                            <Typography variant="body2"><strong>Budget Source:</strong> {project?.budgetSource || 'N/A'}</Typography>
+                                        </Stack>
+                                    </Paper>
+                                </Grid>
+                                <Grid item xs={12} md={8}>
+                                    <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, height: '100%' }}>
+                                        <Grid container spacing={1}>
+                                            <Grid item xs={12} sm={4}>
+                                                <Typography variant="caption" color="text.secondary">Total Budget</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{formatCurrency(totalBudget)}</Typography>
+                                            </Grid>
+                                            <Grid item xs={12} sm={4}>
+                                                <Typography variant="caption" color="text.secondary">Disbursed</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: colors.greenAccent[500] }}>
+                                                    {formatCurrency(paidAmount)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} sm={4}>
+                                                <Typography variant="caption" color="text.secondary">Remaining</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{formatCurrency(remainingBudget)}</Typography>
+                                            </Grid>
+                                        </Grid>
+                                        <Divider sx={{ my: 1 }} />
+                                        <Box display="flex" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                                            <Typography variant="body2">Disbursement Rate</Typography>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: colors.blueAccent[500] }}>
+                                                {disbursementRate.toFixed(1)}%
+                                            </Typography>
+                                        </Box>
+                                        <LinearProgress variant="determinate" value={disbursementRate} sx={{ height: 8, borderRadius: 4 }} />
+                                    </Paper>
+                                </Grid>
+                            </Grid>
+                        </Paper>
+
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                            <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <AccountBalanceWalletIcon /> Project Funding Sources
+                            </Typography>
+
+                            {loadingFunding ? (
+                                <Box sx={{ py: 3, display: 'flex', justifyContent: 'center' }}>
+                                    <CircularProgress size={26} />
                                 </Box>
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
-                                    <Typography variant="body2">Remaining:</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatCurrency(remainingBudget)}</Typography>
-                                </Box>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700], fontWeight: 600, fontSize: '0.75rem', mb: 0.5 }}>Payment Status</Typography>
-                                <LinearProgress variant="determinate" value={disbursementRate} sx={{ mb: 0.5, height: 8, borderRadius: 4 }} />
-                                <Box display="flex" justifyContent="space-between" sx={{ fontSize: '0.9rem' }}>
-                                    <Typography variant="body2">Disbursement Rate:</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 600, color: colors.blueAccent[500] }}>{disbursementRate.toFixed(1)}%</Typography>
-                                </Box>
-                            </Stack>
+                            ) : fundingError ? (
+                                <Alert severity="error" sx={{ mb: 1.5 }}>{fundingError}</Alert>
+                            ) : (
+                                <>
+                                    {isSuperAdmin && (
+                                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }}>
+                                            <TextField
+                                                label="New Funding Source (Admin)"
+                                                size="small"
+                                                value={newFundingSourceName}
+                                                onChange={(e) => setNewFundingSourceName(e.target.value)}
+                                                sx={{ minWidth: 260 }}
+                                            />
+                                            <Button
+                                                variant="outlined"
+                                                onClick={async () => {
+                                                    const sourceName = newFundingSourceName.trim();
+                                                    if (!sourceName) return;
+                                                    try {
+                                                        await projectService.funding.createFundingSource({ sourceName });
+                                                        setNewFundingSourceName('');
+                                                        setSnackbar({ open: true, message: 'Funding source added.', severity: 'success' });
+                                                        fetchFundingData();
+                                                    } catch (err) {
+                                                        setSnackbar({ open: true, message: err?.message || 'Failed to add funding source.', severity: 'error' });
+                                                    }
+                                                }}
+                                            >
+                                                Add Source
+                                            </Button>
+                                        </Stack>
+                                    )}
+
+                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            Add Project Funding Entry
+                                        </Typography>
+                                        <Grid container spacing={1}>
+                                            <Grid item xs={12} md={3}>
+                                                <FormControl fullWidth size="small" sx={{ minWidth: 260 }}>
+                                                    <InputLabel>Funding Source</InputLabel>
+                                                    <Select
+                                                        label="Funding Source"
+                                                        value={fundingForm.sourceId}
+                                                        onChange={(e) => setFundingForm((p) => ({ ...p, sourceId: e.target.value }))}
+                                                    >
+                                                        {fundingSources.map((s) => (
+                                                            <MenuItem key={s.sourceId} value={String(s.sourceId)}>{s.sourceName}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                            </Grid>
+                                            <Grid item xs={12} md={2}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Amount"
+                                                    size="small"
+                                                    inputMode="decimal"
+                                                    value={formatAmountInput(fundingForm.amount)}
+                                                    onChange={(e) => {
+                                                        const next = String(e.target.value || '').replace(/,/g, '');
+                                                        if (next === '' || /^\d*(\.\d{0,2})?$/.test(next)) {
+                                                            setFundingForm((p) => ({ ...p, amount: next }));
+                                                        }
+                                                    }}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Stage"
+                                                    size="small"
+                                                    value={fundingForm.stage}
+                                                    onChange={(e) => setFundingForm((p) => ({ ...p, stage: e.target.value }))}
+                                                    placeholder="e.g. Design, Procurement, Construction"
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} md={4}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Notes"
+                                                    size="small"
+                                                    value={fundingForm.notes}
+                                                    onChange={(e) => setFundingForm((p) => ({ ...p, notes: e.target.value }))}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12}>
+                                                <Button
+                                                    variant="contained"
+                                                    onClick={async () => {
+                                                        if (!fundingForm.sourceId || fundingForm.amount === '') {
+                                                            setSnackbar({ open: true, message: 'Funding source and amount are required.', severity: 'error' });
+                                                            return;
+                                                        }
+                                                        try {
+                                                            await projectService.funding.createProjectFundingEntry(projectId, {
+                                                                sourceId: Number(fundingForm.sourceId),
+                                                                amount: Number(fundingForm.amount),
+                                                                stage: fundingForm.stage,
+                                                                notes: fundingForm.notes,
+                                                            });
+                                                            setFundingForm({ sourceId: '', amount: '', stage: '', notes: '' });
+                                                            setSnackbar({ open: true, message: 'Funding entry added.', severity: 'success' });
+                                                            fetchFundingData();
+                                                        } catch (err) {
+                                                            setSnackbar({ open: true, message: err?.message || 'Failed to add funding entry.', severity: 'error' });
+                                                        }
+                                                    }}
+                                                >
+                                                    Save Funding Entry
+                                                </Button>
+                                            </Grid>
+                                        </Grid>
+                                    </Paper>
+
+                                    {projectFundingEntries.length === 0 ? (
+                                        <Alert severity="info">No funding entries recorded for this project yet.</Alert>
+                                    ) : (
+                                        <TableContainer component={Paper} variant="outlined">
+                                            <Table size="small">
+                                                <TableHead>
+                                                    <TableRow>
+                                                        <TableCell><strong>Funding Source</strong></TableCell>
+                                                        <TableCell><strong>Amount</strong></TableCell>
+                                                        <TableCell><strong>Stage</strong></TableCell>
+                                                        <TableCell><strong>Notes</strong></TableCell>
+                                                    </TableRow>
+                                                </TableHead>
+                                                <TableBody>
+                                                    {projectFundingEntries.map((entry) => (
+                                                        <TableRow key={entry.entryId}>
+                                                            <TableCell>{entry.sourceName || 'N/A'}</TableCell>
+                                                            <TableCell>{formatCurrency(entry.amount || 0)}</TableCell>
+                                                            <TableCell>{entry.stage || 'N/A'}</TableCell>
+                                                            <TableCell>{entry.notes || 'N/A'}</TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </TableContainer>
+                                    )}
+                                </>
+                            )}
                         </Paper>
                     </Box>
                 )}
@@ -4401,158 +4602,12 @@ function ProjectDetailsPage() {
 
                 {activeTab === 6 && (
                     <Box>
-                        {/* Updates Tab */}
+                        {/* BQ Tab */}
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
-                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] }}>
-                                Project updates
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Add periodic updates so this project keeps a visible progression history over time.
-                            </Typography>
-                            <Stack spacing={2} sx={{ maxWidth: 640 }}>
-                                <FormControl fullWidth size="small">
-                                    <InputLabel>Status</InputLabel>
-                                    <Select
-                                        label="Status"
-                                        value={updatesForm.status}
-                                        onChange={(e) => setUpdatesForm((prev) => ({ ...prev, status: e.target.value }))}
-                                        renderValue={(value) => (
-                                            <Chip
-                                                label={value || 'Select status'}
-                                                size="small"
-                                                sx={{
-                                                    backgroundColor: getProjectStatusBackgroundColor(value),
-                                                    color: getProjectStatusTextColor(value),
-                                                    fontWeight: 700,
-                                                    height: 22,
-                                                    '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
-                                                }}
-                                            />
-                                        )}
-                                        MenuProps={{
-                                            PaperProps: {
-                                                sx: {
-                                                    '& .MuiMenuItem-root': { py: 0.75 },
-                                                }
-                                            }
-                                        }}
-                                    >
-                                        {[
-                                            'Not Started',
-                                            'Ongoing',
-                                            'Completed',
-                                            'Stalled',
-                                            'Under Procurement',
-                                            'Suspended',
-                                            'Other'
-                                        ].map((s) => (
-                                            <MenuItem key={s} value={s}>
-                                                <Chip
-                                                    label={s}
-                                                    size="small"
-                                                    sx={{
-                                                        backgroundColor: getProjectStatusBackgroundColor(s),
-                                                        color: getProjectStatusTextColor(s),
-                                                        fontWeight: 700,
-                                                        height: 22,
-                                                        '& .MuiChip-label': { px: 0.75, fontSize: '0.75rem' },
-                                                    }}
-                                                />
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                <TextField
-                                    label="Status reason (optional)"
-                                    value={updatesForm.statusReason}
-                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, statusReason: e.target.value }))}
-                                    fullWidth
-                                    placeholder="Why did the status change? (e.g., procurement delays, funding constraints)"
-                                />
-                                <TextField
-                                    label="Latest update summary"
-                                    value={updatesForm.progressSummary}
-                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, progressSummary: e.target.value }))}
-                                    multiline
-                                    rows={4}
-                                    fullWidth
-                                    placeholder="Describe current progress, milestones reached, or any notable changes..."
-                                />
-                                <TextField
-                                    label="Percentage complete"
-                                    type="number"
-                                    value={updatesForm.overallProgress}
-                                    onChange={(e) => setUpdatesForm((prev) => ({ ...prev, overallProgress: e.target.value }))}
-                                    inputProps={{ min: 0, max: 100, step: 0.5 }}
-                                    placeholder="0–100"
-                                    sx={{ maxWidth: 160 }}
-                                />
-                                <Box>
-                                    <Button
-                                        variant="contained"
-                                        onClick={handleSaveUpdates}
-                                        disabled={savingUpdates || !canModifyOrCreateProjects}
-                                        startIcon={savingUpdates ? <CircularProgress size={18} /> : <UpdateIcon />}
-                                    >
-                                        {savingUpdates ? 'Saving…' : 'Save updates'}
-                                    </Button>
-                                </Box>
-                            </Stack>
-
-                            <Divider sx={{ my: 3 }} />
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                                Progress history
-                            </Typography>
-                            {loadingUpdatesHistory ? (
-                                <Box sx={{ py: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <CircularProgress size={18} />
-                                    <Typography variant="body2" color="text.secondary">Loading update history...</Typography>
-                                </Box>
-                            ) : updatesHistoryError ? (
-                                <Alert severity="error" sx={{ mt: 1 }}>{updatesHistoryError}</Alert>
-                            ) : projectUpdatesHistory.length === 0 ? (
-                                <Alert severity="info" sx={{ mt: 1 }}>
-                                    No historical updates yet. Save the first update to start tracking project progress over time.
-                                </Alert>
-                            ) : (
-                                <Stack spacing={1.5} sx={{ mt: 1 }}>
-                                    {projectUpdatesHistory.map((entry) => (
-                                        <Paper key={entry.updateId} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 0.75 }}>
-                                                <Chip
-                                                    size="small"
-                                                    icon={<ScheduleIcon />}
-                                                    label={entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'Unknown date'}
-                                                />
-                                                {entry.status && (
-                                                    <Chip
-                                                        size="small"
-                                                        label={entry.status}
-                                                        sx={{
-                                                            backgroundColor: getProjectStatusBackgroundColor(entry.status),
-                                                            color: getProjectStatusTextColor(entry.status),
-                                                            fontWeight: 700,
-                                                        }}
-                                                    />
-                                                )}
-                                                {entry.overallProgress !== null && entry.overallProgress !== undefined && (
-                                                    <Chip size="small" color="success" label={`${Number(entry.overallProgress).toFixed(2)}% complete`} />
-                                                )}
-                                            </Box>
-                                            {entry.statusReason && (
-                                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                                                    <strong>Status reason:</strong> {entry.statusReason}
-                                                </Typography>
-                                            )}
-                                            {entry.progressSummary && (
-                                                <Typography variant="body2">
-                                                    {entry.progressSummary}
-                                                </Typography>
-                                            )}
-                                        </Paper>
-                                    ))}
-                                </Stack>
-                            )}
+                            <ProjectBQTab
+                                projectId={projectId}
+                                canModify={canModifyOrCreateProjects}
+                            />
                         </Paper>
                     </Box>
                 )}
@@ -5494,7 +5549,7 @@ function ProjectDetailsPage() {
 
                 {activeTab === 7 && (
                     <Box>
-                        <ProjectBQTab
+                        <ProjectCertificatesTab
                             projectId={projectId}
                             canModify={canModifyOrCreateProjects}
                         />
@@ -5503,176 +5558,10 @@ function ProjectDetailsPage() {
 
                 {activeTab === 8 && (
                     <Box>
-                        <ProjectCertificatesTab
-                            projectId={projectId}
-                            canModify={canModifyOrCreateProjects}
-                        />
-                    </Box>
-                )}
-
-                {activeTab === 9 && (
-                    <Box>
                         <ProjectMapEditor projectId={projectId} projectName={project?.projectName || project?.name || 'Project'} />
                     </Box>
                 )}
 
-                {activeTab === 10 && (
-                    <Box>
-                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
-                            <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <AccountBalanceWalletIcon /> Project Funding Sources
-                            </Typography>
-
-                            {loadingFunding ? (
-                                <Box sx={{ py: 3, display: 'flex', justifyContent: 'center' }}>
-                                    <CircularProgress size={26} />
-                                </Box>
-                            ) : fundingError ? (
-                                <Alert severity="error" sx={{ mb: 1.5 }}>{fundingError}</Alert>
-                            ) : (
-                                <>
-                                    {isSuperAdmin && (
-                                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }}>
-                                            <TextField
-                                                label="New Funding Source (Admin)"
-                                                size="small"
-                                                value={newFundingSourceName}
-                                                onChange={(e) => setNewFundingSourceName(e.target.value)}
-                                                sx={{ minWidth: 260 }}
-                                            />
-                                            <Button
-                                                variant="outlined"
-                                                onClick={async () => {
-                                                    const sourceName = newFundingSourceName.trim();
-                                                    if (!sourceName) return;
-                                                    try {
-                                                        await projectService.funding.createFundingSource({ sourceName });
-                                                        setNewFundingSourceName('');
-                                                        setSnackbar({ open: true, message: 'Funding source added.', severity: 'success' });
-                                                        fetchFundingData();
-                                                    } catch (err) {
-                                                        setSnackbar({ open: true, message: err?.message || 'Failed to add funding source.', severity: 'error' });
-                                                    }
-                                                }}
-                                            >
-                                                Add Source
-                                            </Button>
-                                        </Stack>
-                                    )}
-
-                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
-                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                            Add Project Funding Entry
-                                        </Typography>
-                                        <Grid container spacing={1}>
-                                            <Grid item xs={12} md={3}>
-                                                <FormControl fullWidth size="small" sx={{ minWidth: 260 }}>
-                                                    <InputLabel>Funding Source</InputLabel>
-                                                    <Select
-                                                        label="Funding Source"
-                                                        value={fundingForm.sourceId}
-                                                        onChange={(e) => setFundingForm((p) => ({ ...p, sourceId: e.target.value }))}
-                                                    >
-                                                        {fundingSources.map((s) => (
-                                                            <MenuItem key={s.sourceId} value={String(s.sourceId)}>{s.sourceName}</MenuItem>
-                                                        ))}
-                                                    </Select>
-                                                </FormControl>
-                                            </Grid>
-                                            <Grid item xs={12} md={2}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Amount"
-                                                    size="small"
-                                                    inputMode="decimal"
-                                                    value={formatAmountInput(fundingForm.amount)}
-                                                    onChange={(e) => {
-                                                        const next = String(e.target.value || '').replace(/,/g, '');
-                                                        if (next === '' || /^\d*(\.\d{0,2})?$/.test(next)) {
-                                                            setFundingForm((p) => ({ ...p, amount: next }));
-                                                        }
-                                                    }}
-                                                />
-                                            </Grid>
-                                            <Grid item xs={12} md={3}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Stage"
-                                                    size="small"
-                                                    value={fundingForm.stage}
-                                                    onChange={(e) => setFundingForm((p) => ({ ...p, stage: e.target.value }))}
-                                                    placeholder="e.g. Design, Procurement, Construction"
-                                                />
-                                            </Grid>
-                                            <Grid item xs={12} md={4}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Notes"
-                                                    size="small"
-                                                    value={fundingForm.notes}
-                                                    onChange={(e) => setFundingForm((p) => ({ ...p, notes: e.target.value }))}
-                                                />
-                                            </Grid>
-                                            <Grid item xs={12}>
-                                                <Button
-                                                    variant="contained"
-                                                    onClick={async () => {
-                                                        if (!fundingForm.sourceId || fundingForm.amount === '') {
-                                                            setSnackbar({ open: true, message: 'Funding source and amount are required.', severity: 'error' });
-                                                            return;
-                                                        }
-                                                        try {
-                                                            await projectService.funding.createProjectFundingEntry(projectId, {
-                                                                sourceId: Number(fundingForm.sourceId),
-                                                                amount: Number(fundingForm.amount),
-                                                                stage: fundingForm.stage,
-                                                                notes: fundingForm.notes,
-                                                            });
-                                                            setFundingForm({ sourceId: '', amount: '', stage: '', notes: '' });
-                                                            setSnackbar({ open: true, message: 'Funding entry added.', severity: 'success' });
-                                                            fetchFundingData();
-                                                        } catch (err) {
-                                                            setSnackbar({ open: true, message: err?.message || 'Failed to add funding entry.', severity: 'error' });
-                                                        }
-                                                    }}
-                                                >
-                                                    Save Funding Entry
-                                                </Button>
-                                            </Grid>
-                                        </Grid>
-                                    </Paper>
-
-                                    {projectFundingEntries.length === 0 ? (
-                                        <Alert severity="info">No funding entries recorded for this project yet.</Alert>
-                                    ) : (
-                                        <TableContainer component={Paper} variant="outlined">
-                                            <Table size="small">
-                                                <TableHead>
-                                                    <TableRow>
-                                                        <TableCell><strong>Funding Source</strong></TableCell>
-                                                        <TableCell><strong>Amount</strong></TableCell>
-                                                        <TableCell><strong>Stage</strong></TableCell>
-                                                        <TableCell><strong>Notes</strong></TableCell>
-                                                    </TableRow>
-                                                </TableHead>
-                                                <TableBody>
-                                                    {projectFundingEntries.map((entry) => (
-                                                        <TableRow key={entry.entryId}>
-                                                            <TableCell>{entry.sourceName || 'N/A'}</TableCell>
-                                                            <TableCell>{formatCurrency(entry.amount || 0)}</TableCell>
-                                                            <TableCell>{entry.stage || 'N/A'}</TableCell>
-                                                            <TableCell>{entry.notes || 'N/A'}</TableCell>
-                                                        </TableRow>
-                                                    ))}
-                                                </TableBody>
-                                            </Table>
-                                        </TableContainer>
-                                    )}
-                                </>
-                            )}
-                        </Paper>
-                    </Box>
-                )}
             </Box>
 
             {/* Modals for Milestones and Monitoring */}

@@ -11,6 +11,7 @@ const routeTitles = {
   '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
+  '/projects/status': { title: 'Project Status', subtitle: 'Manage overall status and progress updates' },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
     subtitle: 'Associate Planning catalog activities with projects',
