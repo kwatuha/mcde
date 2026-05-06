@@ -39,10 +39,18 @@ const emptyForm = () => ({
   activityCode: '',
   activityName: '',
   indicatorName: '',
+  baselineValue: '',
   milestoneValue: '',
   achievedValue: '',
   performanceScore: '',
 });
+
+function baselineFromLinkRow(activity) {
+  if (!activity) return '';
+  const v = activity.baselineValue ?? activity.baseline_value;
+  if (v == null || v === '') return '';
+  return String(v);
+}
 
 let nextRowId = 1;
 function newRow(overrides = {}) {
@@ -272,6 +280,7 @@ export default function ProjectEvaluationPage() {
       activityCode: row.activityCode ?? '',
       activityName: row.activityName ?? '',
       indicatorName: row.indicatorName ?? '',
+      baselineValue: row.baselineValue === '' || row.baselineValue == null ? '' : String(row.baselineValue),
       milestoneValue: row.milestoneValue === '' || row.milestoneValue == null ? '' : String(row.milestoneValue),
       achievedValue: row.achievedValue === '' || row.achievedValue == null ? '' : String(row.achievedValue),
       performanceScore:
@@ -302,6 +311,7 @@ export default function ProjectEvaluationPage() {
         activityCode: form.activityCode || null,
         activityName: form.activityName || null,
         indicatorName: form.indicatorName || null,
+        baselineValue: form.baselineValue === '' ? null : Number(form.baselineValue),
         milestoneValue: form.milestoneValue === '' ? null : Number(form.milestoneValue),
         achievedValue: form.achievedValue === '' ? null : Number(form.achievedValue),
         performanceScore: form.performanceScore === '' ? null : Number(form.performanceScore),
@@ -393,6 +403,18 @@ export default function ProjectEvaluationPage() {
       },
       { field: 'activityName', headerName: 'Activity name', minWidth: 130, flex: 0.9 },
       { field: 'indicatorName', headerName: 'Indicator (KPI)', minWidth: 150, flex: 1 },
+      {
+        field: 'baselineValue',
+        headerName: 'Baseline',
+        minWidth: 100,
+        align: 'right',
+        headerAlign: 'right',
+        renderCell: (p) => (
+          <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums', width: '100%', textAlign: 'right' }}>
+            {formatNumCell(p.value)}
+          </Typography>
+        ),
+      },
       {
         field: 'milestoneValue',
         headerName: 'Target',
@@ -503,7 +525,19 @@ export default function ProjectEvaluationPage() {
         ['MONITORING & EVALUATION SYSTEM'],
         ['PROJECT EVALUATION'],
         [],
-        ['#', 'EVALUATION DATE', 'PROJECT CODE', 'PROJECT NAME', 'PROJECT ACTIVITY CODE', 'PROJECT ACTIVITY NAME', 'PROJECT INDICATOR NAME', 'MILESTONE VALUE', 'ACHIEVED VALUE', 'PERFORMANCE SCORE [%]'],
+        [
+          '#',
+          'EVALUATION DATE',
+          'PROJECT CODE',
+          'PROJECT NAME',
+          'PROJECT ACTIVITY CODE',
+          'PROJECT ACTIVITY NAME',
+          'PROJECT INDICATOR NAME',
+          'BASELINE VALUE',
+          'MILESTONE VALUE',
+          'ACHIEVED VALUE',
+          'PERFORMANCE SCORE [%]',
+        ],
       ];
       rows.forEach((r, i) => {
         const computed = previewScoreNumeric(r.milestoneValue, r.achievedValue, r.performanceScore);
@@ -515,6 +549,7 @@ export default function ProjectEvaluationPage() {
           r.activityCode || '',
           r.activityName || '',
           r.indicatorName || '',
+          r.baselineValue ?? '',
           r.milestoneValue ?? '',
           r.achievedValue ?? '',
           r.performanceScore ?? (computed == null ? '' : Number(computed.toFixed(1))),
@@ -522,12 +557,22 @@ export default function ProjectEvaluationPage() {
       });
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [
-        { wch: 6 }, { wch: 14 }, { wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 30 }, { wch: 28 }, { wch: 16 }, { wch: 16 }, { wch: 20 },
+        { wch: 6 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 30 },
+        { wch: 22 },
+        { wch: 30 },
+        { wch: 28 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 20 },
       ];
       ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: 9 } },
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 10 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 10 } },
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Project Evaluation');
@@ -757,7 +802,7 @@ export default function ProjectEvaluationPage() {
               <>
                 {selectedPid != null && linkedProjectActivities.length === 0 && !loadingLinkedActivities && (
                   <Alert severity="info" sx={{ py: 0.5 }}>
-                    No activity links found for this project. Add links (with target) in{' '}
+                    No activity links found for this project. Add links (with target and optional baseline) in{' '}
                     <strong>Projects — Activity links</strong> for better evaluation tracking.
                   </Alert>
                 )}
@@ -775,6 +820,7 @@ export default function ProjectEvaluationPage() {
                         ...f,
                         activityCode: '',
                         activityName: '',
+                        baselineValue: '',
                         milestoneValue: '',
                       }));
                       return;
@@ -786,6 +832,7 @@ export default function ProjectEvaluationPage() {
                       indicatorName: activity.indicatorName != null && String(activity.indicatorName).trim()
                         ? activity.indicatorName
                         : f.indicatorName,
+                      baselineValue: baselineFromLinkRow(activity),
                       milestoneValue:
                         activity.targetValue != null && String(activity.targetValue).trim() !== ''
                           ? String(activity.targetValue)
@@ -803,7 +850,7 @@ export default function ProjectEvaluationPage() {
                       placeholder="Search activity code or name…"
                       helperText={
                         selectedPid != null && linkedProjectActivities.length > 0
-                          ? 'Showing linked project activities; selecting one can prefill target from Activity links.'
+                          ? 'Showing linked project activities; selecting one prefills baseline and target from Activity links.'
                           : 'Showing planning catalog activities.'
                       }
                     />
@@ -862,6 +909,14 @@ export default function ProjectEvaluationPage() {
                 />
               </>
             )}
+            <TextField
+              label="Baseline (snapshot from activity link)"
+              fullWidth
+              value={form.baselineValue}
+              InputProps={{ readOnly: true }}
+              disabled
+              helperText="Prefilled from the linked activity’s baseline and stored on this evaluation line when you save."
+            />
             <TextField
               label="Milestone value (from linked activity target)"
               fullWidth

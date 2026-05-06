@@ -53,6 +53,36 @@ function isExternalAttachment(doc) {
     return doc?.sourceKind === 'certificate' || doc?.sourceKind === 'inspection_file';
 }
 
+/** Schedule → milestone uploads (project_documents with milestoneId / category milestone). */
+function isMilestoneProjectDocument(doc) {
+    if (!doc || doc.isPhoto || isExternalAttachment(doc)) return false;
+    const cat = String(doc.documentCategory || '').toLowerCase();
+    if (cat === 'milestone') return true;
+    return doc.milestoneId != null && doc.milestoneId !== '';
+}
+
+const DOCUMENT_CATEGORY_ORDER = {
+    milestone: 0,
+    general: 1,
+    payment: 2,
+    photos: 3,
+    certificates: 4,
+    inspection: 5,
+};
+
+function formatDocumentCategoryHeading(category) {
+    const key = String(category || 'general').toLowerCase();
+    const labels = {
+        milestone: 'Milestone documents & progress',
+        general: 'General documents',
+        payment: 'Payment documents',
+        photos: 'Photos',
+        certificates: 'Certificates',
+        inspection: 'Inspection attachments',
+    };
+    return labels[key] || `${key} documents`;
+}
+
 function isDocFlagged(doc) {
     if (!doc || doc.isPhoto || isExternalAttachment(doc)) return false;
     const v = doc.isFlagged ?? doc.isflagged;
@@ -555,7 +585,12 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
             if (!groups[category]) groups[category] = [];
             groups[category].push(doc);
         });
-        return groups;
+        return Object.entries(groups).sort(([a], [b]) => {
+            const ao = DOCUMENT_CATEGORY_ORDER[String(a).toLowerCase()] ?? 100;
+            const bo = DOCUMENT_CATEGORY_ORDER[String(b).toLowerCase()] ?? 100;
+            if (ao !== bo) return ao - bo;
+            return String(a).localeCompare(String(b));
+        });
     };
 
     if (loading) {
@@ -569,12 +604,18 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
     return (
         <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-                <Typography variant="h6" sx={{ 
-                    fontWeight: 'bold',
-                    color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600]
-                }}>
-                    Project Documents & Attachments
-                </Typography>
+                <Box>
+                    <Typography variant="h6" sx={{ 
+                        fontWeight: 'bold',
+                        color: theme.palette.mode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[600]
+                    }}>
+                        Project Documents & Attachments
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 720 }}>
+                        Files uploaded under Schedule → Milestone Documents &amp; Progress also appear here under
+                        &quot;Milestone documents &amp; progress&quot;, with status and progress when recorded.
+                    </Typography>
+                </Box>
                 {hasPrivilege('document.create') && (
                     <Button
                         variant="contained"
@@ -612,15 +653,14 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     </Typography>
                 </Paper>
             ) : (
-                Object.entries(groupedDocuments()).map(([category, categoryDocs]) => (
+                groupedDocuments().map(([category, categoryDocs]) => (
                     <Box key={category} sx={{ mb: 4 }}>
                         <Typography variant="h6" sx={{ 
                             mb: 2, 
-                            textTransform: 'capitalize',
                             fontWeight: 'bold',
                             color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600]
                         }}>
-                            {category} Documents ({categoryDocs.length})
+                            {formatDocumentCategoryHeading(category)} ({categoryDocs.length})
                         </Typography>
                         <Grid container spacing={3}>
                             {categoryDocs.map((doc) => {
@@ -696,6 +736,33 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                                     }}>
                                                         {doc.description}
                                                     </Typography>
+                                                )}
+                                                {isMilestoneProjectDocument(doc) && (
+                                                    <Stack direction="row" spacing={0.5} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+                                                        {(doc.milestoneDisplayName || doc.milestoneName) && (
+                                                            <Chip
+                                                                size="small"
+                                                                variant="outlined"
+                                                                color="secondary"
+                                                                label={doc.milestoneDisplayName || doc.milestoneName}
+                                                            />
+                                                        )}
+                                                        {doc.status && (
+                                                            <Chip
+                                                                size="small"
+                                                                label={String(doc.status).replace(/_/g, ' ')}
+                                                                color={doc.status === 'completed' ? 'success' : 'default'}
+                                                            />
+                                                        )}
+                                                        {doc.progressPercentage != null &&
+                                                            doc.progressPercentage !== '' && (
+                                                                <Chip
+                                                                    size="small"
+                                                                    variant="outlined"
+                                                                    label={`${doc.progressPercentage}% progress`}
+                                                                />
+                                                            )}
+                                                    </Stack>
                                                 )}
                                                 <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
                                                     {flagged && !doc.isPhoto && (

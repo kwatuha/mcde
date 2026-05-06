@@ -73,10 +73,12 @@ function CatalogLinksPage({ kind }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addCatalogId, setAddCatalogId] = useState('');
   const [addTargetValue, setAddTargetValue] = useState('');
+  const [addBaselineValue, setAddBaselineValue] = useState('');
   const [addNotes, setAddNotes] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [editingLink, setEditingLink] = useState(null);
   const [editTargetValue, setEditTargetValue] = useState('');
+  const [editBaselineValue, setEditBaselineValue] = useState('');
   const [editNotes, setEditNotes] = useState('');
 
   const selectedPid = selectedProject ? getProjectId(selectedProject) : null;
@@ -187,6 +189,7 @@ function CatalogLinksPage({ kind }) {
   const openAdd = () => {
     setAddNotes('');
     setAddTargetValue('');
+    setAddBaselineValue('');
     const first = addChoices[0];
     setAddCatalogId(first ? String(first.id) : '');
     setAddOpen(true);
@@ -196,12 +199,17 @@ function CatalogLinksPage({ kind }) {
     if (!canEdit || selectedPid == null) return;
     const idNum = Number(addCatalogId);
     const targetNum = addTargetValue === '' ? null : Number(addTargetValue);
+    const baselineNum = addBaselineValue === '' ? null : Number(addBaselineValue);
     if (!Number.isFinite(idNum)) {
       setError(isActivities ? 'Select a catalog activity.' : 'Select a catalog risk.');
       return;
     }
     if (isActivities && addTargetValue !== '' && !Number.isFinite(targetNum)) {
       setError('Target must be numeric.');
+      return;
+    }
+    if (isActivities && addBaselineValue !== '' && !Number.isFinite(baselineNum)) {
+      setError('Baseline must be numeric.');
       return;
     }
     setMessage('');
@@ -211,6 +219,7 @@ function CatalogLinksPage({ kind }) {
         await apiService.projects.addPlanningCatalogActivityLink(selectedPid, {
           activityId: idNum,
           targetValue: targetNum,
+          baselineValue: baselineNum,
           notes: addNotes.trim() || null,
         });
         setMessage('Activity linked to project.');
@@ -251,6 +260,8 @@ function CatalogLinksPage({ kind }) {
     setEditTargetValue(
       row?.targetValue == null || row?.targetValue === '' ? '' : String(row.targetValue)
     );
+    const bl = row?.baselineValue ?? row?.baseline_value;
+    setEditBaselineValue(bl == null || bl === '' ? '' : String(bl));
     setEditNotes(row?.notes || '');
     setEditOpen(true);
   };
@@ -258,8 +269,13 @@ function CatalogLinksPage({ kind }) {
   const saveEdit = async () => {
     if (!canEdit || selectedPid == null || !editingLink) return;
     const targetNum = editTargetValue === '' ? null : Number(editTargetValue);
+    const baselineNum = editBaselineValue === '' ? null : Number(editBaselineValue);
     if (editTargetValue !== '' && !Number.isFinite(targetNum)) {
       setError('Target must be numeric.');
+      return;
+    }
+    if (editBaselineValue !== '' && !Number.isFinite(baselineNum)) {
+      setError('Baseline must be numeric.');
       return;
     }
     setError('');
@@ -267,6 +283,7 @@ function CatalogLinksPage({ kind }) {
     try {
       await apiService.projects.updatePlanningCatalogActivityLink(selectedPid, editingLink.id, {
         targetValue: targetNum,
+        baselineValue: baselineNum,
         notes: editNotes.trim() || null,
       });
       setEditOpen(false);
@@ -296,6 +313,12 @@ function CatalogLinksPage({ kind }) {
       headerName: 'Target',
       width: 110,
       valueGetter: (v, row) => row.targetValue ?? row.target_value ?? null,
+    },
+    {
+      field: 'baselineValue',
+      headerName: 'Baseline',
+      width: 110,
+      valueGetter: (v, row) => row.baselineValue ?? row.baseline_value ?? null,
     },
     { field: 'notes', headerName: 'Notes', flex: 1, minWidth: 120 },
     {
@@ -495,14 +518,24 @@ function CatalogLinksPage({ kind }) {
               ))}
             </TextField>
             {isActivities && (
-              <TextField
-                label="Target (optional)"
-                type="number"
-                fullWidth
-                value={addTargetValue}
-                onChange={(e) => setAddTargetValue(e.target.value)}
-                helperText="Planned target value for this project activity link."
-              />
+              <>
+                <TextField
+                  label="Target (optional)"
+                  type="number"
+                  fullWidth
+                  value={addTargetValue}
+                  onChange={(e) => setAddTargetValue(e.target.value)}
+                  helperText="Planned target value for this project activity link."
+                />
+                <TextField
+                  label="Baseline (optional)"
+                  type="number"
+                  fullWidth
+                  value={addBaselineValue}
+                  onChange={(e) => setAddBaselineValue(e.target.value)}
+                  helperText="Starting value before the project; used with target and achieved in evaluation."
+                />
+              </>
             )}
             <TextField
               label="Notes (optional)"
@@ -543,6 +576,14 @@ function CatalogLinksPage({ kind }) {
               fullWidth
               value={editTargetValue}
               onChange={(e) => setEditTargetValue(e.target.value)}
+            />
+            <TextField
+              label="Baseline (optional)"
+              type="number"
+              fullWidth
+              value={editBaselineValue}
+              onChange={(e) => setEditBaselineValue(e.target.value)}
+              helperText="Starting value for this link; evaluation stores a snapshot when you save a line."
             />
             <TextField
               label="Notes (optional)"

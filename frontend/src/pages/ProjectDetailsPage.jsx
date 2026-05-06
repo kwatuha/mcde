@@ -3143,21 +3143,12 @@ function ProjectDetailsPage() {
                             <Stack
                                 direction={{ xs: 'column', sm: 'row' }}
                                 spacing={2}
-                                alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+                                alignItems={{ xs: 'stretch', sm: 'center' }}
                                 justifyContent="space-between"
                             >
-                                <Box sx={{ flex: 1, minWidth: 0 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.75 }}>
-                                        Schedule &amp; milestones
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Timeline data is stored in the database as <strong>project milestones</strong> and{' '}
-                                        <strong>activities</strong> (each activity is linked to a milestone). Milestone due
-                                        dates and activity <strong>start / end dates</strong> drive the Gantt view—use{' '}
-                                        <strong>Show Gantt chart</strong> when you want the timeline, and edit milestones
-                                        and activities in the sections below.
-                                    </Typography>
-                                </Box>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                    Schedule &amp; milestones
+                                </Typography>
                                 <Button
                                     variant={scheduleGanttVisible ? 'outlined' : 'contained'}
                                     color="primary"

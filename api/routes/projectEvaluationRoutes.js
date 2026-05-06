@@ -24,6 +24,7 @@ async function ensureTable() {
         activity_name TEXT NULL,
         indicator_name TEXT NULL,
         milestone_value NUMERIC NULL,
+        baseline_value NUMERIC NULL,
         achieved_value NUMERIC NULL,
         performance_score NUMERIC NULL,
         voided BOOLEAN NOT NULL DEFAULT FALSE,
@@ -33,6 +34,7 @@ async function ensureTable() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_evaluations_project ON project_evaluations(project_id)`);
     await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS evaluation_date DATE NULL`);
+    await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS baseline_value NUMERIC NULL`);
   } else {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS project_evaluations (
@@ -45,6 +47,7 @@ async function ensureTable() {
         activity_name VARCHAR(512) NULL,
         indicator_name VARCHAR(512) NULL,
         milestone_value DECIMAL(18,2) NULL,
+        baseline_value DECIMAL(18,2) NULL,
         achieved_value DECIMAL(18,2) NULL,
         performance_score DECIMAL(8,2) NULL,
         voided TINYINT(1) NOT NULL DEFAULT 0,
@@ -55,6 +58,13 @@ async function ensureTable() {
     `);
     try {
       await pool.query(`ALTER TABLE project_evaluations ADD COLUMN evaluation_date DATE NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '').toLowerCase();
+      const code = String(e?.code || '');
+      if (!msg.includes('duplicate column') && code !== 'ER_DUP_FIELDNAME') throw e;
+    }
+    try {
+      await pool.query(`ALTER TABLE project_evaluations ADD COLUMN baseline_value DECIMAL(18,2) NULL`);
     } catch (e) {
       const msg = String(e?.message || '').toLowerCase();
       const code = String(e?.code || '');
@@ -90,6 +100,7 @@ router.get('/evaluation', canAccess, async (req, res) => {
                 project_code AS "projectCode", project_name AS "projectName",
                 activity_code AS "activityCode", activity_name AS "activityName",
                 indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
+                baseline_value AS "baselineValue",
                 achieved_value AS "achievedValue", performance_score AS "performanceScore",
                 created_at AS "createdAt", updated_at AS "updatedAt"
          FROM project_evaluations
@@ -105,6 +116,7 @@ router.get('/evaluation', canAccess, async (req, res) => {
               project_code AS projectCode, project_name AS projectName,
               activity_code AS activityCode, activity_name AS activityName,
               indicator_name AS indicatorName, milestone_value AS milestoneValue,
+              baseline_value AS baselineValue,
               achieved_value AS achievedValue, performance_score AS performanceScore,
               created_at AS createdAt, updated_at AS updatedAt
        FROM project_evaluations
@@ -129,6 +141,7 @@ router.post('/evaluation', canWrite, async (req, res) => {
     indicatorName: req.body.indicatorName ?? req.body.indicator_name ?? null,
     evaluationDate: req.body.evaluationDate ?? req.body.evaluation_date ?? null,
     milestoneValue: toNumOrNull(req.body.milestoneValue ?? req.body.milestone_value),
+    baselineValue: toNumOrNull(req.body.baselineValue ?? req.body.baseline_value),
     achievedValue: toNumOrNull(req.body.achievedValue ?? req.body.achieved_value),
     performanceScore: toNumOrNull(req.body.performanceScore ?? req.body.performance_score),
   };
@@ -136,13 +149,14 @@ router.post('/evaluation', canWrite, async (req, res) => {
     if (isPostgres) {
       const r = await pool.query(
         `INSERT INTO project_evaluations
-         (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, achieved_value, performance_score)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, baseline_value, achieved_value, performance_score)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING id, project_id AS "projectId",
                    evaluation_date AS "evaluationDate",
                    project_code AS "projectCode", project_name AS "projectName",
                    activity_code AS "activityCode", activity_name AS "activityName",
                    indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
+                   baseline_value AS "baselineValue",
                    achieved_value AS "achievedValue", performance_score AS "performanceScore",
                    created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
@@ -154,6 +168,7 @@ router.post('/evaluation', canWrite, async (req, res) => {
           payload.activityName,
           payload.indicatorName,
           payload.milestoneValue,
+          payload.baselineValue,
           payload.achievedValue,
           payload.performanceScore,
         ]
@@ -162,8 +177,8 @@ router.post('/evaluation', canWrite, async (req, res) => {
     }
     const [ins] = await pool.query(
       `INSERT INTO project_evaluations
-       (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, achieved_value, performance_score)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+       (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, baseline_value, achieved_value, performance_score)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
         projectId,
         payload.evaluationDate,
@@ -173,6 +188,7 @@ router.post('/evaluation', canWrite, async (req, res) => {
         payload.activityName,
         payload.indicatorName,
         payload.milestoneValue,
+        payload.baselineValue,
         payload.achievedValue,
         payload.performanceScore,
       ]
@@ -183,6 +199,7 @@ router.post('/evaluation', canWrite, async (req, res) => {
               project_code AS projectCode, project_name AS projectName,
               activity_code AS activityCode, activity_name AS activityName,
               indicator_name AS indicatorName, milestone_value AS milestoneValue,
+              baseline_value AS baselineValue,
               achieved_value AS achievedValue, performance_score AS performanceScore,
               created_at AS createdAt, updated_at AS updatedAt
        FROM project_evaluations WHERE id = ?`,
@@ -205,6 +222,7 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
     indicatorName: req.body.indicatorName ?? req.body.indicator_name ?? null,
     evaluationDate: req.body.evaluationDate ?? req.body.evaluation_date ?? null,
     milestoneValue: toNumOrNull(req.body.milestoneValue ?? req.body.milestone_value),
+    baselineValue: toNumOrNull(req.body.baselineValue ?? req.body.baseline_value),
     achievedValue: toNumOrNull(req.body.achievedValue ?? req.body.achieved_value),
     performanceScore: toNumOrNull(req.body.performanceScore ?? req.body.performance_score),
   };
@@ -213,14 +231,15 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
       const r = await pool.query(
         `UPDATE project_evaluations
          SET project_code = $1, project_name = $2, activity_code = $3, activity_name = $4,
-             indicator_name = $5, evaluation_date = $6, milestone_value = $7, achieved_value = $8, performance_score = $9,
+             indicator_name = $5, evaluation_date = $6, milestone_value = $7, baseline_value = $8, achieved_value = $9, performance_score = $10,
              updated_at = NOW()
-         WHERE id = $10 AND voided = false
+         WHERE id = $11 AND voided = false
          RETURNING id, project_id AS "projectId",
                    evaluation_date AS "evaluationDate",
                    project_code AS "projectCode", project_name AS "projectName",
                    activity_code AS "activityCode", activity_name AS "activityName",
                    indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
+                   baseline_value AS "baselineValue",
                    achieved_value AS "achievedValue", performance_score AS "performanceScore",
                    created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
@@ -231,6 +250,7 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
           payload.indicatorName,
           payload.evaluationDate,
           payload.milestoneValue,
+          payload.baselineValue,
           payload.achievedValue,
           payload.performanceScore,
           id,
@@ -242,7 +262,7 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
     const [u] = await pool.query(
       `UPDATE project_evaluations
        SET project_code = ?, project_name = ?, activity_code = ?, activity_name = ?,
-           indicator_name = ?, evaluation_date = ?, milestone_value = ?, achieved_value = ?, performance_score = ?, updated_at = NOW()
+           indicator_name = ?, evaluation_date = ?, milestone_value = ?, baseline_value = ?, achieved_value = ?, performance_score = ?, updated_at = NOW()
        WHERE id = ? AND voided = 0`,
       [
         payload.projectCode,
@@ -252,6 +272,7 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
         payload.indicatorName,
         payload.evaluationDate,
         payload.milestoneValue,
+        payload.baselineValue,
         payload.achievedValue,
         payload.performanceScore,
         id,
@@ -264,6 +285,7 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
               project_code AS projectCode, project_name AS projectName,
               activity_code AS activityCode, activity_name AS activityName,
               indicator_name AS indicatorName, milestone_value AS milestoneValue,
+              baseline_value AS baselineValue,
               achieved_value AS achievedValue, performance_score AS performanceScore,
               created_at AS createdAt, updated_at AS updatedAt
        FROM project_evaluations WHERE id = ?`,

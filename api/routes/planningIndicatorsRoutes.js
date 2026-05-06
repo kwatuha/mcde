@@ -108,6 +108,7 @@ async function ensureTables() {
       `CREATE INDEX IF NOT EXISTS idx_ppactlink_project ON project_planning_activity_links(project_id)`
     );
     await runSafe(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS target_value NUMERIC NULL`);
+    await runSafe(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS baseline_value NUMERIC NULL`);
     await runSafe(`
       CREATE TABLE IF NOT EXISTS project_planning_risk_links (
         id BIGSERIAL PRIMARY KEY,
@@ -191,6 +192,7 @@ async function ensureTables() {
         project_id BIGINT NOT NULL,
         planning_activity_id BIGINT NOT NULL,
         target_value DECIMAL(18,2) NULL,
+        baseline_value DECIMAL(18,2) NULL,
         notes TEXT NULL,
         voided TINYINT(1) NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -201,6 +203,13 @@ async function ensureTables() {
     `);
     try {
       await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN target_value DECIMAL(18,2) NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '').toLowerCase();
+      const code = String(e?.code || '');
+      if (!msg.includes('duplicate column') && code !== 'ER_DUP_FIELDNAME') throw e;
+    }
+    try {
+      await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN baseline_value DECIMAL(18,2) NULL`);
     } catch (e) {
       const msg = String(e?.message || '').toLowerCase();
       const code = String(e?.code || '');

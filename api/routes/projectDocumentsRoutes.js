@@ -345,10 +345,58 @@ router.get('/project/:projectId', auth, async (req, res) => {
     let connection;
     try {
         connection = await db.getConnection();
-        const { rows } = await connection.query(
-            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "projectId" = ? AND "voided" = false`,
-            [projectId]
-        );
+        let rows;
+        if (isPostgres) {
+            // Order: milestone schedule (sequence_order), then document display order / age.
+            const snakeJoinSql = `
+                SELECT d.*, pm.milestone_name AS "milestoneDisplayName"
+                 FROM ${T_PROJECT_DOCUMENTS} d
+                 LEFT JOIN project_milestones pm
+                   ON pm.milestone_id = d."milestoneId" AND pm.voided IS NOT TRUE
+                 WHERE d."projectId" = ? AND d."voided" = false
+                 ORDER BY
+                   COALESCE(pm.sequence_order, 2147483647) ASC,
+                   COALESCE(pm.milestone_id, 0) ASC,
+                   COALESCE(d."displayOrder", 2147483647) ASC,
+                   d."createdAt" ASC NULLS LAST,
+                   d."id" ASC`;
+            const legacyJoinSql = `
+                SELECT d.*, pm."milestoneName" AS "milestoneDisplayName"
+                 FROM ${T_PROJECT_DOCUMENTS} d
+                 LEFT JOIN ${T_PROJECT_MILESTONES} pm
+                   ON pm."milestoneId" = d."milestoneId" AND pm."voided" = false
+                 WHERE d."projectId" = ? AND d."voided" = false
+                 ORDER BY
+                   COALESCE(pm."sequenceOrder", 2147483647) ASC,
+                   COALESCE(pm."milestoneId", 0) ASC,
+                   COALESCE(d."displayOrder", 2147483647) ASC,
+                   d."createdAt" ASC NULLS LAST,
+                   d."id" ASC`;
+            try {
+                const r = await connection.query(snakeJoinSql, [projectId]);
+                rows = r.rows || [];
+            } catch (e) {
+                console.warn('project documents milestone join (snake_case) failed, trying legacy:', e.message);
+                const r2 = await connection.query(legacyJoinSql, [projectId]);
+                rows = r2.rows || [];
+            }
+        } else {
+            const r = await connection.query(
+                `SELECT d.*, pm.milestoneName AS milestoneDisplayName
+                 FROM ${T_PROJECT_DOCUMENTS} d
+                 LEFT JOIN project_milestones pm
+                   ON pm.milestoneId = d.milestoneId AND pm.voided = 0
+                 WHERE d."projectId" = ? AND d.voided = 0
+                 ORDER BY
+                   COALESCE(pm.sequenceOrder, 2147483647) ASC,
+                   COALESCE(pm.milestoneId, 0) ASC,
+                   COALESCE(d.displayOrder, 2147483647) ASC,
+                   d.createdAt ASC,
+                   d.id ASC`,
+                [projectId]
+            );
+            rows = r.rows || [];
+        }
         res.json(rows);
     } catch (error) {
         console.error('Error fetching project documents:', error);
@@ -588,8 +636,11 @@ router.get('/milestone/:milestoneId', auth, async (req, res) => {
         }
 
         const voidClause = isPostgres ? '"voided" = false' : '"voided" = 0';
+        const orderClause = isPostgres
+            ? `ORDER BY COALESCE("displayOrder", 2147483647) ASC, "createdAt" ASC NULLS LAST, "id" ASC`
+            : `ORDER BY COALESCE(displayOrder, 2147483647) ASC, createdAt ASC, id ASC`;
         const { rows } = await connection.query(
-            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "milestoneId" = ? AND ${voidClause}`,
+            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "milestoneId" = ? AND ${voidClause} ${orderClause}`,
             [milestoneIdNum]
         );
         res.json(rows);
