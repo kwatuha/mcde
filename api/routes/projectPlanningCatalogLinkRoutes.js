@@ -64,7 +64,7 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
     if (isPostgres) {
       const r = await pool.query(
         `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
-                l.notes, l.created_at AS "createdAt",
+                l.target_value AS "targetValue", l.notes, l.created_at AS "createdAt",
                 a.activity_code AS "activityCode", a.activity_name AS "activityName",
                 i.name AS "indicatorName",
                 mt.label AS "measurementTypeLabel"
@@ -80,7 +80,7 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
     }
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
-              l.notes, l.created_at AS createdAt,
+              l.target_value AS targetValue, l.notes, l.created_at AS createdAt,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
               mt.label AS measurementTypeLabel
@@ -103,25 +103,31 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
   const projectId = Number(req.params.projectId);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
   const activityId = Number(req.body.activityId ?? req.body.planningActivityId ?? req.body.planning_activity_id);
+  const targetValueRaw = req.body.targetValue ?? req.body.target_value;
+  const targetValue =
+    targetValueRaw === '' || targetValueRaw == null ? null : Number(targetValueRaw);
   const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
   if (!Number.isFinite(activityId)) return res.status(400).json({ message: 'activityId is required.' });
+  if (targetValueRaw !== '' && targetValueRaw != null && !Number.isFinite(targetValue)) {
+    return res.status(400).json({ message: 'targetValue must be numeric when provided.' });
+  }
   try {
     if (!(await assertProjectExists(projectId))) {
       return res.status(404).json({ message: 'Project not found.' });
     }
     if (isPostgres) {
       const r = await pool.query(
-        `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, notes)
-         VALUES ($1, $2, $3)
+        `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, target_value, notes)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, project_id AS "projectId", planning_activity_id AS "planningActivityId",
-                   notes, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [projectId, activityId, notes || null]
+                   target_value AS "targetValue", notes, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [projectId, activityId, targetValue, notes || null]
       );
       const row = r.rows?.[0];
       const detail = rowsFromResult(
         await pool.query(
           `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
-                  l.notes, l.created_at AS "createdAt",
+                  l.target_value AS "targetValue", l.notes, l.created_at AS "createdAt",
                   a.activity_code AS "activityCode", a.activity_name AS "activityName",
                   i.name AS "indicatorName",
                   mt.label AS "measurementTypeLabel"
@@ -136,12 +142,12 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
       return res.status(201).json(detail || row);
     }
     const [ins] = await pool.query(
-      `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, notes) VALUES (?,?,?)`,
-      [projectId, activityId, notes || null]
+      `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, target_value, notes) VALUES (?,?,?,?)`,
+      [projectId, activityId, targetValue, notes || null]
     );
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
-              l.notes, l.created_at AS createdAt,
+              l.target_value AS targetValue, l.notes, l.created_at AS createdAt,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
               mt.label AS measurementTypeLabel
@@ -160,6 +166,73 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
     if (String(e.message).includes('foreign key') || String(e.code) === '23503') {
       return res.status(400).json({ message: 'Invalid or inactive catalog activity.' });
     }
+    res.status(500).json({ message: e.message });
+  }
+});
+
+/** @route DELETE /api/projects/:projectId/planning-catalog/activities/:linkId */
+router.put('/:projectId/planning-catalog/activities/:linkId', canWrite, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const linkId = Number(req.params.linkId);
+  const targetValueRaw = req.body.targetValue ?? req.body.target_value;
+  const targetValue =
+    targetValueRaw === '' || targetValueRaw == null ? null : Number(targetValueRaw);
+  const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
+  if (!Number.isFinite(projectId) || !Number.isFinite(linkId)) {
+    return res.status(400).json({ message: 'Invalid id.' });
+  }
+  if (targetValueRaw !== '' && targetValueRaw != null && !Number.isFinite(targetValue)) {
+    return res.status(400).json({ message: 'targetValue must be numeric when provided.' });
+  }
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE project_planning_activity_links
+         SET target_value = $1, notes = $2, updated_at = NOW()
+         WHERE id = $3 AND project_id = $4 AND voided = false
+         RETURNING id`,
+        [targetValue, notes, linkId, projectId]
+      );
+      if (!r.rowCount) return res.status(404).json({ message: 'Link not found.' });
+      const detail = rowsFromResult(
+        await pool.query(
+          `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
+                  l.target_value AS "targetValue", l.notes, l.created_at AS "createdAt",
+                  a.activity_code AS "activityCode", a.activity_name AS "activityName",
+                  i.name AS "indicatorName",
+                  mt.label AS "measurementTypeLabel"
+           FROM project_planning_activity_links l
+           INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id
+           INNER JOIN planning_indicators i ON i.id = a.indicator_id
+           LEFT JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = false
+           WHERE l.id = $1`,
+          [linkId]
+        )
+      )[0];
+      return res.json(detail || { ok: true });
+    }
+    const [u] = await pool.query(
+      `UPDATE project_planning_activity_links
+       SET target_value = ?, notes = ?, updated_at = NOW()
+       WHERE id = ? AND project_id = ? AND voided = 0`,
+      [targetValue, notes, linkId, projectId]
+    );
+    if (!u.affectedRows) return res.status(404).json({ message: 'Link not found.' });
+    const [rows] = await pool.query(
+      `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
+              l.target_value AS targetValue, l.notes, l.created_at AS createdAt,
+              a.activity_code AS activityCode, a.activity_name AS activityName,
+              i.name AS indicatorName,
+              mt.label AS measurementTypeLabel
+       FROM project_planning_activity_links l
+       INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id
+       INNER JOIN planning_indicators i ON i.id = a.indicator_id
+       LEFT JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND mt.voided = 0
+       WHERE l.id = ?`,
+      [linkId]
+    );
+    res.json(rows?.[0] || { ok: true });
+  } catch (e) {
     res.status(500).json({ message: e.message });
   }
 });

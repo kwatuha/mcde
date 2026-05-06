@@ -14,7 +14,9 @@ import MainLayout from './layouts/MainLayout';
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const DashboardLandingPage = lazy(() => import('./pages/DashboardLandingPage'));
 const ProjectManagementPage = lazy(() => import('./pages/ProjectManagementPage'));
+const ProjectTeamsPage = lazy(() => import('./pages/ProjectTeamsPage'));
 const ProjectStatusPage = lazy(() => import('./pages/ProjectStatusPage'));
+const ProjectEvaluationPage = lazy(() => import('./pages/ProjectEvaluationPage'));
 const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackByProjectPage'));
 const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
 const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
@@ -29,6 +31,7 @@ const StrategicPlanningPage = lazy(() => import('./pages/StrategicPlanningPage')
 const PlanningIndicatorsPage = lazy(() => import('./pages/PlanningIndicatorsPage'));
 const PlanningProjectActivitiesPage = lazy(() => import('./pages/PlanningProjectActivitiesPage'));
 const PlanningProjectRisksPage = lazy(() => import('./pages/PlanningProjectRisksPage'));
+const PlanningReportingFrequencyPage = lazy(() => import('./pages/PlanningReportingFrequencyPage'));
 const ProjectPlanningActivityLinksPage = lazy(() =>
   import('./pages/ProjectPlanningCatalogLinksPages').then((m) => ({ default: m.ProjectPlanningActivityLinksPage }))
 );
@@ -131,6 +134,10 @@ const router = createBrowserRouter([
         element: <LazyRoute component={ProjectStatusPage} />,
       },
       {
+        path: 'projects/teams',
+        element: <LazyRoute component={ProjectTeamsPage} />,
+      },
+      {
         path: 'projects/feedback-by-project',
         element: <LazyRoute component={ProjectFeedbackByProjectPage} />,
       },
@@ -141,6 +148,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/planning-risk-links',
         element: <LazyRoute component={ProjectPlanningRiskLinksPage} />,
+      },
+      {
+        path: 'projects/evaluation',
+        element: <LazyRoute component={ProjectEvaluationPage} />,
       },
       {
         path: 'verify-certificate',
@@ -221,6 +232,10 @@ const router = createBrowserRouter([
       {
         path: 'planning/project-risks',
         element: <LazyRoute component={PlanningProjectRisksPage} />,
+      },
+      {
+        path: 'planning/reporting-frequency',
+        element: <LazyRoute component={PlanningReportingFrequencyPage} />,
       },
       {
         path: 'strategic-planning/:planId',

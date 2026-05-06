@@ -9,6 +9,16 @@ const privilege = require('../middleware/privilegeMiddleware');
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
 
+function normalizeReportingFrequencyCode(explicitCode, frequencyName) {
+  let c = String(explicitCode || '').trim().toLowerCase();
+  if (c) return c.replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  return String(frequencyName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 const rowsFromResult = (result) =>
   isPostgres ? result?.rows || [] : Array.isArray(result) ? result[0] || [] : [];
 const firstRow = (result) => rowsFromResult(result)[0] || null;
@@ -97,6 +107,7 @@ async function ensureTables() {
     await runSafe(
       `CREATE INDEX IF NOT EXISTS idx_ppactlink_project ON project_planning_activity_links(project_id)`
     );
+    await runSafe(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS target_value NUMERIC NULL`);
     await runSafe(`
       CREATE TABLE IF NOT EXISTS project_planning_risk_links (
         id BIGSERIAL PRIMARY KEY,
@@ -110,6 +121,19 @@ async function ensureTables() {
       )
     `);
     await runSafe(`CREATE INDEX IF NOT EXISTS idx_pprisklink_project ON project_planning_risk_links(project_id)`);
+    await runSafe(`
+      CREATE TABLE IF NOT EXISTS planning_reporting_frequencies (
+        id BIGSERIAL PRIMARY KEY,
+        frequency_code TEXT NOT NULL,
+        frequency_name TEXT NOT NULL,
+        description TEXT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        voided BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_planning_reporting_freq_code UNIQUE (frequency_code)
+      )
+    `);
   } else {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS planning_measurement_types (
@@ -166,6 +190,7 @@ async function ensureTables() {
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         project_id BIGINT NOT NULL,
         planning_activity_id BIGINT NOT NULL,
+        target_value DECIMAL(18,2) NULL,
         notes TEXT NULL,
         voided TINYINT(1) NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -174,6 +199,13 @@ async function ensureTables() {
         CONSTRAINT fk_ppactlink_act FOREIGN KEY (planning_activity_id) REFERENCES planning_project_activities(id)
       )
     `);
+    try {
+      await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN target_value DECIMAL(18,2) NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '').toLowerCase();
+      const code = String(e?.code || '');
+      if (!msg.includes('duplicate column') && code !== 'ER_DUP_FIELDNAME') throw e;
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS project_planning_risk_links (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -185,6 +217,19 @@ async function ensureTables() {
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_proj_plan_risk_link (project_id, planning_risk_id),
         CONSTRAINT fk_pprisklink_risk FOREIGN KEY (planning_risk_id) REFERENCES planning_project_risks(id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS planning_reporting_frequencies (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        frequency_code VARCHAR(128) NOT NULL,
+        frequency_name VARCHAR(512) NOT NULL,
+        description TEXT NULL,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_planning_reporting_freq_code (frequency_code)
       )
     `);
   }
@@ -230,7 +275,35 @@ async function ensureTables() {
       }
     }
   };
+
+  const seedReportingFrequencies = async () => {
+    // Seeded from CIMES "Reporting Frequency List" (Machakos / legacy M&E catalog).
+    const rows = [
+      ['annually', 'ANNUALLY', 'ANNUALLY'],
+      ['bi_annual', 'BI-ANNUAL', 'BI-ANNUAL'],
+      ['end_term', 'END TERM', 'END TERM'],
+      ['monthly', 'MONTHLY', 'MONTHLY'],
+      ['quaterly', 'QUATERLY', 'QUATERLY'],
+    ];
+    for (const [code, name, desc] of rows) {
+      if (isPostgres) {
+        await pool.query(
+          `INSERT INTO planning_reporting_frequencies (frequency_code, frequency_name, description, active)
+           VALUES ($1, $2, $3, TRUE)
+           ON CONFLICT (frequency_code) DO NOTHING`,
+          [code, name, desc]
+        );
+      } else {
+        await pool.query(
+          `INSERT IGNORE INTO planning_reporting_frequencies (frequency_code, frequency_name, description, active) VALUES (?,?,?,1)`,
+          [code, name, desc]
+        );
+      }
+    }
+  };
+
   await seedDefaults();
+  await seedReportingFrequencies();
   tablesEnsured = true;
 }
 
@@ -753,6 +826,150 @@ router.delete('/project-risks/:id', canWrite, async (req, res) => {
       if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
     } else {
       const [u] = await pool.query(`UPDATE planning_project_risks SET voided = 1, updated_at = NOW() WHERE id = ?`, [id]);
+      if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+/** Reporting cadence catalog (indicator / milestone reporting). */
+router.get('/reporting-frequencies', canRead, async (req, res) => {
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `SELECT id, frequency_code AS "frequencyCode", frequency_name AS "frequencyName", description,
+                active, voided, created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM planning_reporting_frequencies
+         WHERE voided = false
+         ORDER BY frequency_name ASC`
+      );
+      const rows = (r.rows || []).map((row) => ({ ...row, active: !!row.active }));
+      return res.json(rows);
+    }
+    const [rows] = await pool.query(
+      `SELECT id, frequency_code AS frequencyCode, frequency_name AS frequencyName, description,
+              active, voided, created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_reporting_frequencies
+       WHERE voided = 0
+       ORDER BY frequency_name ASC`
+    );
+    res.json((rows || []).map((row) => ({ ...row, active: !!row.active })));
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.post('/reporting-frequencies', canWrite, async (req, res) => {
+  const frequencyName = String(req.body.frequencyName || req.body.frequency_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  const frequencyCode = normalizeReportingFrequencyCode(
+    req.body.frequencyCode || req.body.frequency_code,
+    frequencyName
+  );
+  const active = req.body.active === undefined ? true : Boolean(req.body.active);
+  if (!frequencyName || !frequencyCode) {
+    return res.status(400).json({ message: 'frequencyName is required (or provide a valid frequencyCode).' });
+  }
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `INSERT INTO planning_reporting_frequencies (frequency_code, frequency_name, description, active)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, frequency_code AS "frequencyCode", frequency_name AS "frequencyName", description, active,
+                   voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [frequencyCode, frequencyName, description, active]
+      );
+      const row = r.rows?.[0];
+      return res.status(201).json({ ...row, active: !!row?.active });
+    }
+    const [ins] = await pool.query(
+      `INSERT INTO planning_reporting_frequencies (frequency_code, frequency_name, description, active) VALUES (?,?,?,?)`,
+      [frequencyCode, frequencyName, description, active ? 1 : 0]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, frequency_code AS frequencyCode, frequency_name AS frequencyName, description, active,
+              voided, created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_reporting_frequencies WHERE id = ?`,
+      [ins.insertId]
+    );
+    const row = rows?.[0];
+    res.status(201).json({ ...row, active: !!row?.active });
+  } catch (e) {
+    if (String(e.message).includes('unique') || String(e.code) === '23505') {
+      return res.status(409).json({ message: 'A reporting frequency with this code already exists.' });
+    }
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.put('/reporting-frequencies/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  const frequencyName = String(req.body.frequencyName || req.body.frequency_name || '').trim();
+  const description = req.body.description != null ? String(req.body.description).trim() : null;
+  const active =
+    req.body.active === undefined || req.body.active === null ? undefined : Boolean(req.body.active);
+  if (!frequencyName) return res.status(400).json({ message: 'frequencyName is required.' });
+  try {
+    if (isPostgres) {
+      let sql = `UPDATE planning_reporting_frequencies
+         SET frequency_name = $1, description = $2, updated_at = NOW()`;
+      const params = [frequencyName, description];
+      let n = 3;
+      if (active !== undefined) {
+        sql += `, active = $${n}`;
+        params.push(active);
+        n += 1;
+      }
+      sql += ` WHERE id = $${n} AND voided = false
+         RETURNING id, frequency_code AS "frequencyCode", frequency_name AS "frequencyName", description, active,
+                   voided, created_at AS "createdAt", updated_at AS "updatedAt"`;
+      params.push(id);
+      const r = await pool.query(sql, params);
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+      const row = r.rows[0];
+      return res.json({ ...row, active: !!row.active });
+    }
+    let sql = `UPDATE planning_reporting_frequencies SET frequency_name = ?, description = ?, updated_at = NOW()`;
+    const params = [frequencyName, description];
+    if (active !== undefined) {
+      sql += `, active = ?`;
+      params.push(active ? 1 : 0);
+    }
+    sql += ` WHERE id = ? AND voided = 0`;
+    params.push(id);
+    const [u] = await pool.query(sql, params);
+    if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
+    const [rows] = await pool.query(
+      `SELECT id, frequency_code AS frequencyCode, frequency_name AS frequencyName, description, active,
+              voided, created_at AS createdAt, updated_at AS updatedAt
+       FROM planning_reporting_frequencies WHERE id = ?`,
+      [id]
+    );
+    const row = rows?.[0];
+    res.json({ ...row, active: !!row?.active });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.delete('/reporting-frequencies/:id', canWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE planning_reporting_frequencies SET voided = true, updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+    } else {
+      const [u] = await pool.query(
+        `UPDATE planning_reporting_frequencies SET voided = 1, updated_at = NOW() WHERE id = ?`,
+        [id]
+      );
       if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
     }
     res.json({ ok: true });

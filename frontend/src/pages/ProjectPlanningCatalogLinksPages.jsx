@@ -20,8 +20,10 @@ import {
   Link as MuiLink,
 } from '@mui/material';
 import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Add as AddIcon,
+  Edit as EditIcon,
   Delete as DeleteIcon,
   OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
@@ -58,6 +60,8 @@ function CatalogLinksPage({ kind }) {
       hasPrivilege('strategic_plan.create'));
   const canLoadCatalog = hasPrivilege && hasPrivilege('strategic_plan.read_all');
 
+  const [searchParams] = useSearchParams();
+  const queryProjectId = searchParams.get('projectId');
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [links, setLinks] = useState([]);
@@ -68,7 +72,12 @@ function CatalogLinksPage({ kind }) {
   const [message, setMessage] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [addCatalogId, setAddCatalogId] = useState('');
+  const [addTargetValue, setAddTargetValue] = useState('');
   const [addNotes, setAddNotes] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingLink, setEditingLink] = useState(null);
+  const [editTargetValue, setEditTargetValue] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   const selectedPid = selectedProject ? getProjectId(selectedProject) : null;
 
@@ -135,6 +144,14 @@ function CatalogLinksPage({ kind }) {
   }, [authLoading, loadProjects]);
 
   useEffect(() => {
+    if (!queryProjectId || projects.length === 0) return;
+    const match = projects.find((p) => String(getProjectId(p)) === String(queryProjectId));
+    if (!match) return;
+    if (selectedProject && String(getProjectId(selectedProject)) === String(queryProjectId)) return;
+    setSelectedProject(match);
+  }, [queryProjectId, projects, selectedProject]);
+
+  useEffect(() => {
     loadLinks();
   }, [loadLinks]);
 
@@ -169,6 +186,7 @@ function CatalogLinksPage({ kind }) {
 
   const openAdd = () => {
     setAddNotes('');
+    setAddTargetValue('');
     const first = addChoices[0];
     setAddCatalogId(first ? String(first.id) : '');
     setAddOpen(true);
@@ -177,8 +195,13 @@ function CatalogLinksPage({ kind }) {
   const saveAdd = async () => {
     if (!canEdit || selectedPid == null) return;
     const idNum = Number(addCatalogId);
+    const targetNum = addTargetValue === '' ? null : Number(addTargetValue);
     if (!Number.isFinite(idNum)) {
       setError(isActivities ? 'Select a catalog activity.' : 'Select a catalog risk.');
+      return;
+    }
+    if (isActivities && addTargetValue !== '' && !Number.isFinite(targetNum)) {
+      setError('Target must be numeric.');
       return;
     }
     setMessage('');
@@ -187,6 +210,7 @@ function CatalogLinksPage({ kind }) {
       if (isActivities) {
         await apiService.projects.addPlanningCatalogActivityLink(selectedPid, {
           activityId: idNum,
+          targetValue: targetNum,
           notes: addNotes.trim() || null,
         });
         setMessage('Activity linked to project.');
@@ -222,6 +246,38 @@ function CatalogLinksPage({ kind }) {
     }
   };
 
+  const openEdit = (row) => {
+    setEditingLink(row);
+    setEditTargetValue(
+      row?.targetValue == null || row?.targetValue === '' ? '' : String(row.targetValue)
+    );
+    setEditNotes(row?.notes || '');
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!canEdit || selectedPid == null || !editingLink) return;
+    const targetNum = editTargetValue === '' ? null : Number(editTargetValue);
+    if (editTargetValue !== '' && !Number.isFinite(targetNum)) {
+      setError('Target must be numeric.');
+      return;
+    }
+    setError('');
+    setMessage('');
+    try {
+      await apiService.projects.updatePlanningCatalogActivityLink(selectedPid, editingLink.id, {
+        targetValue: targetNum,
+        notes: editNotes.trim() || null,
+      });
+      setEditOpen(false);
+      setEditingLink(null);
+      setMessage('Activity link updated.');
+      await loadLinks();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Update failed.');
+    }
+  };
+
   const isDark = theme.palette.mode === 'dark';
 
   const activityColumns = [
@@ -235,19 +291,32 @@ function CatalogLinksPage({ kind }) {
       valueGetter: (v, row) =>
         row.measurementTypeLabel || row.measurement_type_label || '—',
     },
+    {
+      field: 'targetValue',
+      headerName: 'Target',
+      width: 110,
+      valueGetter: (v, row) => row.targetValue ?? row.target_value ?? null,
+    },
     { field: 'notes', headerName: 'Notes', flex: 1, minWidth: 120 },
     {
       field: 'actions',
       headerName: '',
-      width: 72,
+      width: 110,
       sortable: false,
       renderCell: (params) =>
         canEdit ? (
-          <Tooltip title="Remove link">
-            <IconButton size="small" color="error" onClick={() => removeLink(params.row)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" spacing={0}>
+            <Tooltip title="Edit link">
+              <IconButton size="small" onClick={() => openEdit(params.row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Remove link">
+              <IconButton size="small" color="error" onClick={() => removeLink(params.row)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         ) : null,
     },
   ];
@@ -425,6 +494,16 @@ function CatalogLinksPage({ kind }) {
                 </MenuItem>
               ))}
             </TextField>
+            {isActivities && (
+              <TextField
+                label="Target (optional)"
+                type="number"
+                fullWidth
+                value={addTargetValue}
+                onChange={(e) => setAddTargetValue(e.target.value)}
+                helperText="Planned target value for this project activity link."
+              />
+            )}
             <TextField
               label="Notes (optional)"
               fullWidth
@@ -440,6 +519,45 @@ function CatalogLinksPage({ kind }) {
           <Button onClick={() => setAddOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={saveAdd} disabled={!canEdit || !addChoices.length}>
             Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit linked activity</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Activity"
+              fullWidth
+              value={
+                editingLink
+                  ? `${editingLink.activityCode || ''} — ${editingLink.activityName || ''}`
+                  : ''
+              }
+              disabled
+            />
+            <TextField
+              label="Target (optional)"
+              type="number"
+              fullWidth
+              value={editTargetValue}
+              onChange={(e) => setEditTargetValue(e.target.value)}
+            />
+            <TextField
+              label="Notes (optional)"
+              fullWidth
+              multiline
+              minRows={2}
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveEdit} disabled={!canEdit || !editingLink}>
+            Save
           </Button>
         </DialogActions>
       </Dialog>

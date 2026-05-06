@@ -53,6 +53,8 @@ export const ICON_MAP = {
   TaskAltIcon: () => import('@mui/icons-material/TaskAlt').then(m => m.default),
   ReportProblemIcon: () => import('@mui/icons-material/ReportProblem').then(m => m.default),
   UpdateIcon: () => import('@mui/icons-material/Update').then(m => m.default),
+  RepeatIcon: () => import('@mui/icons-material/Repeat').then(m => m.default),
+  FactCheckIcon: () => import('@mui/icons-material/FactCheck').then(m => m.default),
 };
 
 // Get icon component by name

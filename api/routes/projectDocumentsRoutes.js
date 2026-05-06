@@ -542,16 +542,39 @@ router.get('/milestone/:milestoneId', auth, async (req, res) => {
     const { milestoneId } = req.params;
     const { contractorId, privileges } = req.user;
 
+    const milestoneIdNum = parseInt(String(milestoneId), 10);
+    if (!Number.isFinite(milestoneIdNum)) {
+        return res.status(400).json({ message: 'Invalid milestone id.' });
+    }
+
     let connection;
     try {
         connection = await db.getConnection();
 
-        // Check the projectId associated with the milestone
-        const milestoneResult = await connection.query(
-            `SELECT "projectId" FROM ${T_PROJECT_MILESTONES} WHERE "milestoneId" = ?`,
-            [milestoneId]
-        );
-        const milestoneRows = milestoneResult.rows;
+        // Resolve project for this milestone (PostgreSQL often uses snake_case; legacy may use quoted camelCase)
+        let milestoneRows = [];
+        if (isPostgres) {
+            const attempts = [
+                `SELECT project_id AS "projectId" FROM project_milestones WHERE milestone_id = ? AND voided = false`,
+                `SELECT "projectId" FROM ${T_PROJECT_MILESTONES} WHERE "milestoneId" = ? AND "voided" = false`,
+            ];
+            for (const sql of attempts) {
+                try {
+                    const r = await connection.query(sql, [milestoneIdNum]);
+                    milestoneRows = r.rows || [];
+                    if (milestoneRows.length > 0) break;
+                } catch (e) {
+                    console.warn('Milestone project lookup attempt failed:', e.message);
+                }
+            }
+        } else {
+            const milestoneResult = await connection.query(
+                'SELECT projectId FROM project_milestones WHERE milestoneId = ? AND voided = 0',
+                [milestoneIdNum]
+            );
+            milestoneRows = milestoneResult.rows || [];
+        }
+
         if (milestoneRows.length === 0) {
             return res.status(404).json({ message: 'Milestone not found.' });
         }
@@ -564,9 +587,10 @@ router.get('/milestone/:milestoneId', auth, async (req, res) => {
             return res.status(403).json({ message: 'Access denied. You do not have the necessary privileges to perform this action.' });
         }
 
+        const voidClause = isPostgres ? '"voided" = false' : '"voided" = 0';
         const { rows } = await connection.query(
-            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "milestoneId" = ? AND "voided" = false`,
-            [milestoneId]
+            `SELECT * FROM ${T_PROJECT_DOCUMENTS} WHERE "milestoneId" = ? AND ${voidClause}`,
+            [milestoneIdNum]
         );
         res.json(rows);
     } catch (error) {

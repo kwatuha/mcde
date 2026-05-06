@@ -155,6 +155,13 @@ const projectService = {
       const { data } = await axiosInstance.post(`/projects/${projectId}/planning-catalog/activities`, payload);
       return data;
     },
+    updatePlanningCatalogActivityLink: async (projectId, linkId, payload) => {
+      const { data } = await axiosInstance.put(
+        `/projects/${projectId}/planning-catalog/activities/${linkId}`,
+        payload
+      );
+      return data;
+    },
     removePlanningCatalogActivityLink: async (projectId, linkId) => {
       const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/activities/${linkId}`);
       return data;
@@ -170,6 +177,27 @@ const projectService = {
     },
     removePlanningCatalogRiskLink: async (projectId, linkId) => {
       const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/risks/${linkId}`);
+      return data;
+    },
+    getProjectEvaluations: async (projectId) => {
+      const { data } = await axiosInstance.get('/projects/evaluation', { params: { projectId } });
+      return data;
+    },
+    createProjectEvaluation: async (payload) => {
+      const { data } = await axiosInstance.post('/projects/evaluation', payload);
+      return data;
+    },
+    updateProjectEvaluation: async (id, payload) => {
+      const { data } = await axiosInstance.put(`/projects/evaluation/${id}`, payload);
+      return data;
+    },
+    deleteProjectEvaluation: async (id) => {
+      const { data } = await axiosInstance.delete(`/projects/evaluation/${id}`);
+      return data;
+    },
+    /** Legacy helper name retained; now exports formatted Excel in frontend */
+    exportProjectEvaluationCsv: async (rows) => {
+      const { data } = await axiosInstance.post('/projects/evaluation/export-csv', { rows });
       return data;
     },
   },

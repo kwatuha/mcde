@@ -53,11 +53,32 @@ export function getAccessCheckForAppPath(fullPath, hasPrivilege) {
         'Project risks require strategic_plan.read_all (same as indicators). Add it to your role if you should open this link.',
     },
     {
+      test: (p) => p === '/planning/reporting-frequency',
+      required: ['strategic_plan.read_all'],
+      title: 'Reporting frequency',
+      detail:
+        'Reporting frequency catalog requires strategic_plan.read_all (same as indicators). Add it to your role if you should open this link.',
+    },
+    {
+      test: (p) => p === '/projects/teams',
+      requiredAny: ['project.read_all', 'project.update'],
+      title: 'Project teams',
+      detail:
+        'Project teams listing and editing requires project.read_all or project.update. Add one of these privileges to your role if you should open this link.',
+    },
+    {
       test: (p) => p === '/projects/status',
       requiredAny: ['project.read_all', 'project.update'],
       title: 'Project status',
       detail:
         'Project status listing and editing requires project.read_all or project.update. Add one of these privileges to your role if you should open this link.',
+    },
+    {
+      test: (p) => p === '/projects/evaluation',
+      requiredAny: ['project.read_all', 'project.update'],
+      title: 'Project evaluation',
+      detail:
+        'Project evaluation export requires project.read_all or project.update. Add one of these privileges to your role if you should open this link.',
     },
     {
       test: (p) => p === '/projects/planning-activity-links' || p === '/projects/planning-risk-links',

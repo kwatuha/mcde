@@ -11,6 +11,7 @@ const routeTitles = {
   '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
+  '/projects/teams': { title: 'Project Teams', subtitle: 'Manage team members across projects' },
   '/projects/status': { title: 'Project Status', subtitle: 'Manage overall status and progress updates' },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
@@ -19,6 +20,10 @@ const routeTitles = {
   '/projects/planning-risk-links': {
     title: 'Project risk links',
     subtitle: 'Associate Planning catalog risks with projects',
+  },
+  '/projects/evaluation': {
+    title: 'Project evaluation',
+    subtitle: 'M&E evaluation lines and CSV export',
   },
   '/projects/feedback-by-project': { title: 'Project Feedback', subtitle: 'Public feedback by project' },
   '/verify-certificate': { title: 'Verify Certificate', subtitle: 'Confirm a project payment certificate by number' },
@@ -58,6 +63,10 @@ const routeTitles = {
   '/planning/project-risks': {
     title: 'Project Risks',
     subtitle: 'Planning — standard risk register (code, name, description)',
+  },
+  '/planning/reporting-frequency': {
+    title: 'Reporting frequency',
+    subtitle: 'Planning — how often indicators or milestones are reported',
   },
   '/budget-management': { title: 'ADP-Budget', subtitle: 'Annual Development Plan & budget containers' },
   '/strategic-planning/import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },

@@ -3,12 +3,12 @@ import {
   Box, Typography, Button, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, Alert, CircularProgress, Stack,
   List, ListItem, ListItemText, ListItemSecondaryAction, Chip, LinearProgress,
-  Snackbar, TextField, Select, MenuItem, FormControl, InputLabel, Grid, Paper, useTheme,
+  Snackbar, TextField, Select, MenuItem, FormControl, InputLabel, Grid, Paper,
   Tabs, Tab
 } from '@mui/material';
 import {
   Close as CloseIcon, Delete as DeleteIcon, CloudUpload as CloudUploadIcon,
-  AttachFile as AttachFileIcon, Visibility as VisibilityIcon, Add as AddIcon, Photo as PhotoIcon, InsertDriveFile as DocumentIcon
+  AttachFile as AttachFileIcon, Add as AddIcon, Photo as PhotoIcon, InsertDriveFile as DocumentIcon
 } from '@mui/icons-material';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +24,43 @@ const documentTypeOptions = [
     { value: 'document', label: 'Document' },
     { value: 'photo', label: 'Photo' },
 ];
+
+/** Stored paths are like `uploads/projects/...`; Express serves them at `/uploads/...` (not under `/api`). */
+const IMAGE_PATH_RE = /\.(jpe?g|png|gif|webp|bmp|svg)(\?.*)?$/i;
+
+function isImagePath(filePath, originalFileName) {
+  const combined = `${filePath || ''} ${originalFileName || ''}`;
+  return IMAGE_PATH_RE.test(combined);
+}
+
+function isPhotoAttachment(doc) {
+  return String(doc?.documentType || '').toLowerCase().trim() === 'photo';
+}
+
+function getApiBaseUrl() {
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  if (apiUrl) {
+    return String(apiUrl).replace(/\/api\/?$/, '').replace(/\/public\/?$/, '');
+  }
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+  if (origin.includes(':8080') || origin.includes(':5174')) {
+    return origin.replace(/:8080|:5174/, ':3000');
+  }
+  return origin;
+}
+
+function getAttachmentFileUrl(filePath) {
+  if (!filePath) return '';
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) return filePath;
+  const base = getApiBaseUrl();
+  let p = filePath;
+  if (p.startsWith('api/')) p = p.slice(4);
+  if (p.startsWith('/uploads/')) return `${base}${p}`;
+  if (p.startsWith('uploads/')) return `${base}/${p}`;
+  if (p.startsWith('/')) return `${base}${p}`;
+  return `${base}/uploads/${p}`;
+}
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -44,10 +81,60 @@ function TabPanel(props) {
   );
 }
 
+function MilestoneImagePreview({ doc, variant = 'grid', onOpenUrl }) {
+  const [failed, setFailed] = useState(false);
+  const url = getAttachmentFileUrl(doc.documentPath);
+  const isGrid = variant === 'grid';
+  const listSize = 88;
+
+  if (failed || !url) {
+    return (
+      <Box
+        sx={{
+          width: isGrid ? '100%' : listSize,
+          height: isGrid ? 220 : listSize,
+          minHeight: isGrid ? 220 : listSize,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: 'action.hover',
+          borderRadius: 1,
+          border: '1px dashed',
+          borderColor: 'divider',
+        }}
+      >
+        <PhotoIcon color="disabled" fontSize={isGrid ? 'large' : 'medium'} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      component="img"
+      src={url}
+      alt={doc.description || doc.originalFileName || 'Attachment'}
+      loading="lazy"
+      onClick={() => isGrid && onOpenUrl?.(url)}
+      sx={{
+        width: isGrid ? '100%' : listSize,
+        height: isGrid ? 240 : listSize,
+        minHeight: isGrid ? 240 : listSize,
+        maxHeight: isGrid ? 360 : listSize,
+        objectFit: isGrid ? 'contain' : 'cover',
+        bgcolor: isGrid ? 'grey.100' : 'action.hover',
+        borderRadius: 1,
+        display: 'block',
+        ...(isGrid && onOpenUrl
+          ? { cursor: 'pointer', '&:hover': { opacity: 0.92 } }
+          : {}),
+      }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, currentMilestoneName, projectId }) => {
   const { user, hasPrivilege } = useAuth();
-  const theme = useTheme();
-  const serverUrl = import.meta.env.VITE_FILE_SERVER_BASE_URL || '/api';
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -69,7 +156,7 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
   const fileInputRef = useRef(null);
 
   const fetchAttachments = useCallback(async () => {
-    if (!milestoneId || !hasPrivilege('documents.read_all')) {
+    if (!milestoneId || !hasPrivilege('document.read_all')) {
       if (!milestoneId) {
         setError('No milestone ID provided.');
       }
@@ -122,6 +209,10 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
         setError('The selected file must be a photo (image file).');
         return;
     }
+    if (projectId === undefined || projectId === null || projectId === '') {
+        setError('Project ID is missing. Open this dialog from a project details page and try again.');
+        return;
+    }
 
     setUploading(true);
     setUploadProgress(0);
@@ -164,7 +255,7 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
   };
 
   const handleDeleteAttachment = async (documentId) => {
-    if (!hasPrivilege('documents.delete')) {
+    if (!hasPrivilege('document.delete')) {
       setSnackbar({ open: true, message: 'Permission denied to delete documents.', severity: 'error' });
       return;
     }
@@ -181,7 +272,7 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
   };
 
   const handleDownloadAttachment = (filePath) => {
-    window.open(filePath, '_blank');
+    window.open(getAttachmentFileUrl(filePath), '_blank', 'noopener,noreferrer');
   };
 
   const handleCloseSnackbar = (event, reason) => {
@@ -220,7 +311,7 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
             <Typography variant="subtitle1">
                 Attachments for: **{currentMilestoneName}**
             </Typography>
-            {hasPrivilege('documents.create') && (
+            {hasPrivilege('document.create') && (
                 <Button 
                     variant="contained" 
                     startIcon={<AddIcon />}
@@ -246,9 +337,16 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
 
             <TabPanel value={activeTab} index={0}>
                 <List>
-                    {attachments.filter(doc => doc.documentType !== 'photo').length > 0 ? (
-                    attachments.filter(doc => doc.documentType !== 'photo').map((doc) => (
-                        <ListItem key={doc.id} divider>
+                    {attachments.filter((doc) => !isPhotoAttachment(doc)).length > 0 ? (
+                    attachments.filter((doc) => !isPhotoAttachment(doc)).map((doc) => {
+                      const showThumb = isImagePath(doc.documentPath, doc.originalFileName);
+                      return (
+                        <ListItem key={doc.id} divider alignItems="flex-start" sx={{ gap: 2 }}>
+                            {showThumb && (
+                              <Box sx={{ flexShrink: 0, pt: 0.5 }}>
+                                <MilestoneImagePreview doc={doc} variant="list" />
+                              </Box>
+                            )}
                             <ListItemText
                                 primary={doc.originalFileName || doc.documentPath.split('/').pop()}
                                 secondary={
@@ -273,17 +371,18 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
                                 }
                             />
                             <ListItemSecondaryAction>
-                                <IconButton edge="end" aria-label="download" onClick={() => handleDownloadAttachment(`${serverUrl}/${doc.documentPath}`)}>
+                                <IconButton edge="end" aria-label="download" onClick={() => handleDownloadAttachment(doc.documentPath)}>
                                     <AttachFileIcon />
                                 </IconButton>
-                                {hasPrivilege('documents.delete') && (
+                                {hasPrivilege('document.delete') && (
                                     <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteAttachment(doc.id)}>
                                         <DeleteIcon color="error" />
                                     </IconButton>
                                 )}
                             </ListItemSecondaryAction>
                         </ListItem>
-                    ))
+                      );
+                    })
                     ) : (
                     <Alert severity="info" sx={{ mt: 2 }}>No documents found for this milestone.</Alert>
                     )}
@@ -292,22 +391,24 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
 
             <TabPanel value={activeTab} index={1}>
                 <Grid container spacing={2}>
-                    {attachments.filter(doc => doc.documentType === 'photo').length > 0 ? (
-                    attachments.filter(doc => doc.documentType === 'photo').map((doc) => (
+                    {attachments.filter((doc) => isPhotoAttachment(doc)).length > 0 ? (
+                    attachments.filter((doc) => isPhotoAttachment(doc)).map((doc) => (
                         <Grid item xs={12} sm={6} md={4} key={doc.id}>
-                            <Paper elevation={2} sx={{ position: 'relative', p: 1 }}>
-                                <img
-                                    src={`${serverUrl}/${doc.documentPath}`}
-                                    alt={doc.description || doc.originalFileName || 'Milestone Photo'}
-                                    style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '4px' }}
-                                />
-                                <Typography variant="body2" noWrap sx={{ mt: 1, fontWeight: 'bold' }}>
+                            <Paper elevation={2} sx={{ position: 'relative', p: 1, overflow: 'hidden' }}>
+                                <Box title="Open full size in a new tab">
+                                  <MilestoneImagePreview
+                                    doc={doc}
+                                    variant="grid"
+                                    onOpenUrl={(url) => window.open(url, '_blank', 'noopener,noreferrer')}
+                                  />
+                                </Box>
+                                <Typography variant="body2" noWrap sx={{ mt: 1, fontWeight: 'bold' }} title={doc.originalFileName || ''}>
                                     {doc.originalFileName || doc.documentPath.split('/').pop()}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                                     {doc.description || 'No description'}
                                 </Typography>
-                                <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
+                                <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                                     <Chip
                                         label={doc.status?.replace(/_/g, ' ') || 'No Status'}
                                         size="small"
@@ -321,11 +422,11 @@ const MilestoneAttachments = ({ open, onClose, milestoneId, onUploadSuccess, cur
                                     )}
                                 </Stack>
                                 <Stack direction="row" spacing={1} sx={{ mt: 1, justifyContent: 'flex-end' }}>
-                                    <IconButton size="small" onClick={() => handleDownloadAttachment(`${serverUrl}/${doc.documentPath}`)}>
+                                    <IconButton size="small" onClick={() => handleDownloadAttachment(doc.documentPath)} aria-label="Open file">
                                         <AttachFileIcon fontSize="small" />
                                     </IconButton>
-                                    {hasPrivilege('documents.delete') && (
-                                        <IconButton size="small" onClick={() => handleDeleteAttachment(doc.id)}>
+                                    {hasPrivilege('document.delete') && (
+                                        <IconButton size="small" onClick={() => handleDeleteAttachment(doc.id)} aria-label="Delete">
                                             <DeleteIcon color="error" fontSize="small" />
                                         </IconButton>
                                     )}

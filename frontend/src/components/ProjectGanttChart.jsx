@@ -346,7 +346,8 @@ const ProjectGanttChart = ({ milestones = [], activities = [], projectName = 'Pr
           <Box sx={{ p: 3, textAlign: 'center', color: '#666' }}>
             <Typography>No milestones or activities available to display in the Gantt Chart.</Typography>
             <Typography variant="body2" sx={{ mt: 1 }}>
-              Add milestones and activities to see the project timeline.
+              Add milestones and link activities in the <strong>Schedule</strong> tab, then set each activity&apos;s
+              start and end dates. Bars appear when both dates are set on linked activities.
             </Typography>
           </Box>
         )}

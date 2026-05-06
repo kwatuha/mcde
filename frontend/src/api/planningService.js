@@ -67,6 +67,22 @@ const planningService = {
     const { data } = await axiosInstance.delete(`${base}/project-risks/${id}`);
     return data;
   },
+  getReportingFrequencies: async () => {
+    const { data } = await axiosInstance.get(`${base}/reporting-frequencies`);
+    return data;
+  },
+  createReportingFrequency: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/reporting-frequencies`, payload);
+    return data;
+  },
+  updateReportingFrequency: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/reporting-frequencies/${id}`, payload);
+    return data;
+  },
+  deleteReportingFrequency: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/reporting-frequencies/${id}`);
+    return data;
+  },
 };
 
 export default planningService;

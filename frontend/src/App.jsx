@@ -13,7 +13,9 @@ import DashboardPage from './pages/DashboardPage';
 import DashboardLandingPage from './pages/DashboardLandingPage';
 import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
+import ProjectTeamsPage from './pages/ProjectTeamsPage';
 import ProjectStatusPage from './pages/ProjectStatusPage';
+import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
 import VerifyCertificatePage from './pages/VerifyCertificatePage';
@@ -31,6 +33,7 @@ import StrategicPlanningPage from './pages/StrategicPlanningPage';
 import PlanningIndicatorsPage from './pages/PlanningIndicatorsPage';
 import PlanningProjectActivitiesPage from './pages/PlanningProjectActivitiesPage';
 import PlanningProjectRisksPage from './pages/PlanningProjectRisksPage';
+import PlanningReportingFrequencyPage from './pages/PlanningReportingFrequencyPage';
 import {
   ProjectPlanningActivityLinksPage,
   ProjectPlanningRiskLinksPage,
@@ -227,6 +230,10 @@ const router = createBrowserRouter([
         element: <ProjectStatusPage />,
       },
       {
+        path: 'projects/teams',
+        element: <ProjectTeamsPage />,
+      },
+      {
         path: 'projects/feedback-by-project',
         element: <ProjectFeedbackByProjectPage />,
       },
@@ -237,6 +244,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/planning-risk-links',
         element: <ProjectPlanningRiskLinksPage />,
+      },
+      {
+        path: 'projects/evaluation',
+        element: <ProjectEvaluationPage />,
       },
       {
         path: 'projects/:projectId',
@@ -329,6 +340,10 @@ const router = createBrowserRouter([
       {
         path: 'planning/project-risks',
         element: <PlanningProjectRisksPage />,
+      },
+      {
+        path: 'planning/reporting-frequency',
+        element: <PlanningReportingFrequencyPage />,
       },
       {
         path: 'strategic-planning/:planId',

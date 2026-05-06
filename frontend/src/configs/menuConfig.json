@@ -103,6 +103,12 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
+          "title": "Project Teams",
+          "icon": "GroupsIcon",
+          "route": "PROJECT_TEAMS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
           "title": "Project Activities",
           "icon": "TaskAltIcon",
           "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
@@ -113,6 +119,12 @@
           "icon": "ReportProblemIcon",
           "route": "PROJECT_PLANNING_RISK_LINKS",
           "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
+          "title": "Project evaluation",
+          "icon": "FactCheckIcon",
+          "route": "PROJECT_EVALUATION",
+          "permissionsAny": ["project.read_all", "project.update"]
         },
         {
           "title": "Verify Certificate",
@@ -215,6 +227,11 @@
           "title": "Project Risks",
           "icon": "ReportProblemIcon",
           "route": "PLANNING_PROJECT_RISKS"
+        },
+        {
+          "title": "Reporting frequency",
+          "icon": "RepeatIcon",
+          "route": "PLANNING_REPORTING_FREQUENCY"
         },
         {
           "title": "ADP-Budget",

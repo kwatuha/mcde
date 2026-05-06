@@ -63,12 +63,16 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
+    /** Project team members by project (sidebar under Projects). */
+    PROJECT_TEAMS: '/projects/teams',
     /** Project-wide status/progress updates screen. */
     PROJECT_STATUS: '/projects/status',
     /** Link registry planning activities to projects (Projects sidebar). */
     PROJECT_PLANNING_ACTIVITY_LINKS: '/projects/planning-activity-links',
     /** Link registry planning risks to projects (Projects sidebar). */
     PROJECT_PLANNING_RISK_LINKS: '/projects/planning-risk-links',
+    /** Project evaluation grid → M&E CSV export (data_compete). */
+    PROJECT_EVALUATION: '/projects/evaluation',
     /** Public feedback linked to projects, grouped by project (optional direct URL; not in main ribbon). */
     PROJECT_FEEDBACK_BY_PROJECT: '/projects/feedback-by-project',
     /** Public certificate verification (no login); same path when opened from the Projects menu while signed in. */
@@ -88,6 +92,8 @@ export const ROUTES = {
     PLANNING_PROJECT_ACTIVITIES: '/planning/project-activities',
     /** Standard risk register entries for projects (code, name, description). */
     PLANNING_PROJECT_RISKS: '/planning/project-risks',
+    /** Indicator / milestone reporting cadence (CIMES-aligned catalog). */
+    PLANNING_REPORTING_FREQUENCY: '/planning/reporting-frequency',
     METADATA_MANAGEMENT: '/metadata-management',
     HR: '/hr-module',
     /** HR ribbon deep-links (query `view` synced in HrModulePage). */

@@ -123,6 +123,7 @@ const getPublicApprovalStatus = (project) => {
     };
 };
 
+import { alpha } from '@mui/material/styles';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
 import MilestoneAttachments from '../components/MilestoneAttachments.jsx';
 import ProjectMonitoringComponent from '../components/ProjectMonitoringComponent.jsx';
@@ -442,10 +443,11 @@ function ProjectDetailsPage() {
     const canViewProjectDocuments =
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
 
+    const [scheduleGanttVisible, setScheduleGanttVisible] = useState(false);
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
-        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Teams,5:Inspection,6=Updates+BQ,7=Certificates,8=Map)
+        if (activeTab === 3) { // Jobs tab index (0:Overview,1:Financials,2:Sites,3:Jobs,4:Inspection,5:Schedule+Gantt,6:BQ,7:Certificates,8:Map)
             fetchJobCategories();
             fetchProjectJobs();
         }
@@ -533,7 +535,7 @@ function ProjectDetailsPage() {
     }, [projectId]);
 
     useEffect(() => {
-        if (activeTab === 5) {
+        if (activeTab === 4) {
             fetchProjectInspections();
         }
     }, [activeTab, fetchProjectInspections]);
@@ -834,7 +836,10 @@ function ProjectDetailsPage() {
                 setProjectCategory(null);
             }
 
-            const milestonesData = await apiService.milestones.getMilestonesForProject(projectId);
+            const milestonesDataRaw = await apiService.milestones.getMilestonesForProject(projectId);
+            const milestonesData = Array.isArray(milestonesDataRaw)
+                ? milestonesDataRaw.map((m) => snakeToCamelCase(m))
+                : [];
             setMilestones(milestonesData);
 
             // Fetch activities for each milestone (only if there are milestones)
@@ -847,7 +852,9 @@ function ProjectDetailsPage() {
                             return []; // Return empty array on error
                         })
                     );
-                    milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
+                    milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises))
+                        .flat()
+                        .map((a) => snakeToCamelCase(a));
                 } catch (err) {
                     console.warn('Error fetching milestone activities:', err);
                     milestoneActivitiesResults = [];
@@ -2567,13 +2574,13 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Teams, 5=Inspection, 6=BQ, 7=Certificates, 8=Map (documents: /projects/documents-by-project) */}
+                    {/* Tab indices: 0=Overview, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Inspection, 5=Schedule (milestones + Gantt), 6=BQ, 7=Certificates, 8=Map */}
                     <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
                     <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
                     <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
                     <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
-                    <Tab label="Teams" icon={<GroupIcon />} iconPosition="start" />
                     <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
+                    <Tab label="Schedule" icon={<ScheduleIcon />} iconPosition="start" />
                     <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
                     <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
@@ -3130,22 +3137,61 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {false && activeTab === 3 && (
+                {activeTab === 5 && (
                     <Box>
+                        <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+                            <Stack
+                                direction={{ xs: 'column', sm: 'row' }}
+                                spacing={2}
+                                alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+                                justifyContent="space-between"
+                            >
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.75 }}>
+                                        Schedule &amp; milestones
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Timeline data is stored in the database as <strong>project milestones</strong> and{' '}
+                                        <strong>activities</strong> (each activity is linked to a milestone). Milestone due
+                                        dates and activity <strong>start / end dates</strong> drive the Gantt view—use{' '}
+                                        <strong>Show Gantt chart</strong> when you want the timeline, and edit milestones
+                                        and activities in the sections below.
+                                    </Typography>
+                                </Box>
+                                <Button
+                                    variant={scheduleGanttVisible ? 'outlined' : 'contained'}
+                                    color="primary"
+                                    startIcon={scheduleGanttVisible ? <ExpandLessIcon /> : <TimelineIcon />}
+                                    onClick={() => setScheduleGanttVisible((v) => !v)}
+                                    sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
+                                >
+                                    {scheduleGanttVisible ? 'Hide Gantt chart' : 'Show Gantt chart'}
+                                </Button>
+                            </Stack>
+                        </Paper>
+                        {scheduleGanttVisible && (
+                            <Paper elevation={2} sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+                                <ProjectGanttChart
+                                    milestones={milestones}
+                                    activities={milestoneActivities}
+                                    projectName={project?.projectName || project?.name || 'Project'}
+                                />
+                            </Paper>
+                        )}
                         {/* Timeline & Milestones Tab */}
                         {/* Work Plans and Milestones Section (Refactored) */}
-            <Box sx={{ mt: 3 }}>
+            <Box sx={{ mt: 1 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                     <Typography variant="h5" sx={{ 
                         display: 'flex', 
                         alignItems: 'center', 
-                        fontWeight: 'bold',
-                        color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500],
-                        textShadow: theme.palette.mode === 'dark' ? '1px 1px 2px rgba(0, 0, 0, 0.2)' : 'none',
-                        borderBottom: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[400]}`,
+                        fontWeight: 700,
+                        color: 'text.primary',
+                        borderBottom: '2px solid',
+                        borderColor: 'divider',
                         pb: 1
                     }}>
-                        <AccountTreeIcon sx={{ mr: 1, color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500] }} />
+                        <AccountTreeIcon sx={{ mr: 1, color: 'primary.main' }} />
                         Work Plans & Milestones
                     </Typography>
                     <Stack direction="row" spacing={1}>
@@ -3186,89 +3232,85 @@ function ProjectDetailsPage() {
                                     <Typography variant="h5" sx={{ 
                                         display: 'flex', 
                                         alignItems: 'center', 
-                                        fontWeight: 'bold',
-                                        color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500],
-                                        textShadow: theme.palette.mode === 'dark' ? '1px 1px 2px rgba(0, 0, 0, 0.2)' : 'none',
-                                        borderBottom: `2px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[400]}`,
+                                        fontWeight: 700,
+                                        color: 'text.primary',
+                                        borderBottom: '2px solid',
+                                        borderColor: 'divider',
                                         pb: 1
                                     }}>
-                                        <AccountTreeIcon sx={{ mr: 1, color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500] }} />
+                                        <AccountTreeIcon sx={{ mr: 1, color: 'primary.main' }} />
                                         Project Milestones
                                     </Typography>
                                     <Stack direction="row" spacing={1}>
                                         {checkUserPrivilege(user, 'milestone.create') && (
                                             <Button
                                                 variant="contained"
+                                                color="success"
                                                 startIcon={<AddIcon />}
                                                 onClick={handleOpenCreateMilestoneDialog}
                                                 size="small"
-                                                sx={{ 
-                                                    backgroundColor: colors.greenAccent[600],
-                                                    color: colors.grey[100],
-                                                    fontWeight: 'bold',
-                                                    borderRadius: '8px',
-                                                    px: 2,
-                                                    py: 0.75,
-                                                    boxShadow: theme.palette.mode === 'light' ? `0 2px 8px ${colors.greenAccent[100]}40` : 'none',
-                                                    '&:hover': { 
-                                                        backgroundColor: colors.greenAccent[700],
-                                                        transform: 'translateY(-1px)',
-                                                        boxShadow: theme.palette.mode === 'light' ? `0 4px 12px ${colors.greenAccent[100]}50` : 'none'
-                                                    },
-                                                    transition: 'all 0.2s ease-in-out'
-                                                }}
                                             >
                                                 Add Milestone
                                             </Button>
                                         )}
                                     </Stack>
                                 </Box>
-                                <Grid container spacing={3} sx={{ width: '100%' }}>
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        width: '100%',
+                                        gap: 3,
+                                        gridTemplateColumns: {
+                                            xs: '1fr',
+                                            sm: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))',
+                                        },
+                                    }}
+                                >
                                     {milestones
                                         .sort((a, b) => (a.sequenceOrder || 0) - (b.sequenceOrder || 0))
                                         .map((milestone) => {
                                         const activitiesForMilestone = milestoneActivities.filter(a => a.milestoneId === milestone.milestoneId);
                                         return (
-                                            <Grid item xs={12} md={6} lg={6} key={milestone.milestoneId} sx={{ 
-                                                display: 'flex',
-                                                minHeight: '100%'
-                                            }}>
-                                                <Paper elevation={3} sx={{ 
+                                            <Box
+                                                key={milestone.milestoneId}
+                                                sx={{ display: 'flex', minHeight: '100%', minWidth: 0 }}
+                                            >
+                                                <Paper elevation={0} sx={{ 
                                                     p: 0, 
-                                                    borderRadius: '12px', 
+                                                    borderRadius: 2, 
                                                     width: '100%',
                                                     height: '100%', 
                                                     display: 'flex', 
                                                     flexDirection: 'column',
-                                                    border: theme.palette.mode === 'light' ? `1px solid ${colors.blueAccent[200]}` : 'none',
-                                                    boxShadow: theme.palette.mode === 'light' ? `0 4px 16px ${colors.blueAccent[100]}40, 0 2px 8px ${colors.blueAccent[100]}20` : undefined,
-                                                    transition: 'all 0.2s ease-in-out',
+                                                    border: '1px solid',
+                                                    borderColor: 'divider',
+                                                    bgcolor: 'background.paper',
+                                                    transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
                                                     '&:hover': {
-                                                        transform: 'translateY(-2px)',
-                                                        boxShadow: theme.palette.mode === 'light' ? `0 8px 24px ${colors.blueAccent[100]}50, 0 4px 12px ${colors.blueAccent[100]}30` : undefined
+                                                        boxShadow: theme.shadows[2],
                                                     }
                                                 }}>
                                                     <Box
                                                         sx={{
                                                             p: 2,
                                                             pb: 1.5,
-                                                            borderLeft: `5px solid ${theme.palette.mode === 'dark' ? theme.palette.primary.main : colors.blueAccent[500]}`,
-                                                            backgroundColor: theme.palette.mode === 'dark' ? theme.palette.action.hover : colors.blueAccent[100],
-                                                            borderTopLeftRadius: '12px',
-                                                            borderTopRightRadius: '12px',
-                                                            boxShadow: theme.palette.mode === 'light' ? `inset 0 1px 0 ${colors.blueAccent[200]}` : 'none'
+                                                            borderLeft: '4px solid',
+                                                            borderColor: 'primary.main',
+                                                            backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.14 : 0.06),
+                                                            borderTopLeftRadius: 8,
+                                                            borderTopRightRadius: 8,
                                                         }}
                                                     >
                                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                                                                 <FlagIcon sx={{ 
                                                                     mr: 1,
-                                                                    color: theme.palette.mode === 'dark' ? theme.palette.primary.main : colors.blueAccent[500],
+                                                                    color: 'primary.main',
                                                                     fontSize: '1.5rem'
                                                                 }} />
                                                                 <Typography variant="h6" sx={{ 
-                                                                    fontWeight: 'bold', 
-                                                                    color: theme.palette.mode === 'dark' ? theme.palette.primary.main : colors.blueAccent[600]
+                                                                    fontWeight: 700, 
+                                                                    color: 'text.primary',
                                                                 }}>
                                                                     {milestone.milestoneName || 'Unnamed Milestone'}
                                                                 </Typography>
@@ -3283,11 +3325,8 @@ function ProjectDetailsPage() {
                                                                             setOpenAttachmentsModal(true);
                                                                         }}
                                                                         sx={{
-                                                                            color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600],
-                                                                            '&:hover': {
-                                                                                backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[100],
-                                                                                color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.blueAccent[700]
-                                                                            }
+                                                                            color: 'text.secondary',
+                                                                            '&:hover': { backgroundColor: 'action.hover' },
                                                                         }}
                                                                     >
                                                                         <AttachmentIcon />
@@ -3300,11 +3339,8 @@ function ProjectDetailsPage() {
                                                                             aria-label="edit" 
                                                                             onClick={() => handleOpenEditMilestoneDialog(milestone)}
                                                                             sx={{
-                                                                                color: theme.palette.mode === 'dark' ? colors.greenAccent[400] : colors.greenAccent[600],
-                                                                                '&:hover': {
-                                                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.greenAccent[700] : colors.greenAccent[100],
-                                                                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.greenAccent[700]
-                                                                                }
+                                                                                color: 'primary.main',
+                                                                                '&:hover': { backgroundColor: 'action.hover' },
                                                                             }}
                                                                         >
                                                                             <EditIcon />
@@ -3318,11 +3354,8 @@ function ProjectDetailsPage() {
                                                                             aria-label="delete" 
                                                                             onClick={() => handleDeleteMilestone(milestone.milestoneId)}
                                                                             sx={{
-                                                                                color: theme.palette.mode === 'dark' ? colors.redAccent[400] : colors.redAccent[600],
-                                                                                '&:hover': {
-                                                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.redAccent[700] : colors.redAccent[100],
-                                                                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.redAccent[700]
-                                                                                }
+                                                                                color: 'error.main',
+                                                                                '&:hover': { backgroundColor: 'action.hover' },
                                                                             }}
                                                                         >
                                                                             <DeleteIcon />
@@ -3336,13 +3369,15 @@ function ProjectDetailsPage() {
                                                     <Box sx={{ 
                                                         p: 2.5, 
                                                         flexGrow: 1,
-                                                        backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.grey[50],
-                                                        borderBottomLeftRadius: '12px',
-                                                        borderBottomRightRadius: '12px'
+                                                        backgroundColor: theme.palette.mode === 'dark'
+                                                            ? alpha(theme.palette.common.white, 0.03)
+                                                            : alpha(theme.palette.common.black, 0.02),
+                                                        borderBottomLeftRadius: 8,
+                                                        borderBottomRightRadius: 8
                                                     }}>
                                                         <Typography variant="body2" sx={{ 
                                                             mb: 2,
-                                                            color: theme.palette.mode === 'dark' ? colors.grey[200] : colors.grey[800],
+                                                            color: 'text.secondary',
                                                             fontWeight: 400,
                                                             lineHeight: 1.6,
                                                             fontSize: '0.9rem'
@@ -3352,40 +3387,22 @@ function ProjectDetailsPage() {
                                                         
                                                         <Stack spacing={1.5} sx={{ mb: 2 }}>
                                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                <ScheduleIcon sx={{ 
-                                                                    fontSize: '1rem', 
-                                                                    color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] 
-                                                                }} />
-                                                                <Typography variant="body2" sx={{ 
-                                                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                    fontWeight: 500
-                                                                }}>
+                                                                <ScheduleIcon sx={{ fontSize: '1rem', color: 'primary.main' }} />
+                                                                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                     Due Date: {formatDate(milestone.dueDate)}
                                                                 </Typography>
                                                             </Box>
                                                             {milestone.completedDate && (
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                    <CheckCircleIcon sx={{ 
-                                                                        fontSize: '1rem', 
-                                                                        color: theme.palette.mode === 'dark' ? colors.greenAccent[400] : colors.greenAccent[600] 
-                                                                    }} />
-                                                                    <Typography variant="body2" sx={{ 
-                                                                        color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                        fontWeight: 500
-                                                                    }}>
+                                                                    <CheckCircleIcon sx={{ fontSize: '1rem', color: 'success.main' }} />
+                                                                    <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                         Completed: {formatDate(milestone.completedDate)}
                                                                     </Typography>
                                                                 </Box>
                                                             )}
                                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                <TrendingUpIcon sx={{ 
-                                                                    fontSize: '1rem', 
-                                                                    color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] 
-                                                                }} />
-                                                                <Typography variant="body2" sx={{ 
-                                                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                    fontWeight: 500
-                                                                }}>
+                                                                <TrendingUpIcon sx={{ fontSize: '1rem', color: 'primary.main' }} />
+                                                                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                     Progress: {milestone.progress || 0}% (Weight: {milestone.weight || 1.00})
                                                                 </Typography>
                                                             </Box>
@@ -3398,13 +3415,10 @@ function ProjectDetailsPage() {
                                                                 height: 10, 
                                                                 borderRadius: 5, 
                                                                 mb: 1.5,
-                                                                bgcolor: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300],
+                                                                bgcolor: 'action.hover',
                                                                 '& .MuiLinearProgress-bar': {
                                                                     borderRadius: 5,
-                                                                    background: theme.palette.mode === 'dark'
-                                                                        ? `linear-gradient(90deg, ${colors.blueAccent[500]} 0%, ${colors.blueAccent[400]} 100%)`
-                                                                        : `linear-gradient(90deg, ${colors.blueAccent[500]} 0%, ${colors.blueAccent[600]} 100%)`,
-                                                                    boxShadow: theme.palette.mode === 'light' ? `0 2px 4px ${colors.blueAccent[200]}60` : 'none'
+                                                                    bgcolor: 'primary.main',
                                                                 }
                                                             }} 
                                                         />
@@ -3426,12 +3440,13 @@ function ProjectDetailsPage() {
                                                         <Box sx={{ 
                                                             mt: 3,
                                                             pt: 2.5,
-                                                            borderTop: `2px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`
+                                                            borderTop: '1px solid',
+                                                            borderColor: 'divider',
                                                         }}>
                                                             <Typography variant="subtitle2" sx={{ 
-                                                                fontWeight: 'bold',
+                                                                fontWeight: 700,
                                                                 mb: 2,
-                                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[700],
+                                                                color: 'primary.main',
                                                                 fontSize: '1rem',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
@@ -3448,16 +3463,15 @@ function ProjectDetailsPage() {
                                                                             sx={{ 
                                                                                 mb: idx < activitiesForMilestone.length - 1 ? 1.5 : 0,
                                                                                 pb: idx < activitiesForMilestone.length - 1 ? 1.5 : 0,
-                                                                                borderBottom: idx < activitiesForMilestone.length - 1 
-                                                                                    ? `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`
-                                                                                    : 'none'
+                                                                                borderBottom: idx < activitiesForMilestone.length - 1 ? '1px solid' : 'none',
+                                                                                borderColor: 'divider',
                                                                             }}
                                                                         >
                                                                             <ListItemText
                                                                                 primary={
                                                                                     <Typography variant="body2" sx={{ 
                                                                                         fontWeight: 700,
-                                                                                        color: theme.palette.mode === 'dark' ? colors.grey[100] : '#000000',
+                                                                                        color: 'text.primary',
                                                                                         fontSize: '0.95rem',
                                                                                         mb: 0.4,
                                                                                         letterSpacing: '0.01em'
@@ -3468,7 +3482,7 @@ function ProjectDetailsPage() {
                                                                                 secondary={
                                                                                     <Stack spacing={0.5} sx={{ mt: 0.5 }}>
                                                                                         <Typography variant="caption" sx={{
-                                                                                            color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                            color: 'text.secondary',
                                                                                             fontWeight: 500,
                                                                                             fontSize: '0.8rem',
                                                                                             display: 'block'
@@ -3476,7 +3490,7 @@ function ProjectDetailsPage() {
                                                                                             {formatDate(activity.startDate)} - {formatDate(activity.endDate)}
                                                                                         </Typography>
                                                                                         <Typography variant="caption" sx={{
-                                                                                            color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                            color: 'text.secondary',
                                                                                             fontWeight: 500,
                                                                                             fontSize: '0.8rem',
                                                                                             display: 'block'
@@ -3485,7 +3499,7 @@ function ProjectDetailsPage() {
                                                                                         </Typography>
                                                                                         {activity.budgetAllocated && (
                                                                                             <Typography variant="caption" sx={{
-                                                                                                color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                                color: 'text.secondary',
                                                                                                 fontWeight: 500,
                                                                                                 fontSize: '0.8rem',
                                                                                                 display: 'block'
@@ -3503,7 +3517,7 @@ function ProjectDetailsPage() {
                                                                 <Typography variant="body2" sx={{ 
                                                                     fontStyle: 'italic', 
                                                                     mt: 1,
-                                                                    color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[500],
+                                                                    color: 'text.secondary',
                                                                     textAlign: 'center',
                                                                     py: 2
                                                                 }}>
@@ -3513,10 +3527,10 @@ function ProjectDetailsPage() {
                                                         </Box>
                                                     </Box>
                                                 </Paper>
-                                            </Grid>
+                                            </Box>
                                         );
                                     })}
-                                </Grid>
+                                </Box>
                             </Box>
                         )}
                     </Box>
@@ -3533,7 +3547,15 @@ function ProjectDetailsPage() {
                                 key={workplan.workplanId}
                                 expanded={expandedWorkPlan === workplan.workplanId}
                                 onChange={handleAccordionChange(workplan.workplanId)}
-                                sx={{ mb: 2, borderRadius: '12px', '&:before': { display: 'none' }, border: '1px solid', borderColor: theme.palette.grey[300] }}
+                                sx={{
+                                    mb: 2,
+                                    borderRadius: 2,
+                                    '&:before': { display: 'none' },
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    bgcolor: 'background.paper',
+                                    overflow: 'hidden',
+                                }}
                             >
                                 <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
@@ -3574,15 +3596,15 @@ function ProjectDetailsPage() {
                                     <Box sx={{ mt: 2 }}>
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                                             <Typography variant="h6" sx={{ 
-                                                fontWeight: 'bold',
-                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[600],
+                                                fontWeight: 700,
+                                                color: 'text.primary',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 '&::before': {
                                                     content: '""',
                                                     width: '4px',
                                                     height: '24px',
-                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[500],
+                                                    backgroundColor: 'primary.main',
                                                     borderRadius: '2px',
                                                     marginRight: '12px'
                                                 }
@@ -3592,24 +3614,10 @@ function ProjectDetailsPage() {
                                             {checkUserPrivilege(user, 'milestone.create') && !projectCategory && (
                                                 <Button
                                                     variant="contained"
+                                                    color="success"
                                                     startIcon={<AddIcon />}
                                                     onClick={handleOpenCreateMilestoneDialog}
                                                     size="small"
-                                                    sx={{ 
-                                                        backgroundColor: colors.greenAccent[600],
-                                                        color: colors.grey[100],
-                                                        fontWeight: 'bold',
-                                                        borderRadius: '8px',
-                                                        px: 2,
-                                                        py: 0.75,
-                                                        boxShadow: theme.palette.mode === 'light' ? `0 2px 8px ${colors.greenAccent[100]}40` : 'none',
-                                                        '&:hover': { 
-                                                            backgroundColor: colors.greenAccent[700],
-                                                            transform: 'translateY(-1px)',
-                                                            boxShadow: theme.palette.mode === 'light' ? `0 4px 12px ${colors.greenAccent[100]}50` : 'none'
-                                                        },
-                                                        transition: 'all 0.2s ease-in-out'
-                                                    }}
                                                 >
                                                     Add Milestone
                                                 </Button>
@@ -3620,77 +3628,65 @@ function ProjectDetailsPage() {
                                             <Box sx={{
                                                 p: 3,
                                                 textAlign: 'center',
-                                                backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.grey[100],
-                                                borderRadius: '12px',
-                                                border: `2px dashed ${theme.palette.mode === 'dark' ? colors.grey[600] : colors.grey[300]}`,
-                                                color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[600]
+                                                backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.08 : 0.04),
+                                                borderRadius: 2,
+                                                border: '2px dashed',
+                                                borderColor: 'divider',
                                             }}>
-                                                <Typography variant="h6" sx={{ 
-                                                    fontWeight: 'bold',
-                                                    mb: 0.4,
-                                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[700]
-                                                }}>
+                                                <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.4, color: 'text.primary' }}>
                                                     No Milestones Yet
                                                 </Typography>
-                                                <Typography variant="body2" sx={{ 
-                                                    color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[600],
-                                                    fontStyle: 'italic'
-                                                }}>
+                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
                                                     No milestones have been linked to this work plan yet.
                                                 </Typography>
                                             </Box>
                                         ) : (
-                                            <Grid container spacing={3} sx={{ width: '100%' }}>
+                                            <Box
+                                                sx={{
+                                                    display: 'grid',
+                                                    width: '100%',
+                                                    gap: 3,
+                                                    gridTemplateColumns: {
+                                                        xs: '1fr',
+                                                        sm: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))',
+                                                    },
+                                                }}
+                                            >
                                                 {milestonesForWorkplan.map((milestone) => {
                                                     const activitiesForMilestone = activitiesForWorkplan.filter(a => a.milestoneId === milestone.milestoneId);
                                                     return (
-                                                        <Grid item xs={12} md={6} lg={6} key={milestone.milestoneId} sx={{ 
-                                                            display: 'flex',
-                                                            minHeight: '100%'
-                                                        }}>
-                                                            <Paper elevation={3} sx={{ 
+                                                        <Box
+                                                            key={milestone.milestoneId}
+                                                            sx={{ display: 'flex', minHeight: '100%', minWidth: 0 }}
+                                                        >
+                                                            <Paper elevation={0} sx={{ 
                                                                 p: 0, 
-                                                                borderRadius: '12px', 
+                                                                borderRadius: 2, 
                                                                 width: '100%',
                                                                 height: '100%', 
                                                                 display: 'flex', 
                                                                 flexDirection: 'column',
-                                                                border: theme.palette.mode === 'light' ? `1px solid ${colors.blueAccent[200]}` : 'none',
-                                                                boxShadow: theme.palette.mode === 'light' ? `0 4px 16px ${colors.blueAccent[100]}40, 0 2px 8px ${colors.blueAccent[100]}20` : undefined,
-                                                                transition: 'all 0.2s ease-in-out',
-                                                                '&:hover': {
-                                                                    transform: 'translateY(-2px)',
-                                                                    boxShadow: theme.palette.mode === 'light' ? `0 8px 24px ${colors.blueAccent[100]}50, 0 4px 12px ${colors.blueAccent[100]}30` : undefined
-                                                                }
+                                                                border: '1px solid',
+                                                                borderColor: 'divider',
+                                                                bgcolor: 'background.paper',
+                                                                transition: 'box-shadow 0.2s ease',
+                                                                '&:hover': { boxShadow: theme.shadows[2] },
                                                             }}>
                                                                 <Box
                                                                     sx={{
-                                                                        p: 2.5,
-                                                                        pb: 2,
-                                                                        background: theme.palette.mode === 'dark' 
-                                                                            ? `linear-gradient(135deg, ${colors.primary[700]} 0%, ${colors.primary[800]} 100%)`
-                                                                            : `linear-gradient(135deg, ${colors.blueAccent[600]} 0%, ${colors.blueAccent[700]} 100%)`,
-                                                                        borderTopLeftRadius: '12px',
-                                                                        borderTopRightRadius: '12px',
-                                                                        boxShadow: theme.palette.mode === 'light' 
-                                                                            ? `0 2px 8px ${colors.blueAccent[200]}40, inset 0 1px 0 ${colors.blueAccent[400]}20` 
-                                                                            : `0 2px 8px rgba(0, 0, 0, 0.3)`
+                                                                        p: 2,
+                                                                        pb: 1.5,
+                                                                        borderLeft: '4px solid',
+                                                                        borderColor: 'primary.main',
+                                                                        backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.14 : 0.06),
+                                                                        borderTopLeftRadius: 8,
+                                                                        borderTopRightRadius: 8,
                                                                     }}
                                                                 >
                                                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                                                            <FlagIcon sx={{ 
-                                                                                mr: 1.5,
-                                                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : '#ffffff',
-                                                                                fontSize: '1.75rem',
-                                                                                filter: theme.palette.mode === 'light' ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))' : 'none'
-                                                                            }} />
-                                                                            <Typography variant="h6" sx={{ 
-                                                                                fontWeight: 'bold', 
-                                                                                color: theme.palette.mode === 'dark' ? colors.grey[100] : '#ffffff',
-                                                                                fontSize: '1.1rem',
-                                                                                textShadow: theme.palette.mode === 'light' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                                                                            }}>
+                                                                            <FlagIcon sx={{ mr: 1, color: 'primary.main', fontSize: '1.5rem' }} />
+                                                                            <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '1.05rem' }}>
                                                                                 {milestone.milestoneName || 'Unnamed Milestone'}
                                                                             </Typography>
                                                                         </Box>
@@ -3703,14 +3699,7 @@ function ProjectDetailsPage() {
                                                                                         setMilestoneToViewAttachments(milestone);
                                                                                         setOpenAttachmentsModal(true);
                                                                                     }}
-                                                                                    sx={{
-                                                                                        color: theme.palette.mode === 'dark' ? colors.blueAccent[300] : '#ffffff',
-                                                                                        '&:hover': {
-                                                                                            backgroundColor: theme.palette.mode === 'dark' ? colors.blueAccent[800] : 'rgba(255, 255, 255, 0.2)',
-                                                                                            color: '#ffffff'
-                                                                                        },
-                                                                                        transition: 'all 0.2s ease-in-out'
-                                                                                    }}
+                                                                                    sx={{ color: 'text.secondary', '&:hover': { backgroundColor: 'action.hover' } }}
                                                                                 >
                                                                                     <AttachmentIcon />
                                                                                 </IconButton>
@@ -3721,14 +3710,7 @@ function ProjectDetailsPage() {
                                                                                         edge="end" 
                                                                                         aria-label="edit" 
                                                                                         onClick={() => handleOpenEditMilestoneDialog(milestone)}
-                                                                                        sx={{
-                                                                                            color: theme.palette.mode === 'dark' ? colors.greenAccent[300] : '#ffffff',
-                                                                                            '&:hover': {
-                                                                                                backgroundColor: theme.palette.mode === 'dark' ? colors.greenAccent[800] : 'rgba(255, 255, 255, 0.2)',
-                                                                                                color: '#ffffff'
-                                                                                            },
-                                                                                            transition: 'all 0.2s ease-in-out'
-                                                                                        }}
+                                                                                        sx={{ color: 'primary.main', '&:hover': { backgroundColor: 'action.hover' } }}
                                                                                     >
                                                                                         <EditIcon />
                                                                                     </IconButton>
@@ -3740,14 +3722,7 @@ function ProjectDetailsPage() {
                                                                                         edge="end" 
                                                                                         aria-label="delete" 
                                                                                         onClick={() => handleDeleteMilestone(milestone.milestoneId)}
-                                                                                        sx={{
-                                                                                            color: theme.palette.mode === 'dark' ? colors.redAccent[300] : '#ffffff',
-                                                                                            '&:hover': {
-                                                                                                backgroundColor: theme.palette.mode === 'dark' ? colors.redAccent[800] : 'rgba(255, 255, 255, 0.2)',
-                                                                                                color: '#ffffff'
-                                                                                            },
-                                                                                            transition: 'all 0.2s ease-in-out'
-                                                                                        }}
+                                                                                        sx={{ color: 'error.main', '&:hover': { backgroundColor: 'action.hover' } }}
                                                                                     >
                                                                                         <DeleteIcon />
                                                                                     </IconButton>
@@ -3760,13 +3735,15 @@ function ProjectDetailsPage() {
                                                                 <Box sx={{ 
                                                                     p: 2.5, 
                                                                     flexGrow: 1,
-                                                                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.grey[50],
-                                                                    borderBottomLeftRadius: '12px',
-                                                                    borderBottomRightRadius: '12px'
+                                                                    backgroundColor: theme.palette.mode === 'dark'
+                                                                        ? alpha(theme.palette.common.white, 0.03)
+                                                                        : alpha(theme.palette.common.black, 0.02),
+                                                                    borderBottomLeftRadius: 8,
+                                                                    borderBottomRightRadius: 8
                                                                 }}>
                                                                     <Typography variant="body2" sx={{ 
                                                                         mb: 2,
-                                                                        color: theme.palette.mode === 'dark' ? colors.grey[200] : colors.grey[800],
+                                                                        color: 'text.secondary',
                                                                         fontWeight: 400,
                                                                         lineHeight: 1.6,
                                                                         fontSize: '0.9rem'
@@ -3776,40 +3753,22 @@ function ProjectDetailsPage() {
                                                                     
                                                                     <Stack spacing={1.5} sx={{ mb: 2 }}>
                                                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                            <ScheduleIcon sx={{ 
-                                                                                fontSize: '1rem', 
-                                                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] 
-                                                                            }} />
-                                                                            <Typography variant="body2" sx={{ 
-                                                                                color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                                fontWeight: 500
-                                                                            }}>
+                                                                            <ScheduleIcon sx={{ fontSize: '1rem', color: 'primary.main' }} />
+                                                                            <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                                 Due Date: {formatDate(milestone.dueDate)}
                                                                             </Typography>
                                                                         </Box>
                                                                         {milestone.completedDate && (
                                                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                                <CheckCircleIcon sx={{ 
-                                                                                    fontSize: '1rem', 
-                                                                                    color: theme.palette.mode === 'dark' ? colors.greenAccent[400] : colors.greenAccent[600] 
-                                                                                }} />
-                                                                                <Typography variant="body2" sx={{ 
-                                                                                    color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                                    fontWeight: 500
-                                                                                }}>
+                                                                                <CheckCircleIcon sx={{ fontSize: '1rem', color: 'success.main' }} />
+                                                                                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                                     Completed: {formatDate(milestone.completedDate)}
                                                                                 </Typography>
                                                                             </Box>
                                                                         )}
                                                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                            <TrendingUpIcon sx={{ 
-                                                                                fontSize: '1rem', 
-                                                                                color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[600] 
-                                                                            }} />
-                                                                            <Typography variant="body2" sx={{ 
-                                                                                color: theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[800],
-                                                                                fontWeight: 500
-                                                                            }}>
+                                                                            <TrendingUpIcon sx={{ fontSize: '1rem', color: 'primary.main' }} />
+                                                                            <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
                                                                                 Progress: {milestone.progress || 0}% (Weight: {milestone.weight || 1.00})
                                                                             </Typography>
                                                                         </Box>
@@ -3822,13 +3781,10 @@ function ProjectDetailsPage() {
                                                                             height: 10, 
                                                                             borderRadius: 5, 
                                                                             mb: 1.5,
-                                                                            bgcolor: theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[300],
+                                                                            bgcolor: 'action.hover',
                                                                             '& .MuiLinearProgress-bar': {
                                                                                 borderRadius: 5,
-                                                                                background: theme.palette.mode === 'dark'
-                                                                                    ? `linear-gradient(90deg, ${colors.blueAccent[500]} 0%, ${colors.blueAccent[400]} 100%)`
-                                                                                    : `linear-gradient(90deg, ${colors.blueAccent[500]} 0%, ${colors.blueAccent[600]} 100%)`,
-                                                                                boxShadow: theme.palette.mode === 'light' ? `0 2px 4px ${colors.blueAccent[200]}60` : 'none'
+                                                                                bgcolor: 'primary.main',
                                                                             }
                                                                         }} 
                                                                     />
@@ -3850,12 +3806,13 @@ function ProjectDetailsPage() {
                                                                     <Box sx={{ 
                                                                         mt: 3,
                                                                         pt: 2.5,
-                                                                        borderTop: `2px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`
+                                                                        borderTop: '1px solid',
+                                                                        borderColor: 'divider',
                                                                     }}>
                                                                         <Typography variant="subtitle2" sx={{ 
-                                                                            fontWeight: 'bold',
+                                                                            fontWeight: 700,
                                                                             mb: 2,
-                                                                            color: theme.palette.mode === 'dark' ? colors.blueAccent[400] : colors.blueAccent[700],
+                                                                            color: 'primary.main',
                                                                             fontSize: '1rem',
                                                                             display: 'flex',
                                                                             alignItems: 'center',
@@ -3872,16 +3829,15 @@ function ProjectDetailsPage() {
                                                                                         sx={{ 
                                                                                             mb: idx < activitiesForMilestone.length - 1 ? 1.5 : 0,
                                                                                             pb: idx < activitiesForMilestone.length - 1 ? 1.5 : 0,
-                                                                                            borderBottom: idx < activitiesForMilestone.length - 1 
-                                                                                                ? `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : colors.grey[200]}`
-                                                                                                : 'none'
+                                                                                            borderBottom: idx < activitiesForMilestone.length - 1 ? '1px solid' : 'none',
+                                                                                            borderColor: 'divider',
                                                                                         }}
                                                                                     >
                                                                                         <ListItemText
                                                                                             primary={
                                                                                                 <Typography variant="body2" sx={{ 
                                                                                                     fontWeight: 700,
-                                                                                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : '#000000',
+                                                                                                    color: 'text.primary',
                                                                                                     fontSize: '0.95rem',
                                                                                                     mb: 0.4,
                                                                                                     letterSpacing: '0.01em'
@@ -3892,7 +3848,7 @@ function ProjectDetailsPage() {
                                                                                             secondary={
                                                                                                 <Stack spacing={0.5} sx={{ mt: 0.5 }}>
                                                                                                     <Typography variant="caption" sx={{
-                                                                                                        color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                                        color: 'text.secondary',
                                                                                                         fontWeight: 500,
                                                                                                         fontSize: '0.8rem',
                                                                                                         display: 'block'
@@ -3900,7 +3856,7 @@ function ProjectDetailsPage() {
                                                                                                         {formatDate(activity.startDate)} - {formatDate(activity.endDate)}
                                                                                                     </Typography>
                                                                                                     <Typography variant="caption" sx={{
-                                                                                                        color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                                        color: 'text.secondary',
                                                                                                         fontWeight: 500,
                                                                                                         fontSize: '0.8rem',
                                                                                                         display: 'block'
@@ -3909,7 +3865,7 @@ function ProjectDetailsPage() {
                                                                                                     </Typography>
                                                                                                     {activity.budgetAllocated && (
                                                                                                         <Typography variant="caption" sx={{
-                                                                                                            color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[700],
+                                                                                                            color: 'text.secondary',
                                                                                                             fontWeight: 500,
                                                                                                             fontSize: '0.8rem',
                                                                                                             display: 'block'
@@ -3927,7 +3883,7 @@ function ProjectDetailsPage() {
                                                                             <Typography variant="body2" sx={{ 
                                                                                 fontStyle: 'italic', 
                                                                                 mt: 1,
-                                                                                color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[500],
+                                                                                color: 'text.secondary',
                                                                                 textAlign: 'center',
                                                                                 py: 2
                                                                             }}>
@@ -3937,10 +3893,10 @@ function ProjectDetailsPage() {
                                                                     </Box>
                                                                 </Box>
                                                             </Paper>
-                                                        </Grid>
+                                                        </Box>
                                                     );
                                                 })}
-                                            </Grid>
+                                            </Box>
                                         )}
                                     </Box>
                                 </AccordionDetails>
@@ -3953,7 +3909,7 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
-                {/* Gantt Chart Tab - Hidden */}
+                {/* Gantt: toggled from header in Schedule tab */}
                 {/* M&E Tab - Removed */}
                 {/* Documents Tab - Removed */}
 
@@ -4459,7 +4415,7 @@ function ProjectDetailsPage() {
                 {/* M&E Tab Content - Removed */}
                 {/* Documents Tab Content - Removed */}
 
-                {activeTab === 5 && (
+                {activeTab === 4 && (
                     <Box>
                         <Paper elevation={2} sx={{ p: 2, borderRadius: 2, mb: 2 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
@@ -5170,7 +5126,7 @@ function ProjectDetailsPage() {
                     />
                 )}
 
-                {activeTab === 4 && (
+                {activeTab === 99 && (
                     <Box>
                         {/* Teams Tab */}
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>

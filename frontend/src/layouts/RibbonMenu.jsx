@@ -28,6 +28,8 @@ import StraightenIcon from '@mui/icons-material/Straighten';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import UpdateIcon from '@mui/icons-material/Update';
+import RepeatIcon from '@mui/icons-material/Repeat';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import HistoryIcon from '@mui/icons-material/History';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
@@ -97,6 +99,8 @@ const ICON_MAP = {
   TaskAltIcon,
   ReportProblemIcon,
   UpdateIcon,
+  RepeatIcon,
+  FactCheckIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching

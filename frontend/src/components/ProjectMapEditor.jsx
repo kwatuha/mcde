@@ -94,7 +94,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
   const [mapCenter, setMapCenter] = useState({ lat: INITIAL_MAP_POSITION[0], lng: INITIAL_MAP_POSITION[1] });
   const [mapZoom, setMapZoom] = useState(6);
   const [mapHeight, setMapHeight] = useState(600); // Default height in pixels
-  const [mapType, setMapType] = useState('roadmap'); // 'roadmap' or 'satellite'
+  const [mapType, setMapType] = useState('roadmap'); // 'roadmap' | 'satellite' | 'hybrid'
   const [selectedPointIndex, setSelectedPointIndex] = useState(null); // Index of selected point for editing
   const [editingPoints, setEditingPoints] = useState(false); // Whether we're in point editing mode
 
@@ -1023,6 +1023,10 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                   <SatelliteIcon sx={{ mr: 0.5 }} fontSize="small" />
                   Satellite
                 </ToggleButton>
+                <ToggleButton value="hybrid" aria-label="hybrid view">
+                  <SatelliteIcon sx={{ mr: 0.5 }} fontSize="small" />
+                  Hybrid
+                </ToggleButton>
               </ToggleButtonGroup>
             </Box>
             <Box sx={{ height: '500px', width: '100%', position: 'relative' }}>
@@ -1205,6 +1209,10 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                   <ToggleButton value="satellite">
                     <SatelliteIcon sx={{ mr: 0.5 }} fontSize="small" />
                     Satellite
+                  </ToggleButton>
+                  <ToggleButton value="hybrid">
+                    <SatelliteIcon sx={{ mr: 0.5 }} fontSize="small" />
+                    Hybrid
                   </ToggleButton>
                 </ToggleButtonGroup>
               </Box>
