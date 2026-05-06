@@ -45,6 +45,7 @@ const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   finance: 'FINANCE_PAYMENT_CERTIFICATES',
   reporting: 'PROJECTS',
   management: 'BUDGET_MANAGEMENT',
+  reports: 'REPORT_LIBRARY',
   hr: 'HR_EMPLOYEES',
   public: 'PUBLIC_APPROVAL',
   admin: 'USER_MANAGEMENT',

@@ -248,6 +248,24 @@
       ]
     },
     {
+      "id": "reports",
+      "label": "Reports",
+      "icon": "AssessmentIcon",
+      "submenus": [
+        {
+          "title": "Report Library",
+          "icon": "MenuBookIcon",
+          "route": "REPORT_LIBRARY"
+        },
+        {
+          "title": "Reports Analytics",
+          "icon": "AssessmentIcon",
+          "route": "REPORTS",
+          "hidden": true
+        }
+      ]
+    },
+    {
       "id": "hr",
       "label": "HR",
       "icon": "PeopleIcon",

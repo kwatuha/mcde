@@ -6,6 +6,67 @@ import axiosInstance from './axiosInstance';
  */
 
 const reportsService = {
+  /** @returns {Promise<Array>} */
+  listReportLibraryUploads: async () => {
+    const response = await axiosInstance.get('/report-library');
+    return response.data;
+  },
+
+  uploadReportLibraryFile: async (file, meta) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('title', (meta?.title || '').trim());
+    if (meta?.description != null && String(meta.description).trim()) {
+      formData.append('description', String(meta.description).trim());
+    }
+    const response = await axiosInstance.post('/report-library/upload', formData);
+    return response.data;
+  },
+
+  downloadReportLibraryFile: async (id, fallbackFileName = 'report') => {
+    const response = await axiosInstance.get(`/report-library/${id}/download`, {
+      responseType: 'blob',
+    });
+    let fileName = fallbackFileName;
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const utf8 = cd.match(/filename\*=UTF-8''([^;\s]+)/i);
+      if (utf8?.[1]) {
+        try {
+          fileName = decodeURIComponent(utf8[1]);
+        } catch {
+          fileName = fallbackFileName;
+        }
+      } else {
+        const plain = cd.match(/filename="?([^";\n]+)"?/i);
+        if (plain?.[1]) fileName = plain[1].replace(/"/g, '');
+      }
+    }
+    return { blob: response.data, fileName };
+  },
+
+  updateReportLibrary: async (id, body) => {
+    const response = await axiosInstance.patch(`/report-library/${id}`, {
+      title: (body.title || '').trim(),
+      description:
+        body.description === undefined || body.description === null
+          ? null
+          : String(body.description),
+    });
+    return response.data;
+  },
+
+  deleteReportLibrary: async (id) => {
+    await axiosInstance.delete(`/report-library/${id}`);
+  },
+
+  replaceReportLibraryFile: async (id, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/report-library/${id}/file`, formData);
+    return response.data;
+  },
+
   // --- Department Summary Report Calls ---
   getDepartmentSummaryReport: async (filters = {}) => {
     try {

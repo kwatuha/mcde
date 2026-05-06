@@ -22,6 +22,7 @@ import VerifyCertificatePage from './pages/VerifyCertificatePage';
 import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
+import ReportLibraryPage from './pages/ReportLibraryPage';
 import UserManagementPage from './pages/UserManagementPage';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -264,6 +265,10 @@ const router = createBrowserRouter([
       {
         path: 'reports',
         element: <ReportsPage />,
+      },
+      {
+        path: 'report-library',
+        element: <ReportLibraryPage />,
       },
       {
         path: 'view-reports',

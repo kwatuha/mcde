@@ -24,6 +24,7 @@ const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
 const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const ReportLibraryPage = lazy(() => import('./pages/ReportLibraryPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
@@ -176,6 +177,10 @@ const router = createBrowserRouter([
       {
         path: 'reports',
         element: <LazyRoute component={ReportsPage} />,
+      },
+      {
+        path: 'report-library',
+        element: <LazyRoute component={ReportLibraryPage} />,
       },
       {
         path: 'view-reports',

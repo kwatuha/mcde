@@ -78,6 +78,7 @@ export const ROUTES = {
     /** Public certificate verification (no login); same path when opened from the Projects menu while signed in. */
     VERIFY_CERTIFICATE: '/verify-certificate',
     REPORTS: '/reports',
+    REPORT_LIBRARY: '/report-library',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',
     REPORTING_OVERVIEW: '/view-reports',
