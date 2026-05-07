@@ -36,9 +36,11 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SaveIcon from '@mui/icons-material/Save';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import apiService from '../api';
 import ChecklistFormFields from '../components/ChecklistFormFields';
 import { downloadMonitoringVisitPdf } from '../utils/monitoringVisitPdf';
+import { ROUTES } from '../configs/appConfig';
 
 const CATEGORIES = [
   { value: 'general', label: 'General' },
@@ -555,6 +557,7 @@ export default function DataCollectionToolsPage() {
     }
   };
 
+
   useEffect(() => {
     if (!visitOpen || visitReadOnly || visitEditingId) return;
     const hasValues =
@@ -748,6 +751,23 @@ export default function DataCollectionToolsPage() {
                 </TableBody>
               </Table>
             )}
+            <Divider sx={{ my: 3 }} />
+            <Alert
+              severity="info"
+              action={
+                <Button
+                  size="small"
+                  endIcon={<OpenInNewIcon fontSize="small" />}
+                  onClick={() => {
+                    window.location.href = ROUTES.SCHEDULED_REPORTS;
+                  }}
+                >
+                  Open
+                </Button>
+              }
+            >
+              Scheduled reports moved to Reports &gt; Scheduled reports for system-wide access.
+            </Alert>
           </TabPanel>
         </Box>
       </Paper>

@@ -23,6 +23,7 @@ import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
 import ReportLibraryPage from './pages/ReportLibraryPage';
+import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
 import UserManagementPage from './pages/UserManagementPage';
 import Login from './components/Login';
@@ -270,6 +271,10 @@ const router = createBrowserRouter([
       {
         path: 'report-library',
         element: <ReportLibraryPage />,
+      },
+      {
+        path: 'scheduled-reports',
+        element: <ScheduledReportsPage />,
       },
       {
         path: 'data-collection-tools',

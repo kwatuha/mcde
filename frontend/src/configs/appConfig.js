@@ -79,6 +79,7 @@ export const ROUTES = {
     VERIFY_CERTIFICATE: '/verify-certificate',
     REPORTS: '/reports',
     REPORT_LIBRARY: '/report-library',
+    SCHEDULED_REPORTS: '/scheduled-reports',
     /** Inspection / monitoring checklist templates and standalone visits. */
     DATA_COLLECTION_TOOLS: '/data-collection-tools',
     GIS_MAPPING: '/maps',

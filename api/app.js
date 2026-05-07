@@ -53,6 +53,8 @@ const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
 const auditTrailRoutes = require('./routes/auditTrailRoutes')
 const reportLibraryRoutes = require('./routes/reportLibraryRoutes')
 const dataCollectionRoutes = require('./routes/dataCollectionRoutes')
+const reportSchedulingRoutes = require('./routes/reportSchedulingRoutes')
+const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
 const port = Number(process.env.PORT) || 3002;
@@ -117,6 +119,7 @@ app.use('/api/data-access', dataAccessRoutes);
 app.use('/api', authenticate);
 app.use('/api/report-library', reportLibraryRoutes);
 app.use('/api/data-collection', dataCollectionRoutes);
+app.use('/api/report-schedules', reportSchedulingRoutes);
 app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers
@@ -197,6 +200,13 @@ server.listen(port, bindHost, async () => {
         }
     } catch (e) {
         console.warn('SMTP check skipped:', e.message);
+    }
+    try {
+        await ensureReportSchedulingTables();
+        startReportScheduler();
+        console.log('Scheduled report runner: started (checks every 60 seconds).');
+    } catch (e) {
+        console.warn('Scheduled report runner failed to start:', e.message);
     }
 });
 

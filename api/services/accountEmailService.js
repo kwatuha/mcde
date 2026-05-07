@@ -205,6 +205,24 @@ Sent at: ${new Date().toISOString()}`,
     return { ok: true, messageId: info.messageId, response: info.response };
 }
 
+async function sendScheduledReportEmail({ to, subject, text, attachments = [] }) {
+    const tx = getTransporter();
+    if (!tx) throw new Error('SMTP is not configured.');
+    const addr = String(to || '').trim();
+    if (!addr) throw new Error('Recipient address is required.');
+    const mail = {
+        from: getFromAddress(),
+        to: addr,
+        envelope: { from: getEnvelopeFrom(), to: addr },
+        subject: String(subject || 'Scheduled report'),
+        text: String(text || ''),
+        attachments: Array.isArray(attachments) ? attachments : [],
+    };
+    attachBccIfConfigured(mail, addr);
+    await tx.sendMail(mail);
+    return true;
+}
+
 module.exports = {
     canSendEmail,
     resetEmailTransporter,
@@ -213,4 +231,5 @@ module.exports = {
     sendLoginOtpEmail,
     sendPasswordResetEmail,
     sendSmtpTestEmail,
+    sendScheduledReportEmail,
 };

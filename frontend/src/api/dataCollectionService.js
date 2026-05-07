@@ -50,6 +50,38 @@ const dataCollectionService = {
     const response = await axiosInstance.put(`/data-collection/submissions/${id}`, body);
     return response.data;
   },
+
+  listReportSchedules: async () => {
+    const response = await axiosInstance.get('/report-schedules');
+    return response.data;
+  },
+
+  createReportSchedule: async (body) => {
+    const response = await axiosInstance.post('/report-schedules', body);
+    return response.data;
+  },
+
+  updateReportSchedule: async (id, body) => {
+    const response = await axiosInstance.put(`/report-schedules/${id}`, body);
+    return response.data;
+  },
+
+  deleteReportSchedule: async (id) => {
+    const response = await axiosInstance.delete(`/report-schedules/${id}`);
+    return response.data;
+  },
+
+  runReportScheduleNow: async (id) => {
+    const response = await axiosInstance.post(`/report-schedules/${id}/run-now`);
+    return response.data;
+  },
+
+  listReportScheduleRuns: async (id, opts = {}) => {
+    const params = {};
+    if (opts.limit != null) params.limit = opts.limit;
+    const response = await axiosInstance.get(`/report-schedules/${id}/runs`, { params });
+    return response.data;
+  },
 };
 
 export default dataCollectionService;
