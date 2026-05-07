@@ -3785,42 +3785,182 @@ router.get('/participants-per-project', async (req, res) => {
 });
 
 // NEW: Contractor Assignment Routes
+/** Normalize pg/mysql-style pool.query results (see api/config/db.js — PostgreSQL returns { rows }). */
+const contractorAssignmentRowsOf = (result) => {
+    if (Array.isArray(result)) return result[0] || [];
+    if (result && Array.isArray(result.rows)) return result.rows;
+    return [];
+};
+
+const DB_TYPE_ASSIGN = process.env.DB_TYPE || 'postgresql';
+const isPostgresAssign = DB_TYPE_ASSIGN === 'postgresql';
+
+/**
+ * Ensure join table exists (Machakos PG uses projects.project_id; table is often missing on fresh DBs).
+ */
+async function ensureProjectContractorAssignmentsTablePostgres() {
+    if (!isPostgresAssign) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS "project_contractor_assignments" (
+            "projectId" INTEGER NOT NULL,
+            "contractorId" INTEGER NOT NULL,
+            "assignmentDate" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            voided BOOLEAN NOT NULL DEFAULT false,
+            PRIMARY KEY ("projectId", "contractorId"),
+            CONSTRAINT fk_project_contractor_assignments_project
+                FOREIGN KEY ("projectId") REFERENCES projects (project_id) ON DELETE CASCADE,
+            CONSTRAINT fk_project_contractor_assignments_contractor
+                FOREIGN KEY ("contractorId") REFERENCES contractors ("contractorId") ON DELETE CASCADE
+        )
+    `);
+}
+
+/**
+ * BQ line items linked to a contractor for payment / progress scoping (no hard FK to project_bq_items so table can be created before BQ tab is used).
+ */
+async function ensureProjectContractorBqItemsTablePostgres() {
+    if (!isPostgresAssign) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS project_contractor_bq_items (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL REFERENCES projects (project_id) ON DELETE CASCADE,
+            contractor_id INTEGER NOT NULL REFERENCES contractors ("contractorId") ON DELETE CASCADE,
+            bq_item_id BIGINT NOT NULL,
+            voided BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (contractor_id, bq_item_id)
+        )
+    `);
+    await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_pcbq_proj_contractor ON project_contractor_bq_items (project_id, contractor_id)`
+    );
+    await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_pcbq_bq_item ON project_contractor_bq_items (bq_item_id)`
+    );
+}
+
+async function syncContractorBqItemsPostgres(projectId, contractorId, bqItemIdsRaw) {
+    await ensureProjectContractorBqItemsTablePostgres();
+    const ids = [...new Set((bqItemIdsRaw || []).map(Number).filter(Number.isFinite))];
+
+    await pool.query(
+        `DELETE FROM project_contractor_bq_items WHERE project_id = ? AND contractor_id = ?`,
+        [projectId, contractorId]
+    );
+
+    if (ids.length === 0) return;
+
+    let validIds = ids;
+    try {
+        const chk = await pool.query(
+            `SELECT id FROM project_bq_items WHERE project_id = ? AND COALESCE(voided, false) = false AND id = ANY(?)`,
+            [projectId, ids]
+        );
+        const found = new Set(contractorAssignmentRowsOf(chk).map((r) => Number(r.id)));
+        validIds = ids.filter((id) => found.has(id));
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || e?.code === '42P01') {
+            const err = new Error(
+                'Bill of Quantities (BQ) is not set up for this project yet. Add BQ line items first, then assign them to contractors.'
+            );
+            err.code = 'BQ_TABLE_MISSING';
+            throw err;
+        }
+        throw e;
+    }
+
+    const invalid = ids.filter((id) => !validIds.includes(id));
+    if (invalid.length > 0) {
+        const err = new Error(`Some BQ item IDs are not valid for this project: ${invalid.join(', ')}`);
+        err.code = 'BQ_INVALID_IDS';
+        throw err;
+    }
+
+    for (const bqId of validIds) {
+        await pool.query(
+            `INSERT INTO project_contractor_bq_items (project_id, contractor_id, bq_item_id) VALUES (?, ?, ?)`,
+            [projectId, contractorId, bqId]
+        );
+    }
+}
+
 /**
  * @route GET /api/projects/:projectId/contractors
  * @description Get all contractors assigned to a specific project.
  * @access Private
  */
 router.get('/:projectId/contractors', async (req, res) => {
-    const { projectId } = req.params;
+    const pid = Number(req.params.projectId);
+    if (!Number.isFinite(pid)) {
+        return res.status(400).json({ message: 'Invalid project id.' });
+    }
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
     try {
-        // Check if table exists first
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
-        let tableCheck;
         if (DB_TYPE === 'postgresql') {
-            tableCheck = await pool.query(`
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'kemri_contractors'
+            await ensureProjectContractorAssignmentsTablePostgres();
+            const sql = `
+                SELECT c.*
+                FROM contractors c
+                INNER JOIN "project_contractor_assignments" pca
+                  ON c."contractorId" = pca."contractorId"
+                WHERE pca."projectId" = ?
+                  AND COALESCE(pca.voided, false) = false
+                  AND (c.voided IS NULL OR c.voided = false)
+                ORDER BY c."companyName" ASC NULLS LAST
+            `;
+            const result = await pool.query(sql, [pid]);
+            const contractors = contractorAssignmentRowsOf(result);
+            try {
+                await ensureProjectContractorBqItemsTablePostgres();
+                const bqRes = await pool.query(
+                    `SELECT contractor_id AS cid, bq_item_id AS bid
+                     FROM project_contractor_bq_items
+                     WHERE project_id = ? AND COALESCE(voided, false) = false`,
+                    [pid]
                 );
-            `);
-            if (!tableCheck.rows[0]?.exists) {
-                return res.status(200).json([]);
+                const byC = new Map();
+                for (const row of contractorAssignmentRowsOf(bqRes)) {
+                    const ckey = Number(row.cid);
+                    if (!byC.has(ckey)) byC.set(ckey, []);
+                    byC.get(ckey).push(Number(row.bid));
+                }
+                return res.status(200).json(
+                    contractors.map((c) => ({
+                        ...c,
+                        bqItemIds: byC.get(Number(c.contractorId)) || [],
+                    }))
+                );
+            } catch (bqErr) {
+                const msg = String(bqErr?.message || '').toLowerCase();
+                if (
+                    msg.includes('does not exist') ||
+                    msg.includes('relation') ||
+                    bqErr?.code === '42P01'
+                ) {
+                    return res.status(200).json(contractors.map((c) => ({ ...c, bqItemIds: [] })));
+                }
+                throw bqErr;
             }
         }
-        
-        const [rows] = await pool.query(
+
+        const result = await pool.query(
             `SELECT c.* FROM kemri_contractors c
-             JOIN kemri_project_contractor_assignments pca ON c.contractorId = pca.contractorId
-             WHERE pca.projectId = ?`,
-            [projectId]
+             INNER JOIN kemri_project_contractor_assignments pca ON c.contractorId = pca.contractorId
+             WHERE pca.projectId = ?
+               AND (pca.voided IS NULL OR pca.voided = 0)
+               AND (c.voided IS NULL OR c.voided = 0)`,
+            [pid]
         );
-        res.status(200).json(rows);
+        return res.status(200).json(contractorAssignmentRowsOf(result));
     } catch (error) {
         console.error('Error fetching contractors for project:', error);
-        // If table doesn't exist, return empty array instead of error
         const errorMessage = error.message || '';
-        if (errorMessage.includes('does not exist') || errorMessage.includes('relation') || error.code === '42P01') {
+        if (
+            errorMessage.includes('does not exist') ||
+            errorMessage.includes('relation') ||
+            error.code === '42P01'
+        ) {
             return res.status(200).json([]);
         }
         res.status(500).json({ message: 'Error fetching contractors for project', error: error.message });
@@ -3833,23 +3973,69 @@ router.get('/:projectId/contractors', async (req, res) => {
  * @access Private
  */
 router.post('/:projectId/assign-contractor', async (req, res) => {
-    const { projectId } = req.params;
-    const { contractorId } = req.body;
-    
-    if (!contractorId) {
+    const pid = Number(req.params.projectId);
+    const cid = Number(req.body?.contractorId);
+
+    if (!Number.isFinite(pid)) {
+        return res.status(400).json({ message: 'Invalid project id.' });
+    }
+    if (!Number.isFinite(cid)) {
         return res.status(400).json({ message: 'Contractor ID is required.' });
     }
 
+    const bqBody = req.body?.bqItemIds ?? req.body?.bq_item_ids;
+    const bqItemPayload = Array.isArray(bqBody) ? bqBody : [];
+
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
     try {
-        const [result] = await pool.query(
+        if (DB_TYPE === 'postgresql') {
+            await ensureProjectContractorAssignmentsTablePostgres();
+            try {
+                await pool.query(
+                    `INSERT INTO "project_contractor_assignments" ("projectId", "contractorId")
+                     VALUES (?, ?)`,
+                    [pid, cid]
+                );
+            } catch (insertErr) {
+                if (insertErr.code !== '23505') throw insertErr;
+            }
+            try {
+                await syncContractorBqItemsPostgres(pid, cid, bqItemPayload);
+            } catch (syncErr) {
+                if (syncErr.code === 'BQ_TABLE_MISSING' || syncErr.code === 'BQ_INVALID_IDS') {
+                    return res.status(400).json({ message: syncErr.message });
+                }
+                throw syncErr;
+            }
+            return res.status(201).json({
+                message: 'Contractor assigned to project successfully.',
+                projectId: pid,
+                contractorId: cid,
+                bqItemIds: bqItemPayload.map(Number).filter(Number.isFinite),
+            });
+        }
+
+        const result = await pool.query(
             'INSERT INTO kemri_project_contractor_assignments (projectId, contractorId) VALUES (?, ?)',
-            [projectId, contractorId]
+            [pid, cid]
         );
-        res.status(201).json({ message: 'Contractor assigned to project successfully.', assignmentId: result.insertId });
+        return res.status(201).json({
+            message: 'Contractor assigned to project successfully.',
+            assignmentId: result.insertId ?? null,
+            projectId: pid,
+            contractorId: cid,
+        });
     } catch (error) {
         console.error('Error assigning contractor to project:', error);
-        if (error.code === 'ER_DUP_ENTRY') {
+        if (error.code === '23505' || error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ message: 'This contractor is already assigned to this project.' });
+        }
+        if (error.code === '23503') {
+            return res.status(400).json({
+                message:
+                    'Cannot assign: project or contractor is missing in the database (foreign key). Check that the project and contractor IDs are valid.',
+                detail: error.detail || error.message,
+            });
         }
         res.status(500).json({ message: 'Error assigning contractor to project', error: error.message });
     }
@@ -3861,13 +4047,36 @@ router.post('/:projectId/assign-contractor', async (req, res) => {
  * @access Private
  */
 router.delete('/:projectId/remove-contractor/:contractorId', async (req, res) => {
-    const { projectId, contractorId } = req.params;
+    const pid = Number(req.params.projectId);
+    const cid = Number(req.params.contractorId);
+    if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
+        return res.status(400).json({ message: 'Invalid project or contractor id.' });
+    }
+
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
     try {
-        const [result] = await pool.query(
-            'DELETE FROM kemri_project_contractor_assignments WHERE projectId = ? AND contractorId = ?',
-            [projectId, contractorId]
-        );
-        if (result.affectedRows === 0) {
+        let deleted = 0;
+        if (DB_TYPE === 'postgresql') {
+            await ensureProjectContractorBqItemsTablePostgres();
+            await pool.query(
+                `DELETE FROM project_contractor_bq_items WHERE project_id = ? AND contractor_id = ?`,
+                [pid, cid]
+            );
+            await ensureProjectContractorAssignmentsTablePostgres();
+            const result = await pool.query(
+                `DELETE FROM "project_contractor_assignments"
+                 WHERE "projectId" = ? AND "contractorId" = ?`,
+                [pid, cid]
+            );
+            deleted = result.rowCount ?? 0;
+        } else {
+            const result = await pool.query(
+                'DELETE FROM kemri_project_contractor_assignments WHERE projectId = ? AND contractorId = ?',
+                [pid, cid]
+            );
+            deleted = result.affectedRows ?? result.rowCount ?? 0;
+        }
+        if (!deleted) {
             return res.status(404).json({ message: 'Assignment not found.' });
         }
         res.status(204).send();

@@ -6102,6 +6102,10 @@ function ProjectDetailsPage() {
                 project={{
                     id: Number(projectId),
                     projectName: project?.projectName || project?.name || `Project ${projectId}`,
+                    subtitle:
+                        [project?.wardNames, project?.subcountyNames, project?.countyNames, project?.ProjectRefNum]
+                            .filter(Boolean)
+                            .join(' · ') || undefined,
                 }}
             />
 

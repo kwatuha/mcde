@@ -984,8 +984,17 @@ function ProjectManagementPage() {
 
   /* SCOPE_DOWN: Assign Contractor - contractors table removed. Re-enable when restoring. */
   const handleOpenAssignModal = (project) => {
-      setSelectedProjectForAssignment(project);
-      setOpenAssignModal(true);
+    const pid = Number(project?.id ?? project?.projectId ?? project?.project_id);
+    setSelectedProjectForAssignment({
+      ...project,
+      id: Number.isFinite(pid) ? pid : project?.id,
+      projectName: project?.projectName || project?.name,
+      subtitle:
+        [project?.wardNames, project?.subcountyNames, project?.countyNames, project?.ProjectRefNum, project?.directorate]
+          .filter(Boolean)
+          .join(' · ') || undefined,
+    });
+    setOpenAssignModal(true);
   };
   const handleCloseAssignModal = () => {
       setOpenAssignModal(false);

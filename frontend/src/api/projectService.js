@@ -124,9 +124,19 @@ const projectService = {
         const response = await axiosInstance.get(`/projects/${projectId}/contractors`);
         return response.data;
     },
-    // NEW: Function to assign a contractor to a project
-    assignContractor: async (projectId, contractorId) => {
-        const response = await axiosInstance.post(`/projects/${projectId}/assign-contractor`, { contractorId });
+    /**
+     * Assign a contractor to a project. Include bqItemIds (Bill of Quantities line ids) to scope work / payments.
+     * @param {number} projectId
+     * @param {number} contractorId
+     * @param {object} [options]
+     * @param {number[]} [options.bqItemIds] - BQ item ids for this project; empty array clears scope.
+     */
+    assignContractor: async (projectId, contractorId, options = {}) => {
+        const bqItemIds = Array.isArray(options.bqItemIds) ? options.bqItemIds : [];
+        const response = await axiosInstance.post(`/projects/${projectId}/assign-contractor`, {
+            contractorId,
+            bqItemIds,
+        });
         return response.data;
     },
     // NEW: Function to remove a contractor assignment from a project
