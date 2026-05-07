@@ -65,6 +65,8 @@ const ProjectDashboardPage = lazy(() => import('./pages/ProjectDashboardPage'));
 const ReportingView = lazy(() => import('./pages/ReportingView'));
 const RegionalDashboard = lazy(() => import('./pages/RegionalDashboard'));
 const RegionalBreakdownDashboardPage = lazy(() => import('./pages/RegionalBreakdownDashboardPage'));
+const ProcurementPage = lazy(() => import('./pages/ProcurementPage'));
+const ProcurementStagesPage = lazy(() => import('./pages/ProcurementStagesPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -144,6 +146,14 @@ const router = createBrowserRouter([
       {
         path: 'partners',
         element: <LazyRoute component={ProjectPartnersPage} />,
+      },
+      {
+        path: 'procurement',
+        element: <LazyRoute component={ProcurementPage} />,
+      },
+      {
+        path: 'procurement-stages',
+        element: <LazyRoute component={ProcurementStagesPage} />,
       },
       {
         path: 'projects/feedback-by-project',

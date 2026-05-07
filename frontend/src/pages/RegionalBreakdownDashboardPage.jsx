@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -28,6 +29,7 @@ const currency = (v) =>
   })}`;
 
 const RegionalBreakdownDashboardPage = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +162,19 @@ const RegionalBreakdownDashboardPage = () => {
     };
   }, [activeTab, constituencyRows, wardRows, totals.totalProjects, totals.totalBudget]);
 
+  const openRegistry = (row) => {
+    if (!row) return;
+    const params = new URLSearchParams();
+    if (row.constituency && row.constituency !== 'Unspecified') {
+      params.set('constituency', row.constituency);
+    }
+    if (row.ward && row.ward !== 'Unspecified') {
+      params.set('ward', row.ward);
+    }
+    const q = params.toString();
+    navigate(q ? `/projects?${q}` : '/projects');
+  };
+
   return (
     <Box sx={{ p: { xs: 1, sm: 1.5 } }}>
       <Paper
@@ -247,7 +262,12 @@ const RegionalBreakdownDashboardPage = () => {
                 </TableHead>
                 <TableBody>
                   {constituencyRows.map((r) => (
-                    <TableRow key={r.constituency} hover>
+                    <TableRow
+                      key={r.constituency}
+                      hover
+                      onClick={() => openRegistry(r)}
+                      sx={{ cursor: 'pointer' }}
+                    >
                       <TableCell>{r.constituency}</TableCell>
                       <TableCell align="right">{r.projectCount}</TableCell>
                       <TableCell align="right">{currency(r.totalBudget)}</TableCell>
@@ -271,7 +291,12 @@ const RegionalBreakdownDashboardPage = () => {
                 </TableHead>
                 <TableBody>
                   {wardRows.map((r) => (
-                    <TableRow key={`${r.constituency}-${r.ward}`} hover>
+                    <TableRow
+                      key={`${r.constituency}-${r.ward}`}
+                      hover
+                      onClick={() => openRegistry(r)}
+                      sx={{ cursor: 'pointer' }}
+                    >
                       <TableCell>{r.ward}</TableCell>
                       <TableCell>{r.constituency}</TableCell>
                       <TableCell align="right">{r.projectCount}</TableCell>
@@ -352,7 +377,12 @@ const RegionalBreakdownDashboardPage = () => {
             </TableHead>
             <TableBody>
               {distributionInsights.underServed.map((r) => (
-                <TableRow key={`priority-${r.scopeLabel}-${r.constituency || 'na'}`} hover>
+                <TableRow
+                  key={`priority-${r.scopeLabel}-${r.constituency || 'na'}`}
+                  hover
+                  onClick={() => openRegistry(r)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell>{r.scopeLabel}</TableCell>
                   <TableCell align="right">{r.projectGap.toFixed(1)}</TableCell>
                   <TableCell align="right">{currency(Math.max(r.budgetGap, 0))}</TableCell>

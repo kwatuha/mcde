@@ -15,6 +15,10 @@ import { useAuth } from '../context/AuthContext';
 
 const AssignContractorModal = ({ open, onClose, project }) => {
   const { hasPrivilege } = useAuth();
+  const canManageAssignments =
+    hasPrivilege('projects.assign_contractor') ||
+    hasPrivilege('project.update') ||
+    hasPrivilege('admin.access');
 
   const [allContractors, setAllContractors] = useState([]);
   const [assignedContractors, setAssignedContractors] = useState([]);
@@ -26,7 +30,7 @@ const AssignContractorModal = ({ open, onClose, project }) => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const fetchContractorData = useCallback(async () => {
-    if (!project?.id || !hasPrivilege('projects.assign_contractor')) {
+    if (!project?.id || !canManageAssignments) {
       if (project?.id) {
         setError("You do not have permission to manage contractor assignments for this project.");
       }
@@ -50,7 +54,7 @@ const AssignContractorModal = ({ open, onClose, project }) => {
     } finally {
       setLoading(false);
     }
-  }, [project, hasPrivilege]);
+  }, [project, canManageAssignments]);
 
   useEffect(() => {
     if (open) {
@@ -64,7 +68,7 @@ const AssignContractorModal = ({ open, onClose, project }) => {
   };
   
   const handleFormSubmit = async () => {
-    if (!hasPrivilege('projects.assign_contractor')) {
+    if (!canManageAssignments) {
       setSnackbar({ open: true, message: 'Permission denied to assign contractors.', severity: 'error' });
       return;
     }

@@ -120,6 +120,12 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
+          "title": "Contractors",
+          "icon": "BusinessIcon",
+          "route": "CONTRACTOR_MANAGEMENT",
+          "permissionsAny": ["contractors.read", "admin.access"]
+        },
+        {
           "title": "Project Activities",
           "icon": "TaskAltIcon",
           "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
@@ -255,6 +261,25 @@
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
           "roles": ["admin"]
+        }
+      ]
+    },
+    {
+      "id": "procurement",
+      "label": "Procurement",
+      "icon": "AssessmentIcon",
+      "submenus": [
+        {
+          "title": "Project Procurement",
+          "icon": "AssessmentIcon",
+          "route": "PROCUREMENT",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Procurement stages",
+          "icon": "AssignmentIcon",
+          "route": "PROCUREMENT_STAGES",
+          "permissionsAny": ["project.read_all", "project.update"]
         }
       ]
     },

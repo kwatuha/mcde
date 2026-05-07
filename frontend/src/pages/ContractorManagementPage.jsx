@@ -10,6 +10,8 @@ import apiService from '../api'; // Use the main api service
 import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "../pages/dashboard/theme";
 
+const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ContractorManagementPage() {
   const { user, hasPrivilege } = useAuth();
@@ -38,12 +40,32 @@ function ContractorManagementPage() {
   const [openDeleteConfirmDialog, setOpenDeleteConfirmDialog] = useState(false);
   const [contractorToDeleteId, setContractorToDeleteId] = useState(null);
   const [contractorToDeleteName, setContractorToDeleteName] = useState('');
+  const canReadContractors =
+      hasPrivilege('contractors.read') ||
+      hasPrivilege('contractor.read') ||
+      hasPrivilege('admin.access') ||
+      hasPrivilege('project.read_all');
+  const canCreateContractors =
+      hasPrivilege('contractors.create') ||
+      hasPrivilege('contractor.create') ||
+      hasPrivilege('admin.access') ||
+      hasPrivilege('project.update');
+  const canUpdateContractors =
+      hasPrivilege('contractors.update') ||
+      hasPrivilege('contractor.update') ||
+      hasPrivilege('admin.access') ||
+      hasPrivilege('project.update');
+  const canDeleteContractors =
+      hasPrivilege('contractors.delete') ||
+      hasPrivilege('contractor.delete') ||
+      hasPrivilege('admin.access') ||
+      hasPrivilege('project.update');
 
   const fetchContractors = useCallback(async () => {
       setLoading(true);
       setError(null);
       try {
-          if (hasPrivilege('contractors.read')) {
+          if (canReadContractors) {
               const data = await apiService.contractors.getAllContractors();
               setContractors(data);
           } else {
@@ -55,7 +77,7 @@ function ContractorManagementPage() {
       } finally {
           setLoading(false);
       }
-  }, [hasPrivilege]);
+  }, [canReadContractors]);
   
   const fetchUsers = useCallback(async () => {
       try {
@@ -74,7 +96,7 @@ function ContractorManagementPage() {
   // --- Handlers ---
 
   const handleOpenCreateDialog = () => {
-      if (!hasPrivilege('contractors.create')) {
+      if (!canCreateContractors) {
           setSnackbar({ open: true, message: 'Permission denied to create contractors.', severity: 'error' });
           return;
       }
@@ -85,7 +107,7 @@ function ContractorManagementPage() {
   };
 
   const handleOpenEditDialog = (contractor) => {
-      if (!hasPrivilege('contractors.update')) {
+      if (!canUpdateContractors) {
           setSnackbar({ open: true, message: 'Permission denied to edit contractors.', severity: 'error' });
           return;
       }
@@ -112,13 +134,38 @@ function ContractorManagementPage() {
   const handleFormChange = (e) => {
       const { name, value } = e.target;
       setFormData(prev => ({ ...prev, [name]: value }));
+      setFormErrors((prev) => {
+          const next = { ...prev };
+          if (name === 'email') {
+              if (!String(value || '').trim()) {
+                  next.email = 'Email is required.';
+              } else if (!emailRegex.test(String(value).trim())) {
+                  next.email = 'Please enter a valid email address (e.g., user@example.com)';
+              } else {
+                  delete next.email;
+              }
+          }
+          if (name === 'phone') {
+              if (String(value || '').trim() && !phoneRegex.test(String(value).trim())) {
+                  next.phone = 'Use 07XXXXXXXX or +2547XXXXXXXX';
+              } else {
+                  delete next.phone;
+              }
+          }
+          return next;
+      });
   };
 
   const validateForm = () => {
       let errors = {};
       if (!formData.companyName.trim()) errors.companyName = 'Company Name is required.';
       if (!formData.email.trim()) errors.email = 'Email is required.';
-      if (!/\S+@\S+\.\S+/.test(formData.email)) errors.email = 'Email is invalid.';
+      if (formData.email.trim() && !emailRegex.test(formData.email.trim())) {
+          errors.email = 'Please enter a valid email address (e.g., user@example.com)';
+      }
+      if (formData.phone.trim() && !phoneRegex.test(formData.phone.trim())) {
+          errors.phone = 'Use 07XXXXXXXX or +2547XXXXXXXX';
+      }
       setFormErrors(errors);
       return Object.keys(errors).length === 0;
   };
@@ -156,7 +203,7 @@ function ContractorManagementPage() {
   };
 
   const handleOpenDeleteConfirmDialog = (contractorId, companyName) => {
-      if (!hasPrivilege('contractors.delete')) {
+      if (!canDeleteContractors) {
           setSnackbar({ open: true, message: 'Permission denied to delete contractors.', severity: 'error' });
           return;
       }
@@ -209,10 +256,10 @@ function ContractorManagementPage() {
           filterable: false,
           renderCell: (params) => (
               <Stack direction="row" spacing={1}>
-                  {hasPrivilege('contractors.update') && (
+                  {canUpdateContractors && (
                       <Tooltip title="Edit"><IconButton color="primary" onClick={() => handleOpenEditDialog(params.row)}><EditIcon /></IconButton></Tooltip>
                   )}
-                  {hasPrivilege('contractors.delete') && (
+                  {canDeleteContractors && (
                       <Tooltip title="Delete"><IconButton color="error" onClick={() => handleOpenDeleteConfirmDialog(params.row.contractorId, params.row.companyName)}><DeleteIcon /></IconButton></Tooltip>
                   )}
               </Stack>
@@ -229,7 +276,7 @@ function ContractorManagementPage() {
       );
   }
 
-  if (error && !hasPrivilege('contractors.read')) {
+  if (error && !canReadContractors) {
       return (
           <Box sx={{ p: 3 }}>
               <Alert severity="error">{error || "You do not have sufficient privileges to view this page."}</Alert>
@@ -250,7 +297,7 @@ function ContractorManagementPage() {
               <Typography variant="h4" component="h1" sx={{ color: theme.palette.primary.main, fontWeight: 'bold' }}>
                   Contractor Management
               </Typography>
-              {hasPrivilege('contractors.create') && (
+              {canCreateContractors && (
                   <Button
                       variant="contained"
                       startIcon={<AddIcon />}
@@ -308,8 +355,8 @@ function ContractorManagementPage() {
               <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default }}>
                   <TextField autoFocus margin="dense" name="companyName" label="Company Name" type="text" fullWidth variant="outlined" value={formData.companyName} onChange={handleFormChange} error={!!formErrors.companyName} helperText={formErrors.companyName} sx={{ mb: 2 }} />
                   <TextField margin="dense" name="contactPerson" label="Contact Person" type="text" fullWidth variant="outlined" value={formData.contactPerson} onChange={handleFormChange} sx={{ mb: 2 }} />
-                  <TextField margin="dense" name="email" label="Email" type="email" fullWidth variant="outlined" value={formData.email} onChange={handleFormChange} error={!!formErrors.email} helperText={formErrors.email} sx={{ mb: 2 }} />
-                  <TextField margin="dense" name="phone" label="Phone" type="tel" fullWidth variant="outlined" value={formData.phone} onChange={handleFormChange} sx={{ mb: 2 }} />
+                  <TextField margin="dense" name="email" label="Email" type="email" fullWidth variant="outlined" value={formData.email} onChange={handleFormChange} error={!!formErrors.email} helperText={formErrors.email || 'Enter a valid email address (e.g., user@example.com)'} sx={{ mb: 2 }} />
+                  <TextField margin="dense" name="phone" label="Phone" type="tel" fullWidth variant="outlined" value={formData.phone} onChange={handleFormChange} error={!!formErrors.phone} helperText={formErrors.phone || 'Optional: 07XXXXXXXX or +2547XXXXXXXX'} sx={{ mb: 2 }} />
                   {!currentContractorToEdit && (
                       <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 200, mb: 2 }}>
                           <InputLabel>Link to User Account</InputLabel>

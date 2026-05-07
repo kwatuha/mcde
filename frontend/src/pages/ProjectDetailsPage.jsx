@@ -66,6 +66,8 @@ import projectService from '../api/projectService';
 import SiteUpdatesDialog from '../components/SiteUpdatesDialog';
 import ProjectSitesModal from '../components/ProjectSitesModal';
 import ChecklistFormFields, { checklistAnswersToRows } from '../components/ChecklistFormFields';
+import ProjectTaskOutputPanel from '../components/ProjectTaskOutputPanel';
+import AssignContractorModal from '../components/AssignContractorModal.jsx';
 
 // Helper function to map milestone activity status to project status colors
 const getMilestoneStatusColors = (status) => {
@@ -277,6 +279,9 @@ function ProjectDetailsPage() {
     const [editingMonitoringRecord, setEditingMonitoringRecord] = useState(null);
     
     // NEW: State for Contractors
+    const [assignedContractors, setAssignedContractors] = useState([]);
+    const [loadingAssignedContractors, setLoadingAssignedContractors] = useState(false);
+    const [openAssignContractorsModal, setOpenAssignContractorsModal] = useState(false);
 
     // NEW: State for Project Sites
     const [projectSites, setProjectSites] = useState([]);
@@ -707,11 +712,31 @@ function ProjectDetailsPage() {
         }
     }, [projectId]);
 
+    const fetchAssignedContractors = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingAssignedContractors(true);
+        try {
+            const rows = await projectService.projects.getContractors(projectId);
+            setAssignedContractors(Array.isArray(rows) ? rows : []);
+        } catch (err) {
+            console.error('Error loading assigned contractors:', err);
+            setAssignedContractors([]);
+        } finally {
+            setLoadingAssignedContractors(false);
+        }
+    }, [projectId]);
+
     useEffect(() => {
         if (activeTab === 1) {
             fetchFundingData();
         }
     }, [activeTab, fetchFundingData]);
+
+    useEffect(() => {
+        if (activeTab === 0) {
+            fetchAssignedContractors();
+        }
+    }, [activeTab, fetchAssignedContractors]);
 
     const handleDownloadInspectionReport = async (inspection) => {
         try {
@@ -2734,6 +2759,67 @@ function ProjectDetailsPage() {
                 {/* Tab Panels */}
                 {activeTab === 0 && (
                     <Box>
+                        <Paper elevation={0} sx={{
+                            p: 1.25,
+                            mb: 0.75,
+                            borderRadius: 2,
+                            background: theme.palette.mode === 'dark' ? colors.primary[500] : theme.palette.background.paper,
+                            border: `1px solid ${theme.palette.divider}`,
+                            boxShadow: 'none',
+                        }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                <Typography variant="subtitle1" sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    color: theme.palette.primary.main,
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem'
+                                }}>
+                                    <BusinessIcon sx={{ mr: 0.5, fontSize: '1rem', opacity: 0.9 }} />
+                                    Assigned Contractors
+                                </Typography>
+                                {checkUserPrivilege(user, 'project.update') && (
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        startIcon={<GroupIcon />}
+                                        onClick={() => setOpenAssignContractorsModal(true)}
+                                    >
+                                        Manage Assignments
+                                    </Button>
+                                )}
+                            </Box>
+                            {loadingAssignedContractors ? (
+                                <Box sx={{ py: 2, display: 'flex', justifyContent: 'center' }}>
+                                    <CircularProgress size={22} />
+                                </Box>
+                            ) : assignedContractors.length === 0 ? (
+                                <Alert severity="info">No contractors assigned to this project yet.</Alert>
+                            ) : (
+                                <TableContainer component={Paper} variant="outlined">
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell><strong>Company</strong></TableCell>
+                                                <TableCell><strong>Contact Person</strong></TableCell>
+                                                <TableCell><strong>Email</strong></TableCell>
+                                                <TableCell><strong>Phone</strong></TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {assignedContractors.map((c) => (
+                                                <TableRow key={c.contractorId || c.id}>
+                                                    <TableCell>{c.companyName || 'N/A'}</TableCell>
+                                                    <TableCell>{c.contactPerson || 'N/A'}</TableCell>
+                                                    <TableCell>{c.email || 'N/A'}</TableCell>
+                                                    <TableCell>{c.phone || 'N/A'}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            )}
+                        </Paper>
                         {/* Project Overview – neutral card */}
             <Paper elevation={0} sx={{ 
                 p: 1.25, 
@@ -3421,6 +3507,7 @@ function ProjectDetailsPage() {
                                 />
                             </Paper>
                         )}
+                        <ProjectTaskOutputPanel projectId={projectId} />
                         {/* Timeline & Milestones Tab */}
                         {/* Work Plans and Milestones Section (Refactored) */}
             <Box sx={{ mt: 1 }}>
@@ -6005,6 +6092,18 @@ function ProjectDetailsPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            <AssignContractorModal
+                open={openAssignContractorsModal}
+                onClose={() => {
+                    setOpenAssignContractorsModal(false);
+                    fetchAssignedContractors();
+                }}
+                project={{
+                    id: Number(projectId),
+                    projectName: project?.projectName || project?.name || `Project ${projectId}`,
+                }}
+            />
 
             <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
                 <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>

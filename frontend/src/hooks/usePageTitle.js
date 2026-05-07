@@ -85,6 +85,8 @@ const routeTitles = {
   '/metadata-management': { title: 'Metadata Management', subtitle: 'Data Configuration' },
   '/ministries-management': { title: 'Ministries', subtitle: 'Ministries & State Departments' },
   '/contractor-management': { title: 'Contractor Management', subtitle: 'Contractor Administration' },
+  '/procurement': { title: 'Project Procurement', subtitle: 'Under-procurement workflow management' },
+  '/procurement-stages': { title: 'Procurement stages', subtitle: 'Configure workflow stage labels for procurement projects' },
   '/county-proposed-projects': { title: 'Proposed Projects', subtitle: 'Project Proposals' },
   '/project-announcements': { title: 'Project Announcements', subtitle: 'Public Announcements' },
   '/public-approval': { title: 'Public Content Approval', subtitle: 'Approve content for the public site' },

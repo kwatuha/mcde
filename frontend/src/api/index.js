@@ -25,6 +25,7 @@ import planningService from './planningService';
 import auditTrailService from './auditTrailService';
 import dataCollectionService from './dataCollectionService';
 import partnersService from './partnersService';
+import procurementService from './procurementService';
 
 // Public API service (no authentication required)
 const publicApiService = {
@@ -97,6 +98,7 @@ const apiService = {
   auditTrail: auditTrailService,
   dataCollection: dataCollectionService,
   partners: partnersService,
+  procurement: procurementService,
 };
 
 export { axiosInstance };

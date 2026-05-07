@@ -68,6 +68,9 @@ export const ROUTES = {
     /** Project-wide status/progress updates screen. */
     PROJECT_STATUS: '/projects/status',
     PROJECT_PARTNERS: '/partners',
+    PROCUREMENT: '/procurement',
+    /** Catalog of workflow stages for procurement (sidebar under Procurement). */
+    PROCUREMENT_STAGES: '/procurement-stages',
     /** Link registry planning activities to projects (Projects sidebar). */
     PROJECT_PLANNING_ACTIVITY_LINKS: '/projects/planning-activity-links',
     /** Link registry planning risks to projects (Projects sidebar). */

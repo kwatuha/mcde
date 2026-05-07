@@ -264,6 +264,41 @@ const projectService = {
       const response = await axiosInstance.delete(`/tasks/${taskId}`);
       return response.data;
     },
+    getSubtasksForTask: async (taskId) => {
+      const response = await axiosInstance.get(`/tasks/${taskId}/subtasks`);
+      return response.data;
+    },
+    createSubtask: async (taskId, payload) => {
+      const response = await axiosInstance.post(`/tasks/${taskId}/subtasks`, payload);
+      return response.data;
+    },
+    updateSubtask: async (subtaskId, payload) => {
+      const response = await axiosInstance.put(`/tasks/subtasks/${subtaskId}`, payload);
+      return response.data;
+    },
+    deleteSubtask: async (subtaskId) => {
+      const response = await axiosInstance.delete(`/tasks/subtasks/${subtaskId}`);
+      return response.data;
+    },
+  },
+
+  outputs: {
+    getForProject: async (projectId) => {
+      const response = await axiosInstance.get(`/tasks/project/${projectId}/outputs`);
+      return response.data;
+    },
+    createForProject: async (projectId, payload) => {
+      const response = await axiosInstance.post(`/tasks/project/${projectId}/outputs`, payload);
+      return response.data;
+    },
+    update: async (outputId, payload) => {
+      const response = await axiosInstance.put(`/tasks/outputs/${outputId}`, payload);
+      return response.data;
+    },
+    delete: async (outputId) => {
+      const response = await axiosInstance.delete(`/tasks/outputs/${outputId}`);
+      return response.data;
+    },
   },
 
   // --- Milestone Management API Calls (kemri_project_milestones) ---

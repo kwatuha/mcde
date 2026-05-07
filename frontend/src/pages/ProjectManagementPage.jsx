@@ -2995,14 +2995,11 @@ function ProjectManagementPage() {
         user={user}
       />
       
-      {/* SCOPE_DOWN: contractors/contractor_users tables removed. Re-enable when restoring for wider market. */}
-      {false && (
-        <AssignContractorModal
-          open={openAssignModal}
-          onClose={handleCloseAssignModal}
-          project={selectedProjectForAssignment}
-        />
-      )}
+      <AssignContractorModal
+        open={openAssignModal}
+        onClose={handleCloseAssignModal}
+        project={selectedProjectForAssignment}
+      />
       
       {/* Project Sites Modal */}
       <ProjectSitesModal
@@ -3084,6 +3081,15 @@ function ProjectManagementPage() {
             <ListItemText>View Details</ListItemText>
           </MenuItem>
         )}
+        {selectedProjectForContextMenu && checkUserPrivilege(user, 'project.update') && (
+          <MenuItem onClick={() => {
+            handleOpenAssignModal(selectedProjectForContextMenu);
+            handleContextMenuClose();
+          }}>
+            <ListItemIcon><GroupAddIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Assign Contractors</ListItemText>
+          </MenuItem>
+        )}
       </Menu>
 
       {/* Row Action Menu */}
@@ -3143,6 +3149,18 @@ function ProjectManagementPage() {
               <ViewDetailsIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>View Details</ListItemText>
+          </MenuItem>
+        )}
+        {selectedRow && checkUserPrivilege(user, 'project.update') && (
+          <MenuItem onClick={() => {
+            handleOpenAssignModal(selectedRow);
+            setRowActionMenuAnchor(null);
+            setSelectedRow(null);
+          }}>
+            <ListItemIcon>
+              <GroupAddIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Assign Contractors</ListItemText>
           </MenuItem>
         )}
       </Menu>

@@ -56,6 +56,7 @@ const reportLibraryRoutes = require('./routes/reportLibraryRoutes')
 const dataCollectionRoutes = require('./routes/dataCollectionRoutes')
 const reportSchedulingRoutes = require('./routes/reportSchedulingRoutes')
 const partnersRoutes = require('./routes/partnersRoutes')
+const procurementRoutes = require('./routes/procurementRoutes')
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -123,6 +124,7 @@ app.use('/api/report-library', reportLibraryRoutes);
 app.use('/api/data-collection', dataCollectionRoutes);
 app.use('/api/report-schedules', reportSchedulingRoutes);
 app.use('/api/partners', partnersRoutes);
+app.use('/api/procurement', procurementRoutes);
 app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers
@@ -139,9 +141,8 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/milestones', milestoneRoutes);
 app.use('/api/task_assignees', taskAssigneesRoutes);
 app.use('/api/task_dependencies', taskDependenciesRoutes);
-/* SCOPE_DOWN: contractors table removed. Re-enable when restoring for wider market. */
-// app.use('/api/contractors', contractorRoutes);
-// app.use('/api/contractor-photos', contractorPhotoRoutes);
+app.use('/api/contractors', contractorRoutes);
+app.use('/api/contractor-photos', contractorPhotoRoutes);
 app.use('/api/hr', hrRoutes);
 app.use('/api/projects/documents', projectDocumentsRoutes);
 app.use('/api/workflows', workflowRoutes);

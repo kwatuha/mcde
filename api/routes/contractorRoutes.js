@@ -2,6 +2,106 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const pool = require('../config/db');
+const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+const isPostgres = DB_TYPE === 'postgresql';
+const rowsOf = (result) => {
+    if (Array.isArray(result)) return result[0] || [];
+    if (result && Array.isArray(result.rows)) return result.rows;
+    return [];
+};
+const metaOf = (result) => {
+    if (Array.isArray(result)) return result[1] || {};
+    return result || {};
+};
+const isMissingRelation = (error) => {
+    const msg = String(error?.message || '').toLowerCase();
+    return msg.includes('relation') && msg.includes('does not exist');
+};
+const isMissingColumn = (error) => {
+    const msg = String(error?.message || '').toLowerCase();
+    return msg.includes('column') && msg.includes('does not exist');
+};
+const isOperatorTypeMismatch = (error) => {
+    const msg = String(error?.message || '').toLowerCase();
+    return msg.includes('operator does not exist') || msg.includes('cannot be matched');
+};
+const shouldTryNextFallback = (error) =>
+    isMissingRelation(error) || isMissingColumn(error) || isOperatorTypeMismatch(error);
+async function queryRowsFallbackTables(sqlBuilders, params) {
+    let lastError = null;
+    for (const buildSql of sqlBuilders) {
+        try {
+            const res = await pool.query(buildSql(), params);
+            return rowsOf(res);
+        } catch (error) {
+            lastError = error;
+            if (!shouldTryNextFallback(error)) throw error;
+        }
+    }
+    throw lastError || new Error('No contractor table variant available.');
+}
+async function tableExists(tableName) {
+    try {
+        if (isPostgres) {
+            const q = await pool.query(
+                `SELECT 1
+                   FROM information_schema.tables
+                  WHERE table_schema = 'public' AND table_name = $1
+                  LIMIT 1`,
+                [tableName]
+            );
+            return rowsOf(q).length > 0;
+        }
+        const q = await pool.query('SHOW TABLES LIKE ?', [tableName]);
+        return rowsOf(q).length > 0;
+    } catch (_) {
+        return false;
+    }
+}
+async function ensureContractorsTable() {
+    const hasContractors = await tableExists('contractors');
+    const hasKemriContractors = await tableExists('kemri_contractors');
+    if (hasContractors || hasKemriContractors) {
+        return hasContractors ? 'contractors' : 'kemri_contractors';
+    }
+
+    if (isPostgres) {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS contractors (
+                "contractorId" SERIAL PRIMARY KEY,
+                "companyName" VARCHAR(255) NOT NULL,
+                "contactPerson" VARCHAR(255) NULL,
+                email VARCHAR(255) NOT NULL,
+                phone VARCHAR(100) NULL,
+                "userId" INTEGER NULL,
+                voided BOOLEAN NOT NULL DEFAULT false,
+                "createdAt" TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+    } else {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS contractors (
+                contractorId INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                companyName VARCHAR(255) NOT NULL,
+                contactPerson VARCHAR(255) NULL,
+                email VARCHAR(255) NOT NULL,
+                phone VARCHAR(100) NULL,
+                userId INT NULL,
+                voided TINYINT(1) NOT NULL DEFAULT 0,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+    }
+    return 'contractors';
+}
+const rowVal = (row, ...keys) => {
+    for (const key of keys) {
+        if (row && row[key] !== undefined) return row[key];
+    }
+    return null;
+};
 
 // Multer storage for documents/photos
 const storage = multer.diskStorage({
@@ -185,10 +285,64 @@ router.post('/:contractorId/photos', upload.single('file'), async (req, res) => 
  */
 router.get('/', async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            'SELECT contractorId, companyName, contactPerson, email, phone FROM contractors WHERE voided = 0 ORDER BY companyName ASC'
+        const [hasContractors, hasKemriContractors] = await Promise.all([
+            tableExists('contractors'),
+            tableExists('kemri_contractors'),
+        ]);
+        if (!hasContractors && !hasKemriContractors) {
+            return res.status(200).json([]);
+        }
+        const rows = await queryRowsFallbackTables(
+            [
+                () =>
+                    isPostgres
+                        ? `SELECT "contractorId", "companyName", "contactPerson", email, phone
+                           FROM contractors WHERE COALESCE(voided, false) = false ORDER BY "companyName" ASC`
+                        : `SELECT contractorId, companyName, contactPerson, email, phone
+                           FROM contractors WHERE voided = 0 ORDER BY companyName ASC`,
+                () =>
+                    isPostgres
+                        ? `SELECT "contractorId", "companyName", "contactPerson", email, phone
+                           FROM contractors WHERE COALESCE(voided, 0) = 0 ORDER BY "companyName" ASC`
+                        : `SELECT contractorId, companyName, contactPerson, email, phone
+                           FROM contractors WHERE voided = 0 ORDER BY companyName ASC`,
+                () =>
+                    isPostgres
+                        ? `SELECT "contractorId", "companyName", "contactPerson", email, phone
+                           FROM contractors ORDER BY "companyName" ASC`
+                        : `SELECT contractorId, companyName, contactPerson, email, phone
+                           FROM contractors ORDER BY companyName ASC`,
+                () =>
+                    isPostgres
+                        ? `SELECT "contractorId", "companyName", "contactPerson", email, phone
+                           FROM kemri_contractors WHERE COALESCE(voided, false) = false ORDER BY "companyName" ASC`
+                        : `SELECT contractorId, companyName, contactPerson, email, phone
+                           FROM kemri_contractors WHERE voided = 0 ORDER BY companyName ASC`,
+                () =>
+                    isPostgres
+                        ? `SELECT "contractorId", "companyName", "contactPerson", email, phone
+                           FROM kemri_contractors WHERE COALESCE(voided, 0) = 0 ORDER BY "companyName" ASC`
+                        : `SELECT contractorId, companyName, contactPerson, email, phone
+                           FROM kemri_contractors WHERE voided = 0 ORDER BY companyName ASC`,
+                () =>
+                    isPostgres
+                        ? `SELECT * FROM contractors`
+                        : `SELECT * FROM contractors`,
+                () =>
+                    isPostgres
+                        ? `SELECT * FROM kemri_contractors`
+                        : `SELECT * FROM kemri_contractors`,
+            ],
+            []
         );
-        res.status(200).json(rows);
+        const normalized = rows.map((r) => ({
+            contractorId: rowVal(r, 'contractorId', 'contractor_id', 'id'),
+            companyName: rowVal(r, 'companyName', 'company_name', 'name') || '',
+            contactPerson: rowVal(r, 'contactPerson', 'contact_person') || '',
+            email: rowVal(r, 'email') || '',
+            phone: rowVal(r, 'phone') || '',
+        }));
+        res.status(200).json(normalized);
     } catch (error) {
         console.error('Error fetching contractors:', error);
         res.status(500).json({ message: 'Error fetching contractors', error: error.message });
@@ -207,13 +361,36 @@ router.post('/', async (req, res) => {
         return res.status(400).json({ message: 'Company name and email are required.' });
     }
     try {
-        const [result] = await pool.query(
-            'INSERT INTO contractors (companyName, contactPerson, email, phone, userId) VALUES (?, ?, ?, ?, ?)',
-            [companyName, contactPerson, email, phone, userId]
-        );
+        const activeTable = await ensureContractorsTable();
+        let insertedId = null;
+        if (isPostgres) {
+            const tryQueries = [
+                () => `INSERT INTO ${activeTable} ("companyName", "contactPerson", email, phone, "userId", voided)
+                       VALUES ($1, $2, $3, $4, $5, false)
+                       RETURNING "contractorId"`,
+            ];
+            let lastErr = null;
+            for (const getSql of tryQueries) {
+                try {
+                    const result = await pool.query(getSql(), [companyName, contactPerson, email, phone, userId || null]);
+                    insertedId = rowsOf(result)?.[0]?.contractorId || null;
+                    break;
+                } catch (e) {
+                    lastErr = e;
+                    if (!isMissingRelation(e)) throw e;
+                }
+            }
+            if (!insertedId && lastErr) throw lastErr;
+        } else {
+            const result = await pool.query(
+                `INSERT INTO ${activeTable} (companyName, contactPerson, email, phone, userId) VALUES (?, ?, ?, ?, ?)`,
+                [companyName, contactPerson, email, phone, userId]
+            );
+            insertedId = metaOf(result).insertId || null;
+        }
         res.status(201).json({ 
             message: 'Contractor created successfully', 
-            contractorId: result.insertId 
+            contractorId: insertedId
         });
     } catch (error) {
         console.error('Error creating contractor:', error);
@@ -237,13 +414,44 @@ router.put('/:contractorId', async (req, res) => {
     }
 
     try {
-        const [result] = await pool.query(
-            'UPDATE contractors SET ? WHERE contractorId = ?',
-            [updatedFields, contractorId]
-        );
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Contractor not found.' });
+        let affected = 0;
+        if (isPostgres) {
+            const fields = [];
+            const params = [];
+            const push = (col, val) => {
+                params.push(val);
+                fields.push(`"${col}" = $${params.length}`);
+            };
+            if (updatedFields.companyName !== undefined) push('companyName', updatedFields.companyName);
+            if (updatedFields.contactPerson !== undefined) push('contactPerson', updatedFields.contactPerson);
+            if (updatedFields.email !== undefined) push('email', updatedFields.email);
+            if (updatedFields.phone !== undefined) push('phone', updatedFields.phone);
+            if (updatedFields.userId !== undefined) push('userId', updatedFields.userId);
+            if (!fields.length) return res.status(400).json({ message: 'No supported fields provided for update.' });
+            params.push(Number(contractorId));
+            const whereParam = `$${params.length}`;
+            const tryQueries = [
+                `UPDATE contractors SET ${fields.join(', ')} WHERE "contractorId" = ${whereParam}`,
+                `UPDATE kemri_contractors SET ${fields.join(', ')} WHERE "contractorId" = ${whereParam}`,
+            ];
+            for (const sql of tryQueries) {
+                try {
+                    const result = await pool.query(sql, params);
+                    const meta = metaOf(result);
+                    affected = meta.rowCount || meta.affectedRows || 0;
+                    if (affected > 0) break;
+                } catch (e) {
+                    if (!isMissingRelation(e)) throw e;
+                }
+            }
+        } else {
+            const result = await pool.query(
+                'UPDATE contractors SET ? WHERE contractorId = ?',
+                [updatedFields, contractorId]
+            );
+            affected = metaOf(result).affectedRows || 0;
         }
+        if (!affected) return res.status(404).json({ message: 'Contractor not found.' });
         res.status(200).json({ message: 'Contractor updated successfully.' });
     } catch (error) {
         console.error('Error updating contractor:', error);
@@ -260,13 +468,30 @@ router.put('/:contractorId', async (req, res) => {
 router.delete('/:contractorId', async (req, res) => {
     const { contractorId } = req.params;
     try {
-        const [result] = await pool.query(
-            'UPDATE contractors SET voided = 1 WHERE contractorId = ?',
-            [contractorId]
-        );
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Contractor not found.' });
+        let affected = 0;
+        if (isPostgres) {
+            const tryQueries = [
+                `UPDATE contractors SET voided = true WHERE "contractorId" = $1`,
+                `UPDATE kemri_contractors SET voided = true WHERE "contractorId" = $1`,
+            ];
+            for (const sql of tryQueries) {
+                try {
+                    const result = await pool.query(sql, [Number(contractorId)]);
+                    const meta = metaOf(result);
+                    affected = meta.rowCount || meta.affectedRows || 0;
+                    if (affected > 0) break;
+                } catch (e) {
+                    if (!isMissingRelation(e)) throw e;
+                }
+            }
+        } else {
+            const result = await pool.query(
+                'UPDATE contractors SET voided = 1 WHERE contractorId = ?',
+                [contractorId]
+            );
+            affected = metaOf(result).affectedRows || 0;
         }
+        if (!affected) return res.status(404).json({ message: 'Contractor not found.' });
         res.status(200).json({ message: 'Contractor voided successfully.' });
     } catch (error) {
         console.error('Error voiding contractor:', error);
