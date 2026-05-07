@@ -15,6 +15,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const DashboardLandingPage = lazy(() => import('./pages/DashboardLandingPage'));
 const ProjectManagementPage = lazy(() => import('./pages/ProjectManagementPage'));
 const ProjectTeamsPage = lazy(() => import('./pages/ProjectTeamsPage'));
+const ProjectPartnersPage = lazy(() => import('./pages/ProjectPartnersPage'));
 const ProjectStatusPage = lazy(() => import('./pages/ProjectStatusPage'));
 const ProjectEvaluationPage = lazy(() => import('./pages/ProjectEvaluationPage'));
 const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackByProjectPage'));
@@ -139,6 +140,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/teams',
         element: <LazyRoute component={ProjectTeamsPage} />,
+      },
+      {
+        path: 'partners',
+        element: <LazyRoute component={ProjectPartnersPage} />,
       },
       {
         path: 'projects/feedback-by-project',

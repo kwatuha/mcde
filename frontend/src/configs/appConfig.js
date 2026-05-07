@@ -67,6 +67,7 @@ export const ROUTES = {
     PROJECT_TEAMS: '/projects/teams',
     /** Project-wide status/progress updates screen. */
     PROJECT_STATUS: '/projects/status',
+    PROJECT_PARTNERS: '/partners',
     /** Link registry planning activities to projects (Projects sidebar). */
     PROJECT_PLANNING_ACTIVITY_LINKS: '/projects/planning-activity-links',
     /** Link registry planning risks to projects (Projects sidebar). */

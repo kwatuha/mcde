@@ -417,13 +417,12 @@ function ProjectDetailsPage() {
     const [inspectionTemplates, setInspectionTemplates] = useState([]);
     const [inspectionTemplateDetail, setInspectionTemplateDetail] = useState(null);
     const [uploadingInspectionFiles, setUploadingInspectionFiles] = useState(false);
-    const [fundingSources, setFundingSources] = useState([]);
+    const [partners, setPartners] = useState([]);
     const [projectFundingEntries, setProjectFundingEntries] = useState([]);
     const [loadingFunding, setLoadingFunding] = useState(false);
     const [fundingError, setFundingError] = useState(null);
-    const [newFundingSourceName, setNewFundingSourceName] = useState('');
     const [fundingForm, setFundingForm] = useState({
-        sourceId: '',
+        partnerId: '',
         amount: '',
         stage: '',
         notes: '',
@@ -694,12 +693,12 @@ function ProjectDetailsPage() {
         setLoadingFunding(true);
         setFundingError(null);
         try {
-            const [sources, entries] = await Promise.all([
-                projectService.funding.getFundingSources(),
+            const [entries, partnersList] = await Promise.all([
                 projectService.funding.getProjectFundingEntries(projectId),
+                apiService.partners.listPartners(),
             ]);
-            setFundingSources(Array.isArray(sources) ? sources : []);
             setProjectFundingEntries(Array.isArray(entries) ? entries : []);
+            setPartners(Array.isArray(partnersList) ? partnersList : []);
         } catch (err) {
             console.error('Error loading funding data:', err);
             setFundingError(err?.message || 'Failed to load funding data.');
@@ -2360,6 +2359,13 @@ function ProjectDetailsPage() {
     const totalBudget = parseFloat(project?.costOfProject) || 0;
     const paidAmount = parseFloat(project?.paidOut) || 0;
     const remainingBudget = totalBudget - paidAmount;
+    const totalPartnerFunding = (Array.isArray(projectFundingEntries) ? projectFundingEntries : []).reduce(
+        (sum, entry) => sum + (parseFloat(entry?.amount) || 0),
+        0
+    );
+    const fundingCoverageRate = totalBudget > 0 ? (totalPartnerFunding / totalBudget) * 100 : 0;
+    const fundingDeficit = Math.max(totalBudget - totalPartnerFunding, 0);
+    const fundingSurplus = Math.max(totalPartnerFunding - totalBudget, 0);
     // Disbursement rate: fraction of budget vs disbursed
     const disbursementRate = totalBudget > 0 ? (paidAmount / totalBudget) * 100 : 0;
     const serverUrl = import.meta.env.VITE_API_BASE_URL || '';
@@ -3093,50 +3099,81 @@ function ProjectDetailsPage() {
                                 <Alert severity="error" sx={{ mb: 1.5 }}>{fundingError}</Alert>
                             ) : (
                                 <>
-                                    {isSuperAdmin && (
-                                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }}>
-                                            <TextField
-                                                label="New Funding Source (Admin)"
-                                                size="small"
-                                                value={newFundingSourceName}
-                                                onChange={(e) => setNewFundingSourceName(e.target.value)}
-                                                sx={{ minWidth: 260 }}
-                                            />
-                                            <Button
-                                                variant="outlined"
-                                                onClick={async () => {
-                                                    const sourceName = newFundingSourceName.trim();
-                                                    if (!sourceName) return;
-                                                    try {
-                                                        await projectService.funding.createFundingSource({ sourceName });
-                                                        setNewFundingSourceName('');
-                                                        setSnackbar({ open: true, message: 'Funding source added.', severity: 'success' });
-                                                        fetchFundingData();
-                                                    } catch (err) {
-                                                        setSnackbar({ open: true, message: err?.message || 'Failed to add funding source.', severity: 'error' });
-                                                    }
-                                                }}
-                                            >
-                                                Add Source
-                                            </Button>
-                                        </Stack>
-                                    )}
+                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            Funding coverage summary
+                                        </Typography>
+                                        <Grid container spacing={1}>
+                                            <Grid item xs={12} md={3}>
+                                                <Typography variant="caption" color="text.secondary">Project Budget</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    {formatCurrency(totalBudget)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <Typography variant="caption" color="text.secondary">Recorded Funding</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    {formatCurrency(totalPartnerFunding)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <Typography variant="caption" color="text.secondary">Coverage</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    {fundingCoverageRate.toFixed(1)}%
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <Typography variant="caption" color="text.secondary">Deficit / Surplus</Typography>
+                                                <Typography
+                                                    variant="subtitle2"
+                                                    sx={{ fontWeight: 700, color: fundingDeficit > 0 ? 'error.main' : 'success.main' }}
+                                                >
+                                                    {fundingDeficit > 0
+                                                        ? `Deficit: ${formatCurrency(fundingDeficit)}`
+                                                        : `Surplus: ${formatCurrency(fundingSurplus)}`}
+                                                </Typography>
+                                            </Grid>
+                                        </Grid>
+                                        <Box display="flex" justifyContent="space-between" sx={{ mt: 1, mb: 0.5 }}>
+                                            <Typography variant="body2">Funding Coverage Rate</Typography>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: colors.blueAccent[500] }}>
+                                                {fundingCoverageRate.toFixed(1)}%
+                                            </Typography>
+                                        </Box>
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={Math.min(Math.max(fundingCoverageRate, 0), 100)}
+                                            color={fundingDeficit > 0 ? 'warning' : 'success'}
+                                            sx={{ height: 8, borderRadius: 4 }}
+                                        />
+                                        {fundingDeficit > 0 ? (
+                                            <Alert severity="warning" sx={{ mt: 1 }}>
+                                                Funding deficit of {formatCurrency(fundingDeficit)} still needs to be covered.
+                                            </Alert>
+                                        ) : (
+                                            <Alert severity="success" sx={{ mt: 1 }}>
+                                                Funding target has been met for this project.
+                                            </Alert>
+                                        )}
+                                    </Paper>
 
                                     <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
                                         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                            Add Project Funding Entry
+                                            Add Partner Funding Entry
                                         </Typography>
                                         <Grid container spacing={1}>
                                             <Grid item xs={12} md={3}>
                                                 <FormControl fullWidth size="small" sx={{ minWidth: 260 }}>
-                                                    <InputLabel>Funding Source</InputLabel>
+                                                    <InputLabel>Project Partner</InputLabel>
                                                     <Select
-                                                        label="Funding Source"
-                                                        value={fundingForm.sourceId}
-                                                        onChange={(e) => setFundingForm((p) => ({ ...p, sourceId: e.target.value }))}
+                                                        label="Project Partner"
+                                                        value={fundingForm.partnerId}
+                                                        onChange={(e) => setFundingForm((p) => ({ ...p, partnerId: e.target.value }))}
                                                     >
-                                                        {fundingSources.map((s) => (
-                                                            <MenuItem key={s.sourceId} value={String(s.sourceId)}>{s.sourceName}</MenuItem>
+                                                        {partners.map((p) => (
+                                                            <MenuItem key={p.partnerId} value={String(p.partnerId)}>
+                                                                {p.partnerName}
+                                                            </MenuItem>
                                                         ))}
                                                     </Select>
                                                 </FormControl>
@@ -3179,18 +3216,18 @@ function ProjectDetailsPage() {
                                                 <Button
                                                     variant="contained"
                                                     onClick={async () => {
-                                                        if (!fundingForm.sourceId || fundingForm.amount === '') {
-                                                            setSnackbar({ open: true, message: 'Funding source and amount are required.', severity: 'error' });
+                                                        if (!fundingForm.partnerId || fundingForm.amount === '') {
+                                                            setSnackbar({ open: true, message: 'Project partner and amount are required.', severity: 'error' });
                                                             return;
                                                         }
                                                         try {
                                                             await projectService.funding.createProjectFundingEntry(projectId, {
-                                                                sourceId: Number(fundingForm.sourceId),
+                                                                partnerId: Number(fundingForm.partnerId),
                                                                 amount: Number(fundingForm.amount),
                                                                 stage: fundingForm.stage,
                                                                 notes: fundingForm.notes,
                                                             });
-                                                            setFundingForm({ sourceId: '', amount: '', stage: '', notes: '' });
+                                                            setFundingForm({ partnerId: '', amount: '', stage: '', notes: '' });
                                                             setSnackbar({ open: true, message: 'Funding entry added.', severity: 'success' });
                                                             fetchFundingData();
                                                         } catch (err) {
@@ -3211,7 +3248,8 @@ function ProjectDetailsPage() {
                                             <Table size="small">
                                                 <TableHead>
                                                     <TableRow>
-                                                        <TableCell><strong>Funding Source</strong></TableCell>
+                                                        <TableCell><strong>Project Partner</strong></TableCell>
+                                                        <TableCell><strong>Funding Source (legacy)</strong></TableCell>
                                                         <TableCell><strong>Amount</strong></TableCell>
                                                         <TableCell><strong>Stage</strong></TableCell>
                                                         <TableCell><strong>Notes</strong></TableCell>
@@ -3220,6 +3258,7 @@ function ProjectDetailsPage() {
                                                 <TableBody>
                                                     {projectFundingEntries.map((entry) => (
                                                         <TableRow key={entry.entryId}>
+                                                            <TableCell>{entry.partnerName || 'N/A'}</TableCell>
                                                             <TableCell>{entry.sourceName || 'N/A'}</TableCell>
                                                             <TableCell>{formatCurrency(entry.amount || 0)}</TableCell>
                                                             <TableCell>{entry.stage || 'N/A'}</TableCell>

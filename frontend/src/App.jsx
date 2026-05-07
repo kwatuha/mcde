@@ -14,6 +14,7 @@ import DashboardLandingPage from './pages/DashboardLandingPage';
 import HomePage from './pages/HomePage';
 import ProjectManagementPage from './pages/ProjectManagementPage';
 import ProjectTeamsPage from './pages/ProjectTeamsPage';
+import ProjectPartnersPage from './pages/ProjectPartnersPage';
 import ProjectStatusPage from './pages/ProjectStatusPage';
 import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
@@ -235,6 +236,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/teams',
         element: <ProjectTeamsPage />,
+      },
+      {
+        path: 'partners',
+        element: <ProjectPartnersPage />,
       },
       {
         path: 'projects/feedback-by-project',
