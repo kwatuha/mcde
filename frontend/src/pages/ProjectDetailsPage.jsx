@@ -2366,6 +2366,44 @@ function ProjectDetailsPage() {
     const fundingCoverageRate = totalBudget > 0 ? (totalPartnerFunding / totalBudget) * 100 : 0;
     const fundingDeficit = Math.max(totalBudget - totalPartnerFunding, 0);
     const fundingSurplus = Math.max(totalPartnerFunding - totalBudget, 0);
+    const fundingByStage = (() => {
+        const map = new Map();
+        for (const entry of Array.isArray(projectFundingEntries) ? projectFundingEntries : []) {
+            const stage = String(entry?.stage || 'Unspecified').trim() || 'Unspecified';
+            const amt = parseFloat(entry?.amount) || 0;
+            map.set(stage, (map.get(stage) || 0) + amt);
+        }
+        return [...map.entries()]
+            .map(([stage, amount]) => ({
+                stage,
+                amount,
+                coverage: totalBudget > 0 ? (amount / totalBudget) * 100 : 0,
+                indicativeDeficit: Math.max(totalBudget - amount, 0),
+            }))
+            .sort((a, b) => b.amount - a.amount);
+    })();
+    const fundingTrendByMonth = (() => {
+        const monthTotals = new Map();
+        for (const entry of Array.isArray(projectFundingEntries) ? projectFundingEntries : []) {
+            const dt = entry?.createdAt ? new Date(entry.createdAt) : null;
+            if (!dt || Number.isNaN(dt.getTime())) continue;
+            const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+            monthTotals.set(key, (monthTotals.get(key) || 0) + (parseFloat(entry?.amount) || 0));
+        }
+        const rows = [...monthTotals.entries()]
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([month, amount]) => ({ month, amount }));
+        let cumulative = 0;
+        return rows.map((r) => {
+            cumulative += r.amount;
+            return {
+                ...r,
+                cumulative,
+                deficitAfterMonth: Math.max(totalBudget - cumulative, 0),
+                coverageAfterMonth: totalBudget > 0 ? (cumulative / totalBudget) * 100 : 0,
+            };
+        });
+    })();
     // Disbursement rate: fraction of budget vs disbursed
     const disbursementRate = totalBudget > 0 ? (paidAmount / totalBudget) * 100 : 0;
     const serverUrl = import.meta.env.VITE_API_BASE_URL || '';
@@ -3154,6 +3192,82 @@ function ProjectDetailsPage() {
                                             <Alert severity="success" sx={{ mt: 1 }}>
                                                 Funding target has been met for this project.
                                             </Alert>
+                                        )}
+                                    </Paper>
+
+                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            Stage funding breakdown
+                                        </Typography>
+                                        {fundingByStage.length === 0 ? (
+                                            <Alert severity="info">No stage funding data yet.</Alert>
+                                        ) : (
+                                            <TableContainer component={Paper} variant="outlined">
+                                                <Table size="small">
+                                                    <TableHead>
+                                                        <TableRow>
+                                                            <TableCell><strong>Stage</strong></TableCell>
+                                                            <TableCell><strong>Funding</strong></TableCell>
+                                                            <TableCell><strong>% of Budget</strong></TableCell>
+                                                            <TableCell><strong>Indicative Deficit</strong></TableCell>
+                                                        </TableRow>
+                                                    </TableHead>
+                                                    <TableBody>
+                                                        {fundingByStage.map((row) => (
+                                                            <TableRow key={row.stage}>
+                                                                <TableCell>{row.stage}</TableCell>
+                                                                <TableCell>{formatCurrency(row.amount)}</TableCell>
+                                                                <TableCell>{row.coverage.toFixed(1)}%</TableCell>
+                                                                <TableCell>{formatCurrency(row.indicativeDeficit)}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </TableContainer>
+                                        )}
+                                    </Paper>
+
+                                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            Funding trend over time
+                                        </Typography>
+                                        {fundingTrendByMonth.length === 0 ? (
+                                            <Alert severity="info">No funding trend data yet.</Alert>
+                                        ) : (
+                                            <TableContainer component={Paper} variant="outlined">
+                                                <Table size="small">
+                                                    <TableHead>
+                                                        <TableRow>
+                                                            <TableCell><strong>Month</strong></TableCell>
+                                                            <TableCell><strong>Added</strong></TableCell>
+                                                            <TableCell><strong>Cumulative</strong></TableCell>
+                                                            <TableCell><strong>Coverage</strong></TableCell>
+                                                            <TableCell><strong>Deficit After Month</strong></TableCell>
+                                                        </TableRow>
+                                                    </TableHead>
+                                                    <TableBody>
+                                                        {fundingTrendByMonth.map((row) => (
+                                                            <TableRow key={row.month}>
+                                                                <TableCell>{row.month}</TableCell>
+                                                                <TableCell>{formatCurrency(row.amount)}</TableCell>
+                                                                <TableCell>{formatCurrency(row.cumulative)}</TableCell>
+                                                                <TableCell sx={{ minWidth: 180 }}>
+                                                                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                                                        {row.coverageAfterMonth.toFixed(1)}%
+                                                                    </Typography>
+                                                                    <LinearProgress
+                                                                        variant="determinate"
+                                                                        value={Math.min(Math.max(row.coverageAfterMonth, 0), 100)}
+                                                                        color={row.deficitAfterMonth > 0 ? 'warning' : 'success'}
+                                                                        sx={{ mt: 0.5, height: 6, borderRadius: 3 }}
+                                                                    />
+                                                                </TableCell>
+                                                                <TableCell>{formatCurrency(row.deficitAfterMonth)}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </TableContainer>
                                         )}
                                     </Paper>
 
