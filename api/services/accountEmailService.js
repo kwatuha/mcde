@@ -223,6 +223,23 @@ async function sendScheduledReportEmail({ to, subject, text, attachments = [] })
     return true;
 }
 
+async function sendWorkflowNotificationEmail({ to, subject, text }) {
+    const tx = getTransporter();
+    if (!tx) throw new Error('SMTP is not configured.');
+    const addr = String(to || '').trim();
+    if (!addr) throw new Error('Recipient address is required.');
+    const mail = {
+        from: getFromAddress(),
+        to: addr,
+        envelope: { from: getEnvelopeFrom(), to: addr },
+        subject: String(subject || 'Workflow notification'),
+        text: String(text || ''),
+    };
+    attachBccIfConfigured(mail, addr);
+    await tx.sendMail(mail);
+    return true;
+}
+
 module.exports = {
     canSendEmail,
     resetEmailTransporter,
@@ -232,4 +249,5 @@ module.exports = {
     sendPasswordResetEmail,
     sendSmtpTestEmail,
     sendScheduledReportEmail,
+    sendWorkflowNotificationEmail,
 };

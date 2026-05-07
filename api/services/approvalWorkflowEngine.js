@@ -3,6 +3,7 @@
  * PostgreSQL-first; MySQL supported with simplified DDL where noted.
  */
 const pool = require('../config/db');
+const { canSendEmail, sendWorkflowNotificationEmail } = require('./accountEmailService');
 
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -15,6 +16,8 @@ const affectedRows = (result) =>
 
 let tablesEnsured = false;
 let ensurePromise = null;
+let escalationMonitorTimer = null;
+let escalationMonitorBusy = false;
 
 async function runSafe(sql) {
   try {
@@ -93,6 +96,9 @@ async function ensureTables() {
         CONSTRAINT uq_awf_inst UNIQUE (request_id, step_order)
       )
     `);
+    await runSafe(`ALTER TABLE approval_step_instances ADD COLUMN IF NOT EXISTS pre_escalation_notified_at TIMESTAMPTZ`);
+    await runSafe(`ALTER TABLE approval_step_instances ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ`);
+    await runSafe(`ALTER TABLE approval_step_instances ADD COLUMN IF NOT EXISTS takeover_notified_at TIMESTAMPTZ`);
     await runSafe(`
       CREATE TABLE IF NOT EXISTS approval_actions (
         action_id BIGSERIAL PRIMARY KEY,
@@ -170,6 +176,24 @@ async function ensureTables() {
         CONSTRAINT fk_awf_inst_req FOREIGN KEY (request_id) REFERENCES approval_requests(request_id) ON DELETE CASCADE
       )
     `);
+    try {
+      await pool.query(`ALTER TABLE approval_step_instances ADD COLUMN pre_escalation_notified_at DATETIME NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (e?.code !== 'ER_DUP_FIELDNAME' && !msg.includes('Duplicate column')) throw e;
+    }
+    try {
+      await pool.query(`ALTER TABLE approval_step_instances ADD COLUMN escalated_at DATETIME NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (e?.code !== 'ER_DUP_FIELDNAME' && !msg.includes('Duplicate column')) throw e;
+    }
+    try {
+      await pool.query(`ALTER TABLE approval_step_instances ADD COLUMN takeover_notified_at DATETIME NULL`);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (e?.code !== 'ER_DUP_FIELDNAME' && !msg.includes('Duplicate column')) throw e;
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS approval_actions (
         action_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -787,6 +811,123 @@ async function listPendingForUser(user) {
   return rowsFromResult(r);
 }
 
+function getEscalationWarningHours() {
+  const raw = Number(process.env.APPROVAL_ESCALATION_WARNING_HOURS || 4);
+  if (!Number.isFinite(raw) || raw <= 0) return 4;
+  return Math.min(raw, 168);
+}
+
+async function listActiveUsersByRoleId(roleId) {
+  const rid = Number(roleId);
+  if (!Number.isFinite(rid)) return [];
+  const sql = isPostgres
+    ? `SELECT userid AS "userId", email, firstname AS "firstName", lastname AS "lastName"
+       FROM users
+       WHERE roleid = ?
+         AND COALESCE(voided, false) = false
+         AND COALESCE(isactive, true) = true
+         AND email IS NOT NULL
+         AND TRIM(email) <> ''`
+    : `SELECT userId, email, firstName, lastName
+       FROM users
+       WHERE roleId = ?
+         AND IFNULL(voided, 0) = 0
+         AND IFNULL(isActive, 1) = 1
+         AND email IS NOT NULL
+         AND TRIM(email) <> ''`;
+  return rowsFromResult(await pool.query(sql, [rid]));
+}
+
+async function sendRoleNotificationEmails(roleId, { subject, text }) {
+  if (!canSendEmail()) {
+    return { attempted: 0, sent: 0, failed: [{ error: 'SMTP is not configured on the server.' }] };
+  }
+  const recipients = await listActiveUsersByRoleId(roleId);
+  let sent = 0;
+  const failed = [];
+  for (const r of recipients) {
+    try {
+      await sendWorkflowNotificationEmail({
+        to: r.email,
+        subject,
+        text,
+      });
+      sent += 1;
+    } catch (e) {
+      failed.push({ userId: r.userId, email: r.email, error: e.message });
+    }
+  }
+  return { attempted: recipients.length, sent, failed };
+}
+
+function buildRequestReference(si) {
+  return `Request #${si.request_id} (${si.entity_type}:${si.entity_id}) step ${si.step_order}${si.step_name ? ` - ${si.step_name}` : ''}`;
+}
+
+async function processPreEscalationWarnings() {
+  await ensureReady();
+  const warningHours = getEscalationWarningHours();
+  const windowEnd = new Date(Date.now() + warningHours * 3600000);
+  const r = await pool.query(
+    `
+    SELECT si.instance_id, si.request_id, si.step_order, si.step_name, si.role_id, si.escalation_role_id, si.due_at,
+           req.entity_type, req.entity_id
+    FROM approval_step_instances si
+    JOIN approval_requests req ON req.request_id = si.request_id
+    WHERE si.status = 'pending'
+      AND req.status = 'pending'
+      AND si.escalation_role_id IS NOT NULL
+      AND si.due_at IS NOT NULL
+      AND si.due_at > CURRENT_TIMESTAMP
+      AND si.due_at <= ?
+      AND si.pre_escalation_notified_at IS NULL
+    ORDER BY si.due_at ASC
+    LIMIT 100
+  `,
+    [windowEnd]
+  );
+  const upcoming = rowsFromResult(r);
+  let notified = 0;
+  for (const si of upcoming) {
+    const ref = buildRequestReference(si);
+    const due = si.due_at ? new Date(si.due_at).toISOString() : 'N/A';
+    const notification = await sendRoleNotificationEmails(si.role_id, {
+      subject: `[Workflow SLA Warning] ${ref}`,
+      text: [
+        'Hello,',
+        '',
+        `A workflow task assigned to your role is approaching SLA escalation.`,
+        `Task: ${ref}`,
+        `Due at: ${due}`,
+        `Escalates in: ~${warningHours} hour(s) or less`,
+        '',
+        'Please action it before escalation.',
+      ].join('\n'),
+    });
+    if (notification.sent > 0) {
+      await pool.query(`UPDATE approval_step_instances SET pre_escalation_notified_at = ? WHERE instance_id = ?`, [
+        new Date(),
+        si.instance_id,
+      ]);
+    }
+    await logAction(
+      si.request_id,
+      si.instance_id,
+      null,
+      notification.sent > 0 ? 'pre_escalation_notify' : 'pre_escalation_notify_failed',
+      notification.sent > 0 ? 'Sent pre-escalation warning' : 'Pre-escalation warning send failed',
+      {
+      warning_hours: warningHours,
+      recipients_attempted: notification.attempted,
+      recipients_sent: notification.sent,
+      failures: notification.failed,
+      }
+    );
+    if (notification.sent > 0) notified += 1;
+  }
+  return { considered: upcoming.length, notified };
+}
+
 async function processSlaEscalations() {
   await ensureReady();
   const now = new Date();
@@ -802,6 +943,7 @@ async function processSlaEscalations() {
   );
   const overdue = rowsFromResult(r);
   let escalated = 0;
+  let takeoverNotified = 0;
   for (const si of overdue) {
     if (!si.escalation_role_id) continue;
     const newDue =
@@ -809,16 +951,83 @@ async function processSlaEscalations() {
         ? new Date(now.getTime() + Number(si.sla_hours) * 3600000)
         : null;
     const note = `[SLA] Escalated at ${now.toISOString()} — reassigned to role ${si.escalation_role_id}`;
+    const previousEscalationRoleId = si.escalation_role_id;
     await pool.query(
-      `UPDATE approval_step_instances SET role_id = ?, escalation_role_id = NULL, due_at = ?, comment = CONCAT(COALESCE(comment, ''), ?, ?) WHERE instance_id = ?`,
-      [si.escalation_role_id, newDue, '\n', note, si.instance_id]
+      `UPDATE approval_step_instances
+       SET role_id = ?, escalation_role_id = NULL, due_at = ?, escalated_at = ?, comment = CONCAT(COALESCE(comment, ''), ?, ?)
+       WHERE instance_id = ?`,
+      [si.escalation_role_id, newDue, now, '\n', note, si.instance_id]
     );
     await logAction(si.request_id, si.instance_id, null, 'escalate_sla', 'Escalated after SLA breach', {
-      new_role_id: si.escalation_role_id,
+      new_role_id: previousEscalationRoleId,
     });
+    const ref = buildRequestReference(si);
+    const takeoverNotice = await sendRoleNotificationEmails(previousEscalationRoleId, {
+      subject: `[Workflow Escalated] ${ref}`,
+      text: [
+        'Hello,',
+        '',
+        'A workflow task has been escalated to your role after an SLA breach.',
+        `Task: ${ref}`,
+        `Escalated at: ${now.toISOString()}`,
+        '',
+        'Please review and act on it as soon as possible.',
+      ].join('\n'),
+    });
+    if (takeoverNotice.sent > 0) {
+      await pool.query(`UPDATE approval_step_instances SET takeover_notified_at = ? WHERE instance_id = ?`, [
+        new Date(),
+        si.instance_id,
+      ]);
+    }
+    await logAction(
+      si.request_id,
+      si.instance_id,
+      null,
+      takeoverNotice.sent > 0 ? 'takeover_notify' : 'takeover_notify_failed',
+      takeoverNotice.sent > 0 ? 'Notified escalation takeover role' : 'Escalation takeover notify failed',
+      {
+      escalated_to_role_id: previousEscalationRoleId,
+      recipients_attempted: takeoverNotice.attempted,
+      recipients_sent: takeoverNotice.sent,
+      failures: takeoverNotice.failed,
+      }
+    );
+    if (takeoverNotice.sent > 0) takeoverNotified += 1;
     escalated += 1;
   }
-  return { processed: overdue.length, escalated };
+  return { processed: overdue.length, escalated, takeoverNotified };
+}
+
+async function runEscalationMonitorCycle() {
+  if (escalationMonitorBusy) return;
+  escalationMonitorBusy = true;
+  try {
+    const warnings = await processPreEscalationWarnings();
+    const escalations = await processSlaEscalations();
+    return { warnings, escalations };
+  } finally {
+    escalationMonitorBusy = false;
+  }
+}
+
+function startEscalationMonitor() {
+  if (escalationMonitorTimer) return;
+  const intervalMsRaw = Number(process.env.APPROVAL_ESCALATION_MONITOR_INTERVAL_MS || 60000);
+  const intervalMs = Number.isFinite(intervalMsRaw) && intervalMsRaw > 5000 ? intervalMsRaw : 60000;
+  escalationMonitorTimer = setInterval(() => {
+    runEscalationMonitorCycle().catch((e) => {
+      console.error('approval escalation monitor loop failed:', e);
+    });
+  }, intervalMs);
+  runEscalationMonitorCycle().catch((e) => {
+    console.error('approval escalation monitor startup run failed:', e);
+  });
+}
+
+function stopEscalationMonitor() {
+  if (escalationMonitorTimer) clearInterval(escalationMonitorTimer);
+  escalationMonitorTimer = null;
 }
 
 async function seedAnnualWorkplanExample() {
@@ -917,7 +1126,11 @@ module.exports = {
   approveStep,
   rejectStep,
   listPendingForUser,
+  processPreEscalationWarnings,
   processSlaEscalations,
+  runEscalationMonitorCycle,
+  startEscalationMonitor,
+  stopEscalationMonitor,
   seedAnnualWorkplanExample,
   seedPaymentRequestExample,
 };

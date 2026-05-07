@@ -38,7 +38,7 @@ const routeTitles = {
   '/view-reports': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
   '/reporting-overview': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
   '/regional-dashboard': { title: 'Regional Rpts', subtitle: 'Regional Analytics' },
-  '/regional-reports': { title: 'Regional Dashboards', subtitle: 'Regional Overview' },
+  '/regional-reports': { title: 'Regional Breakdown Dashboard', subtitle: 'Sub-county and ward dashboards' },
   '/regional-reporting': { title: 'Regional Dashboards', subtitle: 'Regional Overview' },
   '/absorption-report': { title: 'Absorption Report', subtitle: 'Financial Analytics' },
   '/performance-management-report': { title: 'Performance Management Report', subtitle: 'Performance Analytics' },

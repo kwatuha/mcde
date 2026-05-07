@@ -64,7 +64,7 @@ const HrModulePage = lazy(() => import('./pages/HrModulePage'));
 const ProjectDashboardPage = lazy(() => import('./pages/ProjectDashboardPage'));
 const ReportingView = lazy(() => import('./pages/ReportingView'));
 const RegionalDashboard = lazy(() => import('./pages/RegionalDashboard'));
-const RegionalReportsView = lazy(() => import('./pages/RegionalReportsView'));
+const RegionalBreakdownDashboardPage = lazy(() => import('./pages/RegionalBreakdownDashboardPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -207,7 +207,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'regional-reports',
-        element: <LazyRoute component={RegionalReportsView} />,
+        element: <LazyRoute component={RegionalBreakdownDashboardPage} />,
       },
       {
         path: 'maps',

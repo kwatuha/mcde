@@ -16,6 +16,8 @@ import {
   MenuItem,
   Collapse,
   IconButton,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -61,6 +63,10 @@ import {
 import { tokens } from './dashboard/theme';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isSuperAdminUser } from '../utils/roleUtils';
+import DepartmentSummaryReport from '../components/DepartmentSummaryReport';
+import SubcountySummaryReport from '../components/SubcountySummaryReport';
+import WardSummaryReport from '../components/WardSummaryReport';
+import YearlyTrendsReport from '../components/YearlyTrendsReport';
 
 /**
  * SystemDashboardPage
@@ -149,6 +155,7 @@ const SystemDashboardPage = () => {
     status: '',
   });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [adminBreakdownTab, setAdminBreakdownTab] = useState(0);
   const [sectors, setSectors] = useState([]);
   const [allProjects, setAllProjects] = useState([]);
   const [jobsSnapshot, setJobsSnapshot] = useState({
@@ -2045,6 +2052,62 @@ const SystemDashboardPage = () => {
           </Card>
         </Grid>
       </Grid>
+
+      <Box sx={{ px: '1rem', pb: 1 }}>
+        <Card
+          sx={{
+            borderRadius: 4,
+            background: theme.palette.mode === 'dark'
+              ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
+              : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+            border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : 'rgba(0,0,0,0.08)'}`,
+            boxShadow: theme.palette.mode === 'dark'
+              ? '0 8px 32px rgba(0,0,0,0.4)'
+              : '0 4px 20px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Box sx={{ px: 2, pt: 2, pb: 1 }}>
+            <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.95rem' }}>
+              Regional Breakdown
+            </Typography>
+            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+              Departments, sub-counties, wards and yearly trends (admin view)
+            </Typography>
+          </Box>
+          <Tabs
+            value={adminBreakdownTab}
+            onChange={(_, next) => setAdminBreakdownTab(next)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              px: 1.5,
+              borderBottom: '1px solid',
+              borderColor: theme.palette.mode === 'dark' ? colors.primary[300] : 'divider',
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                minHeight: 42,
+                color: colors.grey[300],
+              },
+              '& .Mui-selected': {
+                color: colors.blueAccent[400],
+              },
+            }}
+          >
+            <Tab label="Departments" />
+            <Tab label="Sub-county" />
+            <Tab label="Ward" />
+            <Tab label="Yearly trends" />
+          </Tabs>
+          <Box sx={{ p: 2 }}>
+            {adminBreakdownTab === 0 && <DepartmentSummaryReport filters={{}} />}
+            {adminBreakdownTab === 1 && <SubcountySummaryReport filters={{}} />}
+            {adminBreakdownTab === 2 && <WardSummaryReport filters={{}} />}
+            {adminBreakdownTab === 3 && <YearlyTrendsReport filters={{}} />}
+          </Box>
+        </Card>
+      </Box>
     </Box>
   );
 };

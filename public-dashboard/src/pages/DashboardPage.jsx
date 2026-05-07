@@ -7,8 +7,6 @@ import {
   Paper,
   CircularProgress,
   Alert,
-  Tabs,
-  Tab,
   Divider,
   Card,
   CardContent,
@@ -22,11 +20,8 @@ import {
 import {
   Assessment,
   Business,
-  LocationOn,
-  LocationCity,
   Dashboard as DashboardIcon,
   TrendingUp,
-  TrendingDown,
   CheckCircle,
   Schedule,
   Warning,
@@ -54,9 +49,6 @@ import {
 } from 'recharts';
 import StatCard from '../components/StatCard';
 import DepartmentSummaryTable from '../components/DepartmentSummaryTable';
-import SubCountySummaryTable from '../components/SubCountySummaryTable';
-import WardSummaryTable from '../components/WardSummaryTable';
-import YearlyTrendsTable from '../components/YearlyTrendsTable';
 import FilterBar from '../components/FilterBar';
 import ProjectsModal from '../components/ProjectsModal';
 import { getOverviewStats, getFinancialYears } from '../services/publicApi';
@@ -83,7 +75,6 @@ const DashboardPage = () => {
   const [selectedFinYear, setSelectedFinYear] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState(0);
   const [filters, setFilters] = useState({
     department: '',
     subcounty: '',
@@ -145,10 +136,6 @@ const DashboardPage = () => {
 
   const handleFinYearChange = (event, newValue) => {
     setSelectedFinYear(financialYears[newValue]);
-  };
-
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
   };
 
   const handleFiltersChange = (newFilters) => {
@@ -1006,7 +993,7 @@ const DashboardPage = () => {
 
       <Divider sx={{ my: 1.75 }} />
 
-      {/* Detailed Breakdown Tabs */}
+      {/* Detailed Breakdown */}
       <Paper 
         sx={{ 
           mb: 1.5, 
@@ -1017,56 +1004,14 @@ const DashboardPage = () => {
         }} 
         elevation={0}
       >
-        <Tabs
-          value={activeTab}
-          onChange={handleTabChange}
-          variant="fullWidth"
-          sx={{
-            borderBottom: 1,
-            borderColor: 'divider',
-            background: 'linear-gradient(to right, rgba(25, 118, 210, 0.05), transparent)',
-            minHeight: 42,
-            '& .MuiTab-root': {
-              fontWeight: 600,
-              fontSize: '0.8rem',
-              minHeight: 42,
-              py: 0.75,
-              textTransform: 'none',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                background: 'rgba(25, 118, 210, 0.08)'
-              },
-              '&.Mui-selected': {
-                color: 'primary.main',
-                background: 'rgba(25, 118, 210, 0.12)'
-              }
-            },
-            '& .MuiTabs-indicator': {
-              height: 3,
-              borderRadius: '3px 3px 0 0',
-              background: 'linear-gradient(90deg, #1976d2 0%, #1565c0 100%)'
-            }
-          }}
-        >
-          <Tab icon={<Business sx={{ fontSize: 18 }} />} label="By Department" iconPosition="start" />
-          <Tab icon={<LocationOn sx={{ fontSize: 18 }} />} label="By Sub-County" iconPosition="start" />
-          <Tab icon={<LocationCity sx={{ fontSize: 18 }} />} label="By Ward" iconPosition="start" />
-          <Tab icon={<TrendingUp sx={{ fontSize: 18 }} />} label="Yearly Trends" iconPosition="start" />
-        </Tabs>
-
         <Box sx={{ p: 1.25, pt: 1.5, background: 'rgba(0,0,0,0.02)' }}>
-          {activeTab === 0 && (
-            <DepartmentSummaryTable finYearId={selectedFinYear === null ? null : selectedFinYear?.id} filters={filters} />
-          )}
-          {activeTab === 1 && (
-            <SubCountySummaryTable finYearId={selectedFinYear === null ? null : selectedFinYear?.id} filters={filters} />
-          )}
-          {activeTab === 2 && (
-            <WardSummaryTable finYearId={selectedFinYear === null ? null : selectedFinYear?.id} filters={filters} />
-          )}
-          {activeTab === 3 && (
-            <YearlyTrendsTable filters={filters} />
-          )}
+          <Box display="flex" alignItems="center" gap={0.75} mb={1}>
+            <Business sx={{ fontSize: 18, color: 'primary.main' }} />
+            <Typography variant="subtitle2" fontWeight={700}>
+              By Department
+            </Typography>
+          </Box>
+          <DepartmentSummaryTable finYearId={selectedFinYear === null ? null : selectedFinYear?.id} filters={filters} />
         </Box>
       </Paper>
 

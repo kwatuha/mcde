@@ -113,8 +113,8 @@ import ReportingDashboardPage from './pages/ReportingDashboardPage';
 import ProjectOrganizationDashboardPage from './pages/ProjectOrganizationDashboardPage';
  
 import ReportingView from './components/ReportingView';
-import RegionalReportsView from './components/RegionalReportsView';
 import RegionalDashboard from './components/RegionalDashboard';
+import RegionalBreakdownDashboardPage from './pages/RegionalBreakdownDashboardPage';
 
 import ProjectDashboardPage from './pages/ProjectsDashboardPage';
 import SystemDashboardPage from './pages/SystemDashboardPage';
@@ -295,7 +295,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'regional-reports',
-        element: <RegionalReportsView />,
+        element: <RegionalBreakdownDashboardPage />,
       },
       {
         path: 'maps',

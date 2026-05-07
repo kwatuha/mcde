@@ -31,6 +31,11 @@
           "route": "SYSTEM_DASHBOARD"
         },
         {
+          "title": "Regional Breakdown Dashboard",
+          "icon": "PublicIcon",
+          "route": "REGIONAL_REPORTING"
+        },
+        {
           "title": "GIS Dashboard",
           "icon": "MapIcon",
           "route": "GIS_DASHBOARD"

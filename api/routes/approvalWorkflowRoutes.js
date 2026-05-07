@@ -183,7 +183,7 @@ router.post('/requests/:requestId/reject', async (req, res) => {
 
 router.post('/sla/process', canProcessSla, async (req, res) => {
   try {
-    const out = await engine.processSlaEscalations();
+    const out = await engine.runEscalationMonitorCycle();
     res.json(out);
   } catch (e) {
     res.status(500).json({ message: e.message });

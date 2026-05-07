@@ -17,11 +17,13 @@ const yearlyTrendsTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value == null) {
+        valueFormatter: (value) => {
+            if (value == null || value === '') {
                 return '';
             }
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return '';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
     {
@@ -30,11 +32,13 @@ const yearlyTrendsTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value == null) {
+        valueFormatter: (value) => {
+            if (value == null || value === '') {
                 return '';
             }
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return '';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
 ];

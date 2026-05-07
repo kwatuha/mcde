@@ -30,6 +30,7 @@ const projectDocumentsRoutes = require('./routes/projectDocumentsRoutes');
 const workflowRoutes = require('./routes/projectWorkflowRoutes');
 const approvalLevelsRoutes = require('./routes/approvalLevelsRoutes');
 const approvalWorkflowRoutes = require('./routes/approvalWorkflowRoutes');
+const { startEscalationMonitor } = require('./services/approvalWorkflowEngine');
 const paymentStatusRoutes = require('./routes/paymentStatusRoutes');
 const dashboardConfigRoutes = require('./routes/dashboardConfigRoutes');
 const dataAccessRoutes = require('./routes/dataAccessRoutes');
@@ -209,6 +210,12 @@ server.listen(port, bindHost, async () => {
         console.log('Scheduled report runner: started (checks every 60 seconds).');
     } catch (e) {
         console.warn('Scheduled report runner failed to start:', e.message);
+    }
+    try {
+        startEscalationMonitor();
+        console.log('Approval escalation monitor: started (auto warning/escalation checks enabled).');
+    } catch (e) {
+        console.warn('Approval escalation monitor failed to start:', e.message);
     }
 });
 

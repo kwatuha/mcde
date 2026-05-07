@@ -8,6 +8,7 @@ import DonutChart from './charts/DonutChart';
 import BarLineChart from './charts/BarLineChart';
 import apiService from '../api';
 import { tokens } from '../pages/dashboard/theme';
+import regionalService from '../api/regionalService';
 
 // Define columns for the detailed project list table
 const subcountyTableColumns = [
@@ -20,12 +21,14 @@ const subcountyTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value === null || params.value === undefined) {
+        valueFormatter: (value) => {
+            if (value === null || value === undefined || value === '') {
                 return 'N/A';
             }
             // Format as KES currency
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return 'N/A';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
     {
@@ -34,12 +37,14 @@ const subcountyTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value === null || params.value === undefined) {
+        valueFormatter: (value) => {
+            if (value === null || value === undefined || value === '') {
                 return 'N/A';
             }
             // Format as KES currency
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return 'N/A';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
 ];
@@ -60,8 +65,23 @@ const SubcountySummaryReport = ({ filters }) => {
                 const fetchedData = await apiService.reports.getSubcountySummaryReport(filters);
                 setReportData(fetchedData);
             } catch (err) {
-                setError("Failed to load subcounty summary report data.");
-                console.error(err);
+                try {
+                    const regional = await regionalService.getSubCountiesData(filters);
+                    const fallbackRows = Array.isArray(regional?.subCounties)
+                        ? regional.subCounties.map((row) => ({
+                            name: row?.subcountyName || row?.name || 'Unknown',
+                            countyName: row?.countyName || 'Unknown',
+                            projectCount: Number(row?.totalProjects || row?.projectCount || 0),
+                            totalBudget: Number(row?.totalBudget || 0),
+                            totalPaid: Number(row?.totalPaid || 0),
+                          }))
+                        : [];
+                    setReportData(fallbackRows);
+                } catch (fallbackErr) {
+                    setError("Failed to load subcounty summary report data.");
+                    console.error('Subcounty summary fetch failed:', err);
+                    console.error('Subcounty fallback fetch failed:', fallbackErr);
+                }
             } finally {
                 setIsLoading(false);
             }

@@ -8,6 +8,7 @@ import { tokens } from '../pages/dashboard/theme';
 import DonutChart from './charts/DonutChart';
 import BarLineChart from './charts/BarLineChart';
 import apiService from '../api';
+import regionalService from '../api/regionalService';
 
 const wardTableColumns = [
     { field: 'name', headerName: 'Ward Name', minWidth: 150, flex: 1.2 },
@@ -20,11 +21,13 @@ const wardTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value == null) {
+        valueFormatter: (value) => {
+            if (value == null || value === '') {
                 return '';
             }
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return '';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
     {
@@ -33,11 +36,13 @@ const wardTableColumns = [
         minWidth: 150,
         type: 'number',
         flex: 1,
-        valueFormatter: (params) => {
-            if (params.value == null) {
+        valueFormatter: (value) => {
+            if (value == null || value === '') {
                 return '';
             }
-            return `KES ${parseFloat(params.value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const num = Number(value);
+            if (!Number.isFinite(num)) return '';
+            return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
     },
 ];
@@ -61,8 +66,24 @@ const WardSummaryReport = ({ filters }) => {
                 const fetchedData = await apiService.reports.getWardSummaryReport(filters);
                 setReportData(Array.isArray(fetchedData) ? fetchedData : []);
             } catch (err) {
-                setError("Failed to load ward summary report data.");
-                console.error(err);
+                try {
+                    const regional = await regionalService.getWardsData(filters);
+                    const fallbackRows = Array.isArray(regional?.wards)
+                        ? regional.wards.map((row) => ({
+                            name: row?.wardName || row?.name || 'Unknown',
+                            subcountyName: row?.subcountyName || row?.subCountyName || 'Unknown',
+                            countyName: row?.countyName || 'Unknown',
+                            projectCount: Number(row?.totalProjects || row?.projectCount || 0),
+                            totalBudget: Number(row?.totalBudget || 0),
+                            totalPaid: Number(row?.totalPaid || 0),
+                          }))
+                        : [];
+                    setReportData(fallbackRows);
+                } catch (fallbackErr) {
+                    setError("Failed to load ward summary report data.");
+                    console.error('Ward summary fetch failed:', err);
+                    console.error('Ward fallback fetch failed:', fallbackErr);
+                }
             } finally {
                 setIsLoading(false);
             }

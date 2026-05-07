@@ -15,7 +15,15 @@ const ReportDataTable = ({ data, columns, getRowId }) => {
     headerName: col.label,
     minWidth: col.minWidth,
     flex: 1,
-    valueFormatter: col.format ? (params) => col.format(params.value) : undefined,
+    valueFormatter: col.format
+      ? (paramsOrValue) => {
+          const value =
+            paramsOrValue && typeof paramsOrValue === 'object' && 'value' in paramsOrValue
+              ? paramsOrValue.value
+              : paramsOrValue;
+          return col.format(value);
+        }
+      : undefined,
   }));
 
   if (!data || data.length === 0) {
