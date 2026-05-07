@@ -258,6 +258,12 @@
           "route": "REPORT_LIBRARY"
         },
         {
+          "title": "Checklists & visits",
+          "icon": "ChecklistIcon",
+          "route": "DATA_COLLECTION_TOOLS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
           "title": "Reports Analytics",
           "icon": "AssessmentIcon",
           "route": "REPORTS",

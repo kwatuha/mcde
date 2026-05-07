@@ -65,6 +65,7 @@ import { axiosInstance } from '../api';
 import projectService from '../api/projectService';
 import SiteUpdatesDialog from '../components/SiteUpdatesDialog';
 import ProjectSitesModal from '../components/ProjectSitesModal';
+import ChecklistFormFields, { checklistAnswersToRows } from '../components/ChecklistFormFields';
 
 // Helper function to map milestone activity status to project status colors
 const getMilestoneStatusColors = (status) => {
@@ -410,7 +411,11 @@ function ProjectDetailsPage() {
         warnings: '',
         recommendations: '',
         teamMemberRefs: [],
+        checklistTemplateId: '',
+        checklistAnswers: {},
     });
+    const [inspectionTemplates, setInspectionTemplates] = useState([]);
+    const [inspectionTemplateDetail, setInspectionTemplateDetail] = useState(null);
     const [uploadingInspectionFiles, setUploadingInspectionFiles] = useState(false);
     const [fundingSources, setFundingSources] = useState([]);
     const [projectFundingEntries, setProjectFundingEntries] = useState([]);
@@ -540,6 +545,51 @@ function ProjectDetailsPage() {
         }
     }, [activeTab, fetchProjectInspections]);
 
+    useEffect(() => {
+        if (!openInspectionDialog) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const list = await apiService.dataCollection.listTemplates({ activeOnly: true });
+                const rows = Array.isArray(list) ? list : [];
+                if (!cancelled) {
+                    setInspectionTemplates(
+                        rows.filter(
+                            (t) =>
+                                t.templateCategory === 'inspection_checklist' ||
+                                t.templateCategory === 'general'
+                        )
+                    );
+                }
+            } catch {
+                if (!cancelled) setInspectionTemplates([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [openInspectionDialog]);
+
+    useEffect(() => {
+        const id = inspectionFormData.checklistTemplateId;
+        if (!id) {
+            setInspectionTemplateDetail(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const t = await apiService.dataCollection.getTemplate(id);
+                if (!cancelled) setInspectionTemplateDetail(t);
+            } catch {
+                if (!cancelled) setInspectionTemplateDetail(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [inspectionFormData.checklistTemplateId]);
+
     const handleOpenInspectionDialog = (inspection = null) => {
         if (inspection) {
             setEditingInspection(inspection);
@@ -549,6 +599,11 @@ function ProjectDetailsPage() {
                 warnings: inspection.warnings || '',
                 recommendations: inspection.recommendations || '',
                 teamMemberRefs: Array.isArray(inspection.teamMemberRefs) ? inspection.teamMemberRefs : [],
+                checklistTemplateId: inspection.checklistTemplateId || '',
+                checklistAnswers:
+                    inspection.checklistAnswers && typeof inspection.checklistAnswers === 'object'
+                        ? { ...inspection.checklistAnswers }
+                        : {},
             });
         } else {
             setEditingInspection(null);
@@ -558,6 +613,8 @@ function ProjectDetailsPage() {
                 warnings: '',
                 recommendations: '',
                 teamMemberRefs: [],
+                checklistTemplateId: '',
+                checklistAnswers: {},
             });
         }
         setOpenInspectionDialog(true);
@@ -576,6 +633,12 @@ function ProjectDetailsPage() {
                 warnings: inspectionFormData.warnings,
                 recommendations: inspectionFormData.recommendations,
                 teamMemberRefs: inspectionFormData.teamMemberRefs || [],
+                checklistTemplateId: inspectionFormData.checklistTemplateId
+                    ? Number(inspectionFormData.checklistTemplateId)
+                    : null,
+                checklistAnswers: inspectionFormData.checklistTemplateId
+                    ? inspectionFormData.checklistAnswers || {}
+                    : {},
             };
             if (editingInspection?.inspectionId) {
                 await projectService.inspections.updateInspection(projectId, editingInspection.inspectionId, payload);
@@ -588,7 +651,17 @@ function ProjectDetailsPage() {
             setEditingInspection(null);
             fetchProjectInspections();
         } catch (err) {
-            setSnackbar({ open: true, message: err?.message || 'Failed to save inspection.', severity: 'error' });
+            const data = err?.response?.data;
+            const msg =
+                [data?.error, data?.message].filter(Boolean).join(' ') ||
+                err?.message ||
+                'Failed to save inspection.';
+            const missing = data?.missing;
+            setSnackbar({
+                open: true,
+                message: missing?.length ? `${msg} Missing: ${missing.join(', ')}` : msg,
+                severity: 'error',
+            });
         } finally {
             setLoading(false);
         }
@@ -641,7 +714,7 @@ function ProjectDetailsPage() {
         }
     }, [activeTab, fetchFundingData]);
 
-    const handleDownloadInspectionReport = (inspection) => {
+    const handleDownloadInspectionReport = async (inspection) => {
         try {
             const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
             const pageWidth = doc.internal.pageSize.getWidth();
@@ -686,6 +759,32 @@ function ProjectDetailsPage() {
             writeSection('Findings', inspection?.findings);
             writeSection('Warnings', inspection?.warnings);
             writeSection('Recommendations', inspection?.recommendations);
+
+            let checklistRows = [];
+            if (inspection?.checklistTemplateId && inspection?.checklistAnswers) {
+                try {
+                    const t = await apiService.dataCollection.getTemplate(inspection.checklistTemplateId);
+                    checklistRows = checklistAnswersToRows(t?.structure, inspection.checklistAnswers);
+                } catch (e) {
+                    console.warn('Could not load checklist template for PDF:', e);
+                }
+            }
+            if (checklistRows.length > 0) {
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('Structured checklist', margin, y);
+                y += 12;
+                autoTable(doc, {
+                    startY: y,
+                    head: [['Section', 'Item', 'Response']],
+                    body: checklistRows.map((r) => [r.section, r.label, r.value]),
+                    theme: 'striped',
+                    styles: { fontSize: 8, cellPadding: 4 },
+                    headStyles: { fillColor: [47, 84, 150] },
+                    margin: { left: margin, right: margin },
+                });
+                y = (doc.lastAutoTable?.finalY || y) + 20;
+            }
 
             const members = (inspection?.teamMemberRefs || []).map((ref) => {
                 const found = (projectTeams || []).find((m) => getTeamMemberRef(m) === ref);
@@ -4435,10 +4534,15 @@ function ProjectDetailsPage() {
                                         });
                                         return (
                                             <Paper key={inspection.inspectionId} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
-                                                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                                        Inspection Date: {String(inspection.inspectionDate || '').slice(0, 10)}
-                                                    </Typography>
+                                                <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+                                                    <Stack direction="row" alignItems="center" flexWrap="wrap" gap={0.5}>
+                                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                            Inspection Date: {String(inspection.inspectionDate || '').slice(0, 10)}
+                                                        </Typography>
+                                                        {inspection.checklistTemplateId ? (
+                                                            <Chip size="small" label="Checklist" color="primary" variant="outlined" />
+                                                        ) : null}
+                                                    </Stack>
                                                     <Button size="small" variant="text" onClick={() => handleOpenInspectionDialog(inspection)} disabled={!canModifyOrCreateProjects}>
                                                         Edit
                                                     </Button>
@@ -4489,7 +4593,7 @@ function ProjectDetailsPage() {
                             )}
                         </Paper>
 
-                        <Dialog open={openInspectionDialog} onClose={() => setOpenInspectionDialog(false)} fullWidth maxWidth="md">
+                        <Dialog open={openInspectionDialog} onClose={() => setOpenInspectionDialog(false)} fullWidth maxWidth="lg">
                             <DialogTitle>{editingInspection ? 'Edit Inspection' : 'New Inspection'}</DialogTitle>
                             <DialogContent>
                                 <Stack spacing={1.5} sx={{ mt: 0.75 }}>
@@ -4501,6 +4605,53 @@ function ProjectDetailsPage() {
                                         InputLabelProps={{ shrink: true }}
                                         required
                                     />
+                                    <FormControl fullWidth size="small">
+                                        <InputLabel id="insp-checklist-template-lbl">Checklist template (optional)</InputLabel>
+                                        <Select
+                                            labelId="insp-checklist-template-lbl"
+                                            label="Checklist template (optional)"
+                                            value={
+                                                inspectionFormData.checklistTemplateId === ''
+                                                    ? ''
+                                                    : String(inspectionFormData.checklistTemplateId)
+                                            }
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setInspectionFormData((prev) => ({
+                                                    ...prev,
+                                                    checklistTemplateId: v === '' ? '' : Number(v),
+                                                    checklistAnswers:
+                                                        v === '' || String(v) !== String(prev.checklistTemplateId)
+                                                            ? {}
+                                                            : prev.checklistAnswers,
+                                                }));
+                                            }}
+                                        >
+                                            <MenuItem value="">
+                                                <em>None — narrative fields only</em>
+                                            </MenuItem>
+                                            {inspectionTemplates.map((t) => (
+                                                <MenuItem key={t.templateId} value={String(t.templateId)}>
+                                                    {t.name}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                    {inspectionTemplateDetail?.structure ? (
+                                        <>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                                                Checklist
+                                            </Typography>
+                                            <ChecklistFormFields
+                                                structure={inspectionTemplateDetail.structure}
+                                                value={inspectionFormData.checklistAnswers}
+                                                onChange={(answers) =>
+                                                    setInspectionFormData((prev) => ({ ...prev, checklistAnswers: answers }))
+                                                }
+                                                disabled={!canModifyOrCreateProjects}
+                                            />
+                                        </>
+                                    ) : null}
                                     <TextField
                                         label="Findings"
                                         value={inspectionFormData.findings}

@@ -134,7 +134,7 @@ export default function ReportLibraryPage() {
   const handleDownloadExcel = () =>
     run(async () => {
       const rows = await getCountyRows();
-      exportMEReportExcel(rows);
+      await exportMEReportExcel(rows);
     }, 'Generating report...');
 
   const handleSummaryPdf = () =>

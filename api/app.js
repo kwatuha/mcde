@@ -52,6 +52,7 @@ const budgetContainerRoutes = require('./routes/budgetContainerRoutes')
 const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
 const auditTrailRoutes = require('./routes/auditTrailRoutes')
 const reportLibraryRoutes = require('./routes/reportLibraryRoutes')
+const dataCollectionRoutes = require('./routes/dataCollectionRoutes')
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
 const port = Number(process.env.PORT) || 3002;
@@ -115,6 +116,7 @@ app.use('/api/data-access', dataAccessRoutes);
 
 app.use('/api', authenticate);
 app.use('/api/report-library', reportLibraryRoutes);
+app.use('/api/data-collection', dataCollectionRoutes);
 app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers

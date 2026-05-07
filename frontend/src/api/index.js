@@ -23,6 +23,7 @@ import agenciesService from './agenciesService';
 import sectorsService from './sectorsService';
 import planningService from './planningService';
 import auditTrailService from './auditTrailService';
+import dataCollectionService from './dataCollectionService';
 
 // Public API service (no authentication required)
 const publicApiService = {
@@ -93,6 +94,7 @@ const apiService = {
   sectors: sectorsService, // 👈 Mount the sectorsService here
   planning: planningService,
   auditTrail: auditTrailService,
+  dataCollection: dataCollectionService,
 };
 
 export { axiosInstance };

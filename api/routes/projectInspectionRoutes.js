@@ -4,8 +4,27 @@ const fs = require('fs');
 const multer = require('multer');
 const pool = require('../config/db');
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
+const { ensureInspectionChecklistColumns } = require('../services/dataCollectionSchema');
 
 const router = express.Router();
+
+function validateChecklistAgainstTemplate(structure, answers) {
+  if (!structure || !structure.sections) return [];
+  const missing = [];
+  for (const sec of structure.sections) {
+    for (const it of sec.items || []) {
+      if (!it.required) continue;
+      const v = answers?.[it.id];
+      const empty =
+        v === undefined ||
+        v === null ||
+        (typeof v === 'string' && v.trim() === '') ||
+        (it.type === 'yes_no' && v !== 'yes' && v !== 'no');
+      if (empty) missing.push(it.label || it.id);
+    }
+  }
+  return missing;
+}
 
 const uploadsRoot = path.join(__dirname, '..', '..', 'uploads', 'project-inspections');
 if (!fs.existsSync(uploadsRoot)) {
@@ -64,6 +83,7 @@ async function ensureInspectionTables() {
             created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `);
+    await ensureInspectionChecklistColumns();
 }
 
 async function getInspectionsForProject(projectId) {
@@ -78,7 +98,9 @@ async function getInspectionsForProject(projectId) {
             pi.recommendations,
             pi.created_by AS "createdBy",
             pi.created_at AS "createdAt",
-            pi.updated_at AS "updatedAt"
+            pi.updated_at AS "updatedAt",
+            pi.checklist_template_id AS "checklistTemplateId",
+            pi.checklist_answers AS "checklistAnswers"
         FROM project_inspections pi
         WHERE pi.project_id = $1
           AND COALESCE(pi.voided, false) = false
@@ -153,20 +175,69 @@ router.get('/:projectId/inspections', async (req, res) => {
 
 router.post('/:projectId/inspections', async (req, res) => {
     const projectId = parseInt(String(req.params.projectId), 10);
-    const { inspectionDate, findings, warnings, recommendations, teamMemberRefs } = req.body || {};
+    const {
+        inspectionDate,
+        findings,
+        warnings,
+        recommendations,
+        teamMemberRefs,
+        checklistTemplateId,
+        checklistAnswers,
+    } = req.body || {};
     if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid project id.' });
     if (!inspectionDate) return res.status(400).json({ error: 'inspectionDate is required.' });
 
     try {
         await ensureInspectionTables();
+        let ctId =
+            checklistTemplateId != null ? parseInt(String(checklistTemplateId), 10) : null;
+        let answersPayload = null;
+        if (Number.isFinite(ctId)) {
+            const tr = await pool.query(
+                `
+                SELECT structure FROM data_collection_templates
+                WHERE template_id = $1 AND COALESCE(voided,false)=false AND COALESCE(is_active,true)=true
+                `,
+                [ctId]
+            );
+            const structure = tr.rows?.[0]?.structure;
+            if (!structure) {
+                return res.status(400).json({ error: 'Checklist template not found or inactive.' });
+            }
+            const ans = checklistAnswers && typeof checklistAnswers === 'object' ? checklistAnswers : {};
+            const missing = validateChecklistAgainstTemplate(structure, ans);
+            if (missing.length) {
+                return res.status(400).json({
+                    error: 'Required checklist items are missing.',
+                    missing,
+                });
+            }
+            answersPayload = JSON.stringify(ans);
+        } else {
+            ctId = null;
+        }
+
         const createdBy = req.user?.id ?? req.user?.userId ?? null;
         const insertResult = await pool.query(
             `
-            INSERT INTO project_inspections (project_id, inspection_date, findings, warnings, recommendations, created_by, created_at, updated_at, voided)
-            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false)
+            INSERT INTO project_inspections (
+                project_id, inspection_date, findings, warnings, recommendations,
+                checklist_template_id, checklist_answers,
+                created_by, created_at, updated_at, voided
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false)
             RETURNING inspection_id AS "inspectionId"
             `,
-            [projectId, inspectionDate, findings || null, warnings || null, recommendations || null, createdBy]
+            [
+                projectId,
+                inspectionDate,
+                findings || null,
+                warnings || null,
+                recommendations || null,
+                ctId,
+                answersPayload,
+                createdBy,
+            ]
         );
         const inspectionId = insertResult.rows?.[0]?.inspectionId;
         if (Array.isArray(teamMemberRefs) && teamMemberRefs.length > 0) {
@@ -198,25 +269,83 @@ router.post('/:projectId/inspections', async (req, res) => {
 router.put('/:projectId/inspections/:inspectionId', async (req, res) => {
     const projectId = parseInt(String(req.params.projectId), 10);
     const inspectionId = parseInt(String(req.params.inspectionId), 10);
-    const { inspectionDate, findings, warnings, recommendations, teamMemberRefs } = req.body || {};
+    const {
+        inspectionDate,
+        findings,
+        warnings,
+        recommendations,
+        teamMemberRefs,
+        checklistTemplateId,
+        checklistAnswers,
+    } = req.body || {};
     if (!Number.isFinite(projectId) || !Number.isFinite(inspectionId)) return res.status(400).json({ error: 'Invalid ids.' });
     if (!inspectionDate) return res.status(400).json({ error: 'inspectionDate is required.' });
 
     try {
         await ensureInspectionTables();
+        let ctId =
+            checklistTemplateId !== undefined
+                ? checklistTemplateId != null
+                    ? parseInt(String(checklistTemplateId), 10)
+                    : null
+                : undefined;
+        let answersPayload = undefined;
+        if (ctId !== undefined) {
+            if (Number.isFinite(ctId)) {
+                const tr = await pool.query(
+                    `
+                    SELECT structure FROM data_collection_templates
+                    WHERE template_id = $1 AND COALESCE(voided,false)=false AND COALESCE(is_active,true)=true
+                    `,
+                    [ctId]
+                );
+                const structure = tr.rows?.[0]?.structure;
+                if (!structure) {
+                    return res.status(400).json({ error: 'Checklist template not found or inactive.' });
+                }
+                const ans = checklistAnswers && typeof checklistAnswers === 'object' ? checklistAnswers : {};
+                const missing = validateChecklistAgainstTemplate(structure, ans);
+                if (missing.length) {
+                    return res.status(400).json({
+                        error: 'Required checklist items are missing.',
+                        missing,
+                    });
+                }
+                answersPayload = JSON.stringify(ans);
+            } else {
+                ctId = null;
+                answersPayload = null;
+            }
+        }
+
+        const sets = [
+            'inspection_date = $1',
+            'findings = $2',
+            'warnings = $3',
+            'recommendations = $4',
+            'updated_at = CURRENT_TIMESTAMP',
+        ];
+        const params = [inspectionDate, findings || null, warnings || null, recommendations || null];
+        let n = 5;
+        if (ctId !== undefined) {
+            sets.push(`checklist_template_id = $${n}`);
+            params.push(ctId);
+            n += 1;
+            sets.push(`checklist_answers = $${n}::jsonb`);
+            params.push(answersPayload);
+            n += 1;
+        }
+        params.push(inspectionId, projectId);
+
         const updateResult = await pool.query(
             `
             UPDATE project_inspections
-            SET inspection_date = $1,
-                findings = $2,
-                warnings = $3,
-                recommendations = $4,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE inspection_id = $5
-              AND project_id = $6
+            SET ${sets.join(', ')}
+            WHERE inspection_id = $${n}
+              AND project_id = $${n + 1}
               AND COALESCE(voided, false) = false
             `,
-            [inspectionDate, findings || null, warnings || null, recommendations || null, inspectionId, projectId]
+            params
         );
         if ((updateResult.rowCount || 0) === 0) {
             return res.status(404).json({ error: 'Inspection not found.' });
