@@ -62,6 +62,23 @@ export default function ProcurementPage() {
   const [newChecklistLabel, setNewChecklistLabel] = useState('');
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [addingChecklist, setAddingChecklist] = useState(false);
+  const [subjects, setSubjects] = useState([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  const [assessmentTemplate, setAssessmentTemplate] = useState(null);
+  const [assessmentResponses, setAssessmentResponses] = useState({});
+  const [assessmentDecision, setAssessmentDecision] = useState('');
+  const [assessmentNotes, setAssessmentNotes] = useState('');
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [savingAssessment, setSavingAssessment] = useState(false);
+  const [newBidderName, setNewBidderName] = useState('');
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [templateSubjectType, setTemplateSubjectType] = useState('bidder');
+  const [templateFields, setTemplateFields] = useState([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateStage, setTemplateStage] = useState('');
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -120,6 +137,15 @@ export default function ProcurementPage() {
       setHistory(Array.isArray(data) ? data : []);
       setAttachments(Array.isArray(docs) ? docs : []);
       setChecklist(Array.isArray(checks) ? checks : []);
+      if ((stepForm.stage || '').trim()) {
+        const subs = await apiService.procurement.listStageSubjects(project.projectId, stepForm.stage, { subjectType: 'bidder' });
+        const list = Array.isArray(subs) ? subs : [];
+        setSubjects(list);
+        if (list.length) setSelectedSubjectId(String(list[0].id));
+      } else {
+        setSubjects([]);
+        setSelectedSubjectId('');
+      }
     } finally {
       setHistoryLoading(false);
     }
@@ -140,6 +166,8 @@ export default function ProcurementPage() {
       setChecklist(Array.isArray(checks) ? checks : []);
       await loadProjects();
       setStepForm({ stage: stageOptions[0] || PROCUREMENT_STAGE_FALLBACK[0], decision: 'Pending', notes: '' });
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to save workflow step.');
     } finally {
       setSaving(false);
     }
@@ -188,12 +216,211 @@ export default function ProcurementPage() {
     setChecklist(Array.isArray(checks) ? checks : []);
   };
 
+  const loadSubjectsForCurrentStage = useCallback(async () => {
+    if (!selectedProject?.projectId || !stepForm.stage) return;
+    const subs = await apiService.procurement.listStageSubjects(selectedProject.projectId, stepForm.stage, { subjectType: 'bidder' });
+    const list = Array.isArray(subs) ? subs : [];
+    setSubjects(list);
+    if (list.length && !list.some((s) => String(s.id) === String(selectedSubjectId))) {
+      setSelectedSubjectId(String(list[0].id));
+    }
+  }, [selectedProject?.projectId, stepForm.stage, selectedSubjectId]);
+
+  useEffect(() => {
+    loadSubjectsForCurrentStage();
+  }, [loadSubjectsForCurrentStage]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!selectedSubjectId) {
+        setAssessmentTemplate(null);
+        setAssessmentResponses({});
+        setAssessmentDecision('');
+        setAssessmentNotes('');
+        return;
+      }
+      setAssessmentLoading(true);
+      try {
+        const payload = await apiService.procurement.getSubjectAssessment(selectedSubjectId);
+        if (cancelled) return;
+        setAssessmentTemplate(payload?.template || null);
+        setAssessmentResponses(payload?.assessment?.responses || {});
+        setAssessmentDecision(payload?.assessment?.decision || '');
+        setAssessmentNotes(payload?.assessment?.notes || '');
+      } finally {
+        if (!cancelled) setAssessmentLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubjectId]);
+
+  const handleAddBidder = async () => {
+    if (!selectedProject?.projectId || !stepForm.stage || !newBidderName.trim()) return;
+    await apiService.procurement.createStageSubject(selectedProject.projectId, stepForm.stage, {
+      subjectType: 'bidder',
+      subjectName: newBidderName.trim(),
+    });
+    setNewBidderName('');
+    await loadSubjectsForCurrentStage();
+  };
+
+  const setAssessmentValue = (key, value) => {
+    setAssessmentResponses((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveAssessment = async () => {
+    if (!selectedSubjectId) return;
+    setSavingAssessment(true);
+    try {
+      await apiService.procurement.saveSubjectAssessment(selectedSubjectId, {
+        responses: assessmentResponses,
+        decision: assessmentDecision,
+        notes: assessmentNotes,
+      });
+      await loadSubjectsForCurrentStage();
+    } finally {
+      setSavingAssessment(false);
+    }
+  };
+
+  const openTemplatesManager = async () => {
+    try {
+      setTemplatesOpen(true);
+      const initialStage = stepForm.stage || stageOptions[0] || '';
+      setTemplateStage(initialStage);
+      const data = await apiService.procurement.listTemplates({ stage: initialStage, all: true });
+      const list = Array.isArray(data) ? data : [];
+      setTemplates(list);
+      if (list.length) {
+        const t = list[0];
+        setSelectedTemplateId(String(t.id));
+        setTemplateStage(t.stage || initialStage);
+        setTemplateName(t.name || '');
+        setTemplateSubjectType(t.subjectType || 'bidder');
+        setTemplateFields(Array.isArray(t.fields) ? t.fields : []);
+      } else {
+        setSelectedTemplateId('');
+        setTemplateStage(initialStage);
+        setTemplateName('');
+        setTemplateSubjectType('bidder');
+        setTemplateFields([]);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to load stage templates.');
+    }
+  };
+
+  const onTemplateSelect = (idRaw) => {
+    const id = String(idRaw || '');
+    setSelectedTemplateId(id);
+    const t = templates.find((x) => String(x.id) === id);
+    if (!t) return;
+    setTemplateStage(t.stage || templateStage);
+    setTemplateName(t.name || '');
+    setTemplateSubjectType(t.subjectType || 'bidder');
+    setTemplateFields(Array.isArray(t.fields) ? t.fields : []);
+  };
+
+  const handleTemplateStageChange = async (newStage) => {
+    const stage = String(newStage || '').trim();
+    setTemplateStage(stage);
+    setSelectedTemplateId('');
+    setTemplateName('');
+    setTemplateSubjectType('bidder');
+    setTemplateFields([]);
+    if (!stage) {
+      setTemplates([]);
+      return;
+    }
+    try {
+      const data = await apiService.procurement.listTemplates({ stage, all: true });
+      const list = Array.isArray(data) ? data : [];
+      setTemplates(list);
+      if (list.length) {
+        const t = list[0];
+        setSelectedTemplateId(String(t.id));
+        setTemplateName(t.name || '');
+        setTemplateSubjectType(t.subjectType || 'bidder');
+        setTemplateFields(Array.isArray(t.fields) ? t.fields : []);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to load templates for selected stage.');
+    }
+  };
+
+  const addTemplateField = () => {
+    setTemplateFields((p) => [...p, { key: '', label: '', type: 'text', required: false, weight: 0 }]);
+  };
+
+  const patchTemplateField = (idx, patch) => {
+    setTemplateFields((p) => p.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
+  };
+
+  const removeTemplateField = (idx) => {
+    setTemplateFields((p) => p.filter((_, i) => i !== idx));
+  };
+
+  const saveTemplate = async () => {
+    if (!templateStage || !templateName.trim() || !templateFields.length) return;
+    setSavingTemplate(true);
+    try {
+      const payload = {
+        stage: templateStage,
+        name: templateName.trim(),
+        subjectType: templateSubjectType || 'bidder',
+        fields: templateFields,
+      };
+      let savedId = selectedTemplateId;
+      if (selectedTemplateId) {
+        await apiService.procurement.updateTemplate(selectedTemplateId, payload);
+      } else {
+        const created = await apiService.procurement.createTemplate(payload);
+        savedId = String(created?.id || '');
+      }
+      const data = await apiService.procurement.listTemplates({ stage: templateStage, all: true });
+      const list = Array.isArray(data) ? data : [];
+      setTemplates(list);
+      if (savedId && list.some((t) => String(t.id) === String(savedId))) {
+        onTemplateSelect(savedId);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to save template.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const downloadBlob = (blob, fileName) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportBidderSheet = async (format) => {
+    if (!selectedProject?.projectId || !stepForm.stage) return;
+    const { blob, fileName } = await apiService.procurement.exportBidderEvaluation(selectedProject.projectId, stepForm.stage, format);
+    downloadBlob(blob, fileName);
+  };
+
   return (
     <Box sx={{ p: 2 }}>
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
-        <Typography variant="h6" fontWeight={800}>
-          Procurement Management
-        </Typography>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+          <Typography variant="h6" fontWeight={800}>
+            Procurement Management
+          </Typography>
+          <Button size="small" variant="outlined" onClick={openTemplatesManager}>
+            Manage Templates
+          </Button>
+        </Stack>
         <Typography variant="body2" color="text.secondary">
           Projects currently under procurement and their basic workflow progress.
         </Typography>
@@ -356,6 +583,122 @@ export default function ProcurementPage() {
               </TableContainer>
 
               <Divider />
+              <Typography variant="subtitle1" fontWeight={700}>Bidder Suitability Assessment (Stage Template)</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  label="Add bidder"
+                  value={newBidderName}
+                  onChange={(e) => setNewBidderName(e.target.value)}
+                />
+                <Button variant="contained" onClick={handleAddBidder} disabled={!newBidderName.trim()}>
+                  Add Bidder
+                </Button>
+              </Stack>
+              <TextField
+                select
+                size="small"
+                label="Select bidder"
+                value={selectedSubjectId}
+                onChange={(e) => setSelectedSubjectId(e.target.value)}
+                sx={{ minWidth: 260 }}
+              >
+                {subjects.map((s) => (
+                  <MenuItem key={s.id} value={String(s.id)}>
+                    {s.subjectName} {s.latestScore != null ? `(${Number(s.latestScore).toFixed(2)})` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {assessmentLoading ? (
+                <Typography variant="body2">Loading bidder assessment...</Typography>
+              ) : assessmentTemplate?.fields?.length ? (
+                <Stack spacing={1}>
+                  {assessmentTemplate.fields.map((f) => {
+                    const key = f.key;
+                    const val = assessmentResponses?.[key];
+                    if (f.type === 'checkbox') {
+                      return (
+                        <Stack key={key} direction="row" spacing={1} alignItems="center">
+                          <Checkbox checked={Boolean(val)} onChange={(e) => setAssessmentValue(key, e.target.checked)} />
+                          <Typography>{f.label}</Typography>
+                        </Stack>
+                      );
+                    }
+                    if (f.type === 'select') {
+                      return (
+                        <TextField
+                          key={key}
+                          select
+                          size="small"
+                          label={f.label}
+                          value={val ?? ''}
+                          onChange={(e) => setAssessmentValue(key, e.target.value)}
+                        >
+                          {(Array.isArray(f.options) ? f.options : []).map((o) => (
+                            <MenuItem key={o} value={o}>{o}</MenuItem>
+                          ))}
+                        </TextField>
+                      );
+                    }
+                    if (f.type === 'number') {
+                      return (
+                        <TextField
+                          key={key}
+                          size="small"
+                          type="number"
+                          label={f.label}
+                          value={val ?? ''}
+                          onChange={(e) => setAssessmentValue(key, e.target.value)}
+                        />
+                      );
+                    }
+                    return (
+                      <TextField
+                        key={key}
+                        size="small"
+                        label={f.label}
+                        multiline={f.type === 'textarea'}
+                        minRows={f.type === 'textarea' ? 2 : undefined}
+                        value={val ?? ''}
+                        onChange={(e) => setAssessmentValue(key, e.target.value)}
+                      />
+                    );
+                  })}
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <TextField
+                      size="small"
+                      label="Assessment Decision"
+                      value={assessmentDecision}
+                      onChange={(e) => setAssessmentDecision(e.target.value)}
+                      sx={{ minWidth: 240 }}
+                    />
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Assessment Notes"
+                      value={assessmentNotes}
+                      onChange={(e) => setAssessmentNotes(e.target.value)}
+                    />
+                    <Button variant="contained" onClick={handleSaveAssessment} disabled={savingAssessment || !selectedSubjectId}>
+                      Save Assessment
+                    </Button>
+                    <Button variant="outlined" onClick={() => exportBidderSheet('xlsx')} disabled={!subjects.length}>
+                      Export Excel
+                    </Button>
+                    <Button variant="outlined" onClick={() => exportBidderSheet('pdf')} disabled={!subjects.length}>
+                      Export PDF
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No active stage template found for this stage / subject type.
+                </Typography>
+              )}
+
+              <Divider />
               <Typography variant="subtitle1" fontWeight={700}>Data Collection Checklist</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
@@ -405,6 +748,92 @@ export default function ProcurementPage() {
           <Button onClick={() => setSelectedProject(null)}>Close</Button>
           <Button variant="contained" onClick={saveStep} disabled={saving}>
             Save Workflow Step
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={templatesOpen} onClose={() => setTemplatesOpen(false)} fullWidth maxWidth="lg">
+        <DialogTitle>Procurement Stage Template Manager</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <TextField
+              select
+              size="small"
+              label="Stage"
+              value={templateStage}
+              onChange={(e) => handleTemplateStageChange(e.target.value)}
+              sx={{ minWidth: 260 }}
+            >
+              {stageOptions.map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Existing template"
+              value={selectedTemplateId}
+              onChange={(e) => onTemplateSelect(e.target.value)}
+              sx={{ minWidth: 260 }}
+            >
+              <MenuItem value="">Create New Template</MenuItem>
+              {templates.map((t) => (
+                <MenuItem key={t.id} value={String(t.id)}>
+                  {t.name} ({t.subjectType}) - {t.stage}
+                </MenuItem>
+              ))}
+            </TextField>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <TextField size="small" fullWidth label="Template Name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
+              <TextField
+                select
+                size="small"
+                label="Subject Type"
+                value={templateSubjectType}
+                onChange={(e) => setTemplateSubjectType(e.target.value)}
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="bidder">Bidder</MenuItem>
+                <MenuItem value="generic">Generic</MenuItem>
+              </TextField>
+            </Stack>
+            <Divider />
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="subtitle2">Fields</Typography>
+              <Button size="small" variant="outlined" onClick={addTemplateField}>Add Field</Button>
+            </Stack>
+            {templateFields.map((f, idx) => (
+              <Stack key={`${f.key || 'field'}-${idx}`} direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                <TextField size="small" label="Key" value={f.key || ''} onChange={(e) => patchTemplateField(idx, { key: e.target.value })} />
+                <TextField size="small" label="Label" value={f.label || ''} onChange={(e) => patchTemplateField(idx, { label: e.target.value })} sx={{ minWidth: 220 }} />
+                <TextField
+                  select
+                  size="small"
+                  label="Type"
+                  value={f.type || 'text'}
+                  onChange={(e) => patchTemplateField(idx, { type: e.target.value })}
+                  sx={{ minWidth: 140 }}
+                >
+                  <MenuItem value="text">Text</MenuItem>
+                  <MenuItem value="textarea">Textarea</MenuItem>
+                  <MenuItem value="number">Number</MenuItem>
+                  <MenuItem value="checkbox">Checkbox</MenuItem>
+                  <MenuItem value="select">Select</MenuItem>
+                </TextField>
+                <TextField size="small" type="number" label="Weight" value={f.weight ?? 0} onChange={(e) => patchTemplateField(idx, { weight: Number(e.target.value || 0) })} sx={{ width: 120 }} />
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Checkbox checked={Boolean(f.required)} onChange={(e) => patchTemplateField(idx, { required: e.target.checked })} />
+                  <Typography variant="body2">Required</Typography>
+                  <Button size="small" color="error" onClick={() => removeTemplateField(idx)}>Remove</Button>
+                </Stack>
+              </Stack>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTemplatesOpen(false)}>Close</Button>
+          <Button variant="contained" onClick={saveTemplate} disabled={savingTemplate}>
+            Save Template
           </Button>
         </DialogActions>
       </Dialog>

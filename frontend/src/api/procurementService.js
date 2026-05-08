@@ -51,6 +51,49 @@ const procurementService = {
     const { data } = await axiosInstance.patch(`/procurement/projects/${projectId}/checklist/${itemId}`, payload);
     return data;
   },
+  listTemplates: async (params = {}) => {
+    const { data } = await axiosInstance.get('/procurement/templates', { params });
+    return data;
+  },
+  createTemplate: async (payload) => {
+    const { data } = await axiosInstance.post('/procurement/templates', payload);
+    return data;
+  },
+  updateTemplate: async (id, payload) => {
+    const { data } = await axiosInstance.patch(`/procurement/templates/${id}`, payload);
+    return data;
+  },
+  listStageSubjects: async (projectId, stage, params = {}) => {
+    const { data } = await axiosInstance.get(
+      `/procurement/projects/${projectId}/stages/${encodeURIComponent(stage)}/subjects`,
+      { params }
+    );
+    return data;
+  },
+  createStageSubject: async (projectId, stage, payload) => {
+    const { data } = await axiosInstance.post(
+      `/procurement/projects/${projectId}/stages/${encodeURIComponent(stage)}/subjects`,
+      payload
+    );
+    return data;
+  },
+  getSubjectAssessment: async (subjectId) => {
+    const { data } = await axiosInstance.get(`/procurement/subjects/${subjectId}/assessment`);
+    return data;
+  },
+  saveSubjectAssessment: async (subjectId, payload) => {
+    const { data } = await axiosInstance.put(`/procurement/subjects/${subjectId}/assessment`, payload);
+    return data;
+  },
+  exportBidderEvaluation: async (projectId, stage, format = 'xlsx') => {
+    const { data, headers } = await axiosInstance.get(
+      `/procurement/projects/${projectId}/stages/${encodeURIComponent(stage)}/evaluation-export`,
+      { params: { format }, responseType: 'blob' }
+    );
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || `bidder-evaluation.${format}` };
+  },
 };
 
 export default procurementService;
