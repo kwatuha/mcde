@@ -131,7 +131,7 @@
           "route": "CENTRAL_IMPORT"
         },
         {
-          "title": "Import Logs",
+          "title": "Data Import Logs",
           "icon": "AssessmentIcon",
           "route": "PROJECTS_UPLOAD_LOG"
         }

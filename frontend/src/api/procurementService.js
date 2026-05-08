@@ -29,6 +29,28 @@ const procurementService = {
     const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/workflow`, payload);
     return data;
   },
+  getAttachments: async (projectId, params = {}) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/attachments`, { params });
+    return data;
+  },
+  uploadAttachment: async (projectId, formData) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+  getChecklist: async (projectId, params = {}) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/checklist`, { params });
+    return data;
+  },
+  addChecklistItem: async (projectId, payload) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/checklist`, payload);
+    return data;
+  },
+  updateChecklistItem: async (projectId, itemId, payload) => {
+    const { data } = await axiosInstance.patch(`/procurement/projects/${projectId}/checklist/${itemId}`, payload);
+    return data;
+  },
 };
 
 export default procurementService;

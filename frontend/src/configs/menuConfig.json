@@ -258,7 +258,7 @@
           "permission": "project.create"
         },
         {
-          "title": "Import Logs",
+          "title": "Data Import Logs",
           "icon": "AssessmentIcon",
           "route": "PROJECTS_UPLOAD_LOG",
           "roles": ["mda_ict_admin", "super_admin"]

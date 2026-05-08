@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -32,6 +35,14 @@ const isSchemaError = (error) => {
 };
 
 let procurementSchemaEnsured = false;
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads', 'documents');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${String(file.originalname || 'file').replace(/\s+/g, '_')}`),
+  }),
+});
 
 async function ensureProcurementWorkflowTable() {
   if (isPostgres) {
@@ -103,6 +114,94 @@ async function ensureProcurementStagesTable() {
   }
 }
 
+async function ensureProcurementAttachmentsTable() {
+  if (isPostgres) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_attachments (
+        id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        stage VARCHAR(200) NULL,
+        file_name VARCHAR(255) NOT NULL,
+        file_path TEXT NOT NULL,
+        mime_type VARCHAR(120) NULL,
+        file_size BIGINT NULL,
+        title VARCHAR(255) NULL,
+        notes TEXT NULL,
+        uploaded_by BIGINT NULL,
+        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        voided BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_procurement_attachments_project_stage
+       ON procurement_attachments(project_id, stage, voided, created_at DESC)`
+    );
+  } else {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_attachments (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        stage VARCHAR(200) NULL,
+        file_name VARCHAR(255) NOT NULL,
+        file_path TEXT NOT NULL,
+        mime_type VARCHAR(120) NULL,
+        file_size BIGINT NULL,
+        title VARCHAR(255) NULL,
+        notes TEXT NULL,
+        uploaded_by BIGINT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        INDEX idx_procurement_attachments_project_stage (project_id, stage, voided, created_at)
+      )
+    `);
+  }
+}
+
+async function ensureProcurementChecklistTable() {
+  if (isPostgres) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_checklist_items (
+        id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        stage VARCHAR(200) NULL,
+        label VARCHAR(255) NOT NULL,
+        notes TEXT NULL,
+        completed BOOLEAN NOT NULL DEFAULT FALSE,
+        completed_at TIMESTAMP WITHOUT TIME ZONE NULL,
+        completed_by BIGINT NULL,
+        created_by BIGINT NULL,
+        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        voided BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_procurement_checklist_project_stage
+       ON procurement_checklist_items(project_id, stage, voided, created_at DESC)`
+    );
+  } else {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_checklist_items (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        stage VARCHAR(200) NULL,
+        label VARCHAR(255) NOT NULL,
+        notes TEXT NULL,
+        completed TINYINT(1) NOT NULL DEFAULT 0,
+        completed_at DATETIME NULL,
+        completed_by BIGINT NULL,
+        created_by BIGINT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        voided TINYINT(1) NOT NULL DEFAULT 0,
+        INDEX idx_procurement_checklist_project_stage (project_id, stage, voided, created_at)
+      )
+    `);
+  }
+}
+
 async function seedProcurementStagesIfNeeded() {
   let ord = 0;
   for (const label of PROCUREMENT_STAGE_SEED_LABELS) {
@@ -142,6 +241,8 @@ async function ensureProcurementSchema() {
   if (procurementSchemaEnsured) return;
   await ensureProcurementWorkflowTable();
   await ensureProcurementStagesTable();
+  await ensureProcurementAttachmentsTable();
+  await ensureProcurementChecklistTable();
   await seedProcurementStagesIfNeeded();
   procurementSchemaEnsured = true;
 }
@@ -437,6 +538,43 @@ router.get('/projects', async (req, res) => {
             AND LOWER(COALESCE(p.status, '')) LIKE '%procurement%'
           ORDER BY p.updated_at DESC NULLS LAST
         `,
+        `
+          SELECT
+            p.id AS "projectId",
+            p."projectName" AS "projectName",
+            COALESCE(p.status, '') AS "projectStatus",
+            p.directorate AS "implementingAgency",
+            COALESCE(p."costOfProject", 0) AS "budget",
+            wf.stage AS "procurementStage",
+            wf.decision AS "latestDecision",
+            wf.updated_at AS "updatedAt"
+          FROM projects p
+          LEFT JOIN LATERAL (
+            SELECT stage, decision, updated_at
+            FROM project_procurement_workflow w
+            WHERE w.project_id = p.id AND COALESCE(w.voided, false) = false
+            ORDER BY w.updated_at DESC NULLS LAST, w.id DESC
+            LIMIT 1
+          ) wf ON true
+          WHERE COALESCE(p.voided, false) = false
+            AND LOWER(COALESCE(p.status, '')) LIKE '%procurement%'
+          ORDER BY p."updatedAt" DESC NULLS LAST
+        `,
+        `
+          SELECT
+            p.id AS "projectId",
+            p."projectName" AS "projectName",
+            COALESCE(p.status, '') AS "projectStatus",
+            p.directorate AS "implementingAgency",
+            COALESCE(p."costOfProject", 0) AS "budget",
+            NULL::text AS "procurementStage",
+            NULL::text AS "latestDecision",
+            p."updatedAt" AS "updatedAt"
+          FROM projects p
+          WHERE COALESCE(p.voided, false) = false
+            AND LOWER(COALESCE(p.status, '')) LIKE '%procurement%'
+          ORDER BY p."updatedAt" DESC NULLS LAST
+        `,
       ];
 
       let rows = null;
@@ -558,6 +696,217 @@ router.post('/projects/:projectId/workflow', async (req, res) => {
   } catch (error) {
     console.error('Error adding procurement workflow step:', error);
     return res.status(500).json({ message: 'Error adding procurement workflow step', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/attachments', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const stage = String(req.query?.stage || '').trim();
+  try {
+    await ensureProcurementSchema();
+    const sql = isPostgres
+      ? `SELECT id, project_id AS "projectId", stage, file_name AS "fileName", file_path AS "filePath",
+                mime_type AS "mimeType", file_size AS "fileSize", title, notes,
+                uploaded_by AS "uploadedBy", created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM procurement_attachments
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND ($2::text = '' OR COALESCE(stage, '') = $2::text)
+         ORDER BY created_at DESC, id DESC`
+      : `SELECT id, project_id AS projectId, stage, file_name AS fileName, file_path AS filePath,
+                mime_type AS mimeType, file_size AS fileSize, title, notes,
+                uploaded_by AS uploadedBy, created_at AS createdAt, updated_at AS updatedAt
+         FROM procurement_attachments
+         WHERE project_id = ?
+           AND COALESCE(voided, 0) = 0
+           AND (? = '' OR COALESCE(stage, '') = ?)
+         ORDER BY created_at DESC, id DESC`;
+    const params = isPostgres ? [projectId, stage] : [projectId, stage, stage];
+    const result = await pool.query(sql, params);
+    return res.status(200).json(rowsOf(result));
+  } catch (error) {
+    console.error('Error loading procurement attachments:', error);
+    return res.status(500).json({ message: 'Error loading procurement attachments', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/attachments', upload.single('file'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  if (!req.file) return res.status(400).json({ message: 'file is required.' });
+  const stage = String(req.body?.stage || '').trim() || null;
+  const title = String(req.body?.title || '').trim() || null;
+  const notes = String(req.body?.notes || '').trim() || null;
+  const uploadedBy = Number(req.user?.userId || req.user?.id || null) || null;
+  const relPath = path.relative(path.join(__dirname, '..', '..'), req.file.path).replace(/\\/g, '/');
+  try {
+    await ensureProcurementSchema();
+    if (isPostgres) {
+      const result = await pool.query(
+        `INSERT INTO procurement_attachments
+          (project_id, stage, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),false)
+         RETURNING id, project_id AS "projectId", stage, file_name AS "fileName", file_path AS "filePath",
+                   mime_type AS "mimeType", file_size AS "fileSize", title, notes, uploaded_by AS "uploadedBy",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [projectId, stage, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
+      );
+      return res.status(201).json(rowsOf(result)[0]);
+    }
+    const ins = await pool.query(
+      `INSERT INTO procurement_attachments
+       (project_id, stage, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+      [projectId, stage, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
+    );
+    const insertId = ins?.insertId || ins?.[0]?.insertId;
+    const sel = await pool.query(
+      `SELECT id, project_id AS projectId, stage, file_name AS fileName, file_path AS filePath,
+              mime_type AS mimeType, file_size AS fileSize, title, notes, uploaded_by AS uploadedBy,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM procurement_attachments WHERE id = ?`,
+      [insertId]
+    );
+    return res.status(201).json(rowsOf(sel)[0]);
+  } catch (error) {
+    console.error('Error saving procurement attachment:', error);
+    return res.status(500).json({ message: 'Error saving procurement attachment', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/checklist', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const stage = String(req.query?.stage || '').trim();
+  try {
+    await ensureProcurementSchema();
+    const sql = isPostgres
+      ? `SELECT id, project_id AS "projectId", stage, label, notes, completed,
+                completed_at AS "completedAt", completed_by AS "completedBy",
+                created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM procurement_checklist_items
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND ($2::text = '' OR COALESCE(stage, '') = $2::text)
+         ORDER BY created_at DESC, id DESC`
+      : `SELECT id, project_id AS projectId, stage, label, notes, completed,
+                completed_at AS completedAt, completed_by AS completedBy,
+                created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+         FROM procurement_checklist_items
+         WHERE project_id = ?
+           AND COALESCE(voided, 0) = 0
+           AND (? = '' OR COALESCE(stage, '') = ?)
+         ORDER BY created_at DESC, id DESC`;
+    const params = isPostgres ? [projectId, stage] : [projectId, stage, stage];
+    const result = await pool.query(sql, params);
+    return res.status(200).json(rowsOf(result));
+  } catch (error) {
+    console.error('Error loading procurement checklist:', error);
+    return res.status(500).json({ message: 'Error loading procurement checklist', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/checklist', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const stage = String(req.body?.stage || '').trim() || null;
+  const label = String(req.body?.label || '').trim();
+  const notes = String(req.body?.notes || '').trim() || null;
+  const createdBy = Number(req.user?.userId || req.user?.id || null) || null;
+  if (!label) return res.status(400).json({ message: 'label is required.' });
+  try {
+    await ensureProcurementSchema();
+    if (isPostgres) {
+      const result = await pool.query(
+        `INSERT INTO procurement_checklist_items
+          (project_id, stage, label, notes, completed, created_by, created_at, updated_at, voided)
+         VALUES ($1,$2,$3,$4,false,$5,NOW(),NOW(),false)
+         RETURNING id, project_id AS "projectId", stage, label, notes, completed,
+                   completed_at AS "completedAt", completed_by AS "completedBy",
+                   created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [projectId, stage, label, notes, createdBy]
+      );
+      return res.status(201).json(rowsOf(result)[0]);
+    }
+    const ins = await pool.query(
+      `INSERT INTO procurement_checklist_items
+       (project_id, stage, label, notes, completed, created_by, created_at, updated_at, voided)
+       VALUES (?, ?, ?, ?, 0, ?, NOW(), NOW(), 0)`,
+      [projectId, stage, label, notes, createdBy]
+    );
+    const insertId = ins?.insertId || ins?.[0]?.insertId;
+    const sel = await pool.query(
+      `SELECT id, project_id AS projectId, stage, label, notes, completed,
+              completed_at AS completedAt, completed_by AS completedBy,
+              created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+       FROM procurement_checklist_items WHERE id = ?`,
+      [insertId]
+    );
+    return res.status(201).json(rowsOf(sel)[0]);
+  } catch (error) {
+    console.error('Error adding checklist item:', error);
+    return res.status(500).json({ message: 'Error adding checklist item', error: error.message });
+  }
+});
+
+router.patch('/projects/:projectId/checklist/:itemId', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const itemId = Number(req.params.itemId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(itemId)) return res.status(400).json({ message: 'Invalid ids.' });
+  const completedBy = Number(req.user?.userId || req.user?.id || null) || null;
+  const completedRaw = req.body?.completed;
+  const completed = completedRaw === true || completedRaw === 1 || completedRaw === '1';
+  const notes = req.body?.notes !== undefined ? String(req.body.notes || '').trim() : undefined;
+  try {
+    await ensureProcurementSchema();
+    if (isPostgres) {
+      const sets = ['completed = $1', 'updated_at = NOW()', completed ? 'completed_at = NOW()' : 'completed_at = NULL', 'completed_by = $2'];
+      const params = [completed, completedBy];
+      if (notes !== undefined) {
+        params.push(notes || null);
+        sets.push(`notes = $${params.length}`);
+      }
+      params.push(projectId, itemId);
+      const result = await pool.query(
+        `UPDATE procurement_checklist_items
+         SET ${sets.join(', ')}
+         WHERE project_id = $${params.length - 1} AND id = $${params.length} AND COALESCE(voided, false) = false
+         RETURNING id, project_id AS "projectId", stage, label, notes, completed,
+                   completed_at AS "completedAt", completed_by AS "completedBy",
+                   created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
+        params
+      );
+      const row = rowsOf(result)[0];
+      if (!row) return res.status(404).json({ message: 'Checklist item not found.' });
+      return res.status(200).json(row);
+    }
+    const updates = ['completed = ?', 'updated_at = NOW()', completed ? 'completed_at = NOW()' : 'completed_at = NULL', 'completed_by = ?'];
+    const params = [completed ? 1 : 0, completedBy];
+    if (notes !== undefined) {
+      updates.push('notes = ?');
+      params.push(notes || null);
+    }
+    params.push(projectId, itemId);
+    await pool.query(
+      `UPDATE procurement_checklist_items
+       SET ${updates.join(', ')}
+       WHERE project_id = ? AND id = ? AND COALESCE(voided, 0) = 0`,
+      params
+    );
+    const sel = await pool.query(
+      `SELECT id, project_id AS projectId, stage, label, notes, completed,
+              completed_at AS completedAt, completed_by AS completedBy,
+              created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+       FROM procurement_checklist_items WHERE project_id = ? AND id = ?`,
+      [projectId, itemId]
+    );
+    const row = rowsOf(sel)[0];
+    if (!row) return res.status(404).json({ message: 'Checklist item not found.' });
+    return res.status(200).json(row);
+  } catch (error) {
+    console.error('Error updating checklist item:', error);
+    return res.status(500).json({ message: 'Error updating checklist item', error: error.message });
   }
 });
 
