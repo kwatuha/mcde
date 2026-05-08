@@ -46,6 +46,8 @@ export default function ProjectTaskOutputPanel({ projectId }) {
     reportingPeriod: '',
     status: 'on_track',
   });
+  const [busyKey, setBusyKey] = useState('');
+  const isBusy = Boolean(busyKey);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -126,6 +128,80 @@ export default function ProjectTaskOutputPanel({ projectId }) {
     await load();
   };
 
+  const handleUpdateTask = async (task, patch = {}) => {
+    setBusyKey(`task-${task.taskId}`);
+    try {
+      await projectService.tasks.updateTask(task.taskId, patch);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update task.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!window.confirm('Delete this task and hide its subtasks?')) return;
+    setBusyKey(`task-del-${taskId}`);
+    try {
+      await projectService.tasks.deleteTask(taskId);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete task.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleEditTask = async (task) => {
+    const nextName = window.prompt('Task name', task.taskName || '');
+    if (nextName == null) return;
+    const dueDefault = task.dueDate ? String(task.dueDate).slice(0, 10) : '';
+    const nextDueDate = window.prompt('Due date (YYYY-MM-DD, leave blank to clear)', dueDefault);
+    if (nextDueDate == null) return;
+    await handleUpdateTask(task, {
+      taskName: String(nextName || '').trim() || task.taskName,
+      dueDate: String(nextDueDate || '').trim() || null,
+    });
+  };
+
+  const handleUpdateSubtask = async (subtaskId, patch = {}) => {
+    setBusyKey(`subtask-${subtaskId}`);
+    try {
+      await projectService.tasks.updateSubtask(subtaskId, patch);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update subtask.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleDeleteSubtask = async (subtaskId) => {
+    if (!window.confirm('Delete this subtask?')) return;
+    setBusyKey(`subtask-del-${subtaskId}`);
+    try {
+      await projectService.tasks.deleteSubtask(subtaskId);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete subtask.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleEditSubtask = async (subtask) => {
+    const nextName = window.prompt('Subtask name', subtask.subtaskName || '');
+    if (nextName == null) return;
+    const dueDefault = subtask.dueDate ? String(subtask.dueDate).slice(0, 10) : '';
+    const nextDueDate = window.prompt('Due date (YYYY-MM-DD, leave blank to clear)', dueDefault);
+    if (nextDueDate == null) return;
+    await handleUpdateSubtask(subtask.subtaskId, {
+      subtaskName: String(nextName || '').trim() || subtask.subtaskName,
+      dueDate: String(nextDueDate || '').trim() || null,
+    });
+  };
+
   const handleCreateOutput = async () => {
     if (!String(outputForm.outputName || '').trim()) return;
     await projectService.outputs.createForProject(projectId, {
@@ -147,6 +223,31 @@ export default function ProjectTaskOutputPanel({ projectId }) {
     await load();
   };
 
+  const handleUpdateOutput = async (outputId, patch = {}) => {
+    setBusyKey(`output-${outputId}`);
+    try {
+      await projectService.outputs.update(outputId, patch);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update output.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleDeleteOutput = async (outputId) => {
+    if (!window.confirm('Delete this output entry?')) return;
+    setBusyKey(`output-del-${outputId}`);
+    try {
+      await projectService.outputs.delete(outputId);
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete output.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
   if (loading) {
     return (
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
@@ -161,6 +262,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
   return (
     <Stack spacing={2} sx={{ mb: 2 }}>
       {error && <Alert severity="error">{error}</Alert>}
+      {isBusy && <Alert severity="info">Saving changes...</Alert>}
 
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
@@ -200,7 +302,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 170 }}
           />
-          <Button variant="contained" onClick={handleCreateTask} disabled={creatingTask}>
+          <Button variant="contained" onClick={handleCreateTask} disabled={creatingTask || isBusy}>
             Add Task
           </Button>
         </Stack>
@@ -212,6 +314,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                 <TableCell>Task Status</TableCell>
                 <TableCell>Subtasks</TableCell>
                 <TableCell>Completion</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -227,13 +330,53 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                 return (
                   <TableRow key={task.taskId}>
                     <TableCell>{task.taskName || '-'}</TableCell>
-                    <TableCell>{prettyStatus(task.status || 'not_started')}</TableCell>
+                    <TableCell>
+                      <TextField
+                        select
+                        size="small"
+                        value={task.status || 'not_started'}
+                        onChange={(e) => handleUpdateTask(task, { status: e.target.value })}
+                        sx={{ minWidth: 140 }}
+                      >
+                        {SUBTASK_STATUSES.map((s) => (
+                          <MenuItem key={s} value={s}>
+                            {prettyStatus(s)}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
                     <TableCell>
                       <Stack spacing={0.5} sx={{ minWidth: 340 }}>
                         {subtasks.map((st) => (
-                          <Typography key={st.subtaskId} variant="caption">
-                            - {st.subtaskName} ({prettyStatus(st.status)})
-                          </Typography>
+                          <Stack
+                            key={st.subtaskId}
+                            direction={{ xs: 'column', sm: 'row' }}
+                            spacing={0.75}
+                            alignItems={{ xs: 'flex-start', sm: 'center' }}
+                          >
+                            <Typography variant="caption" sx={{ minWidth: 220 }}>
+                              - {st.subtaskName}
+                            </Typography>
+                            <TextField
+                              select
+                              size="small"
+                              value={st.status || 'not_started'}
+                              onChange={(e) => handleUpdateSubtask(st.subtaskId, { status: e.target.value })}
+                              sx={{ minWidth: 130 }}
+                            >
+                              {SUBTASK_STATUSES.map((s) => (
+                                <MenuItem key={s} value={s}>
+                                  {prettyStatus(s)}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                            <Button size="small" variant="text" onClick={() => handleEditSubtask(st)}>
+                              Edit
+                            </Button>
+                            <Button size="small" color="error" variant="text" onClick={() => handleDeleteSubtask(st.subtaskId)}>
+                              Delete
+                            </Button>
+                          </Stack>
                         ))}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ mt: 0.5 }}>
                           <TextField
@@ -265,19 +408,29 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                               </MenuItem>
                             ))}
                           </TextField>
-                          <Button variant="outlined" size="small" onClick={() => handleCreateSubtask(task.taskId)}>
+                          <Button variant="outlined" size="small" disabled={isBusy} onClick={() => handleCreateSubtask(task.taskId)}>
                             Add
                           </Button>
                         </Stack>
                       </Stack>
                     </TableCell>
                     <TableCell>{pct}%</TableCell>
+                    <TableCell align="right">
+                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                        <Button size="small" variant="text" disabled={isBusy} onClick={() => handleEditTask(task)}>
+                          Edit
+                        </Button>
+                        <Button size="small" color="error" variant="text" disabled={isBusy} onClick={() => handleDeleteTask(task.taskId)}>
+                          Delete
+                        </Button>
+                      </Stack>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {tasks.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">
+                  <TableCell colSpan={5} align="center">
                     No tasks yet. Add a task to start tracking subtasks.
                   </TableCell>
                 </TableRow>
@@ -348,7 +501,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="contained" onClick={handleCreateOutput}>
+          <Button variant="contained" disabled={isBusy} onClick={handleCreateOutput}>
             Add Output
           </Button>
         </Stack>
@@ -363,6 +516,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                 <TableCell align="right">% Achieved</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Reporting Period</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -375,16 +529,49 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                     <TableCell>{row.outputName}</TableCell>
                     <TableCell>{row.unitOfMeasure || '-'}</TableCell>
                     <TableCell align="right">{target.toLocaleString()}</TableCell>
-                    <TableCell align="right">{achieved.toLocaleString()}</TableCell>
+                    <TableCell align="right">
+                      <TextField
+                        size="small"
+                        value={row.achievedValue ?? ''}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { achievedValue: e.target.value || 0 })}
+                        sx={{ width: 110 }}
+                      />
+                    </TableCell>
                     <TableCell align="right">{achievedPct.toFixed(1)}%</TableCell>
-                    <TableCell>{prettyStatus(row.status)}</TableCell>
-                    <TableCell>{row.reportingPeriod || '-'}</TableCell>
+                    <TableCell>
+                      <TextField
+                        select
+                        size="small"
+                        value={row.status || 'on_track'}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { status: e.target.value })}
+                        sx={{ minWidth: 130 }}
+                      >
+                        {OUTPUT_STATUSES.map((s) => (
+                          <MenuItem key={s} value={s}>
+                            {prettyStatus(s)}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        value={row.reportingPeriod || ''}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { reportingPeriod: e.target.value })}
+                        sx={{ minWidth: 120 }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" color="error" variant="text" onClick={() => handleDeleteOutput(row.outputId)}>
+                        Delete
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {outputs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">
+                  <TableCell colSpan={8} align="center">
                     No outputs recorded yet.
                   </TableCell>
                 </TableRow>

@@ -3090,15 +3090,6 @@ function ProjectManagementPage() {
             <ListItemText>View Details</ListItemText>
           </MenuItem>
         )}
-        {selectedProjectForContextMenu && checkUserPrivilege(user, 'project.update') && (
-          <MenuItem onClick={() => {
-            handleOpenAssignModal(selectedProjectForContextMenu);
-            handleContextMenuClose();
-          }}>
-            <ListItemIcon><GroupAddIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>Assign Contractors</ListItemText>
-          </MenuItem>
-        )}
       </Menu>
 
       {/* Row Action Menu */}
@@ -3158,18 +3149,6 @@ function ProjectManagementPage() {
               <ViewDetailsIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>View Details</ListItemText>
-          </MenuItem>
-        )}
-        {selectedRow && checkUserPrivilege(user, 'project.update') && (
-          <MenuItem onClick={() => {
-            handleOpenAssignModal(selectedRow);
-            setRowActionMenuAnchor(null);
-            setSelectedRow(null);
-          }}>
-            <ListItemIcon>
-              <GroupAddIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Assign Contractors</ListItemText>
           </MenuItem>
         )}
       </Menu>

@@ -57,6 +57,47 @@ const CERT_DEFAULTS = {
   countyName: import.meta.env.VITE_CERT_COUNTY_NAME || '',
 };
 
+function amountToWords(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '';
+  const whole = Math.floor(Math.abs(n));
+  const cents = Math.round((Math.abs(n) - whole) * 100);
+  const ones = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  const teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  const thousands = ['', 'thousand', 'million', 'billion'];
+
+  const underThousand = (x) => {
+    const parts = [];
+    const h = Math.floor(x / 100);
+    const r = x % 100;
+    if (h > 0) parts.push(`${ones[h]} hundred`);
+    if (r >= 20) {
+      const t = Math.floor(r / 10);
+      const o = r % 10;
+      parts.push(o > 0 ? `${tens[t]}-${ones[o]}` : tens[t]);
+    } else if (r >= 10) {
+      parts.push(teens[r - 10]);
+    } else if (r > 0 || parts.length === 0) {
+      parts.push(ones[r]);
+    }
+    return parts.join(' ');
+  };
+
+  let x = whole;
+  let idx = 0;
+  const chunks = [];
+  while (x > 0) {
+    const grp = x % 1000;
+    if (grp) chunks.unshift(`${underThousand(grp)}${thousands[idx] ? ` ${thousands[idx]}` : ''}`);
+    x = Math.floor(x / 1000);
+    idx += 1;
+  }
+  const wholeWords = chunks.length ? chunks.join(' ') : 'zero';
+  const centsWords = cents > 0 ? ` and ${cents}/100` : '';
+  return `${wholeWords}${centsWords}`;
+}
+
 /** Parse `projectcertificate.certificateData` JSON for PDF regeneration. */
 function parseStoredCertificateData(cert) {
   let data = {};
@@ -150,6 +191,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     clientMinistry: '',
     contractorId: null,
     contractorName: '',
+    contractorEmail: '',
+    contractorPhone: '',
+    ccRecipients: '',
     certificateBqItemIds: null,
     advanceRecovery: '',
     previousCumulative: '',
@@ -285,6 +329,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
         ...p,
         contractorId: Number(cid),
         contractorName: c.companyName || p.contractorName || '',
+        contractorEmail: c.email || p.contractorEmail || '',
+        contractorPhone: c.phone || p.contractorPhone || '',
       };
     });
   }, [openDialog, assignedContractors]);
@@ -301,6 +347,10 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const padded = String(nextIndex).padStart(3, '0');
     return `PC-${projectId}-${year}-${padded}`;
   }, [certificates, projectId]);
+  const suggestedSequence = useMemo(() => {
+    const next = (Array.isArray(certificates) ? certificates.length : 0) + 1;
+    return next;
+  }, [certificates]);
 
   const calculateCertificateAmounts = useCallback((draftSnapshot) => {
     const d = draftSnapshot || draft;
@@ -374,6 +424,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const pageH = doc.internal.pageSize.getHeight();
     const today = f.requestDate || new Date().toISOString().slice(0, 10);
     const certNo = f.certNumber || suggestedCertificateNumber || 'N/A';
+    const seqNow = Number(d.projectCertificateSequence || 0) || suggestedSequence;
+    const totalAtGen = Number(d.projectTotalCertificatesAtGeneration || 0) || seqNow;
     const title = d.projectTitle || `Project #${projectId}`;
     const {
       normalizedBq,
@@ -397,6 +449,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const contractSumFormatted = contractSumValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const contractor = String(d.contractorName || '').trim();
+    const contractorEmail = String(d.contractorEmail || '').trim();
+    const contractorPhone = String(d.contractorPhone || '').trim();
+    const ccRecipients = String(d.ccRecipients || '').trim();
     const clientMinistry = String(d.clientMinistry || '').trim();
 
     let y = 32;
@@ -438,6 +493,16 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
         y += 11;
       });
     }
+    if (contractorEmail || contractorPhone) {
+      const contactBits = [];
+      if (contractorEmail) contactBits.push(`Email: ${contractorEmail}`);
+      if (contractorPhone) contactBits.push(`Phone: ${contractorPhone}`);
+      const line = `Contractor contact: ${contactBits.join(' | ')}`;
+      doc.splitTextToSize(line, pageWidth - margin * 2).forEach((ln) => {
+        doc.text(ln, margin, y);
+        y += 11;
+      });
+    }
     if (clientMinistry) {
       const line = `Client ministry / department: ${clientMinistry}`;
       doc.splitTextToSize(line, pageWidth - margin * 2).forEach((ln) => {
@@ -450,6 +515,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     doc.setFontSize(10);
     doc.text(`Ref No: ${d.referenceNo || '-'}`, margin, y);
     doc.text(`Date: ${today}`, pageWidth - margin, y, { align: 'right' });
+    y += 14;
+    doc.text(`Project certificate sequence: ${seqNow} of ${totalAtGen}`, margin, y);
 
     y += 20;
     doc.text(`To: ${d.recipientOffice || '-'}`, margin, y);
@@ -472,6 +539,16 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const wrappedIntro = doc.splitTextToSize(intro, pageWidth - margin * 2);
     doc.text(wrappedIntro, margin, y);
     y += wrappedIntro.length * 12 + 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENT CERTIFICATE FOR CONSTRUCTION WORKS', margin, y);
+    y += 14;
+    doc.setFont('helvetica', 'normal');
+    const amountWords = amountToWords(computedNet);
+    const requestLine = `We have prepared payment certificate no. ${certNo} amounting to Kenya Shillings ${amountWords} (Ksh ${computedNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) for settlement as summarized below.`;
+    const wrappedReq = doc.splitTextToSize(requestLine, pageWidth - margin * 2);
+    doc.text(wrappedReq, margin, y);
+    y += wrappedReq.length * 12 + 8;
 
     autoTable(doc, {
       startY: y,
@@ -582,6 +659,22 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
 
     doc.text(`Remarks: ${f.requesterRemarks || '-'}`, margin, y);
     y += 22;
+
+    if (ccRecipients) {
+      doc.setFont('helvetica', 'bold');
+      doc.text('CC:', margin, y);
+      y += 12;
+      doc.setFont('helvetica', 'normal');
+      const ccLines = ccRecipients
+        .split(/\r?\n|;/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      ccLines.forEach((line) => {
+        doc.text(`- ${line}`, margin, y);
+        y += 11;
+      });
+      y += 8;
+    }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.text('Prepared by', margin, y);
@@ -778,6 +871,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       ...prev,
       contractorId: null,
       contractorName: '',
+      contractorEmail: '',
+      contractorPhone: '',
+      ccRecipients: '',
       certificateBqItemIds: null,
     }));
     setForm((prev) => ({
@@ -805,6 +901,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       );
       const patchDraft = {
         ...draft,
+        projectCertificateSequence: suggestedSequence,
+        projectTotalCertificatesAtGeneration: suggestedSequence,
         certificateBqItemIds: idsForCert.length > 0 ? idsForCert : null,
       };
       payload.append('projectId', String(projectId));
@@ -1052,6 +1150,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 label="Certificate Number"
                 value={form.certNumber}
                 onChange={(e) => setForm((p) => ({ ...p, certNumber: e.target.value }))}
+                helperText={`Project sequence: certificate ${suggestedSequence}${suggestedSequence > 1 ? ` (after ${suggestedSequence - 1} existing)` : ' (first certificate for this project)'}`}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -1107,7 +1206,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
               <TextField fullWidth label="Issuing Ministry/Department" value={draft.issuingMinistry} onChange={(e) => setDraft((p) => ({ ...p, issuingMinistry: e.target.value }))} />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Reference No" value={draft.referenceNo} onChange={(e) => setDraft((p) => ({ ...p, referenceNo: e.target.value }))} />
+              <TextField
+                fullWidth
+                label="Reference No (LPO / department letter ref / project file ref)"
+                value={draft.referenceNo}
+                onChange={(e) => setDraft((p) => ({ ...p, referenceNo: e.target.value }))}
+                helperText="Use your internal traceable reference for this payment request."
+              />
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="Recipient Office" value={draft.recipientOffice} onChange={(e) => setDraft((p) => ({ ...p, recipientOffice: e.target.value }))} />
@@ -1136,7 +1241,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 onChange={(e) => {
                   const raw = e.target.value;
                   if (raw === '') {
-                    setDraft((p) => ({ ...p, contractorId: null, certificateBqItemIds: null }));
+                    setDraft((p) => ({
+                      ...p,
+                      contractorId: null,
+                      contractorEmail: '',
+                      contractorPhone: '',
+                      certificateBqItemIds: null,
+                    }));
                     return;
                   }
                   const idNum = Number(raw);
@@ -1145,6 +1256,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                     ...p,
                     contractorId: Number.isFinite(idNum) ? idNum : null,
                     contractorName: c?.companyName ?? p.contractorName,
+                    contractorEmail: c?.email ?? p.contractorEmail,
+                    contractorPhone: c?.phone ?? p.contractorPhone,
                     certificateBqItemIds: null,
                   }));
                 }}
@@ -1175,6 +1288,33 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 value={draft.contractorName}
                 onChange={(e) => setDraft((p) => ({ ...p, contractorName: e.target.value }))}
                 helperText="Prefilled from the assignment above; you may edit for letterhead wording."
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                label="Contractor Email"
+                value={draft.contractorEmail}
+                onChange={(e) => setDraft((p) => ({ ...p, contractorEmail: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                label="Contractor Phone"
+                value={draft.contractorPhone}
+                onChange={(e) => setDraft((p) => ({ ...p, contractorPhone: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                label="CC Recipients (optional)"
+                placeholder="One recipient per line (e.g., Contractor, Sub County Administrator, Project File)"
+                value={draft.ccRecipients}
+                onChange={(e) => setDraft((p) => ({ ...p, ccRecipients: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} md={4}>

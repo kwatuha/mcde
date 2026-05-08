@@ -261,12 +261,52 @@ router.put('/subtasks/:subtaskId', async (req, res) => {
     }
     try {
         await ensureEnhancementTables();
+        if (isPostgres) {
+            const allowed = {
+                subtask_name: payload.subtaskName,
+                description: payload.description,
+                status: payload.status,
+                due_date: payload.dueDate,
+                assignee_name: payload.assigneeName,
+                updated_at: new Date(),
+            };
+            Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
+            if (!Object.keys(allowed).length) {
+                return res.status(400).json({ message: 'No subtask fields provided for update.' });
+            }
+            const keys = Object.keys(allowed);
+            const sets = keys.map((k, idx) => `${k} = $${idx + 1}`);
+            const values = keys.map((k) => allowed[k]);
+            values.push(Number(subtaskId));
+            const updateRes = await pool.query(
+                `UPDATE task_subtasks SET ${sets.join(', ')}
+                 WHERE subtask_id = $${values.length} AND COALESCE(voided, false) = false`,
+                values
+            );
+            if (!(updateRes.rowCount > 0)) return res.status(404).json({ message: 'Subtask not found.' });
+            const selectRes = await pool.query(
+                `SELECT
+                    subtask_id AS "subtaskId",
+                    task_id AS "taskId",
+                    subtask_name AS "subtaskName",
+                    description,
+                    status,
+                    due_date AS "dueDate",
+                    assignee_name AS "assigneeName",
+                    created_at AS "createdAt",
+                    updated_at AS "updatedAt"
+                 FROM task_subtasks
+                 WHERE subtask_id = $1`,
+                [Number(subtaskId)]
+            );
+            return res.status(200).json(selectRes.rows?.[0] || null);
+        }
         const updateResult = await pool.query('UPDATE task_subtasks SET ? WHERE subtaskId = ? AND voided = 0', [payload, subtaskId]);
         const updateMeta = getMeta(updateResult);
         if (!(updateMeta.affectedRows > 0 || updateMeta.rowCount > 0)) return res.status(404).json({ message: 'Subtask not found.' });
         const selectResult = await pool.query('SELECT * FROM task_subtasks WHERE subtaskId = ?', [subtaskId]);
         const rows = getRows(selectResult);
-        res.status(200).json(rows?.[0] || null);
+        return res.status(200).json(rows?.[0] || null);
     } catch (error) {
         console.error(`Error updating subtask ${subtaskId}:`, error);
         res.status(500).json({ message: 'Error updating subtask', error: error.message });
@@ -277,13 +317,23 @@ router.delete('/subtasks/:subtaskId', async (req, res) => {
     const { subtaskId } = req.params;
     try {
         await ensureEnhancementTables();
+        if (isPostgres) {
+            const del = await pool.query(
+                `UPDATE task_subtasks
+                 SET voided = true, updated_at = NOW()
+                 WHERE subtask_id = $1 AND COALESCE(voided, false) = false`,
+                [Number(subtaskId)]
+            );
+            if (!(del.rowCount > 0)) return res.status(404).json({ message: 'Subtask not found.' });
+            return res.status(204).send();
+        }
         const deleteResult = await pool.query(
             'UPDATE task_subtasks SET voided = 1, updatedAt = ? WHERE subtaskId = ? AND voided = 0',
             [new Date(), subtaskId]
         );
         const deleteMeta = getMeta(deleteResult);
         if (!(deleteMeta.affectedRows > 0 || deleteMeta.rowCount > 0)) return res.status(404).json({ message: 'Subtask not found.' });
-        res.status(204).send();
+        return res.status(204).send();
     } catch (error) {
         console.error(`Error deleting subtask ${subtaskId}:`, error);
         res.status(500).json({ message: 'Error deleting subtask', error: error.message });
@@ -413,12 +463,57 @@ router.put('/outputs/:outputId', async (req, res) => {
     if (!Object.keys(payload).length) return res.status(400).json({ message: 'No output fields provided for update.' });
     try {
         await ensureEnhancementTables();
+        if (isPostgres) {
+            const allowed = {
+                output_name: payload.outputName,
+                output_description: payload.outputDescription,
+                unit_of_measure: payload.unitOfMeasure,
+                baseline_value: payload.baselineValue,
+                target_value: payload.targetValue,
+                achieved_value: payload.achievedValue,
+                status: payload.status,
+                reporting_period: payload.reportingPeriod,
+                updated_at: new Date(),
+            };
+            Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
+            if (!Object.keys(allowed).length) return res.status(400).json({ message: 'No output fields provided for update.' });
+            const keys = Object.keys(allowed);
+            const sets = keys.map((k, idx) => `${k} = $${idx + 1}`);
+            const values = keys.map((k) => allowed[k]);
+            values.push(Number(outputId));
+            const upd = await pool.query(
+                `UPDATE project_outputs
+                 SET ${sets.join(', ')}
+                 WHERE output_id = $${values.length} AND COALESCE(voided, false) = false`,
+                values
+            );
+            if (!(upd.rowCount > 0)) return res.status(404).json({ message: 'Output not found.' });
+            const selectRes = await pool.query(
+                `SELECT
+                    output_id AS "outputId",
+                    project_id AS "projectId",
+                    output_name AS "outputName",
+                    output_description AS "outputDescription",
+                    unit_of_measure AS "unitOfMeasure",
+                    baseline_value AS "baselineValue",
+                    target_value AS "targetValue",
+                    achieved_value AS "achievedValue",
+                    status,
+                    reporting_period AS "reportingPeriod",
+                    created_at AS "createdAt",
+                    updated_at AS "updatedAt"
+                 FROM project_outputs
+                 WHERE output_id = $1`,
+                [Number(outputId)]
+            );
+            return res.status(200).json(selectRes.rows?.[0] || null);
+        }
         const updateResult = await pool.query('UPDATE project_outputs SET ? WHERE outputId = ? AND voided = 0', [payload, outputId]);
         const updateMeta = getMeta(updateResult);
         if (!(updateMeta.affectedRows > 0 || updateMeta.rowCount > 0)) return res.status(404).json({ message: 'Output not found.' });
         const selectResult = await pool.query('SELECT * FROM project_outputs WHERE outputId = ?', [outputId]);
         const rows = getRows(selectResult);
-        res.status(200).json(rows?.[0] || null);
+        return res.status(200).json(rows?.[0] || null);
     } catch (error) {
         console.error(`Error updating output ${outputId}:`, error);
         res.status(500).json({ message: 'Error updating project output', error: error.message });
@@ -429,13 +524,23 @@ router.delete('/outputs/:outputId', async (req, res) => {
     const { outputId } = req.params;
     try {
         await ensureEnhancementTables();
+        if (isPostgres) {
+            const del = await pool.query(
+                `UPDATE project_outputs
+                 SET voided = true, updated_at = NOW()
+                 WHERE output_id = $1 AND COALESCE(voided, false) = false`,
+                [Number(outputId)]
+            );
+            if (!(del.rowCount > 0)) return res.status(404).json({ message: 'Output not found.' });
+            return res.status(204).send();
+        }
         const deleteResult = await pool.query(
             'UPDATE project_outputs SET voided = 1, updatedAt = ? WHERE outputId = ? AND voided = 0',
             [new Date(), outputId]
         );
         const deleteMeta = getMeta(deleteResult);
         if (!(deleteMeta.affectedRows > 0 || deleteMeta.rowCount > 0)) return res.status(404).json({ message: 'Output not found.' });
-        res.status(204).send();
+        return res.status(204).send();
     } catch (error) {
         console.error(`Error deleting output ${outputId}:`, error);
         res.status(500).json({ message: 'Error deleting project output', error: error.message });
