@@ -111,7 +111,7 @@ echo "   Start: 2022-07-01T00:00:00.000Z"
 echo "   End: 2023-06-30T00:00:00.000Z"
 echo ""
 echo "If dates are missing or incorrect, you need to:"
-echo "1. Import the kemri_projects_updated.sql file to production"
+echo "1. Import the projects_updated.sql file to production"
 echo "2. Run the import script on the production server"
 echo "3. Verify the import was successful"
 

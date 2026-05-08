@@ -270,6 +270,19 @@ const reportsService = {
       throw error;
     }
   },
+  downloadAbsorptionReport: async (filters = {}) => {
+    const response = await axiosInstance.get('/reports/absorption-report/export', {
+      params: filters,
+      responseType: 'blob',
+    });
+    let fileName = 'absorption-report.xlsx';
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const m = cd.match(/filename="?([^";\n]+)"?/i);
+      if (m?.[1]) fileName = m[1].replace(/"/g, '');
+    }
+    return { blob: response.data, fileName };
+  },
 
   // --- Performance Management Report ---
   getPerformanceManagementReport: async (filters = {}) => {
@@ -302,6 +315,53 @@ const reportsService = {
       console.error("Failed to fetch quarterly implementation report:", error);
       throw error;
     }
+  },
+
+  // --- Pending Bills Report ---
+  getPendingBillsReport: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/pending-bills', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch pending bills report:', error);
+      throw error;
+    }
+  },
+  downloadPendingBillsReport: async (filters = {}) => {
+    const response = await axiosInstance.get('/reports/pending-bills/export', {
+      params: filters,
+      responseType: 'blob',
+    });
+    let fileName = 'pending-bills-report.xlsx';
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const match = cd.match(/filename="?([^";\n]+)"?/i);
+      if (match?.[1]) fileName = match[1].replace(/"/g, '');
+    }
+    return { blob: response.data, fileName };
+  },
+
+  getBudgetJustificationReport: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/budget-justification', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch budget justification report:', error);
+      throw error;
+    }
+  },
+  downloadBudgetJustificationTemplate: async (filters = {}) => {
+    const response = await axiosInstance.get('/reports/budget-justification/download', {
+      params: filters,
+      responseType: 'blob',
+    });
+    let fileName = 'budget-justification.pdf';
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const m = cd.match(/filename="?([^";\n]+)"?/i);
+      if (m?.[1]) fileName = m[1].replace(/"/g, '');
+    }
+    return { blob: response.data, fileName };
   },
 };
 

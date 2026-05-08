@@ -54,6 +54,7 @@ export const ROUTES = {
     
     // NEW: Administrative route for managing contractors
     CONTRACTOR_MANAGEMENT: '/contractor-management',
+    CONTRACTOR_TYPES: '/contractor-types',
     
     // NEW: Admin dashboard route
     ADMIN: '/admin',
@@ -83,6 +84,8 @@ export const ROUTES = {
     VERIFY_CERTIFICATE: '/verify-certificate',
     REPORTS: '/reports',
     REPORT_LIBRARY: '/report-library',
+    PENDING_BILLS_REPORT: '/pending-bills-report',
+    BUDGET_JUSTIFICATION_REPORT: '/budget-justification-report',
     SCHEDULED_REPORTS: '/scheduled-reports',
     /** Inspection / monitoring checklist templates and standalone visits. */
     DATA_COLLECTION_TOOLS: '/data-collection-tools',

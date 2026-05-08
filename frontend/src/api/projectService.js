@@ -8,7 +8,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const projectService = {
-  // --- Project Management API Calls (kemri_projects) ---
+  // --- Project Management API Calls (projects) ---
   projects: {
     /**
      * Fetches all projects with optional filtering.
@@ -248,7 +248,7 @@ const projectService = {
     },
   },
 
-  // --- Task Management API Calls (kemri_tasks) ---
+  // --- Task Management API Calls (tasks) ---
   tasks: {
     getAllTasks: async () => {
       const response = await axiosInstance.get('/tasks');
@@ -311,7 +311,7 @@ const projectService = {
     },
   },
 
-  // --- Milestone Management API Calls (kemri_project_milestones) ---
+  // --- Milestone Management API Calls (project_milestones) ---
   milestones: {
     getAllMilestones: async () => {
       const response = await axiosInstance.get('/milestones');
@@ -617,7 +617,7 @@ const projectService = {
     },
   },
 
-  // --- Task Assignees API Calls (kemri_task_assignees) ---
+  // --- Task Assignees API Calls (task_assignees) ---
   taskAssignees: {
     getAllTaskAssignees: async () => {
       const response = await axiosInstance.get('/task_assignees');

@@ -67,7 +67,7 @@ def load_database_mappings() -> Tuple[Dict, Dict, Dict]:
     print("Loading database mappings...")
     
     # Load departments
-    dept_query = "SELECT departmentId, name FROM kemri_departments WHERE voided = 0;"
+    dept_query = "SELECT departmentId, name FROM departments WHERE voided = 0;"
     dept_data = query_database(dept_query)
     departments = {}
     for row in dept_data:
@@ -83,8 +83,8 @@ def load_database_mappings() -> Tuple[Dict, Dict, Dict]:
     # Load wards and subcounties
     ward_query = """
     SELECT w.wardId, w.name as wardName, sc.subcountyId, sc.name as subcountyName 
-    FROM kemri_wards w 
-    LEFT JOIN kemri_subcounties sc ON w.subcountyId = sc.subcountyId 
+    FROM wards w 
+    LEFT JOIN subcounties sc ON w.subcountyId = sc.subcountyId 
     WHERE w.voided = 0;
     """
     ward_data = query_database(ward_query)

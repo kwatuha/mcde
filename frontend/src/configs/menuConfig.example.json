@@ -16,7 +16,7 @@
           "route": "RAW_DATA"
         },
         {
-          "title": "Projects",
+          "title": "Projects Registry (All Projects)",
           "icon": "PaidIcon",
           "route": "PROJECTS"
         },
@@ -86,11 +86,6 @@
       "icon": "SettingsIcon",
       "submenus": [
         {
-          "title": "Central Import",
-          "icon": "CloudUploadIcon",
-          "route": "/data-import"
-        },
-        {
           "title": "GIS Mapping",
           "icon": "MapIcon",
           "route": "GIS_MAPPING"
@@ -122,6 +117,23 @@
           "icon": "SettingsIcon",
           "route": "PROJECT_TEMPLATES",
           "permission": "templates.manage"
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "label": "Data",
+      "icon": "CloudUploadIcon",
+      "submenus": [
+        {
+          "title": "Import Data",
+          "icon": "CloudUploadIcon",
+          "route": "CENTRAL_IMPORT"
+        },
+        {
+          "title": "Import Logs",
+          "icon": "AssessmentIcon",
+          "route": "PROJECTS_UPLOAD_LOG"
         }
       ]
     },
@@ -171,6 +183,11 @@
           "title": "Contractor mgmt",
           "icon": "BusinessIcon",
           "route": "CONTRACTOR_MANAGEMENT"
+        },
+        {
+          "title": "Contractor types",
+          "icon": "CategoryIcon",
+          "route": "CONTRACTOR_TYPES"
         },
         {
           "title": "System Settings",

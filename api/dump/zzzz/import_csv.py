@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 def get_max_user_id(db_credentials):
     """
-    Connects to the database and gets the maximum userId from the kemri_users table.
+    Connects to the database and gets the maximum userId from the users table.
     Returns 0 if the connection fails or the table is empty.
     """
     try:
@@ -18,7 +18,7 @@ def get_max_user_id(db_credentials):
             database=db_credentials['database']
         )
         cursor = db.cursor()
-        cursor.execute("SELECT MAX(userId) FROM kemri_users")
+        cursor.execute("SELECT MAX(userId) FROM users")
         result = cursor.fetchone()
         
         # Fetch the max ID, defaulting to 0 if the table is empty
@@ -35,7 +35,7 @@ def get_max_user_id(db_credentials):
 
 def get_max_contractor_id(db_credentials):
     """
-    Connects to the database and gets the maximum contractorId from the kemri_contractors table.
+    Connects to the database and gets the maximum contractorId from the contractors table.
     Returns 0 if the connection fails or the table is empty.
     """
     try:
@@ -46,7 +46,7 @@ def get_max_contractor_id(db_credentials):
             database=db_credentials['database']
         )
         cursor = db.cursor()
-        cursor.execute("SELECT MAX(contractorId) FROM kemri_contractors")
+        cursor.execute("SELECT MAX(contractorId) FROM contractors")
         result = cursor.fetchone()
         
         max_id = result[0] if result[0] is not None else 0
@@ -97,7 +97,7 @@ def generate_users(num_users, roles, starting_id):
 
 def generate_contractors(num_contractors, starting_id):
     """
-    Generates a list of dictionaries for the kemri_contractors table.
+    Generates a list of dictionaries for the contractors table.
     """
     contractors = []
     company_suffixes = ['Solutions', 'Enterprises', 'Ventures', 'Holdings', 'Builders', 'Pty Ltd']
@@ -124,7 +124,7 @@ def generate_contractors(num_contractors, starting_id):
 
 def generate_contractor_user_assignments(user_ids, contractor_ids):
     """
-    Generates a list of dictionaries for the kemri_contractor_users table.
+    Generates a list of dictionaries for the contractor_users table.
     Links users to contractors.
     """
     assignments = []
@@ -139,7 +139,7 @@ def generate_contractor_user_assignments(user_ids, contractor_ids):
 
 def generate_project_contractor_assignments(project_ids, contractor_ids):
     """
-    Generates a list of dictionaries for the kemri_project_contractor_assignments table.
+    Generates a list of dictionaries for the project_contractor_assignments table.
     Links projects to contractors.
     """
     assignments = []
@@ -272,7 +272,7 @@ def generate_strategic_plan_data(num_records, user_ids, contractor_ids):
             'Ward': ward,
             'Department': department,
             
-            # New Payment Request Fields (from kemri_project_payment_requests)
+            # New Payment Request Fields (from project_payment_requests)
             'Request_ID': request_id,
             'Request_ProjectId': project_id,
             'Request_ContractorId': contractor_id,
@@ -285,7 +285,7 @@ def generate_strategic_plan_data(num_records, user_ids, contractor_ids):
             'Request_ApprovalDate': (datetime.now() + timedelta(days=random.randint(1, 10))).strftime('%Y-%m-%d %H:%M:%S'),
             'Request_Comments': f'Payment approved by {random.choice(departments)}.',
 
-            # New Payment Details Fields (from kemri_payment_details)
+            # New Payment Details Fields (from payment_details)
             'Details_PaymentMode': payment_mode,
             'Details_BankName': random.choice(bank_names) if payment_mode == 'Bank Transfer' else '',
             'Details_AccountNumber': random.randint(1000000000, 9999999999) if payment_mode == 'Bank Transfer' else '',
@@ -294,7 +294,7 @@ def generate_strategic_plan_data(num_records, user_ids, contractor_ids):
             'Details_PaidAt': (datetime.now() + timedelta(days=random.randint(1, 10))).strftime('%Y-%m-%d %H:%M:%S'),
             'Details_Notes': f'Payment successfully processed on {datetime.now().strftime("%Y-%m-%d")}.',
 
-            # New Approval History Fields (from kemri_payment_approval_history)
+            # New Approval History Fields (from payment_approval_history)
             'History_Action': random.choice(approval_actions),
             'History_ActionByUserId': random.choice(user_ids), # Use a random existing user ID
             'History_AssignedToUserId': random.choice(user_ids), # Use a random existing user ID
@@ -334,13 +334,13 @@ if __name__ == '__main__':
     # 1. Generate and save user data
     max_user_id = get_max_user_id(db_credentials)
     users_data = generate_users(20, [1, 2, 3], max_user_id)
-    save_to_csv(users_data, 'kemri_users.csv')
+    save_to_csv(users_data, 'users.csv')
     user_ids = [user['userId'] for user in users_data]
     
     # 2. Generate and save contractor data
     max_contractor_id = get_max_contractor_id(db_credentials)
     contractors_data = generate_contractors(10, max_contractor_id)
-    save_to_csv(contractors_data, 'kemri_contractors.csv')
+    save_to_csv(contractors_data, 'contractors.csv')
     contractor_ids = [contractor['contractorId'] for contractor in contractors_data]
     
     # 3. Generate strategic plan data and get project IDs
@@ -349,8 +349,8 @@ if __name__ == '__main__':
     
     # 4. Generate and save contractor user assignments
     contractor_user_assignments_data = generate_contractor_user_assignments(user_ids, contractor_ids)
-    save_to_csv(contractor_user_assignments_data, 'kemri_contractor_users.csv')
+    save_to_csv(contractor_user_assignments_data, 'contractor_users.csv')
     
     # 5. Generate and save project contractor assignments
     project_contractor_assignments_data = generate_project_contractor_assignments(project_ids, contractor_ids)
-    save_to_csv(project_contractor_assignments_data, 'kemri_project_contractor_assignments.csv')
+    save_to_csv(project_contractor_assignments_data, 'project_contractor_assignments.csv')

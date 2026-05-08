@@ -21,7 +21,13 @@ import {
     Card,
     CardContent,
     Divider,
-    Grid
+    Grid,
+    Stack,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    TextField
 } from '@mui/material';
 import {
     PictureAsPdf as PdfIcon,
@@ -35,7 +41,6 @@ import apiService from '../api';
 import { formatCurrency } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import * as XLSX from 'xlsx';
 
 const AbsorptionReport = () => {
     const theme = useTheme();
@@ -51,36 +56,51 @@ const AbsorptionReport = () => {
         absorbedPercentage: 0
     });
     const [filters, setFilters] = useState({
-        department: 'asc',
-        status: 'asc'
+        department: '',
+        status: '',
+        startDate: '',
+        endDate: '',
+        minAbsorption: '',
+        maxAbsorption: ''
     });
+    const [departments, setDepartments] = useState([]);
     const [exportingPDF, setExportingPDF] = useState(false);
     const [exportingExcel, setExportingExcel] = useState(false);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const response = await apiService.reports.getAbsorptionReport();
-                setReportData(response.data || []);
-                setTotals(response.summary || {
-                    count: 0,
-                    averageCompletion: 0,
-                    totalBudget: 0,
-                    totalContractSum: 0,
-                    totalPaidAmount: 0,
-                    absorbedPercentage: 0
-                });
-            } catch (err) {
-                console.error('Error fetching absorption report:', err);
-                setError('Failed to load absorption report data. Please try again.');
-            } finally {
-                setIsLoading(false);
-            }
-        };
+    const fetchData = async (activeFilters = filters) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const response = await apiService.reports.getAbsorptionReport(activeFilters);
+            setReportData(response.data || []);
+            setTotals(response.summary || {
+                count: 0,
+                averageCompletion: 0,
+                totalBudget: 0,
+                totalContractSum: 0,
+                totalPaidAmount: 0,
+                absorbedPercentage: 0
+            });
+        } catch (err) {
+            console.error('Error fetching absorption report:', err);
+            setError('Failed to load absorption report data. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
+    useEffect(() => {
         fetchData();
+        (async () => {
+            try {
+                const opts = await apiService.reports.getFilterOptions();
+                const list = Array.isArray(opts?.departments) ? opts.departments : [];
+                setDepartments(list.map((d) => d?.name).filter(Boolean));
+            } catch {
+                setDepartments([]);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const formatPercentage = (value) => {
@@ -179,58 +199,18 @@ const AbsorptionReport = () => {
         }
     };
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         setExportingExcel(true);
         try {
-            // Prepare data for Excel export
-            const excelData = reportData.map(row => ({
-                'Department': row.department,
-                'Project Count': row.projectCount,
-                'Ward': row.ward || '-',
-                'Status': row.status || '-',
-                'Completion %': `${row.completionPercentage.toFixed(1)}%`,
-                'Budget': row.budget,
-                'Contract Sum': row.contractSum,
-                'Paid Amount': row.paidAmount,
-                'Absorption %': `${row.absorptionPercentage.toFixed(1)}%`
-            }));
-            
-            // Add summary row
-            excelData.push({
-                'Department': 'TOTAL',
-                'Project Count': totals.count,
-                'Ward': '-',
-                'Status': '-',
-                'Completion %': `${totals.averageCompletion.toFixed(1)}%`,
-                'Budget': totals.totalBudget,
-                'Contract Sum': totals.totalContractSum,
-                'Paid Amount': totals.totalPaidAmount,
-                'Absorption %': `${totals.absorbedPercentage.toFixed(1)}%`
-            });
-            
-            // Create worksheet
-            const worksheet = XLSX.utils.json_to_sheet(excelData);
-            
-            // Set column widths
-            const columnWidths = [
-                { wch: 40 }, // Department
-                { wch: 12 }, // Project Count
-                { wch: 15 }, // Ward
-                { wch: 15 }, // Status
-                { wch: 12 }, // Completion %
-                { wch: 18 }, // Budget
-                { wch: 18 }, // Contract Sum
-                { wch: 18 }, // Paid Amount
-                { wch: 12 }  // Absorption %
-            ];
-            worksheet['!cols'] = columnWidths;
-            
-            // Create workbook
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'Absorption Report');
-            
-            // Save the Excel file
-            XLSX.writeFile(workbook, `absorption-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+            const { blob, fileName } = await apiService.reports.downloadAbsorptionReport(filters);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName || `absorption-report-${new Date().toISOString().split('T')[0]}.xlsx`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Error exporting to Excel:', error);
             alert('Failed to export to Excel. Please try again.');
@@ -240,28 +220,6 @@ const AbsorptionReport = () => {
     };
 
     const handleRefresh = () => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const response = await apiService.reports.getAbsorptionReport();
-                setReportData(response.data || []);
-                setTotals(response.summary || {
-                    count: 0,
-                    averageCompletion: 0,
-                    totalBudget: 0,
-                    totalContractSum: 0,
-                    totalPaidAmount: 0,
-                    absorbedPercentage: 0
-                });
-            } catch (err) {
-                console.error('Error fetching absorption report:', err);
-                setError('Failed to load absorption report data. Please try again.');
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
         fetchData();
     };
 
@@ -382,10 +340,10 @@ const AbsorptionReport = () => {
             {/* Active Filters */}
             <Slide direction="up" in timeout={1200}>
                 <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {Object.entries(filters).map(([key, value]) => (
+                    {Object.entries(filters).filter(([, value]) => String(value || '').trim() !== '').map(([key, value]) => (
                         <Chip
                             key={key}
-                            label={`↑ ${key.charAt(0).toUpperCase() + key.slice(1)} X`}
+                            label={`${key}: ${value}`}
                             onDelete={() => removeFilter(key)}
                             color="primary"
                             variant="outlined"
@@ -396,6 +354,67 @@ const AbsorptionReport = () => {
                         />
                     ))}
                 </Box>
+            </Slide>
+
+            <Slide direction="up" in timeout={1100}>
+                <Paper sx={{ p: 2, mb: 2 }}>
+                    <Grid container spacing={1.5}>
+                        <Grid item xs={12} md={3}>
+                            <FormControl size="small" fullWidth sx={{ minWidth: 180 }}>
+                                <InputLabel>Department</InputLabel>
+                                <Select
+                                    label="Department"
+                                    value={filters.department}
+                                    onChange={(e) => setFilters((p) => ({ ...p, department: e.target.value }))}
+                                >
+                                    <MenuItem value="">All</MenuItem>
+                                    {departments.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <FormControl size="small" fullWidth sx={{ minWidth: 160 }}>
+                                <InputLabel>Status</InputLabel>
+                                <Select
+                                    label="Status"
+                                    value={filters.status}
+                                    onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}
+                                >
+                                    <MenuItem value="">All</MenuItem>
+                                    <MenuItem value="Not Started">Not Started</MenuItem>
+                                    <MenuItem value="Initiated">Initiated</MenuItem>
+                                    <MenuItem value="In Progress">In Progress</MenuItem>
+                                    <MenuItem value="Completed">Completed</MenuItem>
+                                    <MenuItem value="At Risk">At Risk</MenuItem>
+                                    <MenuItem value="Delayed">Delayed</MenuItem>
+                                    <MenuItem value="Stalled">Stalled</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <TextField size="small" type="date" fullWidth label="Start date" value={filters.startDate} onChange={(e) => setFilters((p) => ({ ...p, startDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <TextField size="small" type="date" fullWidth label="End date" value={filters.endDate} onChange={(e) => setFilters((p) => ({ ...p, endDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
+                        </Grid>
+                        <Grid item xs={12} md={1.5}>
+                            <TextField size="small" type="number" fullWidth label="Min %" value={filters.minAbsorption} onChange={(e) => setFilters((p) => ({ ...p, minAbsorption: e.target.value }))} />
+                        </Grid>
+                        <Grid item xs={12} md={1.5}>
+                            <TextField size="small" type="number" fullWidth label="Max %" value={filters.maxAbsorption} onChange={(e) => setFilters((p) => ({ ...p, maxAbsorption: e.target.value }))} />
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Stack direction="row" spacing={1}>
+                                <Button variant="contained" onClick={() => fetchData(filters)} disabled={isLoading}>Apply Filters</Button>
+                                <Button variant="outlined" onClick={() => {
+                                    const reset = { department: '', status: '', startDate: '', endDate: '', minAbsorption: '', maxAbsorption: '' };
+                                    setFilters(reset);
+                                    fetchData(reset);
+                                }} disabled={isLoading}>Reset</Button>
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                </Paper>
             </Slide>
 
             {/* Main Report Table */}

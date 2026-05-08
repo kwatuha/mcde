@@ -6,7 +6,7 @@ import axiosInstance from './axiosInstance';
  */
 const approvalService = {
 
-  // --- Approval Levels API Calls (kemri_payment_approval_levels) ---
+  // --- Approval Levels API Calls (payment_approval_levels) ---
 
   /**
    * Fetches all defined approval levels.
@@ -48,7 +48,7 @@ const approvalService = {
     return response.data;
   },
   
-  // --- Payment Status Definitions API Calls (kemri_payment_status_definitions) ---
+  // --- Payment Status Definitions API Calls (payment_status_definitions) ---
 
   /**
    * Fetches all defined payment status definitions.

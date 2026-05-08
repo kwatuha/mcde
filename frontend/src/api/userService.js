@@ -8,7 +8,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const userService = {
-  // --- User Management API Calls (kemri_users) ---
+  // --- User Management API Calls (users) ---
   getUsers: async () => {
     try {
       const response = await axiosInstance.get('/users/users');
@@ -115,7 +115,7 @@ const userService = {
     }
   },
 
-  // --- Role Management API Calls (kemri_roles) ---
+  // --- Role Management API Calls (roles) ---
   getRoles: async () => {
     try {
       const response = await axiosInstance.get('/users/roles');
@@ -213,7 +213,7 @@ const userService = {
     }
   },
 
-  // --- Privilege Management API Calls (kemri_privileges) ---
+  // --- Privilege Management API Calls (privileges) ---
   getPrivileges: async () => {
     try {
       const response = await axiosInstance.get('/users/privileges');
@@ -295,7 +295,7 @@ const userService = {
     }
   },
 
-  // --- Role Privilege Management API Calls (kemri_role_privileges) ---
+  // --- Role Privilege Management API Calls (role_privileges) ---
   /** @param {string|number} [roleId] If set, only links for that role are returned (required for edit-role UI). */
   getRolePrivileges: async (roleId) => {
     try {
@@ -344,7 +344,7 @@ const userService = {
     }
   },
 
-  // --- Staff Management API Calls (kemri_staff) ---
+  // --- Staff Management API Calls (staff) ---
   getStaff: async () => {
     try {
       const response = await axiosInstance.get('/users/staff');
@@ -395,7 +395,7 @@ const userService = {
     }
   },
 
-  // --- Project Role Management API Calls (kemri_project_roles) ---
+  // --- Project Role Management API Calls (project_roles) ---
   getProjectRoles: async () => {
     try {
       const response = await axiosInstance.get('/users/project_roles');
@@ -446,7 +446,7 @@ const userService = {
     }
   },
 
-  // --- Project Staff Assignment API Calls (kemri_project_staff_assignments) ---
+  // --- Project Staff Assignment API Calls (project_staff_assignments) ---
   getProjectStaffAssignments: async () => {
     try {
       const response = await axiosInstance.get('/users/project_staff_assignments');
@@ -497,7 +497,7 @@ const userService = {
     }
   },
 
-  // --- Website Public Profiles API Calls (kemri_websitepublicprofiles) ---
+  // --- Website Public Profiles API Calls (websitepublicprofiles) ---
   getWebsitePublicProfiles: async () => {
     try {
       const response = await axiosInstance.get('/users/website_public_profiles');

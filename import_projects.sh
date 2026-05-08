@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Script to import updated kemri_projects table to server
+# Script to import updated projects table to server
 # This script will backup the existing table and import the updated one
 
 echo "=== Kemri Projects Table Import Script ==="
-echo "This script will update the kemri_projects table on the server with the corrected dates"
+echo "This script will update the projects table on the server with the corrected dates"
 echo ""
 
 # Configuration - Update these values for your server
@@ -14,12 +14,12 @@ SERVER_DB="imbesdb"
 SERVER_PORT="3306"
 
 # Local file path
-DUMP_FILE="kemri_projects_updated.sql"
+DUMP_FILE="projects_updated.sql"
 
 echo "📋 Import Plan:"
-echo "1. Backup existing kemri_projects table on server"
-echo "2. Drop existing kemri_projects table"
-echo "3. Import updated kemri_projects table with correct dates"
+echo "1. Backup existing projects table on server"
+echo "2. Drop existing projects table"
+echo "3. Import updated projects table with correct dates"
 echo "4. Verify import was successful"
 echo ""
 
@@ -51,9 +51,9 @@ echo ""
 echo "🚀 Starting import process..."
 
 # Step 1: Backup existing table
-echo "📦 Step 1: Creating backup of existing kemri_projects table..."
-BACKUP_FILE="kemri_projects_backup_$(date +%Y%m%d_%H%M%S).sql"
-mysqldump -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB kemri_projects > $BACKUP_FILE
+echo "📦 Step 1: Creating backup of existing projects table..."
+BACKUP_FILE="projects_backup_$(date +%Y%m%d_%H%M%S).sql"
+mysqldump -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB projects > $BACKUP_FILE
 
 if [ $? -eq 0 ]; then
     echo "✅ Backup created: $BACKUP_FILE"
@@ -64,8 +64,8 @@ fi
 
 # Step 2: Drop and recreate table
 echo ""
-echo "🗑️  Step 2: Dropping existing kemri_projects table..."
-mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "DROP TABLE IF EXISTS kemri_projects;"
+echo "🗑️  Step 2: Dropping existing projects table..."
+mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "DROP TABLE IF EXISTS projects;"
 
 if [ $? -eq 0 ]; then
     echo "✅ Table dropped successfully"
@@ -76,7 +76,7 @@ fi
 
 # Step 3: Import updated table
 echo ""
-echo "📥 Step 3: Importing updated kemri_projects table..."
+echo "📥 Step 3: Importing updated projects table..."
 mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB < $DUMP_FILE
 
 if [ $? -eq 0 ]; then
@@ -94,10 +94,10 @@ echo ""
 echo "🔍 Step 4: Verifying import..."
 
 # Count total projects
-TOTAL_PROJECTS=$(mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "SELECT COUNT(*) FROM kemri_projects;" -s -N)
+TOTAL_PROJECTS=$(mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "SELECT COUNT(*) FROM projects;" -s -N)
 
 # Count projects with dates
-PROJECTS_WITH_DATES=$(mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "SELECT COUNT(*) FROM kemri_projects WHERE startDate IS NOT NULL AND endDate IS NOT NULL;" -s -N)
+PROJECTS_WITH_DATES=$(mysql -h $SERVER_HOST -P $SERVER_PORT -u $SERVER_USER -p $SERVER_DB -e "SELECT COUNT(*) FROM projects WHERE startDate IS NOT NULL AND endDate IS NOT NULL;" -s -N)
 
 # Show sample of updated projects
 echo ""
@@ -113,7 +113,7 @@ SELECT
     projectName, 
     startDate, 
     endDate 
-FROM kemri_projects 
+FROM projects 
 WHERE projectName IN ('KCSAP', 'ASDSP', 'EU', 'Development of horticultural value chains(Assorted seeds)')
 ORDER BY projectName;
 "
@@ -123,7 +123,7 @@ echo "✅ Import completed successfully!"
 echo "📁 Backup file saved as: $BACKUP_FILE"
 echo "📁 Updated data imported from: $DUMP_FILE"
 echo ""
-echo "🎉 The kemri_projects table now has correct start and end dates!"
+echo "🎉 The projects table now has correct start and end dates!"
 
 
 

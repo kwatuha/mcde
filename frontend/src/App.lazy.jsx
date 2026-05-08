@@ -26,6 +26,8 @@ const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
 const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const ReportLibraryPage = lazy(() => import('./pages/ReportLibraryPage'));
+const PendingBillsReportPage = lazy(() => import('./pages/PendingBillsReportPage'));
+const BudgetJustificationReportPage = lazy(() => import('./pages/BudgetJustificationReportPage'));
 const ScheduledReportsPage = lazy(() => import('./pages/ScheduledReportsPage'));
 const DataCollectionToolsPage = lazy(() => import('./pages/DataCollectionToolsPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
@@ -52,6 +54,7 @@ const ProjectCategoryPage = lazy(() => import('./pages/ProjectCategoryPage'));
 const ProjectPhotoManager = lazy(() => import('./pages/ProjectPhotoManager'));
 const PersonalDashboard = lazy(() => import('./pages/ContractorDashboard'));
 const ContractorManagementPage = lazy(() => import('./pages/ContractorManagementPage'));
+const ContractorTypesPage = lazy(() => import('./pages/ContractorTypesPage'));
 const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
 const DashboardConfigManager = lazy(() => import('./pages/DashboardConfigManager'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
@@ -122,6 +125,10 @@ const router = createBrowserRouter([
       {
         path: 'contractor-management',
         element: <LazyRoute component={ContractorManagementPage} />,
+      },
+      {
+        path: 'contractor-types',
+        element: <LazyRoute component={ContractorTypesPage} />,
       },
       {
         path: 'finance/payment-certificates',
@@ -198,6 +205,14 @@ const router = createBrowserRouter([
       {
         path: 'report-library',
         element: <LazyRoute component={ReportLibraryPage} />,
+      },
+      {
+        path: 'pending-bills-report',
+        element: <LazyRoute component={PendingBillsReportPage} />,
+      },
+      {
+        path: 'budget-justification-report',
+        element: <LazyRoute component={BudgetJustificationReportPage} />,
       },
       {
         path: 'scheduled-reports',

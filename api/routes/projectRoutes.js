@@ -243,35 +243,35 @@ const BASE_PROJECT_SELECT_JOINS = `
         GROUP_CONCAT(DISTINCT sc.name ORDER BY sc.name SEPARATOR ', ') AS subcountyNames,
         GROUP_CONCAT(DISTINCT w.name ORDER BY w.name SEPARATOR ', ') AS wardNames
     FROM
-        kemri_projects p
+        projects p
     LEFT JOIN
-        kemri_staff s ON p.principalInvestigatorStaffId = s.staffId
+        staff s ON p.principalInvestigatorStaffId = s.staffId
     LEFT JOIN
-        kemri_departments cd ON p.departmentId = cd.departmentId AND (cd.voided IS NULL OR cd.voided = 0)
+        departments cd ON p.departmentId = cd.departmentId AND (cd.voided IS NULL OR cd.voided = 0)
     LEFT JOIN
-        kemri_sections ds ON p.sectionId = ds.sectionId AND (ds.voided IS NULL OR ds.voided = 0)
+        sections ds ON p.sectionId = ds.sectionId AND (ds.voided IS NULL OR ds.voided = 0)
     LEFT JOIN
-        kemri_financialyears fy ON p.finYearId = fy.finYearId AND (fy.voided IS NULL OR fy.voided = 0)
+        financialyears fy ON p.finYearId = fy.finYearId AND (fy.voided IS NULL OR fy.voided = 0)
     LEFT JOIN
-        kemri_programs pr ON p.programId = pr.programId
+        programs pr ON p.programId = pr.programId
     LEFT JOIN
-        kemri_subprograms spr ON p.subProgramId = spr.subProgramId
+        subprograms spr ON p.subProgramId = spr.subProgramId
     LEFT JOIN
-        kemri_project_counties pc ON p.id = pc.projectId AND (pc.voided IS NULL OR pc.voided = 0)
+        project_counties pc ON p.id = pc.projectId AND (pc.voided IS NULL OR pc.voided = 0)
     LEFT JOIN
-        kemri_counties c ON pc.countyId = c.countyId
+        counties c ON pc.countyId = c.countyId
     LEFT JOIN
-        kemri_project_subcounties psc ON p.id = psc.projectId AND (psc.voided IS NULL OR psc.voided = 0)
+        project_subcounties psc ON p.id = psc.projectId AND (psc.voided IS NULL OR psc.voided = 0)
     LEFT JOIN
-        kemri_subcounties sc ON psc.subcountyId = sc.subcountyId AND (sc.voided IS NULL OR sc.voided = 0)
+        subcounties sc ON psc.subcountyId = sc.subcountyId AND (sc.voided IS NULL OR sc.voided = 0)
     LEFT JOIN
-        kemri_project_wards pw ON p.id = pw.projectId AND (pw.voided IS NULL OR pw.voided = 0)
+        project_wards pw ON p.id = pw.projectId AND (pw.voided IS NULL OR pw.voided = 0)
     LEFT JOIN
-        kemri_wards w ON pw.wardId = w.wardId AND (w.voided IS NULL OR w.voided = 0)
+        wards w ON pw.wardId = w.wardId AND (w.voided IS NULL OR w.voided = 0)
     LEFT JOIN
-        kemri_project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
+        project_milestone_implementations projCat ON p.categoryId = projCat.categoryId
     LEFT JOIN
-        kemri_users u ON p.userId = u.userId
+        users u ON p.userId = u.userId
 `;
 
 // Corrected full query for fetching a single project by ID
@@ -389,7 +389,7 @@ const validateProject = (req, res, next) => {
 // Utility function to check if project exists
 const checkProjectExists = async (projectId) => {
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
-    const tableName = DB_TYPE === 'postgresql' ? 'projects' : 'kemri_projects';
+    const tableName = DB_TYPE === 'postgresql' ? 'projects' : 'projects';
     const idColumn = DB_TYPE === 'postgresql' ? 'project_id' : 'id';
     const voidedCondition = DB_TYPE === 'postgresql' ? 'voided = false' : 'voided = 0';
     const query = `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} = ? AND ${voidedCondition}`;
@@ -409,7 +409,7 @@ const extractCoordinates = (geometry) => {
 };
 
 
-// --- CRUD Operations for Projects (kemri_projects) ---
+// --- CRUD Operations for Projects (projects) ---
 
 // Define junction table routers
 const projectCountiesRouter = express.Router({ mergeParams: true });
@@ -1358,7 +1358,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
         // Canonical projects import metadata check:
         // only validate against sectors, ministries, departments (state departments),
         // and selected geography checks (county, constituency).
-        // Skip legacy kemri_* / location metadata checks used in older flows.
+        // Skip legacy * / location metadata checks used in older flows.
         dataToImport.forEach((row, index) => {
             const projectName = (row.projectName || row.Project_Name || row['Project Name'] || '').toString().trim();
             if (!projectName || projectName.length < 3) {
@@ -1412,7 +1412,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
             const deptList = Array.from(uniqueDepartments);
             // Get all departments and check manually (to handle comma-separated aliases properly)
             const [allDepts] = await connection.query(
-                `SELECT name, alias FROM kemri_departments 
+                `SELECT name, alias FROM departments 
                  WHERE (voided IS NULL OR voided = 0)`
             );
             const existingNames = new Set();
@@ -1469,7 +1469,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
             const dirList = Array.from(uniqueDirectorates);
             // Get all sections and check manually (to handle comma-separated aliases properly)
             const [allSections] = await connection.query(
-                `SELECT name, alias FROM kemri_sections 
+                `SELECT name, alias FROM sections 
                  WHERE (voided IS NULL OR voided = 0)`
             );
             const existingNames = new Set();
@@ -1520,7 +1520,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
             const wardList = Array.from(uniqueWards);
             // Get all wards and do case-insensitive matching
             const [allWards] = await connection.query(
-                `SELECT name FROM kemri_wards WHERE (voided IS NULL OR voided = 0)`
+                `SELECT name FROM wards WHERE (voided IS NULL OR voided = 0)`
             );
             // Create a case-insensitive map: lowercase name -> actual name
             // Store both the normalized version and variations (with/without slashes, word order variations)
@@ -1594,7 +1594,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
             const subcountyList = Array.from(uniqueSubcounties);
             // Get all subcounties and do case-insensitive matching
             const [allSubcounties] = await connection.query(
-                `SELECT name FROM kemri_subcounties WHERE (voided IS NULL OR voided = 0)`
+                `SELECT name FROM subcounties WHERE (voided IS NULL OR voided = 0)`
             );
             // Create a case-insensitive map: lowercase name -> actual name
             // Store both the normalized version and variations (with/without slashes, word order variations)
@@ -1762,7 +1762,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
             const fyList = Array.from(uniqueFinancialYears);
             // Get all financial years and do flexible matching (exclude voided)
             const [allFYs] = await connection.query(
-                `SELECT finYearName FROM kemri_financialyears WHERE (voided IS NULL OR voided = 0)`
+                `SELECT finYearName FROM financialyears WHERE (voided IS NULL OR voided = 0)`
             );
             
             // Normalize financial year name: strip FY prefix, normalize separators to slash, lowercase
@@ -2085,7 +2085,7 @@ router.post('/confirm-import-data', async (req, res) => {
         
         if (!ministry && departmentId) {
             const deptResult = await connection.query(
-                'SELECT name FROM kemri_departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
+                'SELECT name FROM departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
                 [departmentId]
             );
             const deptRows = getQueryRows(deptResult);
@@ -2096,7 +2096,7 @@ router.post('/confirm-import-data', async (req, res) => {
         
         if (!stateDepartment && sectionId) {
             const sectionResult = await connection.query(
-                'SELECT name FROM kemri_sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
+                'SELECT name FROM sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
                 [sectionId]
             );
             const sectionRows = getQueryRows(sectionResult);
@@ -2288,7 +2288,7 @@ router.post('/confirm-import-data', async (req, res) => {
                 if (departmentName) {
                     // Get all departments and check manually (to handle comma-separated aliases properly)
                     const deptResult = await connection.query(
-                        `SELECT departmentId, name, alias FROM kemri_departments 
+                        `SELECT departmentId, name, alias FROM departments 
                          WHERE (voided IS NULL OR voided = false)`
                     );
                     const allDepts = getQueryRows(deptResult);
@@ -2336,7 +2336,7 @@ router.post('/confirm-import-data', async (req, res) => {
                 if (directorateName) {
                     // Get all sections and check manually (to handle comma-separated aliases properly)
                     const sectionResult = await connection.query(
-                        `SELECT sectionId, name, alias, departmentId FROM kemri_sections 
+                        `SELECT sectionId, name, alias, departmentId FROM sections 
                          WHERE (voided IS NULL OR voided = false)`
                     );
                     const allSections = getQueryRows(sectionResult);
@@ -2684,7 +2684,7 @@ router.post('/confirm-import-data', async (req, res) => {
                         
                         if (!ministry && departmentId) {
                             const deptResult = await connection.query(
-                                'SELECT name FROM kemri_departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
+                                'SELECT name FROM departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
                                 [departmentId]
                             );
                             const deptRows = getQueryRows(deptResult);
@@ -2695,7 +2695,7 @@ router.post('/confirm-import-data', async (req, res) => {
                         
                         if (!stateDepartment && sectionId) {
                             const sectionResult = await connection.query(
-                                'SELECT name FROM kemri_sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
+                                'SELECT name FROM sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
                                 [sectionId]
                             );
                             const sectionRows = getQueryRows(sectionResult);
@@ -3155,9 +3155,9 @@ router.get('/status-counts', async (req, res) => {
         // Skip subcounty/ward filters for PostgreSQL (tables don't exist)
         if (subCounty && DB_TYPE !== 'postgresql') {
             whereConditions.push(`EXISTS (
-                SELECT 1 FROM kemri_project_subcounties psc 
+                SELECT 1 FROM project_subcounties psc 
                 WHERE psc.projectId = p.id 
-                AND (psc.subcountyId IN (SELECT subcountyId FROM kemri_subcounties WHERE name = ${placeholder} OR alias = ${placeholder}))
+                AND (psc.subcountyId IN (SELECT subcountyId FROM subcounties WHERE name = ${placeholder} OR alias = ${placeholder}))
                 AND psc.voided = 0
             )`);
             queryParams.push(subCounty, subCounty);
@@ -3166,9 +3166,9 @@ router.get('/status-counts', async (req, res) => {
 
         if (ward && DB_TYPE !== 'postgresql') {
             whereConditions.push(`EXISTS (
-                SELECT 1 FROM kemri_project_wards pw 
+                SELECT 1 FROM project_wards pw 
                 WHERE pw.projectId = p.id 
-                AND (pw.wardId IN (SELECT wardId FROM kemri_wards WHERE name = ${placeholder} OR alias = ${placeholder}))
+                AND (pw.wardId IN (SELECT wardId FROM wards WHERE name = ${placeholder} OR alias = ${placeholder}))
                 AND pw.voided = 0
             )`);
             queryParams.push(ward, ward);
@@ -3184,13 +3184,13 @@ router.get('/status-counts', async (req, res) => {
         
         // Add joins only if needed (MySQL only)
         if (DB_TYPE !== 'postgresql') {
-            sqlQuery += ` LEFT JOIN kemri_departments d ON p.departmentId = d.departmentId AND d.voided = 0`;
+            sqlQuery += ` LEFT JOIN departments d ON p.departmentId = d.departmentId AND d.voided = 0`;
             
             if (projectType) {
-                sqlQuery += ` LEFT JOIN kemri_project_milestone_implementations pc ON p.categoryId = pc.categoryId`;
+                sqlQuery += ` LEFT JOIN project_milestone_implementations pc ON p.categoryId = pc.categoryId`;
             }
             if (section) {
-                sqlQuery += ` LEFT JOIN kemri_sections s ON p.sectionId = s.sectionId`;
+                sqlQuery += ` LEFT JOIN sections s ON p.sectionId = s.sectionId`;
             }
         }
         
@@ -3307,9 +3307,9 @@ router.get('/directorate-counts', async (req, res) => {
         // Skip subcounty/ward filters for PostgreSQL (tables don't exist)
         if (subCounty && DB_TYPE !== 'postgresql') {
             whereConditions.push(`EXISTS (
-                SELECT 1 FROM kemri_project_subcounties psc 
+                SELECT 1 FROM project_subcounties psc 
                 WHERE psc.projectId = p.id 
-                AND (psc.subcountyId IN (SELECT subcountyId FROM kemri_subcounties WHERE name = ${placeholder} OR alias = ${placeholder}))
+                AND (psc.subcountyId IN (SELECT subcountyId FROM subcounties WHERE name = ${placeholder} OR alias = ${placeholder}))
                 AND psc.voided = 0
             )`);
             queryParams.push(subCounty, subCounty);
@@ -3318,9 +3318,9 @@ router.get('/directorate-counts', async (req, res) => {
 
         if (ward && DB_TYPE !== 'postgresql') {
             whereConditions.push(`EXISTS (
-                SELECT 1 FROM kemri_project_wards pw 
+                SELECT 1 FROM project_wards pw 
                 WHERE pw.projectId = p.id 
-                AND (pw.wardId IN (SELECT wardId FROM kemri_wards WHERE name = ${placeholder} OR alias = ${placeholder}))
+                AND (pw.wardId IN (SELECT wardId FROM wards WHERE name = ${placeholder} OR alias = ${placeholder}))
                 AND pw.voided = 0
             )`);
             queryParams.push(ward, ward);
@@ -3336,13 +3336,13 @@ router.get('/directorate-counts', async (req, res) => {
         
         // Add joins only if needed (MySQL only)
         if (DB_TYPE !== 'postgresql') {
-            sqlQuery += ` LEFT JOIN kemri_departments d ON p.departmentId = d.departmentId AND d.voided = 0`;
+            sqlQuery += ` LEFT JOIN departments d ON p.departmentId = d.departmentId AND d.voided = 0`;
             
             if (projectType) {
-                sqlQuery += ` LEFT JOIN kemri_project_milestone_implementations pc ON p.categoryId = pc.categoryId`;
+                sqlQuery += ` LEFT JOIN project_milestone_implementations pc ON p.categoryId = pc.categoryId`;
             }
             if (section) {
-                sqlQuery += ` LEFT JOIN kemri_sections s ON p.sectionId = s.sectionId`;
+                sqlQuery += ` LEFT JOIN sections s ON p.sectionId = s.sectionId`;
             }
         }
         
@@ -3461,7 +3461,7 @@ router.get('/organization-distribution', async (req, res) => {
                     COUNT(p.id) AS projectCount,
                     COALESCE(SUM(p.costOfProject), 0) AS allocatedBudget,
                     COALESCE(SUM(p.paidOut), 0) AS disbursedBudget
-                FROM kemri_projects p
+                FROM projects p
                 WHERE ${whereConditions.join(' AND ')}
                 GROUP BY ${groupByExpr}
                 ORDER BY projectCount DESC, agency
@@ -3577,7 +3577,7 @@ router.get('/organization-projects', async (req, res) => {
                     COALESCE(p.costOfProject, 0) AS allocatedBudget,
                     COALESCE(p.paidOut, 0) AS disbursedBudget,
                     p.updatedAt
-                FROM kemri_projects p
+                FROM projects p
                 WHERE ${whereConditions.join(' AND ')}
                 ORDER BY p.updatedAt DESC, p.id DESC
                 LIMIT ${limit}
@@ -3651,7 +3651,7 @@ router.get('/jobs-snapshot', async (req, res) => {
                     COALESCE(SUM(j.direct_jobs), 0) AS totalDirectJobs,
                     COALESCE(SUM(j.indirect_jobs), 0) AS totalIndirectJobs
                 FROM project_jobs j
-                INNER JOIN kemri_projects p ON p.id = j.project_id
+                INNER JOIN projects p ON p.id = j.project_id
                 WHERE (j.voided IS NULL OR j.voided = 0) AND ${whereConditions.join(' AND ')}
             `;
 
@@ -3673,7 +3673,7 @@ router.get('/jobs-snapshot', async (req, res) => {
                     COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized') AS name,
                     COALESCE(SUM(j.jobs_count), 0) AS value
                 FROM project_jobs j
-                INNER JOIN kemri_projects p ON p.id = j.project_id
+                INNER JOIN projects p ON p.id = j.project_id
                 LEFT JOIN job_categories c ON c.id = j.category_id
                 WHERE (j.voided IS NULL OR j.voided = 0) AND ${whereConditions.join(' AND ')}
                 GROUP BY COALESCE(NULLIF(TRIM(c.name), ''), 'Uncategorized')
@@ -3725,7 +3725,7 @@ router.get('/funding-overview', async (req, res) => {
                 SUM(p.costOfProject) AS totalBudget,
                 SUM(p.paidOut) AS totalPaid,
                 COUNT(p.id) AS projectCount
-            FROM kemri_projects p
+            FROM projects p
             WHERE p.voided = 0 AND p.status IS NOT NULL
             GROUP BY p.status
             ORDER BY p.status
@@ -3747,7 +3747,7 @@ router.get('/pi-counts', async (req, res) => {
             SELECT
                 p.principalInvestigator AS pi,
                 COUNT(p.id) AS count
-            FROM kemri_projects p
+            FROM projects p
             WHERE p.voided = 0 AND p.principalInvestigator IS NOT NULL
             GROUP BY p.principalInvestigator
             ORDER BY count DESC
@@ -3770,8 +3770,8 @@ router.get('/participants-per-project', async (req, res) => {
             SELECT
                 p.projectName AS projectName,
                 COUNT(pp.participantId) AS participantCount
-            FROM kemri_projects p
-            LEFT JOIN kemri_project_participants pp ON p.id = pp.projectId
+            FROM projects p
+            LEFT JOIN project_participants pp ON p.id = pp.projectId
             WHERE p.voided = 0
             GROUP BY p.id, p.projectName
             ORDER BY participantCount DESC
@@ -3945,8 +3945,8 @@ router.get('/:projectId/contractors', async (req, res) => {
         }
 
         const result = await pool.query(
-            `SELECT c.* FROM kemri_contractors c
-             INNER JOIN kemri_project_contractor_assignments pca ON c.contractorId = pca.contractorId
+            `SELECT c.* FROM contractors c
+             INNER JOIN project_contractor_assignments pca ON c.contractorId = pca.contractorId
              WHERE pca.projectId = ?
                AND (pca.voided IS NULL OR pca.voided = 0)
                AND (c.voided IS NULL OR c.voided = 0)`,
@@ -4016,7 +4016,7 @@ router.post('/:projectId/assign-contractor', async (req, res) => {
         }
 
         const result = await pool.query(
-            'INSERT INTO kemri_project_contractor_assignments (projectId, contractorId) VALUES (?, ?)',
+            'INSERT INTO project_contractor_assignments (projectId, contractorId) VALUES (?, ?)',
             [pid, cid]
         );
         return res.status(201).json({
@@ -4071,7 +4071,7 @@ router.delete('/:projectId/remove-contractor/:contractorId', async (req, res) =>
             deleted = result.rowCount ?? 0;
         } else {
             const result = await pool.query(
-                'DELETE FROM kemri_project_contractor_assignments WHERE projectId = ? AND contractorId = ?',
+                'DELETE FROM project_contractor_assignments WHERE projectId = ? AND contractorId = ?',
                 [pid, cid]
             );
             deleted = result.affectedRows ?? result.rowCount ?? 0;
@@ -4095,7 +4095,7 @@ router.get('/:projectId/contractor-photos', async (req, res) => {
     const { projectId } = req.params;
     try {
         const [rows] = await pool.query(
-            'SELECT * FROM kemri_contractor_photos WHERE projectId = ? ORDER BY submittedAt DESC',
+            'SELECT * FROM contractor_photos WHERE projectId = ? ORDER BY submittedAt DESC',
             [projectId]
         );
         res.status(200).json(rows);
@@ -4123,9 +4123,9 @@ router.get('/maps-data', async (req, res) => {
             pm.mapId,
             pm.map AS geoJson
         FROM
-            kemri_projects p
+            projects p
         JOIN
-            kemri_project_maps pm ON p.id = pm.projectId
+            project_maps pm ON p.id = pm.projectId
         WHERE 1=1
     `;
 
@@ -4134,19 +4134,19 @@ router.get('/maps-data', async (req, res) => {
     // Add filtering based on the junction tables
     if (countyId) {
         query += ` AND p.id IN (
-            SELECT projectId FROM kemri_project_counties WHERE countyId = ?
+            SELECT projectId FROM project_counties WHERE countyId = ?
         )`;
         queryParams.push(countyId);
     }
     if (subcountyId) {
         query += ` AND p.id IN (
-            SELECT projectId FROM kemri_project_subcounties WHERE subcountyId = ?
+            SELECT projectId FROM project_subcounties WHERE subcountyId = ?
         )`;
         queryParams.push(subcountyId);
     }
     if (wardId) {
         query += ` AND p.id IN (
-            SELECT projectId FROM kemri_project_wards WHERE wardId = ?
+            SELECT projectId FROM project_wards WHERE wardId = ?
         )`;
         queryParams.push(wardId);
     }
@@ -5415,7 +5415,7 @@ router.put('/:id/approval', async (req, res) => {
             updateValues.push(id);
 
             const query = `
-                UPDATE kemri_projects
+                UPDATE projects
                 SET ${updateFields.join(', ')}
                 WHERE id = ? AND voided = 0
             `;
@@ -5553,7 +5553,7 @@ router.put('/:id/progress', async (req, res) => {
         } else {
             // MySQL: Update overallProgress column directly
             const query = `
-                UPDATE kemri_projects
+                UPDATE projects
                 SET overallProgress = ?
                 WHERE id = ? AND voided = 0
             `;
@@ -5576,7 +5576,7 @@ router.put('/:id/progress', async (req, res) => {
 
             // Verify the update by fetching the updated value
             const [verifyRows] = await pool.query(
-                'SELECT overallProgress FROM kemri_projects WHERE id = ? AND voided = 0',
+                'SELECT overallProgress FROM projects WHERE id = ? AND voided = 0',
                 [id]
             );
             
@@ -5971,7 +5971,7 @@ router.post('/', validateProject, async (req, res) => {
                     ...projectData,
                 };
 
-                const [result] = await connection.query('INSERT INTO kemri_projects SET ?', newProject);
+                const [result] = await connection.query('INSERT INTO projects SET ?', newProject);
                 newProjectId = result.insertId;
             }
 
@@ -5997,7 +5997,7 @@ router.post('/', validateProject, async (req, res) => {
                     ]);
 
                     await connection.query(
-                        'INSERT INTO kemri_project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
+                        'INSERT INTO project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
                         [milestoneValues]
                     );
                 }
@@ -6059,7 +6059,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
     const userId = 1; // Placeholder for now
 
     try {
-        const [projectRows] = await pool.query('SELECT categoryId FROM kemri_projects WHERE id = ? AND voided = 0', [projectId]);
+        const [projectRows] = await pool.query('SELECT categoryId FROM projects WHERE id = ? AND voided = 0', [projectId]);
         const project = projectRows[0];
 
         if (!project || !project.categoryId) {
@@ -6077,7 +6077,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
 
             // Fetch existing milestone names for the project to prevent duplicates
             const [existingMilestones] = await connection.query(
-                'SELECT milestoneName FROM kemri_project_milestones WHERE projectId = ?',
+                'SELECT milestoneName FROM project_milestones WHERE projectId = ?',
                 [projectId]
             );
             const existingMilestoneNames = new Set(existingMilestones.map(m => m.milestoneName));
@@ -6097,7 +6097,7 @@ router.post('/apply-template/:projectId', async (req, res) => {
                 ]);
 
                 await connection.query(
-                    'INSERT INTO kemri_project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
+                    'INSERT INTO project_milestones (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt) VALUES ?',
                     [milestoneValues]
                 );
             }
@@ -6440,7 +6440,7 @@ router.delete('/:id', async (req, res) => {
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
-            const [result] = await connection.query('UPDATE kemri_projects SET voided = 1 WHERE id = ? AND voided = 0', [id]);
+            const [result] = await connection.query('UPDATE projects SET voided = 1 WHERE id = ? AND voided = 0', [id]);
             if (result.affectedRows === 0) {
                 await connection.rollback();
                 return res.status(404).json({ message: 'Project not found or already deleted' });
@@ -6474,8 +6474,8 @@ router.get('/:projectId/counties', async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT pc.countyId, c.name AS countyName, pc.assignedAt
-             FROM kemri_project_counties pc
-             JOIN kemri_counties c ON pc.countyId = c.countyId
+             FROM project_counties pc
+             JOIN counties c ON pc.countyId = c.countyId
              WHERE pc.projectId = ?`, [projectId]
         );
         res.status(200).json(rows);
@@ -6494,7 +6494,7 @@ router.post('/:projectId/counties', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'INSERT INTO kemri_project_counties (projectId, countyId, assignedAt) VALUES (?, ?, NOW())', [projectId, countyId]
+                'INSERT INTO project_counties (projectId, countyId, assignedAt) VALUES (?, ?, NOW())', [projectId, countyId]
             );
             await connection.commit();
             res.status(201).json({ projectId: parseInt(projectId), countyId: parseInt(countyId), assignedAt: new Date() });
@@ -6517,7 +6517,7 @@ router.delete('/:countyId', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'DELETE FROM kemri_project_counties WHERE projectId = ? AND countyId = ?', [projectId, countyId]
+                'DELETE FROM project_counties WHERE projectId = ? AND countyId = ?', [projectId, countyId]
             );
             if (result.affectedRows === 0) { await connection.rollback(); return res.status(404).json({ message: 'Project-county association not found' }); }
             await connection.commit();
@@ -6536,8 +6536,8 @@ router.get('/:projectId/subcounties', async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT psc.subcountyId, sc.name AS subcountyName, sc.geoLat, sc.geoLon, psc.assignedAt
-             FROM kemri_project_subcounties psc
-             JOIN kemri_subcounties sc ON psc.subcountyId = sc.subcountyId
+             FROM project_subcounties psc
+             JOIN subcounties sc ON psc.subcountyId = sc.subcountyId
              WHERE psc.projectId = ? AND sc.voided = 0`, [projectId]
         );
         res.status(200).json(rows);
@@ -6556,7 +6556,7 @@ router.post('/:projectId/subcounties', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'INSERT INTO kemri_project_subcounties (projectId, subcountyId, assignedAt) VALUES (?, ?, NOW())', [projectId, subcountyId]
+                'INSERT INTO project_subcounties (projectId, subcountyId, assignedAt) VALUES (?, ?, NOW())', [projectId, subcountyId]
             );
             await connection.commit();
             res.status(201).json({ projectId: parseInt(projectId), subcountyId: parseInt(subcountyId), assignedAt: new Date() });
@@ -6579,7 +6579,7 @@ router.delete('/:subcountyId', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'DELETE FROM kemri_project_subcounties WHERE projectId = ? AND subcountyId = ?', [projectId, subcountyId]
+                'DELETE FROM project_subcounties WHERE projectId = ? AND subcountyId = ?', [projectId, subcountyId]
             );
             if (result.affectedRows === 0) { await connection.rollback(); return res.status(404).json({ message: 'Project-subcounty association not found' }); }
             await connection.commit();
@@ -6599,8 +6599,8 @@ router.get('/:projectId/wards', async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT pw.wardId, w.name AS wardName, w.geoLat, w.geoLon, pw.assignedAt
-             FROM kemri_project_wards pw
-             JOIN kemri_wards w ON pw.wardId = w.wardId
+             FROM project_wards pw
+             JOIN wards w ON pw.wardId = w.wardId
              WHERE pw.projectId = ? AND w.voided = 0`, [projectId]
         );
         res.status(200).json(rows);
@@ -6619,7 +6619,7 @@ router.post('/:projectId/wards', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'INSERT INTO kemri_project_wards (projectId, wardId, assignedAt) VALUES (?, ?, NOW())', [projectId, wardId]
+                'INSERT INTO project_wards (projectId, wardId, assignedAt) VALUES (?, ?, NOW())', [projectId, wardId]
             );
             await connection.commit();
             res.status(201).json({ projectId: parseInt(projectId), wardId: parseInt(wardId), assignedAt: new Date() });
@@ -6642,7 +6642,7 @@ router.delete('/:wardId', async (req, res) => {
         try {
             await connection.beginTransaction();
             const [result] = await connection.query(
-                'DELETE FROM kemri_project_wards WHERE projectId = ? AND wardId = ?', [projectId, wardId]
+                'DELETE FROM project_wards WHERE projectId = ? AND wardId = ?', [projectId, wardId]
             );
             if (result.affectedRows === 0) { await connection.rollback(); return res.status(404).json({ message: 'Project-ward association not found' }); }
             await connection.commit();

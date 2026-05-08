@@ -8,7 +8,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const organizationService = {
-  // --- County Departments (kemri_countydepartments) ---
+  // --- County Departments (countydepartments) ---
   getCountyDepartments: async () => {
     try {
       const response = await axiosInstance.get('/organization/county_departments');
@@ -55,7 +55,7 @@ const organizationService = {
     }
   },
 
-  // --- Department Sections (kemri_departmentsections) ---
+  // --- Department Sections (departmentsections) ---
   getDepartmentSections: async () => {
     try {
       const response = await axiosInstance.get('/organization/department_sections');
@@ -102,7 +102,7 @@ const organizationService = {
     }
   },
 
-  // --- Subcounties (kemri_subcounties) ---
+  // --- Subcounties (subcounties) ---
   getSubcounties: async () => {
     try {
       const response = await axiosInstance.get('/organization/subcounties');
@@ -149,7 +149,7 @@ const organizationService = {
     }
   },
 
-  // --- Wards (kemri_wards) ---
+  // --- Wards (wards) ---
   getWards: async () => {
     try {
       const response = await axiosInstance.get('/organization/wards');
@@ -196,7 +196,7 @@ const organizationService = {
     }
   },
 
-  // --- Categories (kemri_categories) ---
+  // --- Categories (categories) ---
   getCategories: async () => {
     try {
       const response = await axiosInstance.get('/organization/categories');
@@ -243,7 +243,7 @@ const organizationService = {
     }
   },
 
-  // --- Attachment Types (kemri_attachmenttypes) ---
+  // --- Attachment Types (attachmenttypes) ---
   getAttachmentTypes: async () => {
     try {
       const response = await axiosInstance.get('/organization/attachment_types');
@@ -290,7 +290,7 @@ const organizationService = {
     }
   },
 
-  // --- Financial Years (kemri_financialyears) ---
+  // --- Financial Years (financialyears) ---
   getFinancialYears: async () => {
     try {
       const response = await axiosInstance.get('/organization/financial_years');
@@ -337,7 +337,7 @@ const organizationService = {
     }
   },
 
-  // --- Contractors (kemri_contractors) ---
+  // --- Contractors (contractors) ---
   getContractors: async () => {
     try {
       const response = await axiosInstance.get('/organization/contractors');

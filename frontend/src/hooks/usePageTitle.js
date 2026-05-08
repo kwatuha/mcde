@@ -35,6 +35,8 @@ const routeTitles = {
 
   // Reporting routes
   '/reports': { title: 'Reports', subtitle: 'Analytics & Insights' },
+  '/pending-bills-report': { title: 'Pending Bills Report', subtitle: 'Filter and download outstanding project bill balances' },
+  '/budget-justification-report': { title: 'Budget Justification', subtitle: 'Filter projects and download justification template' },
   '/view-reports': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
   '/reporting-overview': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
   '/regional-dashboard': { title: 'Regional Rpts', subtitle: 'Regional Analytics' },
@@ -85,6 +87,7 @@ const routeTitles = {
   '/metadata-management': { title: 'Metadata Management', subtitle: 'Data Configuration' },
   '/ministries-management': { title: 'Ministries', subtitle: 'Ministries & State Departments' },
   '/contractor-management': { title: 'Contractor Management', subtitle: 'Contractor Administration' },
+  '/contractor-types': { title: 'Contractor Types', subtitle: 'Manage contractor type categories' },
   '/procurement': { title: 'Project Procurement', subtitle: 'Under-procurement workflow management' },
   '/procurement-stages': { title: 'Procurement stages', subtitle: 'Configure workflow stage labels for procurement projects' },
   '/county-proposed-projects': { title: 'Proposed Projects', subtitle: 'Project Proposals' },

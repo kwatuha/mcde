@@ -24,6 +24,8 @@ import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
 import ReportLibraryPage from './pages/ReportLibraryPage';
+import PendingBillsReportPage from './pages/PendingBillsReportPage';
+import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -63,6 +65,7 @@ import ProjectPhotoManager from './pages/ProjectPhotoManager';
 import PersonalDashboard from './pages/ContractorDashboard';
 // NEW: Import the ContractorManagementPage component
 import ContractorManagementPage from './pages/ContractorManagementPage';
+import ContractorTypesPage from './pages/ContractorTypesPage';
 // NEW: Import the HrModulePage component
 import HrModulePage from './pages/HrModulePage';
 // ✨ NEW: Import the WorkflowManagementPage component
@@ -224,6 +227,10 @@ const router = createBrowserRouter([
         element: <ContractorManagementPage />,
       },
       {
+        path: 'contractor-types',
+        element: <ContractorTypesPage />,
+      },
+      {
         path: 'projects',
         element: <ProjectManagementPage />,
       },
@@ -286,6 +293,14 @@ const router = createBrowserRouter([
       {
         path: 'report-library',
         element: <ReportLibraryPage />,
+      },
+      {
+        path: 'pending-bills-report',
+        element: <PendingBillsReportPage />,
+      },
+      {
+        path: 'budget-justification-report',
+        element: <BudgetJustificationReportPage />,
       },
       {
         path: 'scheduled-reports',

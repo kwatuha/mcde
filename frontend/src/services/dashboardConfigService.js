@@ -53,7 +53,7 @@ class DashboardConfigService {
     }
   }
 
-  // Get all roles from kemri_roles table
+  // Get all roles from roles table
   async getRoles() {
     try {
       const response = await axiosInstance.get('/users/roles');

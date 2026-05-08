@@ -12,7 +12,7 @@ const strategicPlanningLabels = {
       vision: 'Vision',
       mission: 'Mission',
       strategicGoal: 'Strategic Goal',
-      // Add other fields from kemri_strategicplans here
+      // Add other fields from strategicplans here
     },
   },
   program: {
@@ -29,7 +29,7 @@ const strategicPlanningLabels = {
       objectives: 'Objectives',
       outcomes: 'Outcomes',
       remarks: 'Remarks',
-      // Add other fields from kemri_programs here
+      // Add other fields from programs here
     },
   },
   subprogram: {
@@ -56,7 +56,7 @@ const strategicPlanningLabels = {
       yr5Budget: 'Year 5 Budget',
       totalBudget: 'Total Budget',
       remarks: 'Remarks',
-      // Add other fields from kemri_subprograms here
+      // Add other fields from subprograms here
     },
   },
   // Add other sections if you have more entities to label

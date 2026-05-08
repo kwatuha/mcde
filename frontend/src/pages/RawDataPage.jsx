@@ -134,7 +134,7 @@ function RawDataPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'kemri_participants_export.xlsx';
+      a.download = 'participants_export.xlsx';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -173,7 +173,7 @@ function RawDataPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'kemri_participants_report.pdf';
+      a.download = 'participants_report.pdf';
       document.body.appendChild(a);
       a.click();
       a.remove();

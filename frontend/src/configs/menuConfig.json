@@ -82,6 +82,11 @@
           "icon": "DescriptionIcon",
           "route": "FINANCE_PAYMENT_CERTIFICATES",
           "permission": "document.read_all"
+        },
+        {
+          "title": "Verify Certificate",
+          "icon": "VerifiedUserIcon",
+          "route": "VERIFY_CERTIFICATE"
         }
       ]
     },
@@ -120,45 +125,10 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
-          "title": "Contractors",
-          "icon": "BusinessIcon",
-          "route": "CONTRACTOR_MANAGEMENT",
-          "permissionsAny": ["contractors.read", "admin.access"]
-        },
-        {
-          "title": "Project Activities",
-          "icon": "TaskAltIcon",
-          "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
-          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
-        },
-        {
-          "title": "Project Risks",
-          "icon": "ReportProblemIcon",
-          "route": "PROJECT_PLANNING_RISK_LINKS",
-          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
-        },
-        {
           "title": "Project evaluation",
           "icon": "FactCheckIcon",
           "route": "PROJECT_EVALUATION",
           "permissionsAny": ["project.read_all", "project.update"]
-        },
-        {
-          "title": "Verify Certificate",
-          "icon": "VerifiedUserIcon",
-          "route": "VERIFY_CERTIFICATE"
-        },
-        {
-          "title": "Upload Projects",
-          "icon": "CloudUploadIcon",
-          "route": "CENTRAL_IMPORT",
-          "permission": "project.create"
-        },
-        {
-          "title": "Bulk Upload Logs",
-          "icon": "AssessmentIcon",
-          "route": "PROJECTS_UPLOAD_LOG",
-          "roles": ["mda_ict_admin", "super_admin"]
         },
         {
           "title": "Reports",
@@ -251,6 +221,18 @@
           "route": "PLANNING_REPORTING_FREQUENCY"
         },
         {
+          "title": "Project Activity Links",
+          "icon": "TaskAltIcon",
+          "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
+          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
+          "title": "Project Risk Links",
+          "icon": "ReportProblemIcon",
+          "route": "PROJECT_PLANNING_RISK_LINKS",
+          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
           "title": "ADP-Budget",
           "icon": "AttachMoneyIcon",
           "route": "BUDGET_MANAGEMENT"
@@ -261,6 +243,25 @@
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
           "roles": ["admin"]
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "label": "Data",
+      "icon": "CloudUploadIcon",
+      "submenus": [
+        {
+          "title": "Import Data",
+          "icon": "CloudUploadIcon",
+          "route": "CENTRAL_IMPORT",
+          "permission": "project.create"
+        },
+        {
+          "title": "Import Logs",
+          "icon": "AssessmentIcon",
+          "route": "PROJECTS_UPLOAD_LOG",
+          "roles": ["mda_ict_admin", "super_admin"]
         }
       ]
     },
@@ -280,6 +281,18 @@
           "icon": "AssignmentIcon",
           "route": "PROCUREMENT_STAGES",
           "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Contractor Registry",
+          "icon": "BusinessIcon",
+          "route": "CONTRACTOR_MANAGEMENT",
+          "permissionsAny": ["contractors.read", "admin.access"]
+        },
+        {
+          "title": "Contractor Types",
+          "icon": "CategoryIcon",
+          "route": "CONTRACTOR_TYPES",
+          "permissionsAny": ["contractors.read", "admin.access"]
         }
       ]
     },
@@ -292,6 +305,24 @@
           "title": "Report Library",
           "icon": "MenuBookIcon",
           "route": "REPORT_LIBRARY"
+        },
+        {
+          "title": "Absorption Report",
+          "icon": "AssessmentIcon",
+          "route": "ABSORPTION_REPORT",
+          "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
+        },
+        {
+          "title": "Budget Justification",
+          "icon": "DescriptionIcon",
+          "route": "BUDGET_JUSTIFICATION_REPORT",
+          "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
+        },
+        {
+          "title": "Pending Bills Report",
+          "icon": "DescriptionIcon",
+          "route": "PENDING_BILLS_REPORT",
+          "permissionsAny": ["project.read_all", "document.read_all", "project.update"]
         },
         {
           "title": "Checklists & visits",

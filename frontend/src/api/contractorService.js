@@ -8,7 +8,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const contractorService = {
-  // --- Contractor Management API Calls (kemri_contractors) ---
+  // --- Contractor Management API Calls (contractors) ---
   getAllContractors: async () => {
     const response = await axiosInstance.get('/contractors');
     return response.data;
@@ -27,6 +27,22 @@ const contractorService = {
   },
   deleteContractor: async (contractorId) => {
     const response = await axiosInstance.delete(`/contractors/${contractorId}`);
+    return response.data;
+  },
+  getContractorTypes: async () => {
+    const response = await axiosInstance.get('/contractors/types');
+    return response.data;
+  },
+  createContractorType: async (payload) => {
+    const response = await axiosInstance.post('/contractors/types', payload);
+    return response.data;
+  },
+  updateContractorType: async (contractorTypeId, payload) => {
+    const response = await axiosInstance.put(`/contractors/types/${contractorTypeId}`, payload);
+    return response.data;
+  },
+  deleteContractorType: async (contractorTypeId) => {
+    const response = await axiosInstance.delete(`/contractors/types/${contractorTypeId}`);
     return response.data;
   },
   

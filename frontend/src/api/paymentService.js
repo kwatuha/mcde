@@ -6,7 +6,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const paymentService = {
-  // --- Payment Request API Calls (kemri_project_payment_requests) ---
+  // --- Payment Request API Calls (project_payment_requests) ---
 
   /**
    * Fetches all payment requests for a specific project.
@@ -79,7 +79,7 @@ const paymentService = {
     return response.data;
   },
 
-  // --- Payment Request Milestone API Calls (kemri_payment_request_milestones) ---
+  // --- Payment Request Milestone API Calls (payment_request_milestones) ---
   createMilestoneRecord: async (milestoneData) => {
     const response = await axiosInstance.post('/payment-requests/milestones', milestoneData);
     return response.data;
@@ -93,7 +93,7 @@ const paymentService = {
     return response.data;
   },
 
-  // --- Payment Details API Calls (kemri_payment_details) ---
+  // --- Payment Details API Calls (payment_details) ---
   createPaymentDetails: async (requestId, paymentDetails) => {
     const response = await axiosInstance.post(`/payment-requests/${requestId}/payment-details`, paymentDetails);
     return response.data;
@@ -104,7 +104,7 @@ const paymentService = {
     return response.data;
   },
 
-  // --- Document API Calls (kemri_project_documents) ---
+  // --- Document API Calls (project_documents) ---
   createDocument: async (documentData) => {
     const response = await axiosInstance.post('/documents', documentData);
     return response.data;

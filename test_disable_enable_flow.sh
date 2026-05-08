@@ -18,7 +18,7 @@ echo ""
 echo "📊 Step 1: Check initial user status"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE userId = $TEST_USER_ID;
 " $DB_NAME
 
@@ -31,7 +31,7 @@ curl -s -X POST $API_URL/api/auth/login \
 echo ""
 echo "🚫 Step 3: Disable the user (set isActive = 0)"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-UPDATE kemri_users 
+UPDATE users 
 SET isActive = 0, updatedAt = NOW() 
 WHERE userId = $TEST_USER_ID;
 " $DB_NAME
@@ -40,7 +40,7 @@ echo ""
 echo "📊 Step 4: Verify user is disabled"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE userId = $TEST_USER_ID;
 " $DB_NAME
 
@@ -53,7 +53,7 @@ curl -s -X POST $API_URL/api/auth/login \
 echo ""
 echo "✅ Step 6: Re-enable the user (set isActive = 1)"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-UPDATE kemri_users 
+UPDATE users 
 SET isActive = 1, updatedAt = NOW() 
 WHERE userId = $TEST_USER_ID;
 " $DB_NAME
@@ -62,7 +62,7 @@ echo ""
 echo "📊 Step 7: Verify user is enabled"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE userId = $TEST_USER_ID;
 " $DB_NAME
 
@@ -84,7 +84,7 @@ SELECT
         WHEN u.isActive = 0 THEN 'USER_DISABLED'
         ELSE 'UNKNOWN_STATUS'
     END as login_status
-FROM kemri_users u
+FROM users u
 WHERE u.username = '$TEST_USERNAME';
 " $DB_NAME
 

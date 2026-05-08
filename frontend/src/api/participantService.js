@@ -9,7 +9,7 @@ import axiosInstance from './axiosInstance';
 const participantService = {
   /**
    * @route POST /api/participants/study_participants/filtered
-   * @description Get filtered, paginated, and sorted study participants from the kemri_studyparticipants table.
+   * @description Get filtered, paginated, and sorted study participants from the studyparticipants table.
    * @param {Object} filters - Object containing filter criteria.
    * @param {number} page - The current page number (1-indexed).
    * @param {number} pageSize - The number of rows per page.
@@ -35,7 +35,7 @@ const participantService = {
 
   /**
    * @route GET /api/participants/study_participants/:individualId
-   * @description Get a single study participant by individualId from the kemri_studyparticipants table.
+   * @description Get a single study participant by individualId from the studyparticipants table.
    * @param {string|number} individualId - The ID of the individual participant.
    * @returns {Promise<Object>} The participant data.
    */
@@ -51,7 +51,7 @@ const participantService = {
 
   /**
    * @route POST /api/participants/study_participants
-   * @description Create a new study participant in the kemri_studyparticipants table.
+   * @description Create a new study participant in the studyparticipants table.
    * @param {Object} studyParticipantData - The data for the new participant.
    * @returns {Promise<Object>} The created participant data.
    */
@@ -67,7 +67,7 @@ const participantService = {
 
   /**
    * @route PUT /api/participants/study_participants/:individualId
-   * @description Update an existing study participant by individualId in the kemri_studyparticipants table.
+   * @description Update an existing study participant by individualId in the studyparticipants table.
    * @param {string|number} individualId - The ID of the individual participant to update.
    * @param {Object} studyParticipantData - The updated data for the participant.
    * @returns {Promise<Object>} The updated participant data.
@@ -84,7 +84,7 @@ const participantService = {
 
   /**
    * @route DELETE /api/participants/study_participants/:individualId
-   * @description Delete a study participant by individualId from the kemri_studyparticipants table.
+   * @description Delete a study participant by individualId from the studyparticipants table.
    * @param {string|number} individualId - The ID of the individual participant to delete.
    * @returns {Promise<Object>} The response from the delete operation.
    */

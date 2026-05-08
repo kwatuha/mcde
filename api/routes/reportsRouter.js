@@ -2,9 +2,56 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Adjust the path as needed
 const { addStatusFilter } = require('../utils/statusFilterHelper');
+const path = require('path');
+const ExcelJS = require('exceljs');
 
 // Helper function to get DB type
 const getDBType = () => process.env.DB_TYPE || 'mysql';
+
+function cloneCellStyle(targetCell, sourceCell) {
+    if (!targetCell || !sourceCell) return;
+    if (sourceCell.style) targetCell.style = JSON.parse(JSON.stringify(sourceCell.style));
+    if (sourceCell.numFmt) targetCell.numFmt = sourceCell.numFmt;
+}
+
+function fillTemplateFromSampleRow(ws, sampleRowIndex, dataRows) {
+    if (!ws || !Number.isFinite(sampleRowIndex) || sampleRowIndex < 1) return;
+    const sampleRow = ws.getRow(sampleRowIndex);
+    const sampleCellCount = Math.max(sampleRow.cellCount || 0, sampleRow.actualCellCount || 0, 1);
+    const sampleDefaults = [];
+    for (let c = 1; c <= sampleCellCount; c++) {
+        sampleDefaults[c] = sampleRow.getCell(c).value;
+    }
+
+    const rows = Array.isArray(dataRows) ? dataRows : [];
+    if (rows.length === 0) {
+        ws.spliceRows(sampleRowIndex, 1);
+        return;
+    }
+
+    const existingFromSample = Math.max(0, ws.rowCount - sampleRowIndex + 1);
+    if (rows.length > existingFromSample) {
+        for (let k = 0; k < rows.length - existingFromSample; k++) {
+            ws.insertRow(sampleRowIndex + existingFromSample + k, []);
+        }
+    } else if (rows.length < existingFromSample) {
+        ws.spliceRows(sampleRowIndex + rows.length, existingFromSample - rows.length);
+    }
+
+    for (let r = 0; r < rows.length; r++) {
+        const rowIndex = sampleRowIndex + r;
+        const row = ws.getRow(rowIndex);
+        row.height = sampleRow.height;
+        for (let c = 1; c <= sampleCellCount; c++) {
+            const cell = row.getCell(c);
+            const src = sampleRow.getCell(c);
+            cloneCellStyle(cell, src);
+            const provided = rows[r][c - 1];
+            cell.value = provided !== undefined ? provided : sampleDefaults[c];
+        }
+        row.commit();
+    }
+}
 
 // Helper function to get project status field based on DB type
 const getStatusField = (prefix = 'p') => {
@@ -2112,156 +2159,218 @@ router.get('/projects-by-village', async (req, res) => {
     }
 });
 
-/**
- * @route GET /api/reports/absorption-report
- * @description Get absorption report data grouped by department with financial metrics
- * @access Public (for now)
- * @returns {Object} Object containing absorption report data and summary totals
- */
+async function buildAbsorptionReport(query = {}) {
+    const DB_TYPE = getDBType();
+    const isPg = DB_TYPE === 'postgresql';
+    const placeholder = isPg ? '$' : '?';
+    let i = 1;
+    const params = [];
+    const where = [isPg ? 'COALESCE(p.voided, false) = false' : 'p.voided = 0'];
+
+    const {
+        finYearId,
+        departmentId,
+        department,
+        status,
+        startDate,
+        endDate,
+        minAbsorption,
+        maxAbsorption,
+        minBudget,
+        maxBudget,
+    } = query;
+
+    const statusExpr = isPg ? `COALESCE(p.progress->>'status', '')` : `COALESCE(p.status, '')`;
+    const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
+    const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
+    const deptExpr = isPg ? `COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned')` : `COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned')`;
+    const startExpr = isPg ? `(p.timeline->>'start_date')::date` : `p.startDate`;
+    const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
+    const fyExpr = isPg ? `COALESCE(p.timeline->>'financial_year', '')` : `COALESCE(CAST(p.finYearId AS CHAR), '')`;
+
+    if (finYearId) {
+        where.push(`${fyExpr} = ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(String(finYearId));
+    }
+    if (departmentId && !isPg) {
+        where.push(`p.departmentId = ?`);
+        params.push(Number(departmentId));
+    }
+    if (department) {
+        where.push(`${deptExpr} = ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(String(department));
+    }
+    if (status) {
+        where.push(`${statusExpr} = ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(String(status));
+    }
+    if (startDate) {
+        where.push(`${startExpr} >= ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(startDate);
+    }
+    if (endDate) {
+        where.push(`${endExpr} <= ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(endDate);
+    }
+    if (minBudget !== undefined && minBudget !== '' && Number.isFinite(Number(minBudget))) {
+        where.push(`${budgetExpr} >= ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(Number(minBudget));
+    }
+    if (maxBudget !== undefined && maxBudget !== '' && Number.isFinite(Number(maxBudget))) {
+        where.push(`${budgetExpr} <= ${isPg ? `${placeholder}${i++}` : placeholder}`);
+        params.push(Number(maxBudget));
+    }
+
+    const baseSql = `
+        FROM projects p
+        ${isPg ? '' : 'LEFT JOIN departments d ON p.departmentId = d.departmentId AND d.voided = 0'}
+        WHERE ${where.join(' AND ')}
+    `;
+    const groupedSql = `
+        SELECT
+            ${deptExpr} AS "department",
+            COUNT(*)::int AS "projectCount",
+            CASE WHEN COUNT(*) > 0
+                 THEN ROUND((SUM(CASE WHEN LOWER(${statusExpr}) = 'completed' THEN 1 ELSE 0 END) * 100.0 / COUNT(*))::numeric, 1)
+                 ELSE 0 END AS "completionPercentage",
+            SUM(${budgetExpr}) AS "budget",
+            SUM(${budgetExpr}) AS "contractSum",
+            SUM(${paidExpr}) AS "paidAmount",
+            CASE WHEN SUM(${budgetExpr}) > 0
+                 THEN ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, 2)
+                 ELSE 0 END AS "absorptionPercentage"
+        ${baseSql}
+        GROUP BY ${deptExpr}
+    `;
+
+    const outerWhere = [];
+    const outerParams = [...params];
+    let j = i;
+    if (minAbsorption !== undefined && minAbsorption !== '' && Number.isFinite(Number(minAbsorption))) {
+        outerWhere.push(`"absorptionPercentage" >= ${isPg ? `$${j++}` : '?'}`);
+        outerParams.push(Number(minAbsorption));
+    }
+    if (maxAbsorption !== undefined && maxAbsorption !== '' && Number.isFinite(Number(maxAbsorption))) {
+        outerWhere.push(`"absorptionPercentage" <= ${isPg ? `$${j++}` : '?'}`);
+        outerParams.push(Number(maxAbsorption));
+    }
+
+    const groupedFinalSql = `
+      SELECT * FROM (${groupedSql}) a
+      ${outerWhere.length ? `WHERE ${outerWhere.join(' AND ')}` : ''}
+      ORDER BY "department"
+    `;
+    const groupedResult = await pool.query(groupedFinalSql, outerParams);
+    const groupedRows = isPg ? (groupedResult.rows || []) : (Array.isArray(groupedResult) ? (groupedResult[0] || []) : []);
+
+    const summarySql = `
+        SELECT
+            COUNT(*)::int AS "count",
+            CASE WHEN COUNT(*) > 0
+                 THEN ROUND(AVG(CASE
+                    WHEN LOWER(${statusExpr}) = 'completed' THEN 100
+                    WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
+                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
+                    WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
+                    WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
+                    ELSE 0
+                 END)::numeric, 1)
+                 ELSE 0 END AS "averageCompletion",
+            SUM(${budgetExpr}) AS "totalBudget",
+            SUM(${budgetExpr}) AS "totalContractSum",
+            SUM(${paidExpr}) AS "totalPaidAmount",
+            CASE WHEN SUM(${budgetExpr}) > 0
+                 THEN ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, 1)
+                 ELSE 0 END AS "absorbedPercentage"
+        ${baseSql}
+    `;
+    const summaryResult = await pool.query(summarySql, params);
+    const summaryRow = isPg ? (summaryResult.rows?.[0] || {}) : (Array.isArray(summaryResult) ? (summaryResult[0]?.[0] || {}) : {});
+
+    return {
+        data: groupedRows.map((row, idx) => ({
+            id: idx + 1,
+            department: row.department || 'Unassigned',
+            projectCount: Number(row.projectCount || 0),
+            ward: '',
+            status: '',
+            completionPercentage: Number(row.completionPercentage || 0),
+            budget: Number(row.budget || 0),
+            contractSum: Number(row.contractSum || 0),
+            paidAmount: Number(row.paidAmount || 0),
+            absorptionPercentage: Number(row.absorptionPercentage || 0),
+        })),
+        summary: {
+            count: Number(summaryRow.count || 0),
+            averageCompletion: Number(summaryRow.averageCompletion || 0),
+            totalBudget: Number(summaryRow.totalBudget || 0),
+            totalContractSum: Number(summaryRow.totalContractSum || 0),
+            totalPaidAmount: Number(summaryRow.totalPaidAmount || 0),
+            absorbedPercentage: Number(summaryRow.absorbedPercentage || 0),
+        },
+    };
+}
+
 router.get('/absorption-report', async (req, res) => {
     try {
-        const { 
-            finYearId, 
-            departmentId, 
-            status, 
-            startDate, 
-            endDate 
-        } = req.query;
-
-        let whereConditions = ['p.voided = 0', 'd.name IS NOT NULL'];
-        const queryParams = [];
-
-        if (finYearId) {
-            whereConditions.push('p.finYearId = ?');
-            queryParams.push(finYearId);
-        }
-
-        if (departmentId) {
-            whereConditions.push('p.departmentId = ?');
-            queryParams.push(departmentId);
-        }
-
-        // Use shared status filter helper for consistent normalization
-        addStatusFilter(status, whereConditions, queryParams, 'p');
-
-        if (startDate) {
-            whereConditions.push('p.startDate >= ?');
-            queryParams.push(startDate);
-        }
-
-        if (endDate) {
-            whereConditions.push('p.endDate <= ?');
-            queryParams.push(endDate);
-        }
-
-        // Main query to get department-level absorption data
-        const sqlQuery = `
-            SELECT
-                d.name AS departmentName,
-                d.alias AS departmentAlias,
-                COUNT(p.id) AS projectCount,
-                
-                -- Calculate completion percentage based on status
-                CASE 
-                    WHEN COUNT(p.id) > 0 THEN 
-                        ROUND(
-                            (COUNT(CASE WHEN p.status = 'Completed' THEN 1 END) * 100.0 / COUNT(p.id)), 
-                            1
-                        )
-                    ELSE 0 
-                END AS completionPercentage,
-                
-                -- Budget and financial data
-                COALESCE(SUM(p.costOfProject), 0) AS budget,
-                COALESCE(SUM(p.costOfProject), 0) AS contractSum,
-                COALESCE(SUM(p.paidOut), 0) AS paidAmount,
-                
-                -- Calculate absorption percentage
-                CASE 
-                    WHEN SUM(p.costOfProject) > 0 THEN 
-                        ROUND((SUM(p.paidOut) * 100.0 / SUM(p.costOfProject)), 2)
-                    ELSE 0 
-                END AS absorptionPercentage
-                
-            FROM
-                projects p
-            LEFT JOIN
-                departments d ON p.departmentId = d.departmentId AND d.voided = 0
-            WHERE ${whereConditions.join(' AND ')}
-            GROUP BY
-                d.departmentId, d.name, d.alias
-            ORDER BY
-                d.name;
-        `;
-
-        const [rows] = await pool.query(sqlQuery, queryParams);
-
-        // Calculate summary totals
-        const summaryQuery = `
-            SELECT
-                COUNT(DISTINCT p.id) AS totalCount,
-                ROUND(
-                    AVG(
-                        CASE 
-                            WHEN p.status = 'Completed' THEN 100
-                            WHEN p.status = 'In Progress' THEN 75
-                            WHEN p.status = 'At Risk' THEN 25
-                            WHEN p.status = 'Delayed' THEN 50
-                            WHEN p.status = 'Stalled' THEN 10
-                            ELSE 0
-                        END
-                    ), 1
-                ) AS averageCompletion,
-                COALESCE(SUM(p.costOfProject), 0) AS totalBudget,
-                COALESCE(SUM(p.costOfProject), 0) AS totalContractSum,
-                COALESCE(SUM(p.paidOut), 0) AS totalPaidAmount,
-                CASE 
-                    WHEN SUM(p.costOfProject) > 0 THEN 
-                        ROUND((SUM(p.paidOut) * 100.0 / SUM(p.costOfProject)), 1)
-                    ELSE 0 
-                END AS absorbedPercentage
-            FROM
-                projects p
-            LEFT JOIN
-                departments d ON p.departmentId = d.departmentId AND d.voided = 0
-            WHERE ${whereConditions.join(' AND ')}
-        `;
-
-        const [summaryRows] = await pool.query(summaryQuery, queryParams);
-        const summary = summaryRows[0] || {};
-
-        // Transform the data to match the frontend component expectations
-        const transformedData = rows.map(row => ({
-            id: Math.random(), // Generate a temporary ID for React key
-            department: row.departmentName,
-            projectCount: row.projectCount,
-            ward: '', // Not available in current schema
-            status: '', // Not available in current schema
-            completionPercentage: parseFloat(row.completionPercentage) || 0,
-            budget: parseFloat(row.budget) || 0,
-            contractSum: parseFloat(row.contractSum) || 0,
-            paidAmount: parseFloat(row.paidAmount) || 0,
-            absorptionPercentage: parseFloat(row.absorptionPercentage) || 0
-        }));
-
-        res.status(200).json({
-            data: transformedData,
-            summary: {
-                count: summary.totalCount || 0,
-                averageCompletion: parseFloat(summary.averageCompletion) || 0,
-                totalBudget: parseFloat(summary.totalBudget) || 0,
-                totalContractSum: parseFloat(summary.totalContractSum) || 0,
-                totalPaidAmount: parseFloat(summary.totalPaidAmount) || 0,
-                absorbedPercentage: parseFloat(summary.absorbedPercentage) || 0
-            }
-        });
-
+        const payload = await buildAbsorptionReport(req.query || {});
+        return res.status(200).json(payload);
     } catch (error) {
         console.error('Error fetching absorption report:', error);
-        res.status(500).json({
+        return res.status(500).json({
             message: 'Error fetching absorption report',
-            error: error.message
+            error: error.message,
         });
+    }
+});
+
+router.get('/absorption-report/export', async (req, res) => {
+    try {
+        const payload = await buildAbsorptionReport(req.query || {});
+        const workbook = new ExcelJS.Workbook();
+        const primaryTemplate = path.resolve(__dirname, '..', 'templates', 'budget_absorption_rate.xlsx');
+        const fallbackTemplate = path.resolve(__dirname, '..', 'templates', '002_budget_absorption_rate.xlsx');
+        try {
+            await workbook.xlsx.readFile(primaryTemplate);
+        } catch {
+            await workbook.xlsx.readFile(fallbackTemplate);
+        }
+        const ws = workbook.worksheets[0] || workbook.addWorksheet('Absorption Report');
+        if (ws.actualRowCount === 0) {
+            ws.addRow(['Department', 'Projects', '% Complete', 'Budget', 'Contract Sum', 'Paid Amount', 'Absorption %']);
+        }
+        const sampleRowIndex = ws.actualRowCount >= 2 ? 2 : ws.actualRowCount + 1;
+        if (ws.actualRowCount < sampleRowIndex) ws.addRow([]);
+        const dataRows = payload.data.map((row) => ([
+            row.department,
+            Number(row.projectCount || 0),
+            Number(row.completionPercentage || 0),
+            Number(row.budget || 0),
+            Number(row.contractSum || 0),
+            Number(row.paidAmount || 0),
+            Number(row.absorptionPercentage || 0),
+        ]));
+        dataRows.push([
+            'TOTAL',
+            Number(payload.summary.count || 0),
+            Number(payload.summary.averageCompletion || 0),
+            Number(payload.summary.totalBudget || 0),
+            Number(payload.summary.totalContractSum || 0),
+            Number(payload.summary.totalPaidAmount || 0),
+            Number(payload.summary.absorbedPercentage || 0),
+        ]);
+        fillTemplateFromSampleRow(ws, sampleRowIndex, dataRows);
+        ws.columns.forEach((c) => {
+            if (!c.width || c.width < 16) c.width = 18;
+        });
+        const suffix = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="absorption-report-${suffix}.xlsx"`);
+        await workbook.xlsx.write(res);
+        return res.end();
+    } catch (error) {
+        console.error('Error exporting absorption report:', error);
+        return res.status(500).json({ message: 'Error exporting absorption report', error: error.message });
     }
 });
 
@@ -2726,6 +2835,404 @@ router.get('/quarterly-implementation-report', async (req, res) => {
             message: 'Error fetching quarterly implementation report',
             error: error.message
         });
+    }
+});
+
+/**
+ * @route GET /api/reports/pending-bills
+ * @description List projects with outstanding/pending bill amounts.
+ * @query department, status, projectName, minPendingAmount, maxPendingAmount, includeZeroPending, limit
+ */
+router.get('/pending-bills', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const placeholder = isPg ? '$' : '?';
+        let p = 1;
+        const params = [];
+
+        const department = String(req.query.department || '').trim();
+        const status = String(req.query.status || '').trim();
+        const projectName = String(req.query.projectName || '').trim();
+        const minPendingAmount = req.query.minPendingAmount !== undefined && req.query.minPendingAmount !== ''
+            ? Number(req.query.minPendingAmount)
+            : null;
+        const maxPendingAmount = req.query.maxPendingAmount !== undefined && req.query.maxPendingAmount !== ''
+            ? Number(req.query.maxPendingAmount)
+            : null;
+        const includeZeroPending = String(req.query.includeZeroPending || '').toLowerCase() === 'true';
+        const rowLimit = Math.min(Math.max(Number(req.query.limit || 500), 1), 5000);
+
+        const where = [isPg ? 'COALESCE(p.voided, false) = false' : '(p.voided IS NULL OR p.voided = 0)'];
+        if (department) {
+            if (isPg) {
+                where.push(`COALESCE(p.ministry, '') = ${placeholder}${p++}`);
+            } else {
+                where.push(`COALESCE(d.name, '') = ${placeholder}`);
+            }
+            params.push(department);
+        }
+        if (status) {
+            if (isPg) {
+                where.push(`COALESCE(p.progress->>'status', '') = ${placeholder}${p++}`);
+            } else {
+                where.push(`COALESCE(p.status, '') = ${placeholder}`);
+            }
+            params.push(status);
+        }
+        if (projectName) {
+            if (isPg) {
+                where.push(`LOWER(COALESCE(p.name, '')) LIKE LOWER(${placeholder}${p++})`);
+            } else {
+                where.push(`LOWER(COALESCE(p.projectName, '')) LIKE LOWER(${placeholder})`);
+            }
+            params.push(`%${projectName}%`);
+        }
+
+        const costExpr = isPg
+            ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)`
+            : `COALESCE(p.costOfProject, 0)`;
+        const paidExpr = isPg
+            ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)`
+            : `COALESCE(p.paidOut, 0)`;
+        const pendingExpr = `GREATEST((${costExpr}) - (${paidExpr}), 0)`;
+
+        if (!includeZeroPending) where.push(`${pendingExpr} > 0`);
+        if (Number.isFinite(minPendingAmount)) {
+            where.push(`${pendingExpr} >= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+            params.push(minPendingAmount);
+        }
+        if (Number.isFinite(maxPendingAmount)) {
+            where.push(`${pendingExpr} <= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+            params.push(maxPendingAmount);
+        }
+
+        const sql = isPg
+            ? `
+                SELECT
+                    p.project_id AS "projectId",
+                    COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                    ${costExpr} AS "contractSum",
+                    ${paidExpr} AS "amountPaid",
+                    ${pendingExpr} AS "pendingBill",
+                    COALESCE((
+                      SELECT COUNT(*)::int
+                      FROM projectcertificate c
+                      WHERE c."projectId" = p.project_id AND COALESCE(c.voided, false) = false
+                    ), 0) AS "certificatesGenerated",
+                    COALESCE((
+                      SELECT MAX(c."requestDate")
+                      FROM projectcertificate c
+                      WHERE c."projectId" = p.project_id AND COALESCE(c.voided, false) = false
+                    ), NULL) AS "lastCertificateDate"
+                FROM projects p
+                WHERE ${where.join(' AND ')}
+                ORDER BY ${pendingExpr} DESC, p.project_id DESC
+                LIMIT ${placeholder}${p}
+            `
+            : `
+                SELECT
+                    p.id AS projectId,
+                    COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
+                    COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                    ${costExpr} AS contractSum,
+                    ${paidExpr} AS amountPaid,
+                    ${pendingExpr} AS pendingBill,
+                    COALESCE((
+                      SELECT COUNT(*)
+                      FROM projectcertificate c
+                      WHERE c.projectId = p.id AND (c.voided IS NULL OR c.voided = 0)
+                    ), 0) AS certificatesGenerated,
+                    COALESCE((
+                      SELECT MAX(c.requestDate)
+                      FROM projectcertificate c
+                      WHERE c.projectId = p.id AND (c.voided IS NULL OR c.voided = 0)
+                    ), NULL) AS lastCertificateDate
+                FROM projects p
+                LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+                WHERE ${where.join(' AND ')}
+                ORDER BY ${pendingExpr} DESC, p.id DESC
+                LIMIT ?
+            `;
+        params.push(rowLimit);
+
+        const result = await pool.query(sql, params);
+        const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+        return res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching pending bills report:', error);
+        return res.status(500).json({ message: 'Error fetching pending bills report', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/reports/pending-bills/export
+ * @description Export pending bills report to Excel using template_pending_bill.xlsx.
+ */
+router.get('/pending-bills/export', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const placeholder = isPg ? '$' : '?';
+        let p = 1;
+        const params = [];
+        const department = String(req.query.department || '').trim();
+        const status = String(req.query.status || '').trim();
+        const projectName = String(req.query.projectName || '').trim();
+        const minPendingAmount = req.query.minPendingAmount !== undefined && req.query.minPendingAmount !== ''
+            ? Number(req.query.minPendingAmount)
+            : null;
+        const maxPendingAmount = req.query.maxPendingAmount !== undefined && req.query.maxPendingAmount !== ''
+            ? Number(req.query.maxPendingAmount)
+            : null;
+        const includeZeroPending = String(req.query.includeZeroPending || '').toLowerCase() === 'true';
+        const where = [isPg ? 'COALESCE(p.voided, false) = false' : '(p.voided IS NULL OR p.voided = 0)'];
+
+        if (department) { where.push(isPg ? `COALESCE(p.ministry, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`); params.push(department); }
+        if (status) { where.push(isPg ? `COALESCE(p.progress->>'status', '') = ${placeholder}${p++}` : `COALESCE(p.status, '') = ${placeholder}`); params.push(status); }
+        if (projectName) { where.push(isPg ? `LOWER(COALESCE(p.name, '')) LIKE LOWER(${placeholder}${p++})` : `LOWER(COALESCE(p.projectName, '')) LIKE LOWER(${placeholder})`); params.push(`%${projectName}%`); }
+        const costExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
+        const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
+        const pendingExpr = `GREATEST((${costExpr}) - (${paidExpr}), 0)`;
+        if (!includeZeroPending) where.push(`${pendingExpr} > 0`);
+        if (Number.isFinite(minPendingAmount)) { where.push(`${pendingExpr} >= ${isPg ? `${placeholder}${p++}` : placeholder}`); params.push(minPendingAmount); }
+        if (Number.isFinite(maxPendingAmount)) { where.push(`${pendingExpr} <= ${isPg ? `${placeholder}${p++}` : placeholder}`); params.push(maxPendingAmount); }
+
+        const sql = isPg
+            ? `
+                SELECT
+                    p.project_id AS "projectId",
+                    COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                    ${costExpr} AS "contractSum",
+                    ${paidExpr} AS "amountPaid",
+                    ${pendingExpr} AS "pendingBill",
+                    COALESCE((
+                      SELECT COUNT(*)::int
+                      FROM projectcertificate c
+                      WHERE c."projectId" = p.project_id AND COALESCE(c.voided, false) = false
+                    ), 0) AS "certificatesGenerated",
+                    COALESCE((
+                      SELECT MAX(c."requestDate")
+                      FROM projectcertificate c
+                      WHERE c."projectId" = p.project_id AND COALESCE(c.voided, false) = false
+                    ), NULL) AS "lastCertificateDate"
+                FROM projects p
+                WHERE ${where.join(' AND ')}
+                ORDER BY ${pendingExpr} DESC, p.project_id DESC
+            `
+            : `
+                SELECT
+                    p.id AS projectId,
+                    COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
+                    COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                    ${costExpr} AS contractSum,
+                    ${paidExpr} AS amountPaid,
+                    ${pendingExpr} AS pendingBill,
+                    COALESCE((
+                      SELECT COUNT(*)
+                      FROM projectcertificate c
+                      WHERE c.projectId = p.id AND (c.voided IS NULL OR c.voided = 0)
+                    ), 0) AS certificatesGenerated,
+                    COALESCE((
+                      SELECT MAX(c.requestDate)
+                      FROM projectcertificate c
+                      WHERE c.projectId = p.id AND (c.voided IS NULL OR c.voided = 0)
+                    ), NULL) AS lastCertificateDate
+                FROM projects p
+                LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+                WHERE ${where.join(' AND ')}
+                ORDER BY ${pendingExpr} DESC, p.id DESC
+            `;
+
+        const queryResult = await pool.query(sql, params);
+        const rows = isPg ? (queryResult.rows || []) : (Array.isArray(queryResult) ? (queryResult[0] || []) : []);
+
+        const workbook = new ExcelJS.Workbook();
+        const templatePath = path.resolve(__dirname, '..', 'templates', 'template_pending_bill.xlsx');
+        await workbook.xlsx.readFile(templatePath);
+        const ws = workbook.worksheets[0] || workbook.addWorksheet('Pending Bills');
+        if (ws.actualRowCount === 0) {
+            ws.addRow([
+                'Project ID', 'Project Name', 'Department', 'Status', 'Contract Sum', 'Amount Paid', 'Pending Bill',
+                'Certificates Generated', 'Last Certificate Date',
+            ]);
+        }
+        const sampleRowIndex = ws.actualRowCount >= 2 ? 2 : ws.actualRowCount + 1;
+        if (ws.actualRowCount < sampleRowIndex) ws.addRow([]);
+        const dataRows = rows.map((r) => ([
+            r.projectId,
+            r.projectName || '',
+            r.department || '',
+            r.status || '',
+            Number(r.contractSum || 0),
+            Number(r.amountPaid || 0),
+            Number(r.pendingBill || 0),
+            Number(r.certificatesGenerated || 0),
+            r.lastCertificateDate ? new Date(r.lastCertificateDate) : '',
+        ]));
+        fillTemplateFromSampleRow(ws, sampleRowIndex, dataRows);
+        ws.columns.forEach((col) => {
+            if (!col.width || col.width < 16) col.width = 18;
+        });
+
+        const suffix = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="pending-bills-report-${suffix}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting pending bills report:', error);
+        res.status(500).json({ message: 'Error exporting pending bills report', error: error.message });
+    }
+});
+
+async function buildBudgetJustificationRows(query = {}) {
+    const DB_TYPE = getDBType();
+    const isPg = DB_TYPE === 'postgresql';
+    const placeholder = isPg ? '$' : '?';
+    let p = 1;
+    const params = [];
+
+    const department = String(query.department || '').trim();
+    const status = String(query.status || '').trim();
+    const projectName = String(query.projectName || '').trim();
+    const startDate = String(query.startDate || '').trim();
+    const endDate = String(query.endDate || '').trim();
+    const minPendingAmount = query.minPendingAmount !== undefined && query.minPendingAmount !== '' ? Number(query.minPendingAmount) : null;
+    const maxPendingAmount = query.maxPendingAmount !== undefined && query.maxPendingAmount !== '' ? Number(query.maxPendingAmount) : null;
+    const minBudget = query.minBudget !== undefined && query.minBudget !== '' ? Number(query.minBudget) : null;
+    const maxBudget = query.maxBudget !== undefined && query.maxBudget !== '' ? Number(query.maxBudget) : null;
+    const maxRows = Math.min(Math.max(Number(query.limit || 1000), 1), 5000);
+
+    const where = [isPg ? 'COALESCE(p.voided, false) = false' : '(p.voided IS NULL OR p.voided = 0)'];
+    const statusExpr = isPg ? `COALESCE(p.progress->>'status', '')` : `COALESCE(p.status, '')`;
+    const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
+    const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
+    const pendingExpr = `GREATEST((${budgetExpr}) - (${paidExpr}), 0)`;
+    const startExpr = isPg ? `(p.timeline->>'start_date')::date` : `p.startDate`;
+    const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
+
+    if (department) {
+        where.push(isPg ? `COALESCE(p.ministry, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`);
+        params.push(department);
+    }
+    if (status) {
+        where.push(`${statusExpr} = ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(status);
+    }
+    if (projectName) {
+        where.push(isPg ? `LOWER(COALESCE(p.name, '')) LIKE LOWER(${placeholder}${p++})` : `LOWER(COALESCE(p.projectName, '')) LIKE LOWER(${placeholder})`);
+        params.push(`%${projectName}%`);
+    }
+    if (startDate) {
+        where.push(`${startExpr} >= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(startDate);
+    }
+    if (endDate) {
+        where.push(`${endExpr} <= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(endDate);
+    }
+    if (Number.isFinite(minBudget)) {
+        where.push(`${budgetExpr} >= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(minBudget);
+    }
+    if (Number.isFinite(maxBudget)) {
+        where.push(`${budgetExpr} <= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(maxBudget);
+    }
+    if (Number.isFinite(minPendingAmount)) {
+        where.push(`${pendingExpr} >= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(minPendingAmount);
+    }
+    if (Number.isFinite(maxPendingAmount)) {
+        where.push(`${pendingExpr} <= ${isPg ? `${placeholder}${p++}` : placeholder}`);
+        params.push(maxPendingAmount);
+    }
+
+    const sql = isPg
+        ? `
+            SELECT
+                p.project_id AS "projectId",
+                COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
+                COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                ${budgetExpr} AS "budgetAmount",
+                ${paidExpr} AS "paidAmount",
+                ${pendingExpr} AS "pendingAmount",
+                CASE
+                    WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
+                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
+                    WHEN LOWER(COALESCE(p.progress->>'status', '')) IN ('at risk', 'delayed', 'stalled') THEN 'Implementation status requires budget variance explanation'
+                    ELSE 'Pending bill justification required'
+                END AS "justificationHint"
+            FROM projects p
+            WHERE ${where.join(' AND ')}
+            ORDER BY ${pendingExpr} DESC, p.project_id DESC
+            LIMIT ${placeholder}${p}
+        `
+        : `
+            SELECT
+                p.id AS projectId,
+                COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
+                COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                ${budgetExpr} AS budgetAmount,
+                ${paidExpr} AS paidAmount,
+                ${pendingExpr} AS pendingAmount,
+                CASE
+                    WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
+                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
+                    WHEN LOWER(COALESCE(p.status, '')) IN ('at risk', 'delayed', 'stalled') THEN 'Implementation status requires budget variance explanation'
+                    ELSE 'Pending bill justification required'
+                END AS justificationHint
+            FROM projects p
+            LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+            WHERE ${where.join(' AND ')}
+            ORDER BY ${pendingExpr} DESC, p.id DESC
+            LIMIT ?
+        `;
+    params.push(maxRows);
+
+    const result = await pool.query(sql, params);
+    const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+    const summary = rows.reduce((acc, r) => {
+        acc.count += 1;
+        acc.totalBudget += Number(r.budgetAmount || 0);
+        acc.totalPaid += Number(r.paidAmount || 0);
+        acc.totalPending += Number(r.pendingAmount || 0);
+        return acc;
+    }, { count: 0, totalBudget: 0, totalPaid: 0, totalPending: 0 });
+    return { rows, summary };
+}
+
+router.get('/budget-justification', async (req, res) => {
+    try {
+        const payload = await buildBudgetJustificationRows(req.query || {});
+        return res.status(200).json(payload);
+    } catch (error) {
+        console.error('Error fetching budget justification report:', error);
+        return res.status(500).json({ message: 'Error fetching budget justification report', error: error.message });
+    }
+});
+
+router.get('/budget-justification/download', async (req, res) => {
+    try {
+        const templatePath = path.resolve(__dirname, '..', 'templates', '003_budget_justification.pdf');
+        const dept = String(req.query.department || 'all').replace(/[^a-zA-Z0-9_-]/g, '-');
+        const st = String(req.query.status || 'all').replace(/[^a-zA-Z0-9_-]/g, '-');
+        const suffix = new Date().toISOString().slice(0, 10);
+        const fileName = `budget-justification-${dept}-${st}-${suffix}.pdf`;
+        res.setHeader('X-Report-Filters', JSON.stringify(req.query || {}));
+        return res.download(templatePath, fileName);
+    } catch (error) {
+        console.error('Error downloading budget justification template:', error);
+        return res.status(500).json({ message: 'Error downloading budget justification template', error: error.message });
     }
 });
 

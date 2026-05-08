@@ -2731,7 +2731,7 @@ router.get('/certificates/verify', async (req, res) => {
                    p.projectName AS projectName,
                    p.status AS projectStatus
             FROM projectcertificate c
-            INNER JOIN kemri_projects p ON p.id = c.projectId
+            INNER JOIN projects p ON p.id = c.projectId
             WHERE (c.voided IS NULL OR c.voided = 0)
               AND (p.voided IS NULL OR p.voided = 0)
               AND LENGTH(TRIM(COALESCE(c.certNumber, ''))) > 0

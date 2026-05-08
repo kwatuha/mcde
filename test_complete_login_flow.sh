@@ -18,7 +18,7 @@ TEST_EMAIL="testlogin@example.com"
 echo ""
 echo "🗑️  Step 1: Clean up any existing test user"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-DELETE FROM kemri_users WHERE username = '$TEST_USERNAME';
+DELETE FROM users WHERE username = '$TEST_USERNAME';
 " $DB_NAME
 
 echo ""
@@ -38,7 +38,7 @@ echo "Create user response: $CREATE_RESPONSE"
 
 # Get the user ID
 TEST_USER_ID=$(docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-SELECT userId FROM kemri_users WHERE username = '$TEST_USERNAME';
+SELECT userId FROM users WHERE username = '$TEST_USERNAME';
 " $DB_NAME | tail -n 1 | tr -d '\r')
 
 echo "Test user ID: $TEST_USER_ID"
@@ -52,7 +52,7 @@ echo ""
 echo "📊 Step 3: Verify test user is created and active"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE username = '$TEST_USERNAME';
 " $DB_NAME
 
@@ -74,7 +74,7 @@ fi
 echo ""
 echo "🚫 Step 5: Disable the test user"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-UPDATE kemri_users 
+UPDATE users 
 SET isActive = 0, updatedAt = NOW() 
 WHERE username = '$TEST_USERNAME';
 " $DB_NAME
@@ -83,7 +83,7 @@ echo ""
 echo "📊 Step 6: Verify user is disabled"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE username = '$TEST_USERNAME';
 " $DB_NAME
 
@@ -105,7 +105,7 @@ fi
 echo ""
 echo "✅ Step 8: Re-enable the test user"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-UPDATE kemri_users 
+UPDATE users 
 SET isActive = 1, updatedAt = NOW() 
 WHERE username = '$TEST_USERNAME';
 " $DB_NAME
@@ -114,7 +114,7 @@ echo ""
 echo "📊 Step 9: Verify user is re-enabled"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
 SELECT userId, username, email, isActive, voided 
-FROM kemri_users 
+FROM users 
 WHERE username = '$TEST_USERNAME';
 " $DB_NAME
 
@@ -136,7 +136,7 @@ fi
 echo ""
 echo "🗑️  Step 11: Clean up test user"
 docker exec -it $DB_CONTAINER mysql -u $DB_USER -p$DB_PASS -e "
-DELETE FROM kemri_users WHERE username = '$TEST_USERNAME';
+DELETE FROM users WHERE username = '$TEST_USERNAME';
 " $DB_NAME
 
 echo ""

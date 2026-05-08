@@ -7,7 +7,7 @@ import axiosInstance from './axiosInstance';
  */
 
 const generalService = {
-  // --- Attachments (kemri_attachments) ---
+  // --- Attachments (attachments) ---
   getAttachments: async () => {
     try {
       const response = await axiosInstance.get('/general/attachments');
@@ -58,7 +58,7 @@ const generalService = {
     }
   },
 
-  // --- Sent SMS Status (kemri_sentsmsstatus) ---
+  // --- Sent SMS Status (sentsmsstatus) ---
   getSentSmsStatuses: async () => {
     try {
       const response = await axiosInstance.get('/general/sent_sms_status');

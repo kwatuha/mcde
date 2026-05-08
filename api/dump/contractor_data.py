@@ -70,25 +70,25 @@ if __name__ == '__main__':
     # IMPORTANT: The column order MUST match the CSV file's header
     import_tasks = [
         {
-            'filename': 'kemri_users.csv',
-            'table': 'kemri_users',
+            'filename': 'users.csv',
+            'table': 'users',
             'columns': ['userId', 'username', 'passwordHash', 'email', 'firstName', 'lastName', 
                         'roleId', 'isActive', 'createdAt', 'updatedAt', 'voided']
         },
         {
-            'filename': 'kemri_contractors.csv',
-            'table': 'kemri_contractors',
+            'filename': 'contractors.csv',
+            'table': 'contractors',
             'columns': ['contractorId', 'companyName', 'contactPerson', 'email', 'phone', 
                         'createdAt', 'voided']
         },
         {
-            'filename': 'kemri_contractor_users.csv',
-            'table': 'kemri_contractor_users',
+            'filename': 'contractor_users.csv',
+            'table': 'contractor_users',
             'columns': ['userId', 'contractorId']
         },
         {
-            'filename': 'kemri_project_contractor_assignments.csv',
-            'table': 'kemri_project_contractor_assignments',
+            'filename': 'project_contractor_assignments.csv',
+            'table': 'project_contractor_assignments',
             'columns': ['projectId', 'contractorId', 'assignmentDate', 'voided']
         }
     ]

@@ -19,6 +19,7 @@ function ContractorManagementPage() {
   const colors = tokens(theme.palette.mode);
 
   const [contractors, setContractors] = useState([]);
+  const [contractorTypes, setContractorTypes] = useState([]);
   const [users, setUsers] = useState([]); // All users for linking
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,6 +34,10 @@ function ContractorManagementPage() {
     email: '',
     phone: '',
     userId: '', // For linking to a user
+    contractorTypeId: '',
+    __matchCompanyName: '',
+    __matchEmail: '',
+    __sourceTable: '',
   });
   const [formErrors, setFormErrors] = useState({});
 
@@ -88,10 +93,20 @@ function ContractorManagementPage() {
       }
   }, []);
 
+  const fetchContractorTypes = useCallback(async () => {
+      try {
+          const data = await apiService.contractors.getContractorTypes();
+          setContractorTypes(Array.isArray(data) ? data : []);
+      } catch (err) {
+          console.error('Error fetching contractor types:', err);
+      }
+  }, []);
+
   useEffect(() => {
       fetchContractors();
       fetchUsers();
-  }, [fetchContractors, fetchUsers]);
+      fetchContractorTypes();
+  }, [fetchContractors, fetchUsers, fetchContractorTypes]);
 
   // --- Handlers ---
 
@@ -101,7 +116,7 @@ function ContractorManagementPage() {
           return;
       }
       setCurrentContractorToEdit(null);
-      setFormData({ companyName: '', contactPerson: '', email: '', phone: '', userId: '' });
+      setFormData({ companyName: '', contactPerson: '', email: '', phone: '', userId: '', contractorTypeId: '', __matchCompanyName: '', __matchEmail: '', __sourceTable: '' });
       setFormErrors({});
       setOpenDialog(true);
   };
@@ -119,6 +134,10 @@ function ContractorManagementPage() {
           email: contractor.email || '',
           phone: contractor.phone || '',
           userId: user.id || '',
+          contractorTypeId: contractor.contractorTypeId || '',
+          __matchCompanyName: contractor.companyName || '',
+          __matchEmail: contractor.email || '',
+          __sourceTable: contractor.sourceTable || '',
       });
    
       setFormErrors({});
@@ -178,11 +197,17 @@ function ContractorManagementPage() {
 
       setLoading(true);
       try {
+          const dataToSubmit = { ...formData };
+          if (dataToSubmit.userId === '' || dataToSubmit.userId == null) {
+              delete dataToSubmit.userId;
+          }
+          if (dataToSubmit.contractorTypeId === '' || dataToSubmit.contractorTypeId == null) {
+              dataToSubmit.contractorTypeId = null;
+          }
           if (currentContractorToEdit) {
-              await apiService.contractors.updateContractor(currentContractorToEdit.contractorId, formData);
+              await apiService.contractors.updateContractor(currentContractorToEdit.contractorId, dataToSubmit);
               setSnackbar({ open: true, message: 'Contractor updated successfully!', severity: 'success' });
           } else {
-              const dataToSubmit = { ...formData };
               if (!dataToSubmit.userId && user?.uid) {
                   dataToSubmit.userId = user.uid;
               }
@@ -247,6 +272,19 @@ function ContractorManagementPage() {
       { field: 'contactPerson', headerName: 'Contact Person', flex: 1, minWidth: 150 },
       { field: 'email', headerName: 'Email', flex: 1.5, minWidth: 250 },
       { field: 'phone', headerName: 'Phone', flex: 1, minWidth: 150 },
+      {
+          field: 'contractorTypeName',
+          headerName: 'Contractor Type',
+          flex: 1,
+          minWidth: 170,
+          valueGetter: (_value, row) => {
+              const directName = String(row?.contractorTypeName || '').trim();
+              if (directName) return directName;
+              const typeId = row?.contractorTypeId;
+              const match = contractorTypes.find((t) => String(t.contractorTypeId) === String(typeId));
+              return match?.name || '';
+          },
+      },
       {
           field: 'actions',
           headerName: 'Actions',
@@ -357,6 +395,22 @@ function ContractorManagementPage() {
                   <TextField margin="dense" name="contactPerson" label="Contact Person" type="text" fullWidth variant="outlined" value={formData.contactPerson} onChange={handleFormChange} sx={{ mb: 2 }} />
                   <TextField margin="dense" name="email" label="Email" type="email" fullWidth variant="outlined" value={formData.email} onChange={handleFormChange} error={!!formErrors.email} helperText={formErrors.email || 'Enter a valid email address (e.g., user@example.com)'} sx={{ mb: 2 }} />
                   <TextField margin="dense" name="phone" label="Phone" type="tel" fullWidth variant="outlined" value={formData.phone} onChange={handleFormChange} error={!!formErrors.phone} helperText={formErrors.phone || 'Optional: 07XXXXXXXX or +2547XXXXXXXX'} sx={{ mb: 2 }} />
+                  <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 200, mb: 2 }}>
+                      <InputLabel>Contractor Type</InputLabel>
+                      <Select
+                          name="contractorTypeId"
+                          label="Contractor Type"
+                          value={formData.contractorTypeId}
+                          onChange={handleFormChange}
+                      >
+                          <MenuItem value=""><em>None</em></MenuItem>
+                          {contractorTypes.map((typeItem) => (
+                              <MenuItem key={typeItem.contractorTypeId} value={typeItem.contractorTypeId}>
+                                  {typeItem.name}
+                              </MenuItem>
+                          ))}
+                      </Select>
+                  </FormControl>
                   {!currentContractorToEdit && (
                       <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 200, mb: 2 }}>
                           <InputLabel>Link to User Account</InputLabel>

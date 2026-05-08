@@ -92,17 +92,17 @@ async function detectActiveTable() {
     const chk = await pool.query(
       `SELECT
          to_regclass('public.report_library_uploads') AS a,
-         to_regclass('public.kemri_report_library_uploads') AS b`
+         to_regclass('public.report_library_uploads') AS b`
     );
     const row = chk.rows?.[0] || {};
     if (row.a) activeTableName = 'report_library_uploads';
-    else if (row.b) activeTableName = 'kemri_report_library_uploads';
+    else if (row.b) activeTableName = 'report_library_uploads';
   } else {
     const chk = await pool.query(
       `SELECT table_name AS tableName
        FROM information_schema.tables
        WHERE table_schema = DATABASE()
-         AND table_name IN ('report_library_uploads','kemri_report_library_uploads')
+         AND table_name IN ('report_library_uploads','report_library_uploads')
        ORDER BY CASE table_name WHEN 'report_library_uploads' THEN 0 ELSE 1 END
        LIMIT 1`
     );

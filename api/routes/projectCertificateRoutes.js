@@ -356,7 +356,7 @@ router.get('/finance-list', auth, privilege(['document.read_all']), async (req, 
                         )
                       ) AS approvalTotalSteps
                FROM projectcertificate c
-               INNER JOIN kemri_projects p ON p.id = c.projectId
+               INNER JOIN projects p ON p.id = c.projectId
                WHERE (c.voided IS NULL OR c.voided = 0) AND (p.voided IS NULL OR p.voided = 0)
                  ${pendingFilterMysql}
                ORDER BY p.projectName ASC, c.requestDate DESC, c.certificateId DESC`;

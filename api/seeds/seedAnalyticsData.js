@@ -77,7 +77,7 @@ const generateSampleProjects = async () => {
             const result = await pool.query('SELECT COUNT(*) as count FROM projects WHERE voided = false');
             existingProjects = parseInt(result.rows[0]?.count || 0);
         } else {
-            const [result] = await pool.query('SELECT COUNT(*) as count FROM kemri_projects WHERE voided = 0');
+            const [result] = await pool.query('SELECT COUNT(*) as count FROM projects WHERE voided = 0');
             existingProjects = parseInt(result[0]?.count || 0);
         }
 
@@ -108,14 +108,14 @@ const generateSampleProjects = async () => {
                 }
             } else {
                 const [result] = await pool.query(
-                    'SELECT finYearId FROM kemri_financialyears WHERE finYearName = ? AND (voided = 0 OR voided IS NULL) LIMIT 1',
+                    'SELECT finYearId FROM financialyears WHERE finYearName = ? AND (voided = 0 OR voided IS NULL) LIMIT 1',
                     [yearName]
                 );
                 if (result.length > 0) {
                     finYearId = result[0].finYearId;
                 } else {
                     const [insertResult] = await pool.query(
-                        'INSERT INTO kemri_financialyears (finYearName, voided) VALUES (?, 0)',
+                        'INSERT INTO financialyears (finYearName, voided) VALUES (?, 0)',
                         [yearName]
                     );
                     finYearId = insertResult.insertId || insertResult[0]?.insertId;
@@ -144,14 +144,14 @@ const generateSampleProjects = async () => {
                 }
             } else {
                 const [result] = await pool.query(
-                    'SELECT departmentId FROM kemri_departments WHERE name = ? AND (voided = 0 OR voided IS NULL) LIMIT 1',
+                    'SELECT departmentId FROM departments WHERE name = ? AND (voided = 0 OR voided IS NULL) LIMIT 1',
                     [dept.name]
                 );
                 if (result.length > 0) {
                     deptId = result[0].departmentId;
                 } else {
                     const [insertResult] = await pool.query(
-                        'INSERT INTO kemri_departments (name, alias, voided) VALUES (?, ?, 0)',
+                        'INSERT INTO departments (name, alias, voided) VALUES (?, ?, 0)',
                         [dept.name, dept.alias]
                     );
                     deptId = insertResult.insertId || insertResult[0]?.insertId;
@@ -322,7 +322,7 @@ const generateSampleProjects = async () => {
                 const values = batch.flatMap(p => Object.values(p));
                 
                 await pool.query(
-                    `INSERT INTO kemri_projects (${columns}) VALUES ${placeholders}`,
+                    `INSERT INTO projects (${columns}) VALUES ${placeholders}`,
                     values
                 );
             }

@@ -468,7 +468,7 @@ router.get('/projects', async (req, res) => {
         wf.stage AS procurementStage,
         wf.decision AS latestDecision,
         wf.updated_at AS updatedAt
-      FROM kemri_projects p
+      FROM projects p
       LEFT JOIN (
         SELECT w1.*
         FROM project_procurement_workflow w1

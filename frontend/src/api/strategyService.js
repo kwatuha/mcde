@@ -2,7 +2,7 @@ import axios from 'axios';
 import { axiosInstance} from './index';
 
 const strategyService = {
-  // --- Strategic Plans (kemri_strategicplans) ---
+  // --- Strategic Plans (strategicplans) ---
   getStrategicPlans: async () => {
     try {
       const response = await axiosInstance.get('/strategy/strategic_plans');
@@ -282,7 +282,7 @@ const strategyService = {
       },
   },
 
-  // --- Planning Documents (kemri_planningdocuments) ---
+  // --- Planning Documents (planningdocuments) ---
   getPlanningDocuments: async () => {
     try {
       const response = await axiosInstance.get('/strategy/attachments');

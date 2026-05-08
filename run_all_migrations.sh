@@ -76,14 +76,14 @@ run_sql_file() {
 echo "Starting migrations..."
 echo ""
 
-# 1. Budget Containers System (creates kemri_budgets, kemri_budget_items, kemri_budget_changes)
+# 1. Budget Containers System (creates budgets, budget_items, budget_changes)
 run_sql_file "api/migrations/create_budget_containers_system.sql" "Create Budget Containers System"
 
 # 2. Add budgetId to projects table
-run_sql_file "api/migrations/add_budgetId_to_projects.sql" "Add budgetId column to kemri_projects"
+run_sql_file "api/migrations/add_budgetId_to_projects.sql" "Add budgetId column to projects"
 
 # 3. Remove redundant columns from budget items (amount, status, etc.)
-run_sql_file "api/migrations/remove_redundant_columns_from_budget_items.sql" "Remove redundant columns from kemri_budget_items"
+run_sql_file "api/migrations/remove_redundant_columns_from_budget_items.sql" "Remove redundant columns from budget_items"
 
 # 4. Other important migrations
 run_sql_file "api/migrations/add_feedback_moderation.sql" "Add feedback moderation fields" 2>/dev/null || echo "   ⚠️  Skipped (may already exist or not needed)"
