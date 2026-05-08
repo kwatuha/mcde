@@ -70,6 +70,31 @@ function parseStoredCertificateData(cert) {
   return data;
 }
 
+/**
+ * BQ lines included on a payment certificate: prefer an explicit id list saved on the certificate,
+ * then the contractor's assigned BQ scope (milestones/activities), otherwise all project BQ rows.
+ */
+function resolveBqItemsForCertificate(allBqItems, draftSnapshot, assignedContractors = []) {
+  if (!Array.isArray(allBqItems) || allBqItems.length === 0) return [];
+
+  const storedIds = draftSnapshot?.certificateBqItemIds;
+  if (Array.isArray(storedIds) && storedIds.length > 0) {
+    const set = new Set(storedIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
+    return allBqItems.filter((it) => set.has(Number(it.itemId)));
+  }
+
+  const cid = draftSnapshot?.contractorId;
+  if (cid != null && cid !== '') {
+    const contractor = assignedContractors.find((x) => Number(x.contractorId) === Number(cid));
+    if (contractor && Array.isArray(contractor.bqItemIds) && contractor.bqItemIds.length > 0) {
+      const set = new Set(contractor.bqItemIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
+      return allBqItems.filter((it) => set.has(Number(it.itemId)));
+    }
+  }
+
+  return allBqItems;
+}
+
 function formFieldsFromCertificateRow(cert) {
   return {
     certType: cert.certType || cert.certtype || 'Interim Payment Certificate',
@@ -110,6 +135,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const [file, setFile] = useState(null);
   const [generatedPdfFile, setGeneratedPdfFile] = useState(null);
   const [bqItems, setBqItems] = useState([]);
+  const [assignedContractors, setAssignedContractors] = useState([]);
   const [taxRates, setTaxRates] = useState([]);
   const [projectDetails, setProjectDetails] = useState(null);
   const [draft, setDraft] = useState({
@@ -122,7 +148,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     tenderNo: '',
     contractSum: '',
     clientMinistry: '',
+    contractorId: null,
     contractorName: '',
+    certificateBqItemIds: null,
     advanceRecovery: '',
     previousCumulative: '',
   });
@@ -183,6 +211,19 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   }, [projectId]);
 
   useEffect(() => {
+    const load = async () => {
+      if (!projectId) return;
+      try {
+        const rows = await projectService.projects.getContractors(projectId);
+        setAssignedContractors(Array.isArray(rows) ? rows : []);
+      } catch {
+        setAssignedContractors([]);
+      }
+    };
+    load();
+  }, [projectId]);
+
+  useEffect(() => {
     const loadTaxRates = async () => {
       try {
         const rates = await projectService.taxRates.getActive(form.requestDate);
@@ -227,6 +268,27 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     }));
   }, [projectDetails]);
 
+  const certificateBqItems = useMemo(
+    () => resolveBqItemsForCertificate(bqItems, draft, assignedContractors),
+    [bqItems, draft, assignedContractors]
+  );
+
+  /** When only one contractor is assigned, default the payment certificate to them. */
+  useEffect(() => {
+    if (!openDialog || assignedContractors.length !== 1) return;
+    const c = assignedContractors[0];
+    const cid = c?.contractorId;
+    if (cid == null || cid === '') return;
+    setDraft((p) => {
+      if (p.contractorId != null && p.contractorId !== '') return p;
+      return {
+        ...p,
+        contractorId: Number(cid),
+        contractorName: c.companyName || p.contractorName || '',
+      };
+    });
+  }, [openDialog, assignedContractors]);
+
   const downloadName = useMemo(() => {
     if (file) return file.name;
     if (generatedPdfFile) return generatedPdfFile.name;
@@ -242,6 +304,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
 
   const calculateCertificateAmounts = useCallback((draftSnapshot) => {
     const d = draftSnapshot || draft;
+    const bqForCert = resolveBqItemsForCertificate(bqItems, d, assignedContractors);
     const parseMoney = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
     const rateLookup = taxRates.reduce((acc, row) => {
       acc[String(row.tax_type || '').toLowerCase()] = {
@@ -255,7 +318,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const vatWithholdingRate = rateLookup.vat?.withholdingRate || 0;
     const retentionRate = rateLookup.retention?.rate || 0;
 
-    const normalizedBq = bqItems.map((item) => {
+    const normalizedBq = bqForCert.map((item) => {
       const budget = Number(item.budgetAmount || 0);
       const progress = Number(item.progressPercent || 0);
       const payable = (budget * progress) / 100;
@@ -297,7 +360,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       vatWithholdingRate,
       retentionRate,
     };
-  }, [bqItems, draft, taxRates]);
+  }, [bqItems, draft, taxRates, assignedContractors]);
 
   const createCertificatePdfFile = async (params = {}) => {
     const d = { ...draft, ...(params.draft || {}) };
@@ -683,7 +746,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           }),
         projectService.bq.getLatestProgressAttribution(projectId).catch(() => null),
       ]);
-      const stored = { ...draft, ...parseStoredCertificateData(cert) };
+      let stored = { ...draft, ...parseStoredCertificateData(cert) };
+      if (!String(stored.contractorName || '').trim() && stored.contractorId != null && stored.contractorId !== '') {
+        const match = assignedContractors.find((x) => Number(x.contractorId) === Number(stored.contractorId));
+        if (match?.companyName) {
+          stored = { ...stored, contractorName: match.companyName };
+        }
+      }
       const f = formFieldsFromCertificateRow(cert);
       const file = await createCertificatePdfFile({ draft: stored, form: f, workflowDetail, bqProgressAttribution });
       const blobUrl = URL.createObjectURL(file);
@@ -705,6 +774,12 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     setMessage('');
     setFile(null);
     setGeneratedPdfFile(null);
+    setDraft((prev) => ({
+      ...prev,
+      contractorId: null,
+      contractorName: '',
+      certificateBqItemIds: null,
+    }));
     setForm((prev) => ({
       ...prev,
       certNumber: prev.certNumber || suggestedCertificateNumber,
@@ -725,9 +800,16 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     try {
       const payload = new FormData();
       const uploadSource = generatedPdfFile && !file ? 'generated' : 'attached';
+      const idsForCert = resolveBqItemsForCertificate(bqItems, draft, assignedContractors).map((it) =>
+        Number(it.itemId)
+      );
+      const patchDraft = {
+        ...draft,
+        certificateBqItemIds: idsForCert.length > 0 ? idsForCert : null,
+      };
       payload.append('projectId', String(projectId));
       payload.append('document', fileToUpload);
-      payload.append('certificateData', JSON.stringify(draft));
+      payload.append('certificateData', JSON.stringify(patchDraft));
       payload.append('uploadSource', uploadSource);
       Object.entries(form).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
@@ -1045,8 +1127,55 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             <Grid item xs={12} md={4}>
               <TextField fullWidth label="Client Ministry" value={draft.clientMinistry} onChange={(e) => setDraft((p) => ({ ...p, clientMinistry: e.target.value }))} />
             </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth label="Contractor Name" value={draft.contractorName} onChange={(e) => setDraft((p) => ({ ...p, contractorName: e.target.value }))} />
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                fullWidth
+                label="Assigned contractor (milestones / BQ scope)"
+                value={draft.contractorId != null && draft.contractorId !== '' ? String(draft.contractorId) : ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setDraft((p) => ({ ...p, contractorId: null, certificateBqItemIds: null }));
+                    return;
+                  }
+                  const idNum = Number(raw);
+                  const c = assignedContractors.find((x) => Number(x.contractorId) === idNum);
+                  setDraft((p) => ({
+                    ...p,
+                    contractorId: Number.isFinite(idNum) ? idNum : null,
+                    contractorName: c?.companyName ?? p.contractorName,
+                    certificateBqItemIds: null,
+                  }));
+                }}
+                helperText={
+                  assignedContractors.length === 0
+                    ? 'Assign contractors on the project details tab to scope BQ lines by milestone.'
+                    : 'Payment totals and the BQ summary use only BQ lines linked to this contractor.'
+                }
+              >
+                <MenuItem value="">
+                  <em>None — all BQ lines (enter contractor name manually)</em>
+                </MenuItem>
+                {assignedContractors.map((c) => {
+                  const id = c.contractorId;
+                  const n = Array.isArray(c.bqItemIds) ? c.bqItemIds.length : 0;
+                  return (
+                    <MenuItem key={String(id)} value={String(id)}>
+                      {(c.companyName || `Contractor #${id}`) + (n > 0 ? ` (${n} BQ line${n === 1 ? '' : 's'})` : '')}
+                    </MenuItem>
+                  );
+                })}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Contractor name (on certificate)"
+                value={draft.contractorName}
+                onChange={(e) => setDraft((p) => ({ ...p, contractorName: e.target.value }))}
+                helperText="Prefilled from the assignment above; you may edit for letterhead wording."
+              />
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField fullWidth label="Advance Recovery" value={draft.advanceRecovery} onChange={(e) => setDraft((p) => ({ ...p, advanceRecovery: e.target.value }))} />
@@ -1056,7 +1185,9 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
-                BQ-based payable summary in PDF uses current BQ items ({bqItems.length} rows). Amount per row = Budget x % Complete.
+                BQ-based payable summary uses {certificateBqItems.length} of {bqItems.length} bill lines
+                {draft.contractorId != null && draft.contractorId !== '' ? ' for the selected contractor' : ''}. Amount
+                per row = Budget × % complete.
               </Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                 Applied rates for {form.requestDate || 'today'}

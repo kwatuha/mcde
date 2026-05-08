@@ -27,6 +27,31 @@ import dataCollectionService from './dataCollectionService';
 import partnersService from './partnersService';
 import procurementService from './procurementService';
 
+const projectPhotos = {
+  getPhotosByProject: async (projectId) => {
+    const response = await axiosInstance.get(`/projects/${projectId}/photos`);
+    return response.data;
+  },
+  uploadPhoto: async (projectId, formData) => {
+    const response = await axiosInstance.post(`/projects/${projectId}/photos`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+  setDefaultPhoto: async (photoId) => {
+    const response = await axiosInstance.put(`/project_photos/${photoId}/default`);
+    return response.data;
+  },
+  deletePhoto: async (photoId) => {
+    const response = await axiosInstance.delete(`/project_photos/${photoId}`);
+    return response.data;
+  },
+  updatePhotoApproval: async (photoId, approvalData) => {
+    const response = await axiosInstance.put(`/project_photos/${photoId}/approval`, approvalData);
+    return response.data;
+  },
+};
+
 // Public API service (no authentication required)
 const publicApiService = {
   getStatsOverview: async (filters = {}) => {
@@ -99,6 +124,7 @@ const apiService = {
   dataCollection: dataCollectionService,
   partners: partnersService,
   procurement: procurementService,
+  projectPhotos,
 };
 
 export { axiosInstance };

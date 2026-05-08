@@ -147,6 +147,26 @@ export default function VerifyCertificatePage() {
               <Typography>
                 <strong>Progress status:</strong> {result.certificate?.progressStatus || '—'}
               </Typography>
+              {result.certificate?.contractorName ? (
+                <Typography>
+                  <strong>Contractor:</strong> {result.certificate.contractorName}
+                </Typography>
+              ) : null}
+              {result.certificate?.referenceNo ? (
+                <Typography>
+                  <strong>Reference no.:</strong> {result.certificate.referenceNo}
+                </Typography>
+              ) : null}
+              {result.certificate?.tenderNo ? (
+                <Typography>
+                  <strong>Tender / contract no.:</strong> {result.certificate.tenderNo}
+                </Typography>
+              ) : null}
+              {result.certificate?.certificateProjectTitle ? (
+                <Typography>
+                  <strong>Works (certificate):</strong> {result.certificate.certificateProjectTitle}
+                </Typography>
+              ) : null}
               <Divider sx={{ my: 1 }} />
               <Typography>
                 <strong>Project:</strong> {result.project?.projectName || '—'}

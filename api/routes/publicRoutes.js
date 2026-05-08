@@ -2620,6 +2620,33 @@ router.get('/ministries', async (req, res) => {
  * @query number — certificate number (alias: cert)
  * @access Public
  */
+/** Subset of `projectcertificate.certificateData` for the public verify page (no auth). */
+function publicCertificateDetailsFromCertificateData(raw) {
+    if (raw == null) return {};
+    let data = {};
+    if (typeof raw === 'string') {
+        try {
+            data = JSON.parse(raw);
+        } catch {
+            return {};
+        }
+    } else if (typeof raw === 'object') {
+        data = raw;
+    } else {
+        return {};
+    }
+    const name = data.contractorName ?? data.contractor_name;
+    const idRaw = data.contractorId ?? data.contractor_id;
+    const idNum = idRaw != null && idRaw !== '' ? Number(idRaw) : NaN;
+    return {
+        contractorName: typeof name === 'string' && name.trim() ? name.trim() : null,
+        contractorId: Number.isFinite(idNum) ? idNum : null,
+        referenceNo: data.referenceNo || data.reference_no || null,
+        tenderNo: data.tenderNo || data.tender_no || null,
+        certificateProjectTitle: data.projectTitle || data.project_title || null,
+    };
+}
+
 router.get('/certificates/verify', async (req, res) => {
     try {
         const raw = String(req.query.number ?? req.query.cert ?? '').trim();
@@ -2638,6 +2665,7 @@ router.get('/certificates/verify', async (req, res) => {
                        c."requestDate" AS "requestDate",
                        c."applicationStatus" AS "applicationStatus",
                        c."progressStatus" AS "progressStatus",
+                       c."certificateData" AS "certificateData",
                        p.project_id AS "projectId",
                        p.name AS "projectName",
                        COALESCE(p.progress->>'status', '') AS "projectStatus"
@@ -2654,6 +2682,25 @@ router.get('/certificates/verify', async (req, res) => {
             if (!row || !row.certNumber) {
                 return res.status(200).json({ valid: false, message: 'Invalid certificate number — no matching record was found.' });
             }
+            let fromStored = publicCertificateDetailsFromCertificateData(row.certificateData);
+            if (!fromStored.contractorName && fromStored.contractorId != null) {
+                try {
+                    const cr = await pool.query(
+                        `SELECT NULLIF(TRIM("companyName"), '') AS "companyName"
+                         FROM contractors
+                         WHERE "contractorId" = $1
+                           AND (voided IS NULL OR voided = false)
+                         LIMIT 1`,
+                        [fromStored.contractorId]
+                    );
+                    const cn = cr.rows?.[0]?.companyName;
+                    if (cn) {
+                        fromStored = { ...fromStored, contractorName: cn };
+                    }
+                } catch {
+                    /* non-blocking */
+                }
+            }
             return res.status(200).json({
                 valid: true,
                 certificate: {
@@ -2663,6 +2710,7 @@ router.get('/certificates/verify', async (req, res) => {
                     requestDate: row.requestDate || null,
                     applicationStatus: row.applicationStatus || null,
                     progressStatus: row.progressStatus || null,
+                    ...fromStored,
                 },
                 project: {
                     projectId: row.projectId,
