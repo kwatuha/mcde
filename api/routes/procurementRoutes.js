@@ -16,6 +16,7 @@ const STAGE_PRE_QUALIFICATION = 'Bidder Pre-Qualification';
 const STAGE_BID_EVALUATION = 'Bid Evaluation';
 const STAGE_AWARD_DECISION = 'Award Decision';
 const STAGE_CONTRACT_SIGNING = 'Contract Signing';
+const STAGE_PURCHASE_ORDER_ISSUED = 'Purchase Order Issued';
 /** Terminal workflow stage: no further procurement (no award). Gates skipped when transitioning here. */
 const STAGE_PROCUREMENT_TERMINATED = 'Procurement Terminated';
 
@@ -28,12 +29,340 @@ const PROCUREMENT_STAGE_SEED_LABELS = [
   STAGE_BID_EVALUATION,
   'Award Decision',
   STAGE_CONTRACT_SIGNING,
-  'Purchase Order Issued',
+  STAGE_PURCHASE_ORDER_ISSUED,
   STAGE_PROCUREMENT_TERMINATED,
 ];
 
 function stageNorm(s) {
   return String(s || '').trim().toLowerCase();
+}
+
+/**
+ * Older workflow rows only recorded stage transitions; decisions live on subject assessments.
+ * For exports, prefer an explicit workflow decision when set (and not Pending); otherwise use latest assessment.
+ */
+function mergeWorkflowExportRows(workflowRows, assessmentRows) {
+  const latestByProjectStage = new Map();
+  for (const a of assessmentRows || []) {
+    const pid = a.projectId;
+    const st = stageNorm(a.stage);
+    if (!Number.isFinite(Number(pid)) || !st) continue;
+    const key = `${pid}|${st}`;
+    const prev = latestByProjectStage.get(key);
+    const t = new Date(a.updatedAt || 0).getTime();
+    const pt = prev ? new Date(prev.updatedAt || 0).getTime() : -Infinity;
+    if (!prev || t >= pt) latestByProjectStage.set(key, a);
+  }
+  const mergeDecision = (wfDecision, assessmentDecision) => {
+    const w = String(wfDecision ?? '').trim();
+    const a = String(assessmentDecision ?? '').trim();
+    if (w && !/^pending$/i.test(w)) return w;
+    if (a) return a;
+    return w || '';
+  };
+  const mergeNotes = (wfNotes, assessmentNotes) => {
+    const w = String(wfNotes ?? '').trim();
+    const a = String(assessmentNotes ?? '').trim();
+    if (w) return w;
+    return a || '';
+  };
+  return (workflowRows || []).map((w) => {
+    const key = `${w.projectId}|${stageNorm(w.stage)}`;
+    const ass = latestByProjectStage.get(key);
+    return {
+      ...w,
+      decision: mergeDecision(w.decision, ass?.decision),
+      notes: mergeNotes(w.notes, ass?.notes),
+    };
+  });
+}
+
+function escapeHtml(s) {
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function fmtHtmlDate(v) {
+  if (v === undefined || v === null || v === '') return '';
+  try {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return escapeHtml(String(v));
+    return escapeHtml(d.toISOString());
+  } catch {
+    return escapeHtml(String(v));
+  }
+}
+
+function fmtHtmlBool(v) {
+  if (v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true') return 'Yes';
+  if (v === false || v === 0 || v === '0' || String(v).toLowerCase() === 'false') return 'No';
+  return escapeHtml(v === undefined || v === null ? '' : String(v));
+}
+
+function normalizeJsonObject(meta) {
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) return meta;
+  if (typeof meta === 'string') {
+    try {
+      const o = JSON.parse(meta || '{}');
+      return o && typeof o === 'object' ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/** Short, readable line from bidder/registry metadata (HTML report only). */
+function summarizeSubjectMetadataForHtml(meta) {
+  const m = normalizeJsonObject(meta);
+  const parts = [];
+  const company = String(m.companyName || m.company || '').trim();
+  const contact = String(m.contactName || '').trim();
+  const phone = String(m.contactPhone || '').trim();
+  const email = String(m.contactEmail || '').trim();
+  const reg = String(m.registrationNo || '').trim();
+  const kra = String(m.kraPin || '').trim();
+  if (company) parts.push(`Company: ${escapeHtml(company)}`);
+  if (contact) parts.push(`Contact: ${escapeHtml(contact)}`);
+  if (phone) parts.push(escapeHtml(phone));
+  if (email) parts.push(escapeHtml(email));
+  if (reg) parts.push(`Reg.: ${escapeHtml(reg)}`);
+  if (kra) parts.push(`PIN: ${escapeHtml(kra)}`);
+  if (parts.length) return parts.join(' · ');
+  return '—';
+}
+
+/** Non-technical summary instead of raw assessment JSON. */
+function summarizeAssessmentResponsesForHtml(responses) {
+  const r = normalizeJsonObject(responses);
+  let filled = 0;
+  for (const k of Object.keys(r)) {
+    const v = r[k];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'boolean') {
+      filled += 1;
+      continue;
+    }
+    const s = String(v).trim();
+    if (s !== '') filled += 1;
+  }
+  if (filled === 0) return '—';
+  return escapeHtml(`${filled} field${filled === 1 ? '' : 's'} with answers`);
+}
+
+function isTemplateRowActive(t) {
+  const v = t?.active;
+  return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+}
+
+function templateRowUpdatedMs(t) {
+  const raw = t?.updatedAt ?? t?.updated_at;
+  const x = new Date(raw || 0).getTime();
+  return Number.isNaN(x) ? 0 : x;
+}
+
+/** Pick one row when several DB templates share stage + name + subject type (history / duplicates). */
+function pickBetterTemplateRow(a, b) {
+  const aa = isTemplateRowActive(a);
+  const ba = isTemplateRowActive(b);
+  if (aa !== ba) return ba ? b : a;
+  const ida = Number(a.id) || 0;
+  const idb = Number(b.id) || 0;
+  if (idb !== ida) return idb >= ida ? b : a;
+  return templateRowUpdatedMs(b) >= templateRowUpdatedMs(a) ? b : a;
+}
+
+/** One row per distinct stage + template name + subject type for HTML workbook (avoids repeated lines). */
+function dedupeTemplatesForHtmlReport(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const map = new Map();
+  for (const t of list) {
+    const stage = String(t.stage || '').trim().toLowerCase();
+    const name = String(t.name || '').trim().toLowerCase();
+    const st = String(t.subjectType || t.subject_type || '').trim().toLowerCase();
+    const key = `${stage}|${name}|${st}`;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, t);
+      continue;
+    }
+    map.set(key, pickBetterTemplateRow(prev, t));
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const c = String(a.stage || '').localeCompare(String(b.stage || ''), undefined, { sensitivity: 'base' });
+    if (c !== 0) return c;
+    const n = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+    if (n !== 0) return n;
+    return String(a.subjectType || a.subject_type || '').localeCompare(
+      String(b.subjectType || b.subject_type || ''),
+      undefined,
+      { sensitivity: 'base' }
+    );
+  });
+}
+
+/** Printable / in-browser report mirroring the comprehensive Excel workbook. */
+function renderProcurementComprehensiveHtml(payload) {
+  const {
+    schemaReady,
+    hasProjectFilter,
+    projectId,
+    workflowsForExport,
+    subjects,
+    assessments,
+    checklist,
+    attachments,
+    templates,
+  } = payload;
+  const iso = new Date().toISOString();
+  const generatedEsc = escapeHtml(iso);
+
+  if (!schemaReady) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Procurement export</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:1.75rem;line-height:1.5;color:#1a1a1a;max-width:960px}
+</style>
+</head>
+<body>
+<h1>Procurement export</h1>
+<p>Procurement schema is not ready on this server. Run migrations or use the Excel export.</p>
+<p><small>Generated ${generatedEsc}</small></p>
+</body>
+</html>`;
+  }
+
+  const wf = workflowsForExport || [];
+  const sub = subjects || [];
+  const ass = assessments || [];
+  const chk = checklist || [];
+  const att = attachments || [];
+  const tpl = dedupeTemplatesForHtmlReport(templates || []);
+
+  const titleHead = hasProjectFilter && projectId != null
+    ? `Procurement workbook — project ${escapeHtml(projectId)}`
+    : 'Procurement workbook — all projects';
+  const scopeLabel = hasProjectFilter && projectId != null ? escapeHtml(projectId) : 'All projects';
+
+  const wfRows = wf.length
+    ? wf.map((w) => `<tr><td>${escapeHtml(w.projectId)}</td><td>${escapeHtml(w.stage)}</td><td>${escapeHtml(w.decision)}</td><td>${escapeHtml(w.notes)}</td><td>${escapeHtml(w.actorId)}</td><td>${fmtHtmlDate(w.updatedAt)}</td></tr>`).join('')
+    : '<tr><td colspan="6">No workflow rows</td></tr>';
+
+  const subRows = sub.length
+    ? sub.map((s) => `<tr><td>${escapeHtml(s.projectId)}</td><td>${escapeHtml(s.stage)}</td><td>${escapeHtml(s.subjectType)}</td><td>${escapeHtml(s.subjectName)}</td><td>${fmtHtmlBool(s.qualified)}</td><td>${escapeHtml(s.latestScore)}</td><td>${escapeHtml(s.latestDecision)}</td><td>${summarizeSubjectMetadataForHtml(s.metadata)}</td></tr>`).join('')
+    : '<tr><td colspan="8">No subjects</td></tr>';
+
+  const assRows = ass.length
+    ? ass.map((a) => `<tr><td>${escapeHtml(a.projectId)}</td><td>${escapeHtml(a.stage)}</td><td>${escapeHtml(a.subjectName)}</td><td>${escapeHtml(a.score)}</td><td>${escapeHtml(a.maxScore)}</td><td>${fmtHtmlBool(a.qualified)}</td><td>${escapeHtml(a.decision)}</td><td>${escapeHtml(a.notes)}</td><td>${summarizeAssessmentResponsesForHtml(a.responses)}</td><td>${fmtHtmlDate(a.updatedAt)}</td></tr>`).join('')
+    : '<tr><td colspan="10">No assessments</td></tr>';
+
+  const chkRows = chk.length
+    ? chk.map((c) => `<tr><td>${escapeHtml(c.projectId)}</td><td>${escapeHtml(c.stage)}</td><td>${escapeHtml(c.label)}</td><td>${fmtHtmlBool(c.completed)}</td><td>${fmtHtmlDate(c.completedAt)}</td><td>${escapeHtml(c.notes)}</td></tr>`).join('')
+    : '<tr><td colspan="6">No checklist items</td></tr>';
+
+  const attRows = att.length
+    ? att.map((x) => `<tr><td>${escapeHtml(x.projectId)}</td><td>${escapeHtml(x.stage)}</td><td>${escapeHtml(x.title)}</td><td>${escapeHtml(x.fileName)}</td><td>${fmtHtmlDate(x.createdAt)}</td></tr>`).join('')
+    : '<tr><td colspan="5">No attachments</td></tr>';
+
+  const tplRows = tpl.length
+    ? tpl.map((t) => `<tr><td>${escapeHtml(t.stage)}</td><td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.subjectType)}</td><td>${fmtHtmlBool(t.active)}</td></tr>`).join('')
+    : '<tr><td colspan="4">No templates</td></tr>';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${titleHead}</title>
+<style>
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:1.25rem 1.5rem 2rem;line-height:1.45;color:#1a1a1a;background:#fafafa}
+.wrap{max-width:1280px;margin:0 auto;background:#fff;padding:1.25rem 1.5rem 2rem;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:1.35rem;margin:0 0 .35rem}
+.meta{color:#444;font-size:.9rem;margin:0 0 1rem}
+p.section-overview{margin:0 0 1.25rem;padding:.65rem .85rem;background:#f0f4f8;border-radius:6px;font-size:.88rem;color:#333;line-height:1.5}
+h2{font-size:1.08rem;margin:1.75rem 0 .5rem;padding-bottom:.25rem;border-bottom:1px solid #ddd}
+table.data{border-collapse:collapse;width:100%;font-size:.82rem;margin-top:.35rem}
+table.data th,table.data td{border:1px solid #ccc;padding:.35rem .45rem;text-align:left;vertical-align:top}
+table.data th{background:#e8eef4;font-weight:600}
+table.data tbody tr:nth-child(even){background:#f9f9f9}
+@media print{
+body{background:#fff}
+.wrap{box-shadow:none}
+p.section-overview{display:none}
+table.data{font-size:.72rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>${hasProjectFilter && projectId != null ? `Project ${escapeHtml(projectId)}` : 'All projects'} — procurement workbook</h1>
+<p class="meta">Generated <time datetime="${escapeHtml(iso)}">${generatedEsc}</time> · Scope: ${scopeLabel}</p>
+<p class="section-overview" role="note">This report is organized in sections below: <strong>Summary</strong>, <strong>Workflow</strong>, <strong>Subjects</strong>, <strong>Assessments</strong>, <strong>Checklist</strong>, <strong>Attachments</strong>, and <strong>Templates</strong>. Scroll to review each part.</p>
+
+<section id="summary"><h2>Summary</h2>
+<table class="data">
+<tbody>
+<tr><th scope="row">Generated At</th><td>${generatedEsc}</td></tr>
+<tr><th scope="row">Scope</th><td>${scopeLabel}</td></tr>
+<tr><th scope="row">Schema Ready</th><td>Yes</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="workflow"><h2>Workflow</h2>
+<table class="data">
+<thead><tr><th>Project ID</th><th>Stage</th><th>Decision</th><th>Notes</th><th>Actor ID</th><th>Updated At</th></tr></thead>
+<tbody>${wfRows}</tbody>
+</table>
+</section>
+
+<section id="subjects"><h2>Subjects</h2>
+<table class="data">
+<thead><tr><th>Project ID</th><th>Stage</th><th>Subject Type</th><th>Subject Name</th><th>Qualified</th><th>Latest Score</th><th>Latest Decision</th><th>Contact / company details</th></tr></thead>
+<tbody>${subRows}</tbody>
+</table>
+</section>
+
+<section id="assessments"><h2>Assessments</h2>
+<table class="data">
+<thead><tr><th>Project ID</th><th>Stage</th><th>Subject Name</th><th>Score</th><th>Max Score</th><th>Qualified</th><th>Decision</th><th>Notes</th><th>Form answers</th><th>Updated At</th></tr></thead>
+<tbody>${assRows}</tbody>
+</table>
+</section>
+
+<section id="checklist"><h2>Checklist</h2>
+<table class="data">
+<thead><tr><th>Project ID</th><th>Stage</th><th>Item</th><th>Completed</th><th>Completed At</th><th>Notes</th></tr></thead>
+<tbody>${chkRows}</tbody>
+</table>
+</section>
+
+<section id="attachments"><h2>Attachments</h2>
+<table class="data">
+<thead><tr><th>Project ID</th><th>Stage</th><th>Title</th><th>File Name</th><th>Uploaded At</th></tr></thead>
+<tbody>${attRows}</tbody>
+</table>
+</section>
+
+<section id="templates"><h2>Templates</h2>
+<table class="data">
+<thead><tr><th>Stage</th><th>Template Name</th><th>Subject Type</th><th>Active</th></tr></thead>
+<tbody>${tplRows}</tbody>
+</table>
+</section>
+
+</div>
+</body>
+</html>`;
 }
 
 function decisionIsAwarded(d) {
@@ -765,10 +1094,10 @@ function getDefaultTenderPublishedFields() {
 /** Master list of bidders who picked/received the tender for a project. */
 function getDefaultBidderRegistryFields() {
   return [
-    { key: 'companyName', label: 'Company / bidder name', type: 'text', required: true, weight: 0 },
     { key: 'contactName', label: 'Contact person name', type: 'text', required: false, weight: 0 },
     { key: 'contactPhone', label: 'Contact phone number', type: 'text', required: false, weight: 0 },
     { key: 'contactEmail', label: 'Contact email', type: 'text', required: false, weight: 0 },
+    { key: 'companyName', label: 'Company / bidder name', type: 'text', required: true, weight: 0 },
     { key: 'registrationNo', label: 'Company registration number', type: 'text', required: false, weight: 0 },
     { key: 'kraPin', label: 'KRA PIN / Tax ID', type: 'text', required: false, weight: 0 },
     { key: 'agpoCategory', label: 'AGPO category (if applicable)', type: 'text', required: false, weight: 0 },
@@ -1518,6 +1847,38 @@ async function loadRegistryMetadataForBidderName(projectId, subjectName) {
   return coerceSubjectMetadata(r?.metadata);
 }
 
+async function loadLatestAssessmentResponsesForSubjectPG(subjectId) {
+  const sid = Number(subjectId);
+  if (!Number.isFinite(sid)) return {};
+  const row = rowsOf(await pool.query(
+    `SELECT responses FROM procurement_subject_assessments
+     WHERE subject_id = $1 AND COALESCE(voided,false)=false
+     ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [sid]
+  ))[0];
+  const raw = row?.responses;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw || '{}');
+      return o && typeof o === 'object' ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function extractIsoContractDatesFromResponses(responses) {
+  const obj = responses && typeof responses === 'object' ? responses : {};
+  const start = String(obj.contractProjectStartDate || '').trim().slice(0, 10);
+  const end = String(obj.contractProjectEndDate || '').trim().slice(0, 10);
+  const out = {};
+  if (/^\d{4}-\d{2}-\d{2}$/.test(start)) out.start = start;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) out.end = end;
+  return out;
+}
+
 async function resolveBidderForContractClosure(projectId) {
   const cs = rowsOf(await pool.query(
     `SELECT id, subject_name AS "subjectName", metadata
@@ -1566,10 +1927,11 @@ async function resolveBidderForContractClosure(projectId) {
  * set project status to Not Started (exit procurement), stamp completion metadata for historical queries.
  */
 async function finalizeProcurementContractClosure(projectId, stage, decision) {
-  if (!isPostgres || !Number.isFinite(projectId)) return { skipped: true };
-  if (stageNorm(stage) !== stageNorm(STAGE_CONTRACT_SIGNING)) return { skipped: true };
+  if (!Number.isFinite(projectId)) return { skipped: true, reason: 'invalid_project' };
+  if (!isPostgres) return { skipped: true, reason: 'not_postgres' };
+  if (stageNorm(stage) !== stageNorm(STAGE_CONTRACT_SIGNING)) return { skipped: true, reason: 'wrong_stage' };
   const dec = String(decision || '').trim().toLowerCase();
-  if (dec !== 'approved') return { skipped: true };
+  if (dec !== 'approved') return { skipped: true, reason: 'decision_not_approved' };
 
   const projRow = rowsOf(await pool.query(
     `SELECT project_id, progress FROM projects WHERE project_id = $1 AND COALESCE(voided, false) = false`,
@@ -1639,40 +2001,38 @@ async function finalizeProcurementContractClosure(projectId, stage, decision) {
 
   const prevStatus = progressObj.status != null ? String(progressObj.status) : '';
 
+  const responseMap = await loadLatestAssessmentResponsesForSubjectPG(bidder.subjectId);
+  const contractDates = extractIsoContractDatesFromResponses(responseMap);
+
+  const completedAt = new Date().toISOString();
+  const progressPatch = {
+    status: 'Not Started',
+    procurement_completed_at: completedAt,
+    procurement_previous_status: prevStatus,
+    procurement_awarded_contractor_id: contractorId,
+  };
+  if (contractDates.start) progressPatch.procurement_contract_start_date = contractDates.start;
+  if (contractDates.end) progressPatch.procurement_contract_end_date = contractDates.end;
+
   await pool.query(
     `UPDATE projects
-     SET progress = jsonb_set(
-           jsonb_set(
-             jsonb_set(
-               jsonb_set(
-                 COALESCE(progress, '{}'::jsonb),
-                 '{status}',
-                 '"Not Started"'::jsonb,
-                 true
-               ),
-               '{procurement_completed_at}',
-               to_jsonb(NOW()::text),
-               true
-             ),
-             '{procurement_previous_status}',
-             to_jsonb(COALESCE($2::text, '')),
-             true
-           ),
-           '{procurement_awarded_contractor_id}',
-           to_jsonb($3::int),
-           true
-         ),
+     SET progress = COALESCE(progress, '{}'::jsonb) || $2::jsonb,
          updated_at = NOW()
      WHERE project_id = $1 AND COALESCE(voided, false) = false`,
-    [projectId, prevStatus, contractorId]
+    [projectId, JSON.stringify(progressPatch)]
   );
+
+  const dateNote =
+    contractDates.start || contractDates.end
+      ? ` Contract dates saved (${[contractDates.start && `start ${contractDates.start}`, contractDates.end && `end ${contractDates.end}`].filter(Boolean).join('; ')}).`
+      : '';
 
   return {
     ok: true,
     contractorId,
     companyName,
     projectId,
-    message: 'Project handed off to contractors as Not Started; procurement history retained on workflow & assessments.',
+    message: `Project handed off to contractors as Not Started; procurement history retained.${dateNote}`,
   };
 }
 
@@ -1690,6 +2050,81 @@ function normalizeTemplateFields(fields) {
       options: Array.isArray(f?.options) ? f.options.map((o) => String(o)) : [],
     }))
     .filter((f) => f.key && f.label);
+}
+
+/**
+ * Bidder Registry: contact details first, then company/legal fields — matches product UX when DB template row
+ * has a different field order (e.g. after import or manual edit). Dedupes by key (first wins).
+ */
+function orderBidderRegistryTemplateFields(fields) {
+  if (!Array.isArray(fields) || !fields.length) return fields;
+  const priority = [
+    'contactName',
+    'contactPhone',
+    'contactEmail',
+    'companyName',
+    'registrationNo',
+    'kraPin',
+    'agpoCategory',
+    'notes',
+  ];
+  const seen = new Set();
+  const byKey = new Map();
+  for (const f of fields) {
+    const k = String(f?.key || '').trim();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    byKey.set(k, f);
+  }
+  const out = [];
+  for (const k of priority) {
+    if (byKey.has(k)) {
+      out.push(byKey.get(k));
+      byKey.delete(k);
+    }
+  }
+  for (const f of fields) {
+    const k = String(f?.key || '').trim();
+    if (k && byKey.has(k)) {
+      out.push(byKey.get(k));
+      byKey.delete(k);
+    }
+  }
+  return out;
+}
+
+/**
+ * Remote DBs often have older Contract Signing templates without optional schedule fields.
+ * Merge canonical defaults so contractProjectStartDate / duration / end date always appear when missing.
+ */
+function mergeContractSigningTemplateWithDefaults(fields) {
+  if (!Array.isArray(fields)) return [];
+  const normalized = normalizeTemplateFields(fields);
+  const defaults = normalizeTemplateFields(getDefaultContractSigningFields());
+  const byKey = new Map(normalized.map((f) => [f.key, f]));
+  const out = [];
+  for (const d of defaults) {
+    const db = byKey.get(d.key);
+    if (db) {
+      byKey.delete(d.key);
+      out.push({
+        ...d,
+        ...db,
+        key: d.key,
+        type: db.type || d.type,
+        options: Array.isArray(db.options) && db.options.length ? db.options : d.options,
+        min: db.min != null ? db.min : d.min,
+        max: db.max != null ? db.max : d.max,
+        label: db.label || d.label,
+      });
+    } else {
+      out.push({ ...d });
+    }
+  }
+  for (const f of byKey.values()) {
+    out.push(f);
+  }
+  return out;
 }
 
 function scoreAssessment(fields, responses) {
@@ -2045,6 +2480,7 @@ router.delete('/stages/:id', async (req, res) => {
 router.get('/projects/completed-history', async (req, res) => {
   if (!isPostgres) return res.status(200).json([]);
   try {
+    await ensureProcurementSchema();
     const result = await pool.query(
       `SELECT
          p.project_id AS "projectId",
@@ -2055,7 +2491,24 @@ router.get('/projects/completed-history', async (req, res) => {
          NULLIF(TRIM(p.progress->>'procurement_awarded_contractor_id'), '') AS "awardedContractorId",
          wf.stage AS "lastWorkflowStage",
          wf.decision AS "lastWorkflowDecision",
-         wf.updated_at AS "lastWorkflowAt"
+         wf.updated_at AS "lastWorkflowAt",
+         (
+           EXISTS (
+             SELECT 1 FROM project_procurement_workflow w
+             WHERE w.project_id = p.project_id AND COALESCE(w.voided, false) = false
+               AND LOWER(TRIM(w.stage)) = LOWER(TRIM($1::text))
+           )
+           OR EXISTS (
+             SELECT 1 FROM procurement_stage_subjects s
+             WHERE s.project_id = p.project_id AND COALESCE(s.voided, false) = false
+               AND LOWER(TRIM(s.stage)) = LOWER(TRIM($1::text))
+           )
+           OR EXISTS (
+             SELECT 1 FROM procurement_attachments a
+             WHERE a.project_id = p.project_id AND COALESCE(a.voided, false) = false
+               AND LOWER(TRIM(a.stage)) = LOWER(TRIM($1::text))
+           )
+         ) AS "hasPurchaseOrderRecorded"
        FROM projects p
        LEFT JOIN LATERAL (
          SELECT stage, decision, updated_at
@@ -2065,8 +2518,9 @@ router.get('/projects/completed-history', async (req, res) => {
          LIMIT 1
        ) wf ON true
        WHERE COALESCE(p.voided, false) = false
-         AND p.progress ? 'procurement_completed_at'
-       ORDER BY (p.progress->>'procurement_completed_at') DESC NULLS LAST`
+         AND NULLIF(TRIM(COALESCE(p.progress->>'procurement_completed_at', '')), '') IS NOT NULL
+       ORDER BY (p.progress->>'procurement_completed_at') DESC NULLS LAST`,
+      [STAGE_PURCHASE_ORDER_ISSUED]
     );
     return res.status(200).json(rowsOf(result));
   } catch (error) {
@@ -2318,12 +2772,14 @@ router.post('/projects/:projectId/workflow', async (req, res) => {
         [projectId, stage, decision, notes, actorId]
       );
       const row = rowsOf(result)[0];
+      let procurementHandoff = null;
       try {
-        await finalizeProcurementContractClosure(projectId, stage, decision);
+        procurementHandoff = await finalizeProcurementContractClosure(projectId, stage, decision);
       } catch (finErr) {
         console.error('finalizeProcurementContractClosure (workflow POST):', finErr);
+        procurementHandoff = { ok: false, message: finErr?.message || 'Contractor handoff failed.' };
       }
-      return res.status(201).json(row);
+      return res.status(201).json({ ...row, procurementHandoff });
     }
     const insert = await pool.query(
       `INSERT INTO project_procurement_workflow
@@ -2338,7 +2794,15 @@ router.post('/projects/:projectId/workflow', async (req, res) => {
        FROM project_procurement_workflow WHERE id = ?`,
       [insertId]
     );
-    return res.status(201).json(rowsOf(selected)[0]);
+    const row = rowsOf(selected)[0];
+    let procurementHandoff = null;
+    try {
+      procurementHandoff = await finalizeProcurementContractClosure(projectId, stage, decision);
+    } catch (finErr) {
+      console.error('finalizeProcurementContractClosure (workflow POST):', finErr);
+      procurementHandoff = { ok: false, message: finErr?.message || 'Contractor handoff failed.' };
+    }
+    return res.status(201).json({ ...row, procurementHandoff });
   } catch (error) {
     console.error('Error adding procurement workflow step:', error);
     return res.status(500).json({ message: 'Error adding procurement workflow step', error: error.message });
@@ -2369,12 +2833,14 @@ router.patch('/projects/:projectId/workflow/:workflowId', async (req, res) => {
     if (isPostgres) {
       const row = rowsOf(r)[0];
       if (!row) return res.status(404).json({ message: 'Workflow step not found.' });
+      let procurementHandoff = null;
       try {
-        await finalizeProcurementContractClosure(projectId, row.stage, row.decision ?? decision);
+        procurementHandoff = await finalizeProcurementContractClosure(projectId, row.stage, row.decision ?? decision);
       } catch (finErr) {
         console.error('finalizeProcurementContractClosure (workflow PATCH):', finErr);
+        procurementHandoff = { ok: false, message: finErr?.message || 'Contractor handoff failed.' };
       }
-      return res.status(200).json(row);
+      return res.status(200).json({ ...row, procurementHandoff });
     }
     if ((r?.affectedRows || r?.[0]?.affectedRows || 0) <= 0) return res.status(404).json({ message: 'Workflow step not found.' });
     const sel = await pool.query(
@@ -2383,7 +2849,15 @@ router.patch('/projects/:projectId/workflow/:workflowId', async (req, res) => {
        FROM project_procurement_workflow WHERE id = ?`,
       [workflowId]
     );
-    return res.status(200).json(rowsOf(sel)[0]);
+    const selRow = rowsOf(sel)[0];
+    let procurementHandoff = null;
+    try {
+      procurementHandoff = await finalizeProcurementContractClosure(projectId, selRow.stage, selRow.decision ?? decision);
+    } catch (finErr) {
+      console.error('finalizeProcurementContractClosure (workflow PATCH):', finErr);
+      procurementHandoff = { ok: false, message: finErr?.message || 'Contractor handoff failed.' };
+    }
+    return res.status(200).json({ ...selRow, procurementHandoff });
   } catch (error) {
     console.error('Error updating procurement workflow step:', error);
     return res.status(500).json({ message: 'Error updating procurement workflow step', error: error.message });
@@ -3075,6 +3549,7 @@ router.get('/export/comprehensive', async (req, res) => {
     ? Number(req.query.projectId)
     : null;
   const hasProjectFilter = Number.isFinite(projectId);
+  const format = String(req.query?.format || 'xlsx').trim().toLowerCase();
   try {
     let schemaReady = true;
     try {
@@ -3082,19 +3557,37 @@ router.get('/export/comprehensive', async (req, res) => {
     } catch {
       schemaReady = false;
     }
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'Procurement Module';
-    wb.created = new Date();
-    const summary = wb.addWorksheet('Summary');
-    summary.columns = [{ header: 'Metric', key: 'metric', width: 34 }, { header: 'Value', key: 'value', width: 36 }];
-    summary.addRows([
-      { metric: 'Generated At', value: new Date().toISOString() },
-      { metric: 'Scope', value: hasProjectFilter ? `Project ${projectId}` : 'All Projects' },
-      { metric: 'Schema Ready', value: schemaReady ? 'Yes' : 'No (fallback export)' },
-    ]);
-    summary.getRow(1).font = { bold: true };
 
     if (!schemaReady) {
+      if (format === 'html') {
+        const fn = `procurement-comprehensive-${hasProjectFilter ? `project-${projectId}` : 'all'}-${new Date().toISOString().slice(0, 10)}.html`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `inline; filename="${fn}"`);
+        return res.send(
+          renderProcurementComprehensiveHtml({
+            schemaReady: false,
+            hasProjectFilter,
+            projectId: hasProjectFilter ? projectId : null,
+            workflowsForExport: [],
+            subjects: [],
+            assessments: [],
+            checklist: [],
+            attachments: [],
+            templates: [],
+          })
+        );
+      }
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Procurement Module';
+      wb.created = new Date();
+      const summary = wb.addWorksheet('Summary');
+      summary.columns = [{ header: 'Metric', key: 'metric', width: 34 }, { header: 'Value', key: 'value', width: 36 }];
+      summary.addRows([
+        { metric: 'Generated At', value: new Date().toISOString() },
+        { metric: 'Scope', value: hasProjectFilter ? `Project ${projectId}` : 'All Projects' },
+        { metric: 'Schema Ready', value: 'No (fallback export)' },
+      ]);
+      summary.getRow(1).font = { bold: true };
       const filename = `procurement-comprehensive-${hasProjectFilter ? `project-${projectId}` : 'all'}-${new Date().toISOString().slice(0,10)}.xlsx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -3188,6 +3681,39 @@ router.get('/export/comprehensive', async (req, res) => {
       pool.query(queries.templates).then(rowsOf).catch(() => []),
     ]);
 
+    const workflowsForExport = mergeWorkflowExportRows(workflows, assessments);
+
+    if (format === 'html') {
+      const fn = `procurement-comprehensive-${hasProjectFilter ? `project-${projectId}` : 'all'}-${new Date().toISOString().slice(0, 10)}.html`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `inline; filename="${fn}"`);
+      return res.send(
+        renderProcurementComprehensiveHtml({
+          schemaReady: true,
+          hasProjectFilter,
+          projectId: hasProjectFilter ? projectId : null,
+          workflowsForExport,
+          subjects,
+          assessments,
+          checklist,
+          attachments,
+          templates,
+        })
+      );
+    }
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Procurement Module';
+    wb.created = new Date();
+    const summary = wb.addWorksheet('Summary');
+    summary.columns = [{ header: 'Metric', key: 'metric', width: 34 }, { header: 'Value', key: 'value', width: 36 }];
+    summary.addRows([
+      { metric: 'Generated At', value: new Date().toISOString() },
+      { metric: 'Scope', value: hasProjectFilter ? `Project ${projectId}` : 'All Projects' },
+      { metric: 'Schema Ready', value: 'Yes' },
+    ]);
+    summary.getRow(1).font = { bold: true };
+
     const addSheet = (name, cols, data) => {
       const ws = wb.addWorksheet(name);
       ws.columns = cols;
@@ -3205,7 +3731,7 @@ router.get('/export/comprehensive', async (req, res) => {
         { header: 'Actor ID', key: 'actorId', width: 12 },
         { header: 'Updated At', key: 'updatedAt', width: 24 },
       ],
-      workflows
+      workflowsForExport
     );
     addSheet(
       'Subjects',
@@ -3724,11 +4250,15 @@ router.get('/subjects/:subjectId/assessment', async (req, res) => {
       if (!Object.keys(patch).length) return base;
       return { ...patch, ...base };
     })();
+    let tplFields = normalizeTemplateFields(normalizeJson(template?.fields, []));
+    if (template && stageNorm(subject.stage) === stageNorm(STAGE_BIDDER_REGISTRY)) {
+      tplFields = orderBidderRegistryTemplateFields(tplFields);
+    } else if (template && stageNorm(subject.stage) === stageNorm(STAGE_CONTRACT_SIGNING)) {
+      tplFields = mergeContractSigningTemplateWithDefaults(tplFields);
+    }
     return res.status(200).json({
       subject: { ...subject, metadata: subjectMeta },
-      template: template
-        ? { ...template, fields: normalizeTemplateFields(normalizeJson(template.fields, [])) }
-        : null,
+      template: template ? { ...template, fields: tplFields } : null,
       assessment: assessmentObj ? { ...assessmentObj, responses: responsesMerged } : null,
     });
   } catch (error) {
@@ -3796,7 +4326,12 @@ router.put('/subjects/:subjectId/assessment', async (req, res) => {
     const rawFields = tpl.fields && typeof tpl.fields === 'object' ? tpl.fields : (() => {
       try { return JSON.parse(tpl.fields || '[]'); } catch { return []; }
     })();
-    const fields = normalizeTemplateFields(rawFields);
+    let fields = normalizeTemplateFields(rawFields);
+    if (stageNorm(subject.stage) === stageNorm(STAGE_BIDDER_REGISTRY)) {
+      fields = orderBidderRegistryTemplateFields(fields);
+    } else if (stageNorm(subject.stage) === stageNorm(STAGE_CONTRACT_SIGNING)) {
+      fields = mergeContractSigningTemplateWithDefaults(fields);
+    }
     const scored = scoreAssessment(fields, responses);
     let qualified = req.body?.qualified !== undefined
       ? Boolean(req.body.qualified === true || req.body.qualified === 1 || req.body.qualified === '1')

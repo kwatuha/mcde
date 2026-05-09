@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Alert,
   Badge,
@@ -6,6 +7,7 @@ import {
   Button,
   Checkbox,
   Chip,
+  CircularProgress,
   Collapse,
   Dialog,
   DialogActions,
@@ -28,10 +30,13 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
 import apiService from '../api';
@@ -80,14 +85,85 @@ const STAGE_ASSESSMENT_SIDEBAR_HINTS = {
   'Procurement Terminated':
     'Capture closure reason and references—procurement ends without award. Not a substitute for readvertising; use Tender Published again for a new tender cycle.',
   'Award Decision': 'Mark the winning bidder as Awarded before contract signing.',
-  'Contract Signing': 'Record execution dates, signatures, and contract metadata.',
-  'Purchase Order Issued': 'Capture LPO / commitment details and fiscal-year alignment.',
+  'Contract Signing':
+    'Record execution dates and signatures. With Assessment Decision set to Approved, Save Workflow Step completes procurement on PostgreSQL: contractor is created or linked, contract dates from this form are copied to the project, and the project leaves the procurement list.',
+  'Purchase Order Issued':
+    'Record LPO references, amounts, and issue dates. County budgets often follow a July–June year—many POs lapse at financial year-end (30 June); plan renewals or replacement POs and use the template notes if a new PO supersedes an earlier one.',
 };
 
 function getStageAssessmentSidebarHint(stage) {
   const s = String(stage || '').trim();
   return STAGE_ASSESSMENT_SIDEBAR_HINTS[s]
     || 'Complete the template fields for this stage, save assessment, then save workflow step when the stage is ready.';
+}
+
+/** Stages that use bidder subjects (same list as workflow bidder-stage semantics). */
+const PROCUREMENT_BIDDER_STAGES = new Set([
+  'Bidder Registry',
+  'Bidder Pre-Qualification',
+  'Bid Evaluation',
+  'Award Decision',
+  'Contract Signing',
+]);
+
+const STAGE_PURCHASE_ORDER_ISSUED = 'Purchase Order Issued';
+const STAGE_CONTRACT_SIGNING_LABEL = 'Contract Signing';
+
+/** Latest workflow row by updated time — sensible default stage when reviewing handed-off projects. */
+function latestWorkflowStageFromHistory(historyRows) {
+  const rows = Array.isArray(historyRows) ? historyRows : [];
+  if (!rows.length) return STAGE_CONTRACT_SIGNING_LABEL;
+  let best = rows[0];
+  let bestT = new Date(best?.updatedAt || best?.createdAt || 0).getTime();
+  for (let i = 1; i < rows.length; i += 1) {
+    const h = rows[i];
+    const t = new Date(h?.updatedAt || h?.createdAt || 0).getTime();
+    if (t >= bestT) {
+      bestT = t;
+      best = h;
+    }
+  }
+  const st = String(best?.stage || '').trim();
+  return st || STAGE_CONTRACT_SIGNING_LABEL;
+}
+
+function resolveProcurementReviewStage(stageHint, historyRows) {
+  const hint = String(stageHint || '').trim();
+  if (hint) return hint;
+  return latestWorkflowStageFromHistory(historyRows);
+}
+
+/** Map API procurementHandoff payload to an acknowledgment modal for Save Workflow Step / edit history. */
+function describeProcurementHandoff(h, { stage, flow }) {
+  if (!h || typeof h !== 'object') return null;
+  const st = String(stage || '').trim();
+  if (h.ok === true) {
+    return { severity: 'success', text: h.message || 'Procurement completed and project handed off.' };
+  }
+  if (h.ok === false && h.message) {
+    return {
+      severity: 'warning',
+      text: `${flow === 'update' ? 'Workflow updated' : 'Workflow step saved'}, but handoff did not finish: ${h.message}`,
+    };
+  }
+  if (!h.skipped) return null;
+  if (h.reason === 'not_postgres') {
+    return {
+      severity: 'info',
+      text: 'Automatic contractor handoff requires PostgreSQL. Update the contractor record manually if you use another database.',
+    };
+  }
+  if (h.reason === 'decision_not_approved' && st === 'Contract Signing') {
+    return {
+      severity: 'info',
+      text: 'Set Assessment Decision to Approved (and save assessment), then Save Workflow Step to complete procurement and hand off the contractor (PostgreSQL).',
+    };
+  }
+  if (h.reason === 'already_finalized') {
+    return { severity: 'info', text: 'This project was already handed off from procurement.' };
+  }
+  if (h.reason === 'wrong_stage' || h.reason === 'decision_not_approved') return null;
+  return null;
 }
 
 const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
@@ -164,15 +240,53 @@ export default function ProcurementPage() {
   const [templateSuccess, setTemplateSuccess] = useState('');
   const [overview, setOverview] = useState(null);
   const [completedHistory, setCompletedHistory] = useState([]);
-  const bidderStages = new Set([
-    'Bidder Registry',
-    'Bidder Pre-Qualification',
-    'Bid Evaluation',
-    'Award Decision',
-    'Contract Signing',
-  ]);
-  const isBidderStage = bidderStages.has(stepForm.stage);
+  const [workbookViewerOpen, setWorkbookViewerOpen] = useState(false);
+  const [workbookViewerHtml, setWorkbookViewerHtml] = useState('');
+  const [workbookViewerLoading, setWorkbookViewerLoading] = useState(false);
+  const [workbookViewerProjectLabel, setWorkbookViewerProjectLabel] = useState('');
+  /** Small acknowledgment modal after successful saves (above scroll area so always noticed). */
+  const [saveAckModal, setSaveAckModal] = useState({
+    open: false,
+    title: 'Saved',
+    body: '',
+    extra: '',
+    severity: 'success',
+  });
+  /** Set when opening from procured / deep link so UI explains why the project is not on the main table. */
+  const [workflowEntryMode, setWorkflowEntryMode] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  /** While stages load from API, prevent resetting away from a requested stage (e.g. Purchase Order Issued). */
+  const forcedWorkflowStageRef = useRef(null);
+
+  const openProcurementWorkbookViewer = useCallback(async (projectId, projectLabel) => {
+    if (!projectId) return;
+    setError('');
+    setWorkbookViewerProjectLabel(projectLabel?.trim() || `Project ${projectId}`);
+    setWorkbookViewerLoading(true);
+    setWorkbookViewerHtml('');
+    setWorkbookViewerOpen(true);
+    try {
+      const html = await apiService.procurement.getComprehensiveWorkbookHtml({ projectId });
+      setWorkbookViewerHtml(html);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to load procurement workbook view.');
+      setWorkbookViewerOpen(false);
+    } finally {
+      setWorkbookViewerLoading(false);
+    }
+  }, []);
+
+  const isBidderStage = PROCUREMENT_BIDDER_STAGES.has(stepForm.stage);
   const stageSubjectType = isBidderStage ? 'bidder' : 'generic';
+
+  const stageSelectOptions = useMemo(() => {
+    const cur = String(stepForm.stage || '').trim();
+    const base = [...stageOptions];
+    if (cur && !base.includes(cur)) base.unshift(cur);
+    return base;
+  }, [stageOptions, stepForm.stage]);
   const canAddBidders = stepForm.stage === 'Bidder Registry';
   const selectedSubject = useMemo(
     () => subjects.find((s) => String(s.id) === String(selectedSubjectId)) || null,
@@ -267,6 +381,15 @@ export default function ProcurementPage() {
   useEffect(() => {
     setStepForm((prev) => {
       if (!stageOptions.length) return prev;
+      const forced = forcedWorkflowStageRef.current;
+      if (forced) {
+        if (stageOptions.includes(forced)) {
+          forcedWorkflowStageRef.current = null;
+          return { ...prev, stage: forced };
+        }
+        if (prev.stage === forced) return prev;
+        return { ...prev, stage: forced };
+      }
       if (!prev.stage || !stageOptions.includes(prev.stage)) {
         return { stage: stageOptions[0] };
       }
@@ -286,19 +409,53 @@ export default function ProcurementPage() {
     setAssessmentDecision('Pending');
   }, [stepForm.stage, assessmentDecision]);
 
-  const openWorkflow = async (project) => {
+  /** Avoid saving/loading the wrong subject row when stage changes (bidder id vs generic project row). */
+  const prevWorkflowStageRef = useRef();
+  useEffect(() => {
+    const prev = prevWorkflowStageRef.current;
+    if (prev !== undefined && prev !== stepForm.stage) {
+      setSelectedSubjectId('');
+    }
+    prevWorkflowStageRef.current = stepForm.stage;
+  }, [stepForm.stage]);
+
+  const closeSaveAckModal = () =>
+    setSaveAckModal((s) => ({
+      ...s,
+      open: false,
+    }));
+
+  const openWorkflow = async (project, options = {}) => {
+    const effectiveStage = String(options.stage ?? stepForm.stage ?? '').trim();
+    const subjectTypeForStage = PROCUREMENT_BIDDER_STAGES.has(effectiveStage) ? 'bidder' : 'generic';
+
+    setSaveAckModal((s) => ({ ...s, open: false }));
     setSelectedProject(project);
-    setWorkflowHistoryOpen(false);
+    setWorkflowEntryMode(
+      options.postHandoffPo ? 'postHandoffPo' : options.postHandoffReview ? 'postHandoffReview' : null
+    );
+    if (options.stage) {
+      forcedWorkflowStageRef.current = effectiveStage;
+      setStepForm((p) => ({ ...p, stage: effectiveStage }));
+    } else {
+      forcedWorkflowStageRef.current = null;
+    }
+    setWorkflowHistoryOpen(Boolean(options.postHandoffPo || options.postHandoffReview));
     setHistory([]);
     setHistoryLoading(true);
     try {
-      const data = await apiService.procurement.getWorkflowHistory(project.projectId);
+      const data = Array.isArray(options.prefetchedHistory)
+        ? options.prefetchedHistory
+        : await apiService.procurement.getWorkflowHistory(project.projectId);
       setHistory(Array.isArray(data) ? data : []);
-      if ((stepForm.stage || '').trim()) {
-        const subs = await apiService.procurement.listStageSubjects(project.projectId, stepForm.stage, { subjectType: stageSubjectType });
+      if (effectiveStage) {
+        const subs = await apiService.procurement.listStageSubjects(project.projectId, effectiveStage, {
+          subjectType: subjectTypeForStage,
+        });
         const list = Array.isArray(subs) ? subs : [];
         setSubjects(list);
         if (list.length) setSelectedSubjectId(String(list[0].id));
+        else setSelectedSubjectId('');
       } else {
         setSubjects([]);
         setSelectedSubjectId('');
@@ -308,11 +465,245 @@ export default function ProcurementPage() {
     }
   };
 
+  /** Deep link: `/procurement?openPoFor=<id>&poStage=…` (query `?` must not clash with JSONB operators on the API). */
+  useEffect(() => {
+    const pidRaw = searchParams.get('openPoFor');
+    if (!pidRaw) return undefined;
+    const stageFromUrl = searchParams.get('poStage') || STAGE_PURCHASE_ORDER_ISSUED;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        await openWorkflow(
+          {
+            projectId,
+            projectName: raw.projectName ?? raw.name ?? `Project ${projectId}`,
+            projectStatus: raw.projectStatus ?? raw.status ?? '',
+          },
+          { stage: stageFromUrl, postHandoffPo: true }
+        );
+        if (cancelled) return;
+        setSearchParams({}, { replace: true });
+      } catch {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openWorkflow intentionally omitted from deps
+  }, [searchParams]);
+
+  /** Open PO workspace from Procured projects via `navigate(ROUTES.PROCUREMENT, { state: { openPoFor } })`. */
+  useEffect(() => {
+    const pidRaw = location.state?.openPoFor;
+    if (pidRaw == null || pidRaw === '') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        await openWorkflow(
+          {
+            projectId,
+            projectName: raw.projectName ?? raw.name ?? `Project ${projectId}`,
+            projectStatus: raw.projectStatus ?? raw.status ?? '',
+          },
+          { stage: STAGE_PURCHASE_ORDER_ISSUED, postHandoffPo: true }
+        );
+        if (cancelled) return;
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openPoFor;
+        navigate(location.pathname, { replace: true, state: rest });
+      } catch {
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openPoFor;
+        if (!cancelled) navigate(location.pathname, { replace: true, state: rest });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openWorkflow intentionally omitted from deps
+  }, [location.state?.openPoFor, navigate, location.pathname]);
+
+  /** Deep link: `/procurement?openReviewFor=<id>&reviewStage=<optional>` — handed-off project workflow modal + history. */
+  useEffect(() => {
+    const pidRaw = searchParams.get('openReviewFor');
+    if (!pidRaw) return undefined;
+    const stageHint = searchParams.get('reviewStage');
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        const project = {
+          projectId,
+          projectName: raw.projectName ?? raw.name ?? `Project ${projectId}`,
+          projectStatus: raw.projectStatus ?? raw.status ?? '',
+        };
+        const hist = await apiService.procurement.getWorkflowHistory(projectId);
+        if (cancelled) return;
+        const stage = resolveProcurementReviewStage(stageHint, hist);
+        await openWorkflow(project, {
+          stage,
+          postHandoffReview: true,
+          prefetchedHistory: hist,
+        });
+        if (cancelled) return;
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('openReviewFor');
+          next.delete('reviewStage');
+          return next;
+        }, { replace: true });
+      } catch {
+        if (!cancelled) {
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('openReviewFor');
+            next.delete('reviewStage');
+            return next;
+          }, { replace: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openWorkflow intentionally omitted from deps
+  }, [searchParams]);
+
+  /** Review modal from Procured projects: `navigate(PROCUREMENT, { state: { openProcurementReviewFor, procurementReviewStage? } })`. */
+  useEffect(() => {
+    const pidRaw = location.state?.openProcurementReviewFor;
+    if (pidRaw == null || pidRaw === '') return undefined;
+    const stageHint = location.state?.procurementReviewStage;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        const project = {
+          projectId,
+          projectName: raw.projectName ?? raw.name ?? `Project ${projectId}`,
+          projectStatus: raw.projectStatus ?? raw.status ?? '',
+        };
+        const hist = await apiService.procurement.getWorkflowHistory(projectId);
+        if (cancelled) return;
+        const stage = resolveProcurementReviewStage(stageHint, hist);
+        await openWorkflow(project, {
+          stage,
+          postHandoffReview: true,
+          prefetchedHistory: hist,
+        });
+        if (cancelled) return;
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openProcurementReviewFor;
+        delete rest.procurementReviewStage;
+        navigate(location.pathname, { replace: true, state: rest });
+      } catch {
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openProcurementReviewFor;
+        delete rest.procurementReviewStage;
+        if (!cancelled) navigate(location.pathname, { replace: true, state: rest });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openWorkflow intentionally omitted from deps
+  }, [location.state?.openProcurementReviewFor, location.state?.procurementReviewStage, navigate, location.pathname]);
+
+  /** Workbook only: `/procurement?openWorkbookFor=<id>` */
+  useEffect(() => {
+    const pidRaw = searchParams.get('openWorkbookFor');
+    if (!pidRaw) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        const label = raw.projectName ?? raw.name ?? `Project ${projectId}`;
+        await openProcurementWorkbookViewer(projectId, label);
+        if (cancelled) return;
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('openWorkbookFor');
+          return next;
+        }, { replace: true });
+      } catch {
+        if (!cancelled) {
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('openWorkbookFor');
+            return next;
+          }, { replace: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, openProcurementWorkbookViewer]);
+
+  /** Workbook only from navigation state (Procured projects button). */
+  useEffect(() => {
+    const pidRaw = location.state?.openProcurementWorkbookFor;
+    if (pidRaw == null || pidRaw === '') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await apiService.projects.getProjectById(Number(pidRaw));
+        if (cancelled || !raw) return;
+        const projectId = raw.projectId ?? raw.id;
+        const label = raw.projectName ?? raw.name ?? `Project ${projectId}`;
+        await openProcurementWorkbookViewer(projectId, label);
+        if (cancelled) return;
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openProcurementWorkbookFor;
+        navigate(location.pathname, { replace: true, state: rest });
+      } catch {
+        const rest = { ...(typeof location.state === 'object' && location.state ? location.state : {}) };
+        delete rest.openProcurementWorkbookFor;
+        if (!cancelled) navigate(location.pathname, { replace: true, state: rest });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state?.openProcurementWorkbookFor, navigate, location.pathname, openProcurementWorkbookViewer]);
+
   const saveStep = async () => {
     if (!selectedProject?.projectId) return;
     setSaving(true);
+    setError('');
     try {
-      await apiService.procurement.addWorkflowStep(selectedProject.projectId, { stage: stepForm.stage });
+      const res = await apiService.procurement.addWorkflowStep(selectedProject.projectId, {
+        stage: stepForm.stage,
+        decision: (assessmentDecision || '').trim() || null,
+        notes: (assessmentNotes || '').trim() || null,
+      });
+      const notice = describeProcurementHandoff(res?.procurementHandoff, { stage: stepForm.stage, flow: 'add' });
+      const sev = notice?.severity || 'success';
+      setSaveAckModal({
+        open: true,
+        title:
+          sev === 'success' && notice
+            ? 'Procurement complete'
+            : sev === 'warning'
+              ? 'Saved — note'
+              : 'Saved successfully',
+        body: 'Workflow step saved successfully.',
+        extra: notice?.text || '',
+        severity: sev === 'warning' ? 'warning' : sev === 'info' ? 'info' : 'success',
+      });
       const refreshed = await apiService.procurement.getWorkflowHistory(selectedProject.projectId);
       setHistory(Array.isArray(refreshed) ? refreshed : []);
       await loadAttachmentsForScope();
@@ -348,9 +739,26 @@ export default function ProcurementPage() {
     setSavingEdit(true);
     setError('');
     try {
-      await apiService.procurement.updateWorkflowStep(selectedProject.projectId, editingStep.id, {
+      const res = await apiService.procurement.updateWorkflowStep(selectedProject.projectId, editingStep.id, {
         decision: editDecision,
         notes: editNotes,
+      });
+      const notice = describeProcurementHandoff(res?.procurementHandoff, {
+        stage: editingStep?.stage,
+        flow: 'update',
+      });
+      const sev = notice?.severity || 'success';
+      setSaveAckModal({
+        open: true,
+        title:
+          sev === 'success' && notice
+            ? 'Procurement complete'
+            : sev === 'warning'
+              ? 'Updated — note'
+              : 'Saved successfully',
+        body: 'Workflow history updated successfully.',
+        extra: notice?.text || '',
+        severity: sev === 'warning' ? 'warning' : sev === 'info' ? 'info' : 'success',
       });
       const refreshed = await apiService.procurement.getWorkflowHistory(selectedProject.projectId);
       setHistory(Array.isArray(refreshed) ? refreshed : []);
@@ -406,10 +814,12 @@ export default function ProcurementPage() {
     const subs = await apiService.procurement.listStageSubjects(selectedProject.projectId, stepForm.stage, { subjectType: stageSubjectType });
     const list = Array.isArray(subs) ? subs : [];
     setSubjects(list);
-    if (list.length && !list.some((s) => String(s.id) === String(selectedSubjectId))) {
-      setSelectedSubjectId(String(list[0].id));
-    }
-  }, [selectedProject?.projectId, stepForm.stage, stageSubjectType, selectedSubjectId]);
+    setSelectedSubjectId((prev) => {
+      if (!list.length) return '';
+      const stillValid = list.some((s) => String(s.id) === String(prev));
+      return stillValid ? prev : String(list[0].id);
+    });
+  }, [selectedProject?.projectId, stepForm.stage, stageSubjectType]);
 
   useEffect(() => {
     loadSubjectsForCurrentStage();
@@ -562,10 +972,14 @@ export default function ProcurementPage() {
   };
 
   const handleSaveAssessment = async () => {
-    if (!selectedSubjectId) return;
+    if (!selectedSubjectId) {
+      setError('Select or load a stage subject before saving the assessment (wait for the subject list to finish loading).');
+      return;
+    }
     if (!validateAssessmentBeforeSave()) return;
     const savingForSubjectId = String(selectedSubjectId);
     setSavingAssessment(true);
+    setError('');
     try {
       await apiService.procurement.saveSubjectAssessment(savingForSubjectId, {
         responses: assessmentResponses,
@@ -584,6 +998,16 @@ export default function ProcurementPage() {
         // ignore; stage reload below will still refresh list and stats
       }
       await loadSubjectsForCurrentStage();
+      setSaveAckModal({
+        open: true,
+        title: 'Saved successfully',
+        body:
+          stepForm.stage === 'Bidder Registry'
+            ? 'Bidder details saved successfully.'
+            : 'Assessment saved successfully.',
+        extra: '',
+        severity: 'success',
+      });
     } finally {
       setSavingAssessment(false);
     }
@@ -736,6 +1160,11 @@ export default function ProcurementPage() {
     downloadBlob(blob, fileName);
   };
 
+  const closeWorkbookViewer = () => {
+    setWorkbookViewerOpen(false);
+    setWorkbookViewerHtml('');
+  };
+
   return (
     <Box sx={{ p: 2 }}>
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
@@ -782,7 +1211,7 @@ export default function ProcurementPage() {
                 <TableCell><strong>Stage</strong></TableCell>
                 <TableCell><strong>Latest Decision</strong></TableCell>
                 <TableCell align="right"><strong>Budget</strong></TableCell>
-                <TableCell><strong>Action</strong></TableCell>
+                <TableCell align="center"><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -795,10 +1224,22 @@ export default function ProcurementPage() {
                   <TableCell>{r.procurementStage || 'Not started'}</TableCell>
                   <TableCell>{r.latestDecision || 'Pending'}</TableCell>
                   <TableCell align="right">{fmtCurrency(r.budget)}</TableCell>
-                  <TableCell>
-                    <Button size="small" variant="outlined" onClick={() => openWorkflow(r)}>
-                      Open Workflow
-                    </Button>
+                  <TableCell align="center">
+                    <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+                      <Tooltip title="View procurement workbook (summary, workflow, assessments, attachments…)">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          aria-label="View procurement workbook"
+                          onClick={() => openProcurementWorkbookViewer(r.projectId, r.projectName)}
+                        >
+                          <VisibilityOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Button size="small" variant="outlined" onClick={() => openWorkflow(r)}>
+                        Open Workflow
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -816,7 +1257,12 @@ export default function ProcurementPage() {
 
       <Dialog
         open={Boolean(selectedProject)}
-        onClose={() => setSelectedProject(null)}
+        onClose={() => {
+          setSaveAckModal((s) => ({ ...s, open: false }));
+          setWorkflowEntryMode(null);
+          forcedWorkflowStageRef.current = null;
+          setSelectedProject(null);
+        }}
         maxWidth="lg"
         fullWidth
         scroll="paper"
@@ -831,15 +1277,35 @@ export default function ProcurementPage() {
         }}
       >
         <DialogTitle sx={{ py: 1, px: 2, flexShrink: 0 }}>
-          <Typography
-            variant="subtitle1"
-            component="div"
-            fontWeight={700}
-            noWrap
-            title={selectedProject?.projectName ? `Procurement Workflow: ${selectedProject.projectName}` : ''}
-          >
-            Procurement Workflow: {selectedProject?.projectName || ''}
-          </Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Typography
+              variant="subtitle1"
+              component="div"
+              fontWeight={700}
+              noWrap
+              sx={{ flex: 1, minWidth: 0 }}
+              title={selectedProject?.projectName ? `Procurement Workflow: ${selectedProject.projectName}` : ''}
+            >
+              {workflowEntryMode === 'postHandoffPo'
+                ? `Purchase order — ${selectedProject?.projectName || ''}`
+                : workflowEntryMode === 'postHandoffReview'
+                  ? `Procurement history — ${selectedProject?.projectName || ''}`
+                  : `Procurement Workflow: ${selectedProject?.projectName || ''}`}
+            </Typography>
+            <Tooltip title="View full procurement workbook in the app">
+              <IconButton
+                size="small"
+                color="primary"
+                aria-label="View procurement workbook"
+                onClick={() =>
+                  openProcurementWorkbookViewer(selectedProject?.projectId, selectedProject?.projectName)
+                }
+                disabled={!selectedProject?.projectId || workbookViewerLoading}
+              >
+                <VisibilityOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </DialogTitle>
         <DialogContent
           dividers
@@ -852,6 +1318,18 @@ export default function ProcurementPage() {
             minHeight: 0,
           }}
         >
+          {workflowEntryMode === 'postHandoffPo' ? (
+            <Alert severity="info" sx={{ mb: 1.25 }}>
+              This project has already left <strong>under procurement</strong> (handoff after contract signing). It will not appear in the main procurement table.
+              Use this dialog to record or update <strong>Purchase Order Issued</strong> (template, attachments, workflow step). You can switch stage to review earlier procurement history if needed.
+            </Alert>
+          ) : null}
+          {workflowEntryMode === 'postHandoffReview' ? (
+            <Alert severity="info" sx={{ mb: 1.25 }}>
+              This project has completed procurement <strong>handoff</strong> and does not appear in the main under-procurement table. Use the workflow history below and the <strong>Stage</strong> selector to browse steps, assessments, and attachments.
+              Open the <strong>workbook</strong> (eye icon above) for the full HTML summary—same as on active procurement projects.
+            </Alert>
+          ) : null}
           <Box
             sx={{
               position: 'sticky',
@@ -868,12 +1346,17 @@ export default function ProcurementPage() {
               <TextField
                 select
                 label="Stage"
-                value={stepForm.stage}
-                onChange={(e) => setStepForm((p) => ({ ...p, stage: e.target.value }))}
+                value={stageSelectOptions.includes(stepForm.stage) ? stepForm.stage : ''}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  forcedWorkflowStageRef.current = null;
+                  setSelectedSubjectId('');
+                  setStepForm((p) => ({ ...p, stage: next }));
+                }}
                 size="small"
                 sx={{ minWidth: 280 }}
               >
-                {stageOptions.map((s) => (
+                {stageSelectOptions.map((s) => (
                   <MenuItem key={s} value={s}>
                     {s}
                   </MenuItem>
@@ -1279,20 +1762,24 @@ export default function ProcurementPage() {
                       p: 1.5,
                       width: { xs: '100%', lg: 280 },
                       flexShrink: 0,
-                      bgcolor: 'action.hover',
+                      bgcolor: (theme) =>
+                        theme.palette.mode === 'dark'
+                          ? alpha(theme.palette.common.white, 0.06)
+                          : alpha(theme.palette.grey[700], 0.06),
+                      borderColor: 'divider',
                       position: { lg: 'sticky' },
                       top: { lg: 0 },
                       alignSelf: { lg: 'flex-start' },
                     }}
                   >
-                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    <Typography variant="subtitle2" fontWeight={700} color="text.primary" gutterBottom>
                       Stage guide
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    <Typography variant="body2" color="text.primary" sx={{ mb: 1.5, opacity: 0.92 }}>
                       {getStageAssessmentSidebarHint(stepForm.stage)}
                     </Typography>
                     {selectedSubject ? (
-                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.25 }}>
+                      <Typography variant="caption" component="div" color="text.primary" sx={{ mb: 1.25, opacity: 0.88 }}>
                         <strong>Subject:</strong> {selectedSubject.subjectName || '—'}
                       </Typography>
                     ) : null}
@@ -1308,7 +1795,7 @@ export default function ProcurementPage() {
                     >
                       Stage documents
                     </Button>
-                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                    <Typography variant="caption" component="div" color="text.primary" sx={{ mt: 1, opacity: 0.78, lineHeight: 1.45 }}>
                       Files are scoped to this stage (and selected bidder when applicable). Same list as the header paperclip.
                     </Typography>
                   </Paper>
@@ -1322,7 +1809,16 @@ export default function ProcurementPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ py: 1, px: 2, flexShrink: 0, flexWrap: 'wrap', gap: 1 }}>
-          <Button onClick={() => setSelectedProject(null)}>Close</Button>
+          <Button
+            onClick={() => {
+              setSaveAckModal((s) => ({ ...s, open: false }));
+              setWorkflowEntryMode(null);
+              forcedWorkflowStageRef.current = null;
+              setSelectedProject(null);
+            }}
+          >
+            Close
+          </Button>
           <Button variant="outlined" onClick={() => exportComprehensive('project')} disabled={!selectedProject?.projectId}>
             Export Project Workbook
           </Button>
@@ -1330,6 +1826,97 @@ export default function ProcurementPage() {
             Save Workflow Step
           </Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={saveAckModal.open}
+        onClose={closeSaveAckModal}
+        maxWidth="xs"
+        fullWidth
+        disableScrollLock
+        aria-labelledby="procurement-save-ack-title"
+        slotProps={{ root: { sx: { zIndex: (t) => t.zIndex.modal + 2 } } } }
+      >
+        <DialogTitle id="procurement-save-ack-title" sx={{ pb: 0.5, fontWeight: 700 }}>
+          {saveAckModal.title}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.5 }}>
+          <Typography variant="body1" color="text.primary">
+            {saveAckModal.body}
+          </Typography>
+          {saveAckModal.extra ? (
+            <Alert
+              severity={saveAckModal.severity === 'warning' ? 'warning' : saveAckModal.severity === 'info' ? 'info' : 'success'}
+              variant="outlined"
+              sx={{ mt: 2 }}
+            >
+              {saveAckModal.extra}
+            </Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, pb: 2, pt: 0 }}>
+          <Button variant="contained" onClick={closeSaveAckModal} autoFocus>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={workbookViewerOpen}
+        onClose={closeWorkbookViewer}
+        maxWidth="lg"
+        fullWidth
+        scroll="paper"
+        PaperProps={{
+          sx: {
+            height: { xs: 'calc(100vh - 24px)', sm: 'calc(100vh - 48px)' },
+            maxHeight: { xs: 'calc(100vh - 24px)', sm: 'calc(100vh - 48px)' },
+            display: 'flex',
+            flexDirection: 'column',
+            m: { xs: 1, sm: 2 },
+          },
+        }}
+      >
+        <DialogTitle sx={{ py: 1.25, px: 2, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="subtitle1" component="span" fontWeight={700} sx={{ flex: 1, minWidth: 0 }} noWrap>
+            Procurement workbook · {workbookViewerProjectLabel}
+          </Typography>
+          <IconButton aria-label="Close workbook view" onClick={closeWorkbookViewer} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent
+          dividers
+          sx={{
+            flex: '1 1 auto',
+            minHeight: 0,
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: 'grey.100',
+          }}
+        >
+          {workbookViewerLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Box sx={{ flex: 1, minHeight: 0, position: 'relative', bgcolor: '#fff' }}>
+              <iframe
+                title="Procurement workbook"
+                srcDoc={workbookViewerHtml}
+                sandbox=""
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  border: 'none',
+                }}
+              />
+            </Box>
+          )}
+        </DialogContent>
       </Dialog>
 
       <Dialog open={stageDocumentsOpen} onClose={() => setStageDocumentsOpen(false)} maxWidth="md" fullWidth scroll="paper">

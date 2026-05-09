@@ -113,6 +113,7 @@ const procurementService = {
     const match = cd.match(/filename="?([^"]+)"?/i);
     return { blob: data, fileName: match?.[1] || `bidder-evaluation.${format}` };
   },
+  /** Excel workbook export. */
   exportComprehensiveWorkbook: async (params = {}) => {
     const { data, headers } = await axiosInstance.get('/procurement/export/comprehensive', {
       params,
@@ -121,6 +122,14 @@ const procurementService = {
     const cd = headers?.['content-disposition'] || '';
     const match = cd.match(/filename="?([^"]+)"?/i);
     return { blob: data, fileName: match?.[1] || 'procurement-comprehensive.xlsx' };
+  },
+  /** In-app workbook view: same HTML as `format=html` on the export URL, returned as a string. */
+  getComprehensiveWorkbookHtml: async (params = {}) => {
+    const { data } = await axiosInstance.get('/procurement/export/comprehensive', {
+      params: { ...params, format: 'html' },
+      responseType: 'text',
+    });
+    return data;
   },
   getOverview: async () => {
     const { data } = await axiosInstance.get('/procurement/overview');
