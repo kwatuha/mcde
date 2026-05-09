@@ -10,16 +10,71 @@ const PDFDocument = require('pdfkit');
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
 const isPostgres = DB_TYPE === 'postgresql';
 
+/** Canonical procurement stage labels (sync / gates / seeds). */
+const STAGE_BIDDER_REGISTRY = 'Bidder Registry';
+const STAGE_PRE_QUALIFICATION = 'Bidder Pre-Qualification';
+const STAGE_BID_EVALUATION = 'Bid Evaluation';
+const STAGE_AWARD_DECISION = 'Award Decision';
+const STAGE_CONTRACT_SIGNING = 'Contract Signing';
+/** Terminal workflow stage: no further procurement (no award). Gates skipped when transitioning here. */
+const STAGE_PROCUREMENT_TERMINATED = 'Procurement Terminated';
+
 /** Default workflow stage labels (seed once into procurement_stages). Matches legacy Procurement UI. */
 const PROCUREMENT_STAGE_SEED_LABELS = [
   'Needs Identification',
   'Requisition Approved',
   'Tender Published',
-  'Bid Evaluation',
+  STAGE_BIDDER_REGISTRY,
+  STAGE_BID_EVALUATION,
   'Award Decision',
-  'Contract Signing',
+  STAGE_CONTRACT_SIGNING,
   'Purchase Order Issued',
+  STAGE_PROCUREMENT_TERMINATED,
 ];
+
+function stageNorm(s) {
+  return String(s || '').trim().toLowerCase();
+}
+
+function decisionIsAwarded(d) {
+  const x = String(d || '').trim().toLowerCase();
+  return x === 'awarded';
+}
+
+/** Seed default name; when several active templates share a stage+subject_type, assessments prefer this row. */
+const NEEDS_IDENTIFICATION_DEFAULT_TEMPLATE_NAME = 'Strategic need & feasibility';
+const PURCHASE_ORDER_DEFAULT_TEMPLATE_NAME = 'LPO / commitment register';
+
+function preferredTemplateNameForAssessment(stageLabel) {
+  const n = stageNorm(stageLabel);
+  if (n === stageNorm('Needs Identification')) return NEEDS_IDENTIFICATION_DEFAULT_TEMPLATE_NAME;
+  if (n === stageNorm(STAGE_BIDDER_REGISTRY)) return 'Bidder registry (master list)';
+  if (n === stageNorm('Purchase Order Issued')) return PURCHASE_ORDER_DEFAULT_TEMPLATE_NAME;
+  return '';
+}
+
+function alternateSubjectType(subjectType) {
+  const t = String(subjectType || '').trim().toLowerCase();
+  if (t === 'bidder') return 'generic';
+  if (t === 'generic') return 'bidder';
+  return 'generic';
+}
+
+function pickBidderRegistryMetadata(responses) {
+  const r = responses && typeof responses === 'object' ? responses : {};
+  const pick = (k) => {
+    const v = r[k];
+    if (v === undefined || v === null) return undefined;
+    const s = String(v).trim();
+    return s ? s : undefined;
+  };
+  const out = {};
+  for (const k of ['companyName', 'contactName', 'contactPhone', 'contactEmail', 'registrationNo', 'kraPin', 'agpoCategory']) {
+    const v = pick(k);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
 
 const rowsOf = (result) => {
   if (Array.isArray(result)) return result[0] || [];
@@ -158,6 +213,39 @@ async function ensureProcurementAttachmentsTable() {
         INDEX idx_procurement_attachments_project_stage (project_id, stage, voided, created_at)
       )
     `);
+  }
+}
+
+async function ensureProcurementAttachmentsSubjectIdColumn() {
+  try {
+    if (isPostgres) {
+      await pool.query(`ALTER TABLE procurement_attachments ADD COLUMN IF NOT EXISTS subject_id BIGINT NULL`);
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_procurement_attachments_project_subject
+         ON procurement_attachments(project_id, subject_id, voided, created_at DESC)`
+      );
+    } else {
+      const cols = rowsOf(
+        await pool.query(
+          `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'procurement_attachments' AND COLUMN_NAME = 'subject_id'`
+        )
+      );
+      if (!cols.length) {
+        await pool.query(`ALTER TABLE procurement_attachments ADD COLUMN subject_id BIGINT NULL`);
+      }
+      // Ensure index exists (ignore error if already present)
+      try {
+        await pool.query(
+          `CREATE INDEX idx_procurement_attachments_project_subject
+           ON procurement_attachments(project_id, subject_id, voided, created_at)`
+        );
+      } catch {
+        // likely already exists
+      }
+    }
+  } catch (e) {
+    if (!isSchemaError(e)) throw e;
   }
 }
 
@@ -338,6 +426,7 @@ async function ensureProcurementGateRulesTable() {
         id BIGSERIAL PRIMARY KEY,
         stage VARCHAR(200) NOT NULL UNIQUE,
         min_qualified_subjects INT NOT NULL DEFAULT 0,
+        min_score NUMERIC(12,2) NULL,
         subject_type VARCHAR(80) NOT NULL DEFAULT 'bidder',
         active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
@@ -351,6 +440,7 @@ async function ensureProcurementGateRulesTable() {
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         stage VARCHAR(200) NOT NULL UNIQUE,
         min_qualified_subjects INT NOT NULL DEFAULT 0,
+        min_score DECIMAL(12,2) NULL,
         subject_type VARCHAR(80) NOT NULL DEFAULT 'bidder',
         active TINYINT(1) NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -358,6 +448,197 @@ async function ensureProcurementGateRulesTable() {
         voided TINYINT(1) NOT NULL DEFAULT 0
       )
     `);
+  }
+}
+
+/** Adds min_score on older DBs created before weighted gate thresholds. */
+async function ensureProcurementGateRulesMinScoreColumn() {
+  try {
+    if (isPostgres) {
+      await pool.query(
+        `ALTER TABLE procurement_stage_gate_rules ADD COLUMN IF NOT EXISTS min_score NUMERIC(12,2) NULL`
+      );
+    } else {
+      const cols = rowsOf(
+        await pool.query(
+          `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'procurement_stage_gate_rules' AND COLUMN_NAME = 'min_score'`
+        )
+      );
+      if (!cols.length) {
+        await pool.query(`ALTER TABLE procurement_stage_gate_rules ADD COLUMN min_score DECIMAL(12,2) NULL`);
+      }
+    }
+  } catch (e) {
+    if (!isSchemaError(e)) throw e;
+  }
+}
+
+/** Inserts Bidder Registry between Tender Published and Bidder Pre-Qualification (sort_order shift). */
+async function ensureBidderRegistryStageInserted() {
+  try {
+    const label = STAGE_BIDDER_REGISTRY;
+    const existing = rowsOf(
+      await pool.query(
+        isPostgres
+          ? `SELECT id FROM procurement_stages
+             WHERE COALESCE(voided, false) = false AND LOWER(TRIM(label)) = LOWER(TRIM($1)) LIMIT 1`
+          : `SELECT id FROM procurement_stages
+             WHERE COALESCE(voided, 0) = 0 AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1`,
+        [label]
+      )
+    );
+    if (existing.length) return;
+
+    const anchorRow = rowsOf(
+      await pool.query(
+        isPostgres
+          ? `SELECT sort_order FROM procurement_stages
+             WHERE COALESCE(voided, false) = false AND LOWER(TRIM(label)) = LOWER(TRIM($1)) LIMIT 1`
+          : `SELECT sort_order AS sort_order FROM procurement_stages
+             WHERE COALESCE(voided, 0) = 0 AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1`,
+        ['Tender Published']
+      )
+    )[0];
+    const anchorOrd = Number(anchorRow?.sort_order);
+    if (!Number.isFinite(anchorOrd)) return;
+
+    const newOrd = anchorOrd + 1;
+    if (isPostgres) {
+      await pool.query(
+        `UPDATE procurement_stages SET sort_order = sort_order + 1, updated_at = NOW()
+         WHERE COALESCE(voided, false) = false AND sort_order >= $1`,
+        [newOrd]
+      );
+      await pool.query(
+        `INSERT INTO procurement_stages (label, sort_order, active, voided, created_at, updated_at)
+         VALUES ($1::varchar, $2::int, TRUE, FALSE, NOW(), NOW())`,
+        [label, newOrd]
+      );
+    } else {
+      await pool.query(
+        `UPDATE procurement_stages SET sort_order = sort_order + 1, updated_at = NOW()
+         WHERE COALESCE(voided, 0) = 0 AND sort_order >= ?`,
+        [newOrd]
+      );
+      await pool.query(
+        `INSERT INTO procurement_stages (label, sort_order, active, voided, created_at, updated_at)
+         VALUES (?, ?, 1, 0, NOW(), NOW())`,
+        [label, newOrd]
+      );
+    }
+  } catch (e) {
+    if (!isSchemaError(e)) console.warn('ensureBidderRegistryStageInserted:', e.message);
+  }
+}
+
+async function normalizeDefaultProcurementStageOrder() {
+  const desired = [
+    { label: 'Needs Identification', ord: 0 },
+    { label: 'Requisition Approved', ord: 1 },
+    { label: 'Tender Published', ord: 2 },
+    { label: STAGE_BIDDER_REGISTRY, ord: 3 },
+    { label: STAGE_PRE_QUALIFICATION, ord: 4 },
+    { label: STAGE_BID_EVALUATION, ord: 5 },
+    { label: STAGE_AWARD_DECISION, ord: 6 },
+    { label: STAGE_CONTRACT_SIGNING, ord: 7 },
+    { label: 'Purchase Order Issued', ord: 8 },
+    { label: STAGE_PROCUREMENT_TERMINATED, ord: 100 },
+  ];
+  try {
+    await ensureProcurementStagesTable();
+    for (const row of desired) {
+      if (isPostgres) {
+        await pool.query(
+          `UPDATE procurement_stages
+           SET sort_order = $1, updated_at = NOW()
+           WHERE COALESCE(voided, false) = false AND LOWER(TRIM(label)) = LOWER(TRIM($2))`,
+          [row.ord, row.label]
+        );
+      } else {
+        await pool.query(
+          `UPDATE procurement_stages
+           SET sort_order = ?, updated_at = NOW()
+           WHERE COALESCE(voided, 0) = 0 AND LOWER(TRIM(label)) = LOWER(TRIM(?))`,
+          [row.ord, row.label]
+        );
+      }
+    }
+  } catch (e) {
+    if (!isSchemaError(e)) console.warn('normalizeDefaultProcurementStageOrder:', e.message);
+  }
+}
+
+/**
+ * Inserts Bidder Pre-Qualification between Tender Published and Bid Evaluation (sort_order shift).
+ * Safe if stage already exists or Tender Published is missing.
+ */
+async function ensureBidderPreQualStageInserted() {
+  try {
+    const label = STAGE_PRE_QUALIFICATION;
+    const existing = rowsOf(
+      await pool.query(
+        isPostgres
+          ? `SELECT id FROM procurement_stages
+             WHERE COALESCE(voided, false) = false AND LOWER(TRIM(label)) = LOWER(TRIM($1)) LIMIT 1`
+          : `SELECT id FROM procurement_stages
+             WHERE COALESCE(voided, 0) = 0 AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1`,
+        [label]
+      )
+    );
+    if (existing.length) return;
+
+    const anchorLabel = (await (async () => {
+      const hasRegistry = rowsOf(
+        await pool.query(
+          isPostgres
+            ? `SELECT 1 FROM procurement_stages WHERE COALESCE(voided,false)=false AND LOWER(TRIM(label))=LOWER(TRIM($1)) LIMIT 1`
+            : `SELECT 1 FROM procurement_stages WHERE COALESCE(voided,0)=0 AND LOWER(TRIM(label))=LOWER(TRIM(?)) LIMIT 1`,
+          [STAGE_BIDDER_REGISTRY]
+        )
+      ).length > 0;
+      return hasRegistry ? STAGE_BIDDER_REGISTRY : 'Tender Published';
+    })());
+
+    const tenderRow = rowsOf(
+      await pool.query(
+        isPostgres
+          ? `SELECT sort_order FROM procurement_stages
+             WHERE COALESCE(voided, false) = false AND LOWER(TRIM(label)) = LOWER(TRIM($1)) LIMIT 1`
+          : `SELECT sort_order AS sort_order FROM procurement_stages
+             WHERE COALESCE(voided, 0) = 0 AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1`,
+        [anchorLabel]
+      )
+    )[0];
+    const tenderOrd = Number(tenderRow?.sort_order);
+    if (!Number.isFinite(tenderOrd)) return;
+
+    const newOrd = tenderOrd + 1;
+    if (isPostgres) {
+      await pool.query(
+        `UPDATE procurement_stages SET sort_order = sort_order + 1, updated_at = NOW()
+         WHERE COALESCE(voided, false) = false AND sort_order >= $1`,
+        [newOrd]
+      );
+      await pool.query(
+        `INSERT INTO procurement_stages (label, sort_order, active, voided, created_at, updated_at)
+         VALUES ($1::varchar, $2::int, TRUE, FALSE, NOW(), NOW())`,
+        [label, newOrd]
+      );
+    } else {
+      await pool.query(
+        `UPDATE procurement_stages SET sort_order = sort_order + 1, updated_at = NOW()
+         WHERE COALESCE(voided, 0) = 0 AND sort_order >= ?`,
+        [newOrd]
+      );
+      await pool.query(
+        `INSERT INTO procurement_stages (label, sort_order, active, voided, created_at, updated_at)
+         VALUES (?, ?, 1, 0, NOW(), NOW())`,
+        [label, newOrd]
+      );
+    }
+  } catch (e) {
+    if (!isSchemaError(e)) console.warn('ensureBidderPreQualStageInserted:', e.message);
   }
 }
 
@@ -370,14 +651,308 @@ function getDefaultBidEvaluationFields() {
     { key: 'technicalCapacity', label: 'Technical capacity adequate', type: 'checkbox', required: true, weight: 15 },
     { key: 'financialCapacity', label: 'Financial capacity adequate', type: 'checkbox', required: true, weight: 15 },
     { key: 'bidPriceScore', label: 'Bid price score (0-20)', type: 'number', min: 0, max: 20, required: false, weight: 20 },
+    { key: 'recommendedForAward', label: 'Recommended for award (proceeds to Award Decision)', type: 'checkbox', required: true, weight: 0 },
     { key: 'reviewNotes', label: 'Reviewer notes', type: 'textarea', required: false, weight: 0 },
   ];
 }
 
-async function seedBidEvaluationTemplateIfNeeded() {
-  const stage = 'Bid Evaluation';
-  const name = 'Bidder Suitability Checklist';
-  const subjectType = 'bidder';
+/** Subject type `bidder` matches existing Procurement UI subjects across all stages. */
+function getDefaultNeedsIdentificationFields() {
+  return [
+    {
+      key: 'needProblemEvidence',
+      label: 'Need / problem statement documented (baseline, gap, or service demand)',
+      type: 'checkbox',
+      required: true,
+      weight: 18,
+    },
+    {
+      key: 'alignmentStrategicPlans',
+      label: 'Alignment with ADP / CIDP, sector programme & county development priorities',
+      type: 'checkbox',
+      required: true,
+      weight: 18,
+    },
+    {
+      key: 'scopeObjectivesOutputs',
+      label: 'Scope, objectives & expected outputs/deliverables defined (incl. exclusions)',
+      type: 'checkbox',
+      required: true,
+      weight: 18,
+    },
+    {
+      key: 'beneficiariesAccountability',
+      label: 'Beneficiaries / user unit & accountable department / ward identified',
+      type: 'checkbox',
+      required: true,
+      weight: 14,
+    },
+    {
+      key: 'siteLocationReadiness',
+      label: 'Location / site or logistics constraints known (land, access, utilities)',
+      type: 'checkbox',
+      required: true,
+      weight: 12,
+    },
+    {
+      key: 'indicativeCostFunding',
+      label: 'Indicative cost class, budget head & funding source contour (vote / donor / partner)',
+      type: 'checkbox',
+      required: true,
+      weight: 16,
+    },
+    {
+      key: 'timelineMilestones',
+      label: 'Implementation timeline & critical milestones / dependencies outlined',
+      type: 'checkbox',
+      required: true,
+      weight: 12,
+    },
+    {
+      key: 'procurementMethodPPDA',
+      label: 'Likely PPDA procurement method & threshold class pre-identified',
+      type: 'checkbox',
+      required: true,
+      weight: 14,
+    },
+    {
+      key: 'stakeholderEngagement',
+      label: 'Relevant stakeholders engaged; technical owner / sponsor recorded',
+      type: 'checkbox',
+      required: true,
+      weight: 12,
+    },
+    {
+      key: 'risksAlternatives',
+      label: 'Material risks, mitigations & alternatives (in-house, lease, PPP) considered',
+      type: 'checkbox',
+      required: false,
+      weight: 10,
+    },
+    {
+      key: 'esgGenderSafetyScreen',
+      label: 'Preliminary environmental, social, gender & safety impacts screened',
+      type: 'checkbox',
+      required: false,
+      weight: 10,
+    },
+    { key: 'notes', label: 'Needs identification notes & references', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+function getDefaultRequisitionApprovedFields() {
+  return [
+    { key: 'formalRequisition', label: 'Formal requisition / AIE reference captured', type: 'checkbox', required: true, weight: 22 },
+    { key: 'budgetCommitted', label: 'Budget committed / votebook availability confirmed', type: 'checkbox', required: true, weight: 26 },
+    { key: 'delegatedApproval', label: 'Approval within delegated procurement authority', type: 'checkbox', required: true, weight: 18 },
+    { key: 'specificationsAttached', label: 'Technical specifications / TOR attached', type: 'checkbox', required: true, weight: 18 },
+    { key: 'ppdaThreshold', label: 'Estimated value vs PPDA threshold verified', type: 'checkbox', required: true, weight: 16 },
+    { key: 'notes', label: 'Approval remarks', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+function getDefaultTenderPublishedFields() {
+  return [
+    { key: 'invitationApproved', label: 'Invitation for tenders / RFP approved for publication', type: 'checkbox', required: true, weight: 22 },
+    { key: 'openingClosingDates', label: 'Opening & closing dates valid (calendar days)', type: 'checkbox', required: true, weight: 22 },
+    { key: 'advertisementMedium', label: 'Advertisement placed (portal / press) per PPDA rules', type: 'checkbox', required: true, weight: 20 },
+    { key: 'bidSecurityCorrect', label: 'Bid security / tender fee requirements stated correctly', type: 'checkbox', required: true, weight: 18 },
+    { key: 'clarificationsProcess', label: 'Clarification / site visit process communicated', type: 'checkbox', required: false, weight: 18 },
+    { key: 'notes', label: 'Publication notes', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+/** Master list of bidders who picked/received the tender for a project. */
+function getDefaultBidderRegistryFields() {
+  return [
+    { key: 'companyName', label: 'Company / bidder name', type: 'text', required: true, weight: 0 },
+    { key: 'contactName', label: 'Contact person name', type: 'text', required: false, weight: 0 },
+    { key: 'contactPhone', label: 'Contact phone number', type: 'text', required: false, weight: 0 },
+    { key: 'contactEmail', label: 'Contact email', type: 'text', required: false, weight: 0 },
+    { key: 'registrationNo', label: 'Company registration number', type: 'text', required: false, weight: 0 },
+    { key: 'kraPin', label: 'KRA PIN / Tax ID', type: 'text', required: false, weight: 0 },
+    { key: 'agpoCategory', label: 'AGPO category (if applicable)', type: 'text', required: false, weight: 0 },
+    { key: 'notes', label: 'Bidder registry notes / documents reference', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+/** Minimum eligibility before full bid evaluation (responsive / mandatory criteria). */
+function getDefaultPreQualificationFields() {
+  return [
+    { key: 'registrationValid', label: 'Bidder registration / company profile complete', type: 'checkbox', required: true, weight: 20 },
+    { key: 'mandatoryCerts', label: 'Mandatory certificates attached (tax, AGPO where applicable)', type: 'checkbox', required: true, weight: 25 },
+    { key: 'experienceThreshold', label: 'Minimum similar experience threshold met', type: 'checkbox', required: true, weight: 25 },
+    { key: 'financialMinimum', label: 'Minimum financial capacity / turnover threshold met', type: 'checkbox', required: true, weight: 20 },
+    { key: 'nonResponsiveExcluded', label: 'Bid is responsive (non-responsive bids excluded)', type: 'checkbox', required: true, weight: 10 },
+    { key: 'notes', label: 'Pre-qualification notes', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+function getDefaultAwardDecisionFields() {
+  return [
+    { key: 'evaluationReportFinal', label: 'Technical & financial evaluation report finalized', type: 'checkbox', required: true, weight: 22 },
+    { key: 'standstillObserved', label: 'Standstill / aggrieved period observed where applicable', type: 'checkbox', required: true, weight: 22 },
+    { key: 'awardWithinBudget', label: 'Recommended award within approved budget envelope', type: 'checkbox', required: true, weight: 20 },
+    { key: 'conflictInterestChecked', label: 'Conflict of interest / ethics declaration reviewed', type: 'checkbox', required: true, weight: 16 },
+    { key: 'awardLetterReady', label: 'Notification of award / regret letters prepared', type: 'checkbox', required: true, weight: 20 },
+    { key: 'notes', label: 'Award decision notes', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+function getDefaultContractSigningFields() {
+  return [
+    { key: 'draftContractReviewed', label: 'Contract draft legally reviewed', type: 'checkbox', required: true, weight: 18 },
+    { key: 'signatoriesAuthorized', label: 'Signatories hold valid delegations / resolutions', type: 'checkbox', required: true, weight: 22 },
+    { key: 'performanceSecurity', label: 'Performance bond / security clause agreed', type: 'checkbox', required: true, weight: 18 },
+    { key: 'insuranceRequirements', label: 'Insurance / liability requirements captured', type: 'checkbox', required: true, weight: 14 },
+    { key: 'commencementDate', label: 'Commencement / delivery milestones agreed', type: 'checkbox', required: true, weight: 14 },
+    {
+      key: 'contractProjectStartDate',
+      label: 'Project / contract start date (optional)',
+      type: 'date',
+      required: false,
+      weight: 0,
+    },
+    {
+      key: 'contractDurationValue',
+      label: 'Duration (optional — with unit below, end date is calculated)',
+      type: 'number',
+      required: false,
+      weight: 0,
+      min: 0,
+    },
+    {
+      key: 'contractDurationUnit',
+      label: 'Duration unit',
+      type: 'select',
+      required: false,
+      weight: 0,
+      options: ['', 'days', 'months'],
+    },
+    {
+      key: 'contractProjectEndDate',
+      label: 'Project / contract end date (optional — auto-filled when start + duration are set)',
+      type: 'date',
+      required: false,
+      weight: 0,
+    },
+    { key: 'disputeResolution', label: 'Dispute resolution / governing law clause agreed', type: 'checkbox', required: false, weight: 14 },
+    { key: 'notes', label: 'Contract remarks', type: 'textarea', required: false, weight: 0 },
+  ];
+}
+
+function getDefaultPurchaseOrderIssuedFields() {
+  return [
+    { key: 'poRegistered', label: 'LPO / PO registered (IFMIS / procurement register)', type: 'checkbox', required: true, weight: 22 },
+    {
+      key: 'poReferenceNumber',
+      label: 'LPO / PO reference number',
+      type: 'text',
+      required: false,
+      weight: 0,
+    },
+    {
+      key: 'poIssueDate',
+      label: 'PO issue date',
+      type: 'date',
+      required: false,
+      weight: 0,
+    },
+    {
+      key: 'kenyaFyJune30LapseAck',
+      label:
+        'Acknowledged: Kenya financial year — unspent / unpaid PO commitments normally lapse after 30 June; further spend requires a new PO (fresh commitment), not an extension of the old PO.',
+      type: 'checkbox',
+      required: true,
+      weight: 0,
+    },
+    {
+      key: 'supersedesLapsedPo',
+      label: 'This PO supersedes a prior PO that lapsed or was cancelled (e.g. after 30 June FY deadline)',
+      type: 'checkbox',
+      required: false,
+      weight: 0,
+    },
+    {
+      key: 'priorPoReference',
+      label: 'Prior lapsed / cancelled PO reference (when superseding)',
+      type: 'text',
+      required: false,
+      weight: 0,
+    },
+    { key: 'deliveryTerms', label: 'Delivery / completion schedule aligned with contract', type: 'checkbox', required: true, weight: 20 },
+    { key: 'retentionAdvance', label: 'Retention / advance payment conditions reflected', type: 'checkbox', required: true, weight: 18 },
+    { key: 'inspectionAcceptance', label: 'Inspection & acceptance criteria referenced', type: 'checkbox', required: true, weight: 18 },
+    { key: 'reportingRequirements', label: 'Reporting / milestone certification requirements clear', type: 'checkbox', required: false, weight: 22 },
+    {
+      key: 'notes',
+      label: 'PO remarks (re-issue reason, IFMIS cancellation, linkage to new tender if applicable)',
+      type: 'textarea',
+      required: false,
+      weight: 0,
+    },
+  ];
+}
+
+function getDefaultProcurementTerminatedFields() {
+  return [
+    {
+      key: 'closureReasonCategory',
+      label: 'Closure category',
+      type: 'select',
+      required: true,
+      weight: 0,
+      options: ['', 'No qualified bidders', 'Budget withdrawn', 'Policy / legal stop', 'Other'],
+    },
+    {
+      key: 'closureReason',
+      label: 'Details (reference PPDA / county approvals where applicable)',
+      type: 'textarea',
+      required: true,
+      weight: 0,
+    },
+    { key: 'closureEffectiveDate', label: 'Effective date', type: 'date', required: false, weight: 0 },
+    { key: 'authorityReference', label: 'Approval / minute reference', type: 'text', required: false, weight: 0 },
+  ];
+}
+
+function getProcurementStageTemplateSeeds() {
+  return [
+    {
+      stage: 'Needs Identification',
+      name: NEEDS_IDENTIFICATION_DEFAULT_TEMPLATE_NAME,
+      subjectType: 'generic',
+      fields: getDefaultNeedsIdentificationFields(),
+    },
+    { stage: 'Requisition Approved', name: 'Requisition & budget gate', subjectType: 'generic', fields: getDefaultRequisitionApprovedFields() },
+    { stage: 'Tender Published', name: 'Tender launch & notice compliance', subjectType: 'generic', fields: getDefaultTenderPublishedFields() },
+    {
+      stage: STAGE_BIDDER_REGISTRY,
+      name: 'Bidder registry (master list)',
+      subjectType: 'bidder',
+      fields: getDefaultBidderRegistryFields(),
+    },
+    {
+      stage: STAGE_PRE_QUALIFICATION,
+      name: 'Minimum eligibility (pre-bid screening)',
+      subjectType: 'bidder',
+      fields: getDefaultPreQualificationFields(),
+    },
+    { stage: STAGE_BID_EVALUATION, name: 'Bidder Suitability Checklist', subjectType: 'bidder', fields: getDefaultBidEvaluationFields() },
+    { stage: STAGE_AWARD_DECISION, name: 'Award & compliance checklist', subjectType: 'bidder', fields: getDefaultAwardDecisionFields() },
+    { stage: STAGE_CONTRACT_SIGNING, name: 'Contract execution readiness', subjectType: 'bidder', fields: getDefaultContractSigningFields() },
+    { stage: 'Purchase Order Issued', name: 'LPO / commitment register', subjectType: 'bidder', fields: getDefaultPurchaseOrderIssuedFields() },
+    {
+      stage: STAGE_PROCUREMENT_TERMINATED,
+      name: 'Procurement closure (no award)',
+      subjectType: 'generic',
+      fields: getDefaultProcurementTerminatedFields(),
+    },
+  ];
+}
+
+async function insertProcurementTemplateIfNotExists(stage, name, subjectType, fields) {
+  const fieldsJson = JSON.stringify(fields);
   if (isPostgres) {
     await pool.query(
       `INSERT INTO procurement_stage_templates (stage, name, subject_type, fields, active, voided, created_at, updated_at)
@@ -388,7 +963,7 @@ async function seedBidEvaluationTemplateIfNeeded() {
            AND LOWER(TRIM(stage)) = LOWER(TRIM($1::text))
            AND LOWER(TRIM(name)) = LOWER(TRIM($2::text))
        )`,
-      [stage, name, subjectType, JSON.stringify(getDefaultBidEvaluationFields())]
+      [stage, name, subjectType, fieldsJson]
     );
   } else {
     const exists = await pool.query(
@@ -404,21 +979,50 @@ async function seedBidEvaluationTemplateIfNeeded() {
         `INSERT INTO procurement_stage_templates
          (stage, name, subject_type, fields, active, voided, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, 0, NOW(), NOW())`,
-        [stage, name, subjectType, JSON.stringify(getDefaultBidEvaluationFields())]
+        [stage, name, subjectType, fieldsJson]
       );
     }
   }
 }
 
+async function seedProcurementStageTemplatesIfNeeded() {
+  for (const seed of getProcurementStageTemplateSeeds()) {
+    await insertProcurementTemplateIfNotExists(seed.stage, seed.name, seed.subjectType, seed.fields);
+  }
+}
+
+/** Push latest Needs Identification checklist to every active template for that stage (name-agnostic). */
+async function refreshNeedsIdentificationDefaultTemplate() {
+  const stage = 'Needs Identification';
+  const fieldsJson = JSON.stringify(getDefaultNeedsIdentificationFields());
+  if (isPostgres) {
+    await pool.query(
+      `UPDATE procurement_stage_templates
+       SET fields = $1::jsonb, updated_at = NOW()
+       WHERE COALESCE(voided, false) = false
+         AND LOWER(TRIM(stage)) = LOWER(TRIM($2::text))`,
+      [fieldsJson, stage]
+    );
+  } else {
+    await pool.query(
+      `UPDATE procurement_stage_templates
+       SET fields = ?, updated_at = NOW()
+       WHERE COALESCE(voided, 0) = 0
+         AND LOWER(TRIM(stage)) = LOWER(TRIM(?))`,
+      [fieldsJson, stage]
+    );
+  }
+}
+
 async function seedBidEvaluationGateRuleIfNeeded() {
-  const stage = 'Bid Evaluation';
+  const stage = STAGE_BID_EVALUATION;
   const minQualified = 1;
   const subjectType = 'bidder';
   if (isPostgres) {
     await pool.query(
       `INSERT INTO procurement_stage_gate_rules
-       (stage, min_qualified_subjects, subject_type, active, voided, created_at, updated_at)
-       SELECT $1::varchar, $2::int, $3::varchar, true, false, NOW(), NOW()
+       (stage, min_qualified_subjects, min_score, subject_type, active, voided, created_at, updated_at)
+       SELECT $1::varchar, $2::int, NULL::numeric, $3::varchar, true, false, NOW(), NOW()
        WHERE NOT EXISTS (
          SELECT 1 FROM procurement_stage_gate_rules
          WHERE LOWER(TRIM(stage)) = LOWER(TRIM($1::text))
@@ -435,8 +1039,42 @@ async function seedBidEvaluationGateRuleIfNeeded() {
     if (!rowsOf(exists).length) {
       await pool.query(
         `INSERT INTO procurement_stage_gate_rules
-         (stage, min_qualified_subjects, subject_type, active, voided, created_at, updated_at)
-         VALUES (?, ?, ?, 1, 0, NOW(), NOW())`,
+         (stage, min_qualified_subjects, min_score, subject_type, active, voided, created_at, updated_at)
+         VALUES (?, ?, NULL, ?, 1, 0, NOW(), NOW())`,
+        [stage, minQualified, subjectType]
+      );
+    }
+  }
+}
+
+/** Minimum eligible bidders before leaving pre-qualification (set min_score on the rule row for weighted pass mark). */
+async function seedPreQualificationGateRuleIfNeeded() {
+  const stage = STAGE_PRE_QUALIFICATION;
+  const minQualified = 1;
+  const subjectType = 'bidder';
+  if (isPostgres) {
+    await pool.query(
+      `INSERT INTO procurement_stage_gate_rules
+       (stage, min_qualified_subjects, min_score, subject_type, active, voided, created_at, updated_at)
+       SELECT $1::varchar, $2::int, NULL::numeric, $3::varchar, true, false, NOW(), NOW()
+       WHERE NOT EXISTS (
+         SELECT 1 FROM procurement_stage_gate_rules
+         WHERE LOWER(TRIM(stage)) = LOWER(TRIM($1::text))
+           AND COALESCE(voided, false) = false
+       )`,
+      [stage, minQualified, subjectType]
+    );
+  } else {
+    const exists = await pool.query(
+      `SELECT id FROM procurement_stage_gate_rules
+       WHERE LOWER(TRIM(stage)) = LOWER(TRIM(?)) AND COALESCE(voided,0)=0 LIMIT 1`,
+      [stage]
+    );
+    if (!rowsOf(exists).length) {
+      await pool.query(
+        `INSERT INTO procurement_stage_gate_rules
+         (stage, min_qualified_subjects, min_score, subject_type, active, voided, created_at, updated_at)
+         VALUES (?, ?, NULL, ?, 1, 0, NOW(), NOW())`,
         [stage, minQualified, subjectType]
       );
     }
@@ -467,6 +1105,9 @@ async function latestWorkflowStage(projectId) {
 }
 
 async function validateStageGateForTransition(projectId, fromStage, toStage) {
+  if (stageNorm(toStage) === stageNorm(STAGE_PROCUREMENT_TERMINATED)) {
+    return { ok: true };
+  }
   const fromOrder = await getStageSortOrder(fromStage);
   const toOrder = await getStageSortOrder(toStage);
   if (!Number.isFinite(fromOrder) || !Number.isFinite(toOrder) || toOrder <= fromOrder) {
@@ -474,7 +1115,8 @@ async function validateStageGateForTransition(projectId, fromStage, toStage) {
   }
   const rules = isPostgres
     ? rowsOf(await pool.query(
-        `SELECT r.stage, r.min_qualified_subjects AS "minQualified", r.subject_type AS "subjectType", s.sort_order
+        `SELECT r.stage, r.min_qualified_subjects AS "minQualified", r.min_score AS "minScore",
+                r.subject_type AS "subjectType", s.sort_order
          FROM procurement_stage_gate_rules r
          JOIN procurement_stages s ON LOWER(TRIM(s.label)) = LOWER(TRIM(r.stage))
          WHERE COALESCE(r.voided,false)=false AND COALESCE(r.active,true)=true
@@ -483,7 +1125,8 @@ async function validateStageGateForTransition(projectId, fromStage, toStage) {
         [fromOrder, toOrder]
       ))
     : rowsOf(await pool.query(
-        `SELECT r.stage, r.min_qualified_subjects AS minQualified, r.subject_type AS subjectType, s.sort_order
+        `SELECT r.stage, r.min_qualified_subjects AS minQualified, r.min_score AS minScore,
+                r.subject_type AS subjectType, s.sort_order
          FROM procurement_stage_gate_rules r
          JOIN procurement_stages s ON LOWER(TRIM(s.label)) = LOWER(TRIM(r.stage))
          WHERE COALESCE(r.voided,0)=0 AND COALESCE(r.active,1)=1
@@ -495,29 +1138,542 @@ async function validateStageGateForTransition(projectId, fromStage, toStage) {
     const minQualified = Number(rule.minQualified || 0);
     if (minQualified <= 0) continue;
     const subjectType = String(rule.subjectType || 'bidder').trim();
+    const minScore =
+      rule.minScore != null && Number.isFinite(Number(rule.minScore)) ? Number(rule.minScore) : null;
     const countSql = isPostgres
-      ? `SELECT COUNT(*)::int AS c
-         FROM procurement_stage_subjects
-         WHERE project_id = $1
-           AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
-           AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
-           AND COALESCE(voided,false)=false
-           AND COALESCE(qualified,false)=true`
-      : `SELECT COUNT(*) AS c
-         FROM procurement_stage_subjects
-         WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
-           AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
-           AND COALESCE(voided,0)=0 AND COALESCE(qualified,0)=1`;
-    const cr = await pool.query(countSql, [projectId, rule.stage, subjectType]);
+      ? minScore == null
+        ? `SELECT COUNT(*)::int AS c
+           FROM procurement_stage_subjects
+           WHERE project_id = $1
+             AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+             AND COALESCE(voided,false)=false
+             AND COALESCE(qualified,false)=true`
+        : `SELECT COUNT(*)::int AS c
+           FROM procurement_stage_subjects
+           WHERE project_id = $1
+             AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+             AND COALESCE(voided,false)=false
+             AND COALESCE(qualified,false)=true
+             AND COALESCE(latest_score, 0) >= $4`
+      : minScore == null
+        ? `SELECT COUNT(*) AS c
+           FROM procurement_stage_subjects
+           WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+             AND COALESCE(voided,0)=0 AND COALESCE(qualified,0)=1`
+        : `SELECT COUNT(*) AS c
+           FROM procurement_stage_subjects
+           WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+             AND COALESCE(voided,0)=0 AND COALESCE(qualified,0)=1
+             AND COALESCE(latest_score, 0) >= ?`;
+    const countParams =
+      minScore == null ? [projectId, rule.stage, subjectType] : [projectId, rule.stage, subjectType, minScore];
+    const cr = await pool.query(countSql, countParams);
     const c = Number(rowsOf(cr)[0]?.c || 0);
     if (c < minQualified) {
+      const scoreHint = minScore != null ? ` with score ≥ ${minScore}` : '';
       return {
         ok: false,
-        message: `Stage gate failed: ${rule.stage} requires at least ${minQualified} qualified ${subjectType}(s). Current: ${c}.`,
+        message: `Stage gate failed: ${rule.stage} requires at least ${minQualified} qualified ${subjectType}(s)${scoreHint}. Current: ${c}. Options: record closure under assessment (e.g. Terminated at pre-qual/bid eval), add Save Workflow Step → "${STAGE_PROCUREMENT_TERMINATED}", or move stage back to Tender Published to readvertise (backward moves skip gates).`,
       };
     }
   }
   return { ok: true };
+}
+
+function coerceSubjectMetadata(meta) {
+  if (meta == null) return {};
+  if (typeof meta === 'object' && !Array.isArray(meta)) return meta;
+  try {
+    return JSON.parse(meta);
+  } catch {
+    return {};
+  }
+}
+
+function mergeUpstreamMetadata(existingMeta, upstreamStage, upstreamSubjectId) {
+  const base = coerceSubjectMetadata(existingMeta);
+  return {
+    ...base,
+    upstreamStage,
+    upstreamSubjectId,
+  };
+}
+
+async function countSubjectsForProjectStage(projectId, stageLabel) {
+  const sql = isPostgres
+    ? `SELECT COUNT(*)::int AS c FROM procurement_stage_subjects
+       WHERE project_id = $1 AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+         AND COALESCE(voided, false) = false`
+    : `SELECT COUNT(*) AS c FROM procurement_stage_subjects
+       WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+         AND COALESCE(voided, 0) = 0`;
+  const r = await pool.query(sql, [projectId, stageLabel]);
+  return Number(rowsOf(r)[0]?.c || 0);
+}
+
+async function subjectRowExists(projectId, stageLabel, subjectName, subjectType = 'bidder') {
+  const sql = isPostgres
+    ? `SELECT id FROM procurement_stage_subjects
+       WHERE project_id = $1 AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+         AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+         AND LOWER(TRIM(subject_name)) = LOWER(TRIM($4))
+         AND COALESCE(voided, false) = false LIMIT 1`
+    : `SELECT id FROM procurement_stage_subjects
+       WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))
+         AND COALESCE(voided, 0) = 0 LIMIT 1`;
+  const r = await pool.query(sql, [projectId, stageLabel, subjectType, subjectName]);
+  return rowsOf(r).length > 0;
+}
+
+/**
+ * Ensures downstream bidder rows exist so assessments attach to the correct stage:
+ * Pre-Qual (qualified) → Bid Evaluation; Bid Evaluation (qualified) → Award; Award (Awarded) → Contract.
+ */
+async function syncBidderSubjectsForList(projectId, targetStage) {
+  const st = stageNorm(targetStage);
+  const subjType = 'bidder';
+
+  const registryCount = await countSubjectsForProjectStage(projectId, STAGE_BIDDER_REGISTRY);
+  const preQualCount = await countSubjectsForProjectStage(projectId, STAGE_PRE_QUALIFICATION);
+
+  // Pre-Qualification starts from Bidder Registry (master list).
+  if (st === stageNorm(STAGE_PRE_QUALIFICATION) && registryCount > 0) {
+    const q = isPostgres
+      ? `SELECT id, subject_name AS "subjectName", metadata
+         FROM procurement_stage_subjects
+         WHERE project_id = $1
+           AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+           AND COALESCE(voided, false) = false`
+      : `SELECT id, subject_name AS subjectName, metadata
+         FROM procurement_stage_subjects
+         WHERE project_id = ?
+           AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+           AND COALESCE(voided, 0) = 0`;
+    const src = rowsOf(await pool.query(q, [projectId, STAGE_BIDDER_REGISTRY, subjType]));
+    for (const row of src) {
+      const name = String(row.subjectName || '').trim();
+      if (!name) continue;
+      if (await subjectRowExists(projectId, STAGE_PRE_QUALIFICATION, name, subjType)) continue;
+      const meta = mergeUpstreamMetadata(row.metadata, STAGE_BIDDER_REGISTRY, row.id);
+      if (isPostgres) {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES ($1,$2,$3,$4,$5::jsonb,NOW(),NOW(),false)`,
+          [projectId, STAGE_PRE_QUALIFICATION, subjType, name, JSON.stringify(meta)]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES (?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+          [projectId, STAGE_PRE_QUALIFICATION, subjType, name, JSON.stringify(meta)]
+        );
+      }
+    }
+    return;
+  }
+
+  if (st === stageNorm(STAGE_BID_EVALUATION) && preQualCount > 0) {
+    const q = isPostgres
+      ? `SELECT s.id, s.subject_name AS "subjectName", s.metadata
+         FROM procurement_stage_subjects s
+         LEFT JOIN LATERAL (
+           SELECT responses
+           FROM procurement_subject_assessments a
+           WHERE a.subject_id = s.id AND COALESCE(a.voided, false) = false
+           ORDER BY a.updated_at DESC NULLS LAST, a.id DESC
+           LIMIT 1
+         ) a ON true
+         WHERE s.project_id = $1
+           AND LOWER(TRIM(s.stage)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(s.subject_type)) = LOWER(TRIM($3))
+           AND COALESCE(s.voided, false) = false
+           AND COALESCE(s.qualified, false) = true
+           AND COALESCE(NULLIF(TRIM(a.responses->>'nonResponsiveExcluded'), ''), 'false')::boolean = true`
+      : `SELECT s.id, s.subject_name AS subjectName, s.metadata
+         FROM procurement_stage_subjects s
+         WHERE s.project_id = ?
+           AND LOWER(TRIM(s.stage)) = LOWER(TRIM(?))
+           AND LOWER(TRIM(s.subject_type)) = LOWER(TRIM(?))
+           AND COALESCE(s.voided, 0) = 0
+           AND COALESCE(s.qualified, 0) = 1`;
+    const src = rowsOf(await pool.query(q, [projectId, STAGE_PRE_QUALIFICATION, subjType]));
+    for (const row of src) {
+      const name = String(row.subjectName || '').trim();
+      if (!name) continue;
+      if (await subjectRowExists(projectId, STAGE_BID_EVALUATION, name, subjType)) continue;
+      const meta = mergeUpstreamMetadata(row.metadata, STAGE_PRE_QUALIFICATION, row.id);
+      if (isPostgres) {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES ($1,$2,$3,$4,$5::jsonb,NOW(),NOW(),false)`,
+          [projectId, STAGE_BID_EVALUATION, subjType, name, JSON.stringify(meta)]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES (?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+          [projectId, STAGE_BID_EVALUATION, subjType, name, JSON.stringify(meta)]
+        );
+      }
+    }
+    return;
+  }
+
+  if (st === stageNorm(STAGE_AWARD_DECISION)) {
+    const q = isPostgres
+      ? `SELECT id, subject_name AS "subjectName", metadata
+         FROM procurement_stage_subjects
+         WHERE project_id = $1
+           AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+           AND COALESCE(voided, false) = false
+           AND COALESCE(qualified, false) = true`
+      : `SELECT id, subject_name AS subjectName, metadata
+         FROM procurement_stage_subjects
+         WHERE project_id = ?
+           AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+           AND COALESCE(voided, 0) = 0
+           AND COALESCE(qualified, 0) = 1`;
+    const src = rowsOf(await pool.query(q, [projectId, STAGE_BID_EVALUATION, subjType]));
+    for (const row of src) {
+      const name = String(row.subjectName || '').trim();
+      if (!name) continue;
+      if (await subjectRowExists(projectId, STAGE_AWARD_DECISION, name, subjType)) continue;
+      const meta = mergeUpstreamMetadata(row.metadata, STAGE_BID_EVALUATION, row.id);
+      if (isPostgres) {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES ($1,$2,$3,$4,$5::jsonb,NOW(),NOW(),false)`,
+          [projectId, STAGE_AWARD_DECISION, subjType, name, JSON.stringify(meta)]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES (?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+          [projectId, STAGE_AWARD_DECISION, subjType, name, JSON.stringify(meta)]
+        );
+      }
+    }
+    return;
+  }
+
+  if (st === stageNorm(STAGE_CONTRACT_SIGNING)) {
+    const qAward = isPostgres
+      ? `SELECT id, subject_name AS "subjectName", metadata, latest_decision AS "latestDecision"
+         FROM procurement_stage_subjects
+         WHERE project_id = $1
+           AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+           AND COALESCE(voided, false) = false`
+      : `SELECT id, subject_name AS subjectName, metadata, latest_decision AS latestDecision
+         FROM procurement_stage_subjects
+         WHERE project_id = ?
+           AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+           AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+           AND COALESCE(voided, 0) = 0`;
+    const awardRows = rowsOf(await pool.query(qAward, [projectId, STAGE_AWARD_DECISION, subjType]));
+    const src = awardRows.filter((row) =>
+      decisionIsAwarded(row.latestDecision != null ? row.latestDecision : row.latest_decision)
+    );
+
+    for (const row of src) {
+      const name = String(row.subjectName || '').trim();
+      if (!name) continue;
+      if (await subjectRowExists(projectId, STAGE_CONTRACT_SIGNING, name, subjType)) continue;
+      const meta = mergeUpstreamMetadata(row.metadata, STAGE_AWARD_DECISION, row.id);
+      if (isPostgres) {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES ($1,$2,$3,$4,$5::jsonb,NOW(),NOW(),false)`,
+          [projectId, STAGE_CONTRACT_SIGNING, subjType, name, JSON.stringify(meta)]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO procurement_stage_subjects
+            (project_id, stage, subject_type, subject_name, metadata, created_at, updated_at, voided)
+           VALUES (?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+          [projectId, STAGE_CONTRACT_SIGNING, subjType, name, JSON.stringify(meta)]
+        );
+      }
+    }
+  }
+}
+
+// --- After contract signing (workflow): contractor + project handoff (PostgreSQL) ---
+let procurementContractorsTableEnsured = false;
+let procurementPcaTableEnsured = false;
+
+async function ensureContractorsTableForProcurementClosure() {
+  if (!isPostgres || procurementContractorsTableEnsured) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contractors (
+      "contractorId" SERIAL PRIMARY KEY,
+      "companyName" VARCHAR(255) NOT NULL,
+      "contactPerson" VARCHAR(255) NULL,
+      email VARCHAR(255) NOT NULL,
+      phone VARCHAR(100) NULL,
+      "userId" INTEGER NULL,
+      voided BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS "contractorTypeId" INTEGER NULL`);
+  procurementContractorsTableEnsured = true;
+}
+
+async function ensureProjectContractorAssignmentsForProcurementClosure() {
+  if (!isPostgres || procurementPcaTableEnsured) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "project_contractor_assignments" (
+      "projectId" INTEGER NOT NULL,
+      "contractorId" INTEGER NOT NULL,
+      "assignmentDate" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      voided BOOLEAN NOT NULL DEFAULT false,
+      PRIMARY KEY ("projectId", "contractorId"),
+      CONSTRAINT fk_project_contractor_assignments_project
+        FOREIGN KEY ("projectId") REFERENCES projects (project_id) ON DELETE CASCADE,
+      CONSTRAINT fk_project_contractor_assignments_contractor
+        FOREIGN KEY ("contractorId") REFERENCES contractors ("contractorId") ON DELETE CASCADE
+    )
+  `);
+  procurementPcaTableEnsured = true;
+}
+
+async function findContractorIdByCompanyOrEmailPG(companyName, email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (em) {
+    const r = rowsOf(await pool.query(
+      `SELECT "contractorId" FROM contractors
+       WHERE COALESCE(voided, false) = false AND LOWER(TRIM(email)) = $1
+       LIMIT 1`,
+      [em]
+    ))[0];
+    if (r?.contractorId != null) return Number(r.contractorId);
+  }
+  const cn = String(companyName || '').trim();
+  if (cn) {
+    const r2 = rowsOf(await pool.query(
+      `SELECT "contractorId" FROM contractors
+       WHERE COALESCE(voided, false) = false
+         AND LOWER(TRIM("companyName")) = LOWER(TRIM($1))
+       LIMIT 1`,
+      [cn]
+    ))[0];
+    if (r2?.contractorId != null) return Number(r2.contractorId);
+  }
+  return null;
+}
+
+async function createContractorFromBidderPG({ companyName, contactPerson, email, phone }) {
+  const result = await pool.query(
+    `INSERT INTO contractors ("companyName", "contactPerson", email, phone, voided)
+     VALUES ($1, $2, $3, $4, false)
+     RETURNING "contractorId"`,
+    [companyName, contactPerson || null, email, phone || null]
+  );
+  return Number(rowsOf(result)[0]?.contractorId) || null;
+}
+
+async function assignContractorToProjectPG(projectId, contractorId) {
+  await ensureProjectContractorAssignmentsForProcurementClosure();
+  await pool.query(
+    `INSERT INTO "project_contractor_assignments" ("projectId", "contractorId")
+     VALUES ($1, $2)
+     ON CONFLICT ("projectId", "contractorId") DO NOTHING`,
+    [projectId, contractorId]
+  );
+}
+
+async function loadRegistryMetadataForBidderName(projectId, subjectName) {
+  const name = String(subjectName || '').trim();
+  if (!name) return {};
+  const r = rowsOf(await pool.query(
+    `SELECT metadata FROM procurement_stage_subjects
+     WHERE project_id = $1
+       AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+       AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+       AND LOWER(TRIM(subject_name)) = LOWER(TRIM($4))
+       AND COALESCE(voided, false) = false
+     ORDER BY updated_at DESC NULLS LAST, id DESC
+     LIMIT 1`,
+    [projectId, STAGE_BIDDER_REGISTRY, 'bidder', name]
+  ))[0];
+  return coerceSubjectMetadata(r?.metadata);
+}
+
+async function resolveBidderForContractClosure(projectId) {
+  const cs = rowsOf(await pool.query(
+    `SELECT id, subject_name AS "subjectName", metadata
+     FROM procurement_stage_subjects
+     WHERE project_id = $1
+       AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+       AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+       AND COALESCE(voided, false) = false
+     ORDER BY updated_at DESC NULLS LAST, id DESC
+     LIMIT 1`,
+    [projectId, STAGE_CONTRACT_SIGNING, 'bidder']
+  ))[0];
+  if (cs) {
+    const reg = await loadRegistryMetadataForBidderName(projectId, cs.subjectName);
+    const meta = { ...reg, ...coerceSubjectMetadata(cs.metadata) };
+    return {
+      subjectId: cs.id,
+      subjectName: String(cs.subjectName || '').trim(),
+      metadata: meta,
+    };
+  }
+  const aw = rowsOf(await pool.query(
+    `SELECT id, subject_name AS "subjectName", metadata
+     FROM procurement_stage_subjects
+     WHERE project_id = $1
+       AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+       AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+       AND COALESCE(voided, false) = false
+       AND LOWER(TRIM(COALESCE(latest_decision, ''))) = 'awarded'
+     ORDER BY updated_at DESC NULLS LAST, id DESC
+     LIMIT 1`,
+    [projectId, STAGE_AWARD_DECISION, 'bidder']
+  ))[0];
+  if (!aw) return null;
+  const reg = await loadRegistryMetadataForBidderName(projectId, aw.subjectName);
+  const meta = { ...reg, ...coerceSubjectMetadata(aw.metadata) };
+  return {
+    subjectId: aw.id,
+    subjectName: String(aw.subjectName || '').trim(),
+    metadata: meta,
+  };
+}
+
+/**
+ * When Contract Signing workflow step is Approved: create contractor if missing, assign project,
+ * set project status to Not Started (exit procurement), stamp completion metadata for historical queries.
+ */
+async function finalizeProcurementContractClosure(projectId, stage, decision) {
+  if (!isPostgres || !Number.isFinite(projectId)) return { skipped: true };
+  if (stageNorm(stage) !== stageNorm(STAGE_CONTRACT_SIGNING)) return { skipped: true };
+  const dec = String(decision || '').trim().toLowerCase();
+  if (dec !== 'approved') return { skipped: true };
+
+  const projRow = rowsOf(await pool.query(
+    `SELECT project_id, progress FROM projects WHERE project_id = $1 AND COALESCE(voided, false) = false`,
+    [projectId]
+  ))[0];
+  if (!projRow) return { ok: false, message: 'Project not found.' };
+
+  let progressObj = {};
+  try {
+    progressObj =
+      projRow.progress && typeof projRow.progress === 'object'
+        ? projRow.progress
+        : JSON.parse(projRow.progress || '{}');
+  } catch {
+    progressObj = {};
+  }
+  if (progressObj.procurement_completed_at) {
+    return { skipped: true, reason: 'already_finalized' };
+  }
+
+  const bidder = await resolveBidderForContractClosure(projectId);
+  if (!bidder || !bidder.subjectName) {
+    return {
+      ok: false,
+      message:
+        'No Contract Signing bidder (or awarded bidder) found. Complete Award and Contract Signing subjects first.',
+    };
+  }
+
+  const meta = bidder.metadata || {};
+  const companyName = String(meta.companyName || bidder.subjectName || '').trim();
+  const contactPerson = String(meta.contactName || '').trim();
+  let email = String(meta.contactEmail || '').trim().toLowerCase();
+  const phone = String(meta.contactPhone || '').trim();
+  if (!email) {
+    const slug = String(companyName || 'bidder')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80);
+    email = `procurement.${projectId}.${slug || 'bidder'}@local.placeholder`;
+  }
+
+  await ensureContractorsTableForProcurementClosure();
+
+  let contractorId = await findContractorIdByCompanyOrEmailPG(companyName, meta.contactEmail || email);
+  if (contractorId == null) {
+    try {
+      contractorId = await createContractorFromBidderPG({
+        companyName,
+        contactPerson,
+        email,
+        phone,
+      });
+    } catch (e) {
+      if (e?.code === '23505') {
+        contractorId = await findContractorIdByCompanyOrEmailPG(companyName, meta.contactEmail || email);
+      }
+      if (contractorId == null) throw e;
+    }
+  }
+  if (contractorId == null) {
+    return { ok: false, message: 'Could not create or resolve contractor.' };
+  }
+
+  await assignContractorToProjectPG(projectId, contractorId);
+
+  const prevStatus = progressObj.status != null ? String(progressObj.status) : '';
+
+  await pool.query(
+    `UPDATE projects
+     SET progress = jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               jsonb_set(
+                 COALESCE(progress, '{}'::jsonb),
+                 '{status}',
+                 '"Not Started"'::jsonb,
+                 true
+               ),
+               '{procurement_completed_at}',
+               to_jsonb(NOW()::text),
+               true
+             ),
+             '{procurement_previous_status}',
+             to_jsonb(COALESCE($2::text, '')),
+             true
+           ),
+           '{procurement_awarded_contractor_id}',
+           to_jsonb($3::int),
+           true
+         ),
+         updated_at = NOW()
+     WHERE project_id = $1 AND COALESCE(voided, false) = false`,
+    [projectId, prevStatus, contractorId]
+  );
+
+  return {
+    ok: true,
+    contractorId,
+    companyName,
+    projectId,
+    message: 'Project handed off to contractors as Not Started; procurement history retained on workflow & assessments.',
+  };
 }
 
 function normalizeTemplateFields(fields) {
@@ -610,13 +1766,21 @@ async function ensureProcurementSchema() {
   await ensureProcurementWorkflowTable();
   await ensureProcurementStagesTable();
   await ensureProcurementAttachmentsTable();
+  await ensureProcurementAttachmentsSubjectIdColumn();
   await ensureProcurementChecklistTable();
   await ensureProcurementTemplatesTable();
   await ensureProcurementSubjectsTable();
   await ensureProcurementAssessmentsTable();
   await ensureProcurementGateRulesTable();
+  await ensureProcurementGateRulesMinScoreColumn();
   await seedProcurementStagesIfNeeded();
-  await seedBidEvaluationTemplateIfNeeded();
+  await ensureBidderRegistryStageInserted();
+  await ensureBidderPreQualStageInserted();
+  await normalizeDefaultProcurementStageOrder();
+  await seedProcurementStageTemplatesIfNeeded();
+  // NOTE: We do not auto-overwrite templates here because users may customize stage templates.
+  // Use the SQL migration scripts to update seeded templates on existing environments.
+  await seedPreQualificationGateRuleIfNeeded();
   await seedBidEvaluationGateRuleIfNeeded();
   procurementSchemaEnsured = true;
 }
@@ -877,6 +2041,40 @@ router.delete('/stages/:id', async (req, res) => {
   }
 });
 
+/** Projects that finished procurement (contract signed / handoff). Historical workflow rows remain on each project. */
+router.get('/projects/completed-history', async (req, res) => {
+  if (!isPostgres) return res.status(200).json([]);
+  try {
+    const result = await pool.query(
+      `SELECT
+         p.project_id AS "projectId",
+         p.name AS "projectName",
+         COALESCE(p.progress->>'status', '') AS "projectStatus",
+         p.progress->>'procurement_completed_at' AS "procurementCompletedAt",
+         p.progress->>'procurement_previous_status' AS "procurementPreviousStatus",
+         NULLIF(TRIM(p.progress->>'procurement_awarded_contractor_id'), '') AS "awardedContractorId",
+         wf.stage AS "lastWorkflowStage",
+         wf.decision AS "lastWorkflowDecision",
+         wf.updated_at AS "lastWorkflowAt"
+       FROM projects p
+       LEFT JOIN LATERAL (
+         SELECT stage, decision, updated_at
+         FROM project_procurement_workflow w
+         WHERE w.project_id = p.project_id AND COALESCE(w.voided, false) = false
+         ORDER BY w.updated_at DESC NULLS LAST, w.id DESC
+         LIMIT 1
+       ) wf ON true
+       WHERE COALESCE(p.voided, false) = false
+         AND p.progress ? 'procurement_completed_at'
+       ORDER BY (p.progress->>'procurement_completed_at') DESC NULLS LAST`
+    );
+    return res.status(200).json(rowsOf(result));
+  } catch (error) {
+    console.error('Error listing completed procurements:', error);
+    return res.status(500).json({ message: 'Error listing completed procurements', error: error.message });
+  }
+});
+
 router.get('/projects', async (req, res) => {
   try {
     let schemaReady = true;
@@ -1119,7 +2317,13 @@ router.post('/projects/:projectId/workflow', async (req, res) => {
                    created_at AS "createdAt", updated_at AS "updatedAt"`,
         [projectId, stage, decision, notes, actorId]
       );
-      return res.status(201).json(rowsOf(result)[0]);
+      const row = rowsOf(result)[0];
+      try {
+        await finalizeProcurementContractClosure(projectId, stage, decision);
+      } catch (finErr) {
+        console.error('finalizeProcurementContractClosure (workflow POST):', finErr);
+      }
+      return res.status(201).json(row);
     }
     const insert = await pool.query(
       `INSERT INTO project_procurement_workflow
@@ -1141,30 +2345,109 @@ router.post('/projects/:projectId/workflow', async (req, res) => {
   }
 });
 
+router.patch('/projects/:projectId/workflow/:workflowId', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const workflowId = Number(req.params.workflowId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(workflowId)) {
+    return res.status(400).json({ message: 'Invalid projectId/workflowId.' });
+  }
+  const decision = req.body?.decision != null ? String(req.body.decision).trim() : null;
+  const notes = req.body?.notes != null ? String(req.body.notes).trim() : null;
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  try {
+    await ensureProcurementSchema();
+    const sql = isPostgres
+      ? `UPDATE project_procurement_workflow
+         SET decision = $1, notes = $2, actor_id = COALESCE($3, actor_id), updated_at = NOW()
+         WHERE id = $4 AND project_id = $5 AND COALESCE(voided, false) = false
+         RETURNING id, project_id AS "projectId", stage, decision, notes, actor_id AS "actorId",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`
+      : `UPDATE project_procurement_workflow
+         SET decision = ?, notes = ?, actor_id = COALESCE(?, actor_id), updated_at = NOW()
+         WHERE id = ? AND project_id = ? AND COALESCE(voided, 0) = 0`;
+    const r = await pool.query(sql, isPostgres ? [decision, notes, actorId, workflowId, projectId] : [decision, notes, actorId, workflowId, projectId]);
+    if (isPostgres) {
+      const row = rowsOf(r)[0];
+      if (!row) return res.status(404).json({ message: 'Workflow step not found.' });
+      try {
+        await finalizeProcurementContractClosure(projectId, row.stage, row.decision ?? decision);
+      } catch (finErr) {
+        console.error('finalizeProcurementContractClosure (workflow PATCH):', finErr);
+      }
+      return res.status(200).json(row);
+    }
+    if ((r?.affectedRows || r?.[0]?.affectedRows || 0) <= 0) return res.status(404).json({ message: 'Workflow step not found.' });
+    const sel = await pool.query(
+      `SELECT id, project_id AS projectId, stage, decision, notes, actor_id AS actorId,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM project_procurement_workflow WHERE id = ?`,
+      [workflowId]
+    );
+    return res.status(200).json(rowsOf(sel)[0]);
+  } catch (error) {
+    console.error('Error updating procurement workflow step:', error);
+    return res.status(500).json({ message: 'Error updating procurement workflow step', error: error.message });
+  }
+});
+
+router.delete('/projects/:projectId/workflow/:workflowId', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const workflowId = Number(req.params.workflowId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(workflowId)) {
+    return res.status(400).json({ message: 'Invalid projectId/workflowId.' });
+  }
+  try {
+    await ensureProcurementSchema();
+    const sql = isPostgres
+      ? `UPDATE project_procurement_workflow
+         SET voided = true, updated_at = NOW()
+         WHERE id = $1 AND project_id = $2 AND COALESCE(voided, false) = false
+         RETURNING id`
+      : `UPDATE project_procurement_workflow
+         SET voided = 1, updated_at = NOW()
+         WHERE id = ? AND project_id = ? AND COALESCE(voided, 0) = 0`;
+    const r = await pool.query(sql, [workflowId, projectId]);
+    if (isPostgres) {
+      if (!rowsOf(r).length) return res.status(404).json({ message: 'Workflow step not found.' });
+    } else if ((r?.affectedRows || r?.[0]?.affectedRows || 0) <= 0) {
+      return res.status(404).json({ message: 'Workflow step not found.' });
+    }
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting procurement workflow step:', error);
+    return res.status(500).json({ message: 'Error deleting procurement workflow step', error: error.message });
+  }
+});
+
 router.get('/projects/:projectId/attachments', async (req, res) => {
   const projectId = Number(req.params.projectId);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
   const stage = String(req.query?.stage || '').trim();
+  const subjectId = req.query?.subjectId != null && String(req.query.subjectId).trim() !== ''
+    ? Number(req.query.subjectId)
+    : null;
   try {
     await ensureProcurementSchema();
     const sql = isPostgres
-      ? `SELECT id, project_id AS "projectId", stage, file_name AS "fileName", file_path AS "filePath",
+      ? `SELECT id, project_id AS "projectId", stage, subject_id AS "subjectId", file_name AS "fileName", file_path AS "filePath",
                 mime_type AS "mimeType", file_size AS "fileSize", title, notes,
                 uploaded_by AS "uploadedBy", created_at AS "createdAt", updated_at AS "updatedAt"
          FROM procurement_attachments
          WHERE project_id = $1
            AND COALESCE(voided, false) = false
            AND ($2::text = '' OR COALESCE(stage, '') = $2::text)
+           AND ($3::bigint IS NULL OR subject_id = $3::bigint)
          ORDER BY created_at DESC, id DESC`
-      : `SELECT id, project_id AS projectId, stage, file_name AS fileName, file_path AS filePath,
+      : `SELECT id, project_id AS projectId, stage, subject_id AS subjectId, file_name AS fileName, file_path AS filePath,
                 mime_type AS mimeType, file_size AS fileSize, title, notes,
                 uploaded_by AS uploadedBy, created_at AS createdAt, updated_at AS updatedAt
          FROM procurement_attachments
          WHERE project_id = ?
            AND COALESCE(voided, 0) = 0
            AND (? = '' OR COALESCE(stage, '') = ?)
+           AND (? IS NULL OR subject_id = ?)
          ORDER BY created_at DESC, id DESC`;
-    const params = isPostgres ? [projectId, stage] : [projectId, stage, stage];
+    const params = isPostgres ? [projectId, stage, subjectId] : [projectId, stage, stage, subjectId, subjectId];
     const result = await pool.query(sql, params);
     return res.status(200).json(rowsOf(result));
   } catch (error) {
@@ -1178,33 +2461,45 @@ router.post('/projects/:projectId/attachments', upload.single('file'), async (re
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
   if (!req.file) return res.status(400).json({ message: 'file is required.' });
   const stage = String(req.body?.stage || '').trim() || null;
+  const subjectId = req.body?.subjectId != null && String(req.body.subjectId).trim() !== ''
+    ? Number(req.body.subjectId)
+    : null;
   const title = String(req.body?.title || '').trim() || null;
   const notes = String(req.body?.notes || '').trim() || null;
   const uploadedBy = Number(req.user?.userId || req.user?.id || null) || null;
   const relPath = path.relative(path.join(__dirname, '..', '..'), req.file.path).replace(/\\/g, '/');
   try {
     await ensureProcurementSchema();
+    if (subjectId != null && Number.isFinite(subjectId)) {
+      const subjSql = isPostgres
+        ? `SELECT 1 FROM procurement_stage_subjects
+           WHERE id = $1 AND project_id = $2 AND COALESCE(voided, false) = false`
+        : `SELECT 1 FROM procurement_stage_subjects
+           WHERE id = ? AND project_id = ? AND COALESCE(voided, 0) = 0`;
+      const ok = rowsOf(await pool.query(subjSql, [subjectId, projectId])).length > 0;
+      if (!ok) return res.status(400).json({ message: 'Invalid subjectId for this project.' });
+    }
     if (isPostgres) {
       const result = await pool.query(
         `INSERT INTO procurement_attachments
-          (project_id, stage, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),false)
-         RETURNING id, project_id AS "projectId", stage, file_name AS "fileName", file_path AS "filePath",
+          (project_id, stage, subject_id, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW(),false)
+         RETURNING id, project_id AS "projectId", stage, subject_id AS "subjectId", file_name AS "fileName", file_path AS "filePath",
                    mime_type AS "mimeType", file_size AS "fileSize", title, notes, uploaded_by AS "uploadedBy",
                    created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [projectId, stage, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
+        [projectId, stage, Number.isFinite(subjectId) ? subjectId : null, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
       );
       return res.status(201).json(rowsOf(result)[0]);
     }
     const ins = await pool.query(
       `INSERT INTO procurement_attachments
-       (project_id, stage, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
-      [projectId, stage, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
+       (project_id, stage, subject_id, file_name, file_path, mime_type, file_size, title, notes, uploaded_by, created_at, updated_at, voided)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+      [projectId, stage, Number.isFinite(subjectId) ? subjectId : null, req.file.originalname, relPath, req.file.mimetype || null, req.file.size || null, title, notes, uploadedBy]
     );
     const insertId = ins?.insertId || ins?.[0]?.insertId;
     const sel = await pool.query(
-      `SELECT id, project_id AS projectId, stage, file_name AS fileName, file_path AS filePath,
+      `SELECT id, project_id AS projectId, stage, subject_id AS subjectId, file_name AS fileName, file_path AS filePath,
               mime_type AS mimeType, file_size AS fileSize, title, notes, uploaded_by AS uploadedBy,
               created_at AS createdAt, updated_at AS updatedAt
        FROM procurement_attachments WHERE id = ?`,
@@ -1356,18 +2651,34 @@ router.get('/templates', async (req, res) => {
   const stage = String(req.query?.stage || '').trim();
   const includeInactive =
     String(req.query?.all || '').trim() === '1' || String(req.query?.all || '').toLowerCase() === 'true';
-  const fallbackTemplates = [
-    {
-      id: -1,
-      stage: 'Bid Evaluation',
-      name: 'Bidder Suitability Checklist',
-      subjectType: 'bidder',
-      fields: normalizeTemplateFields(getDefaultBidEvaluationFields()),
-      active: true,
-      createdAt: null,
-      updatedAt: null,
-    },
-  ];
+  const fallbackTemplates = (() => {
+    try {
+      const seeds = getProcurementStageTemplateSeeds();
+      return (Array.isArray(seeds) ? seeds : []).map((s, idx) => ({
+        id: -1 * (idx + 1),
+        stage: s.stage,
+        name: s.name,
+        subjectType: s.subjectType || 'generic',
+        fields: normalizeTemplateFields(s.fields),
+        active: true,
+        createdAt: null,
+        updatedAt: null,
+      }));
+    } catch {
+      return [
+        {
+          id: -1,
+          stage: STAGE_BID_EVALUATION,
+          name: 'Bidder Suitability Checklist',
+          subjectType: 'bidder',
+          fields: normalizeTemplateFields(getDefaultBidEvaluationFields()),
+          active: true,
+          createdAt: null,
+          updatedAt: null,
+        },
+      ];
+    }
+  })();
   try {
     try {
       await ensureProcurementSchema();
@@ -1378,6 +2689,7 @@ router.get('/templates', async (req, res) => {
         : fallbackTemplates;
       return res.status(200).json(filtered);
     }
+    const prefNeeds = NEEDS_IDENTIFICATION_DEFAULT_TEMPLATE_NAME;
     const sql = isPostgres
       ? `SELECT id, stage, name, subject_type AS "subjectType", fields, active,
                 created_at AS "createdAt", updated_at AS "updatedAt"
@@ -1385,15 +2697,35 @@ router.get('/templates', async (req, res) => {
          WHERE COALESCE(voided, false) = false
            AND ($1::text = '' OR LOWER(TRIM(stage)) = LOWER(TRIM($1::text)))
            AND ($2::boolean = true OR COALESCE(active, true) = true)
-         ORDER BY stage ASC, id ASC`
+         ORDER BY
+           stage ASC,
+           CASE
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification'))
+              AND LOWER(TRIM(name)) = LOWER(TRIM($3::text)) THEN 0
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification'))
+              AND LOWER(TRIM(subject_type)) = LOWER(TRIM('bidder')) THEN 1
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification')) THEN 2
+             ELSE 3
+           END,
+           id ASC`
       : `SELECT id, stage, name, subject_type AS subjectType, fields, active,
                 created_at AS createdAt, updated_at AS updatedAt
          FROM procurement_stage_templates
          WHERE COALESCE(voided, 0) = 0
            AND (? = '' OR LOWER(TRIM(stage)) = LOWER(TRIM(?)))
            AND (? = 1 OR COALESCE(active, 1) = 1)
-         ORDER BY stage ASC, id ASC`;
-    const params = isPostgres ? [stage, includeInactive] : [stage, stage, includeInactive ? 1 : 0];
+         ORDER BY
+           stage ASC,
+           CASE
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification'))
+              AND LOWER(TRIM(name)) = LOWER(TRIM(?)) THEN 0
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification'))
+              AND LOWER(TRIM(subject_type)) = LOWER(TRIM('bidder')) THEN 1
+             WHEN LOWER(TRIM(stage)) = LOWER(TRIM('Needs Identification')) THEN 2
+             ELSE 3
+           END,
+           id ASC`;
+    const params = isPostgres ? [stage, includeInactive, prefNeeds] : [stage, stage, includeInactive ? 1 : 0, prefNeeds];
     const result = await pool.query(sql, params);
     const rows = rowsOf(result).map((r) => ({
       ...r,
@@ -1955,9 +3287,50 @@ router.get('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
   const projectId = Number(req.params.projectId);
   const stage = String(req.params.stage || '').trim();
   const subjectType = String(req.query?.subjectType || 'bidder').trim() || 'bidder';
+  const skipSync =
+    req.query?.skipSync === '1' ||
+    String(req.query?.skipSync || '').toLowerCase() === 'true';
   if (!Number.isFinite(projectId) || !stage) return res.status(400).json({ message: 'Invalid projectId or stage.' });
   try {
     await ensureProcurementSchema();
+    if (!skipSync && subjectType === 'bidder') {
+      await syncBidderSubjectsForList(projectId, stage);
+    }
+    if (subjectType === 'generic') {
+      const existsSql = isPostgres
+        ? `SELECT id FROM procurement_stage_subjects
+           WHERE project_id = $1 AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+             AND COALESCE(voided, false) = false
+           ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1`
+        : `SELECT id FROM procurement_stage_subjects
+           WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+             AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+             AND COALESCE(voided, 0) = 0
+           ORDER BY created_at DESC, id DESC LIMIT 1`;
+      const existing = rowsOf(await pool.query(existsSql, [projectId, stage, subjectType]))[0];
+      if (!existing) {
+        const createdBy = Number(req.user?.userId || req.user?.id || null) || null;
+        if (isPostgres) {
+          await pool.query(
+            `INSERT INTO procurement_stage_subjects
+              (project_id, stage, subject_type, subject_name, metadata, created_by, created_at, updated_at, voided)
+             VALUES ($1,$2,$3,$4,$5::jsonb,$6,NOW(),NOW(),false)`,
+            [projectId, stage, subjectType, 'Project', JSON.stringify({}), createdBy]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO procurement_stage_subjects
+             (project_id, stage, subject_type, subject_name, metadata, created_by, created_at, updated_at, voided)
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)`,
+            [projectId, stage, subjectType, 'Project', JSON.stringify({}), createdBy]
+          );
+        }
+      }
+    }
+    const isBidEvalResponsiveFilter =
+      subjectType === 'bidder' && stageNorm(stage) === stageNorm(STAGE_BID_EVALUATION);
+
     const sql = isPostgres
       ? `SELECT s.id, s.project_id AS "projectId", s.stage, s.subject_type AS "subjectType",
                 s.subject_name AS "subjectName", s.metadata, s.qualified, s.latest_score AS "latestScore",
@@ -1976,6 +3349,25 @@ router.get('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
            AND LOWER(TRIM(s.stage)) = LOWER(TRIM($2))
            AND LOWER(TRIM(s.subject_type)) = LOWER(TRIM($3))
            AND COALESCE(s.voided, false) = false
+           ${isBidEvalResponsiveFilter ? `
+           AND EXISTS (
+             SELECT 1
+             FROM procurement_stage_subjects pq
+             LEFT JOIN LATERAL (
+               SELECT responses
+               FROM procurement_subject_assessments pqa
+               WHERE pqa.subject_id = pq.id AND COALESCE(pqa.voided, false) = false
+               ORDER BY pqa.updated_at DESC NULLS LAST, pqa.id DESC
+               LIMIT 1
+             ) pqa ON true
+             WHERE pq.project_id = s.project_id
+               AND LOWER(TRIM(pq.stage)) = LOWER(TRIM($4))
+               AND LOWER(TRIM(pq.subject_type)) = LOWER(TRIM($5))
+               AND LOWER(TRIM(pq.subject_name)) = LOWER(TRIM(s.subject_name))
+               AND COALESCE(pq.voided, false) = false
+               AND COALESCE(pq.qualified, false) = true
+               AND COALESCE(NULLIF(TRIM(pqa.responses->>'nonResponsiveExcluded'), ''), 'false')::boolean = true
+           )` : ''}
          ORDER BY s.created_at DESC, s.id DESC`
       : `SELECT s.id, s.project_id AS projectId, s.stage, s.subject_type AS subjectType,
                 s.subject_name AS subjectName, s.metadata, s.qualified, s.latest_score AS latestScore,
@@ -1986,7 +3378,14 @@ router.get('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
            AND LOWER(TRIM(s.subject_type)) = LOWER(TRIM(?))
            AND COALESCE(s.voided, 0) = 0
          ORDER BY s.created_at DESC, s.id DESC`;
-    const result = await pool.query(sql, [projectId, stage, subjectType]);
+
+    const params = isPostgres
+      ? (isBidEvalResponsiveFilter
+        ? [projectId, stage, subjectType, STAGE_PRE_QUALIFICATION, 'bidder']
+        : [projectId, stage, subjectType])
+      : [projectId, stage, subjectType];
+
+    const result = await pool.query(sql, params);
     const rows = rowsOf(result).map((r) => {
       const meta = (() => {
         if (r.metadata == null) return {};
@@ -2014,6 +3413,63 @@ router.post('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
   }
   try {
     await ensureProcurementSchema();
+
+    if (subjectType === 'bidder') {
+      if (stageNorm(stage) !== stageNorm(STAGE_BIDDER_REGISTRY)) {
+        return res.status(400).json({
+          message: `Bidders are registered only in "${STAGE_BIDDER_REGISTRY}". Later stages automatically filter/sync bidders as the procurement progresses.`,
+        });
+      }
+      const nameNorm = subjectName.trim().toLowerCase();
+      if (stageNorm(stage) === stageNorm(STAGE_AWARD_DECISION)) {
+        const qBe = isPostgres
+          ? `SELECT subject_name AS "subjectName" FROM procurement_stage_subjects
+             WHERE project_id = $1 AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+               AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+               AND COALESCE(voided, false) = false AND COALESCE(qualified, false) = true`
+          : `SELECT subject_name AS subjectName FROM procurement_stage_subjects
+             WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+               AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+               AND COALESCE(voided, 0) = 0 AND COALESCE(qualified, 0) = 1`;
+        const qualifiedBe = rowsOf(await pool.query(qBe, [projectId, STAGE_BID_EVALUATION, 'bidder']));
+        const allowed = new Set(
+          qualifiedBe.map((r) => String(r.subjectName || r.subject_name || '').trim().toLowerCase()).filter(Boolean)
+        );
+        if (allowed.size && !allowed.has(nameNorm)) {
+          return res.status(400).json({
+            message:
+              'Award Decision only accepts bidders who are marked qualified at Bid Evaluation (or sync bidders by opening this stage first).',
+          });
+        }
+      }
+      if (stageNorm(stage) === stageNorm(STAGE_CONTRACT_SIGNING)) {
+        const qAward = isPostgres
+          ? `SELECT subject_name AS "subjectName", latest_decision AS "latestDecision"
+             FROM procurement_stage_subjects
+             WHERE project_id = $1 AND LOWER(TRIM(stage)) = LOWER(TRIM($2))
+               AND LOWER(TRIM(subject_type)) = LOWER(TRIM($3))
+               AND COALESCE(voided, false) = false`
+          : `SELECT subject_name AS subjectName, latest_decision AS latestDecision
+             FROM procurement_stage_subjects
+             WHERE project_id = ? AND LOWER(TRIM(stage)) = LOWER(TRIM(?))
+               AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
+               AND COALESCE(voided, 0) = 0`;
+        const awardRows = rowsOf(await pool.query(qAward, [projectId, STAGE_AWARD_DECISION, 'bidder']));
+        const awardedNames = new Set(
+          awardRows
+            .filter((r) => decisionIsAwarded(r.latestDecision || r.latest_decision))
+            .map((r) => String(r.subjectName || r.subject_name || '').trim().toLowerCase())
+            .filter(Boolean)
+        );
+        if (awardedNames.size && !awardedNames.has(nameNorm)) {
+          return res.status(400).json({
+            message:
+              'Contract Signing only accepts the bidder whose Award Decision is “Awarded” (open this stage to sync from Award).',
+          });
+        }
+      }
+    }
+
     if (isPostgres) {
       const result = await pool.query(
         `INSERT INTO procurement_stage_subjects
@@ -2047,6 +3503,139 @@ router.post('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
   }
 });
 
+router.patch('/subjects/:subjectId', async (req, res) => {
+  const subjectId = Number(req.params.subjectId);
+  if (!Number.isFinite(subjectId)) return res.status(400).json({ message: 'Invalid subject id.' });
+  const subjectName = req.body?.subjectName != null ? String(req.body.subjectName).trim() : undefined;
+  if (subjectName !== undefined && !subjectName) return res.status(400).json({ message: 'subjectName cannot be empty.' });
+  try {
+    await ensureProcurementSchema();
+    const subj = rowsOf(await pool.query(
+      isPostgres
+        ? `SELECT id, project_id AS "projectId", stage, subject_type AS "subjectType"
+           FROM procurement_stage_subjects
+           WHERE id = $1 AND COALESCE(voided,false)=false`
+        : `SELECT id, project_id AS projectId, stage, subject_type AS subjectType
+           FROM procurement_stage_subjects
+           WHERE id = ? AND COALESCE(voided,0)=0`,
+      [subjectId]
+    ))[0];
+    if (!subj) return res.status(404).json({ message: 'Subject not found.' });
+
+    // Only allow editing bidder registry entries (master list).
+    if (stageNorm(subj.stage) !== stageNorm(STAGE_BIDDER_REGISTRY) || stageNorm(subj.subjectType) !== 'bidder') {
+      return res.status(400).json({ message: `Only "${STAGE_BIDDER_REGISTRY}" bidder entries can be edited.` });
+    }
+
+    if (subjectName === undefined) return res.status(400).json({ message: 'No fields to update.' });
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE procurement_stage_subjects
+         SET subject_name = $1, updated_at = NOW()
+         WHERE id = $2 AND COALESCE(voided,false)=false
+         RETURNING id, project_id AS "projectId", stage, subject_type AS "subjectType",
+                   subject_name AS "subjectName", metadata, qualified, latest_score AS "latestScore",
+                   latest_decision AS "latestDecision", created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [subjectName, subjectId]
+      );
+      const row = rowsOf(r)[0];
+      if (!row) return res.status(404).json({ message: 'Subject not found.' });
+      return res.status(200).json(row);
+    }
+    await pool.query(
+      `UPDATE procurement_stage_subjects
+       SET subject_name = ?, updated_at = NOW()
+       WHERE id = ? AND COALESCE(voided,0)=0`,
+      [subjectName, subjectId]
+    );
+    const sel = await pool.query(
+      `SELECT id, project_id AS projectId, stage, subject_type AS subjectType,
+              subject_name AS subjectName, metadata, qualified, latest_score AS latestScore,
+              latest_decision AS latestDecision, created_at AS createdAt, updated_at AS updatedAt
+       FROM procurement_stage_subjects WHERE id = ?`,
+      [subjectId]
+    );
+    return res.status(200).json(rowsOf(sel)[0]);
+  } catch (error) {
+    console.error('Error updating procurement subject:', error);
+    return res.status(500).json({ message: 'Error updating procurement subject', error: error.message });
+  }
+});
+
+router.delete('/subjects/:subjectId', async (req, res) => {
+  const subjectId = Number(req.params.subjectId);
+  if (!Number.isFinite(subjectId)) return res.status(400).json({ message: 'Invalid subject id.' });
+  try {
+    await ensureProcurementSchema();
+    const subj = rowsOf(await pool.query(
+      isPostgres
+        ? `SELECT id, project_id AS "projectId", stage, subject_type AS "subjectType"
+           FROM procurement_stage_subjects
+           WHERE id = $1 AND COALESCE(voided,false)=false`
+        : `SELECT id, project_id AS projectId, stage, subject_type AS subjectType
+           FROM procurement_stage_subjects
+           WHERE id = ? AND COALESCE(voided,0)=0`,
+      [subjectId]
+    ))[0];
+    if (!subj) return res.status(404).json({ message: 'Subject not found.' });
+
+    if (stageNorm(subj.stage) !== stageNorm(STAGE_BIDDER_REGISTRY) || stageNorm(subj.subjectType) !== 'bidder') {
+      return res.status(400).json({ message: `Only "${STAGE_BIDDER_REGISTRY}" bidder entries can be deleted.` });
+    }
+
+    if (isPostgres) {
+      await pool.query('BEGIN');
+      await pool.query(
+        `UPDATE procurement_stage_subjects SET voided = true, updated_at = NOW()
+         WHERE id = $1 AND COALESCE(voided,false)=false`,
+        [subjectId]
+      );
+      await pool.query(
+        `UPDATE procurement_subject_assessments SET voided = true, updated_at = NOW()
+         WHERE subject_id = $1 AND COALESCE(voided,false)=false`,
+        [subjectId]
+      );
+      // If bidder-linked documents exist, void them too.
+      try {
+        await pool.query(
+          `UPDATE procurement_attachments SET voided = true, updated_at = NOW()
+           WHERE subject_id = $1 AND COALESCE(voided,false)=false`,
+          [subjectId]
+        );
+      } catch {
+        // ignore if subject_id column not present in older DBs
+      }
+      await pool.query('COMMIT');
+      return res.status(204).send();
+    }
+
+    await pool.query(
+      `UPDATE procurement_stage_subjects SET voided = 1, updated_at = NOW()
+       WHERE id = ? AND COALESCE(voided,0)=0`,
+      [subjectId]
+    );
+    await pool.query(
+      `UPDATE procurement_subject_assessments SET voided = 1, updated_at = NOW()
+       WHERE subject_id = ? AND COALESCE(voided,0)=0`,
+      [subjectId]
+    );
+    try {
+      await pool.query(
+        `UPDATE procurement_attachments SET voided = 1, updated_at = NOW()
+         WHERE subject_id = ? AND COALESCE(voided,0)=0`,
+        [subjectId]
+      );
+    } catch {
+      // ignore
+    }
+    return res.status(204).send();
+  } catch (error) {
+    try { if (isPostgres) await pool.query('ROLLBACK'); } catch { /* ignore */ }
+    console.error('Error deleting procurement subject:', error);
+    return res.status(500).json({ message: 'Error deleting procurement subject', error: error.message });
+  }
+});
+
 router.get('/subjects/:subjectId/assessment', async (req, res) => {
   const subjectId = Number(req.params.subjectId);
   if (!Number.isFinite(subjectId)) return res.status(400).json({ message: 'Invalid subject id.' });
@@ -2067,6 +3656,7 @@ router.get('/subjects/:subjectId/assessment', async (req, res) => {
     const subject = rowsOf(subjRes)[0];
     if (!subject) return res.status(404).json({ message: 'Subject not found.' });
 
+    const prefName = preferredTemplateNameForAssessment(subject.stage);
     const templateSql = isPostgres
       ? `SELECT id, stage, name, subject_type AS "subjectType", fields, active
          FROM procurement_stage_templates
@@ -2074,16 +3664,33 @@ router.get('/subjects/:subjectId/assessment', async (req, res) => {
            AND LOWER(TRIM(subject_type)) = LOWER(TRIM($2))
            AND COALESCE(voided, false) = false
            AND COALESCE(active, true) = true
-         ORDER BY id DESC LIMIT 1`
+         ORDER BY
+           CASE WHEN $3::text <> '' AND LOWER(TRIM(name)) = LOWER(TRIM($3::text)) THEN 0 ELSE 1 END,
+           id DESC
+         LIMIT 1`
       : `SELECT id, stage, name, subject_type AS subjectType, fields, active
          FROM procurement_stage_templates
          WHERE LOWER(TRIM(stage)) = LOWER(TRIM(?))
            AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
            AND COALESCE(voided, 0) = 0
            AND COALESCE(active, 1) = 1
-         ORDER BY id DESC LIMIT 1`;
-    const tplRes = await pool.query(templateSql, [subject.stage, subject.subjectType || 'bidder']);
-    const template = rowsOf(tplRes)[0] || null;
+         ORDER BY
+           CASE WHEN ? <> '' AND LOWER(TRIM(name)) = LOWER(TRIM(?)) THEN 0 ELSE 1 END,
+           id DESC
+         LIMIT 1`;
+    const tplParams = isPostgres
+      ? [subject.stage, subject.subjectType || 'bidder', prefName]
+      : [subject.stage, subject.subjectType || 'bidder', prefName, prefName];
+    const tplRes = await pool.query(templateSql, tplParams);
+    let template = rowsOf(tplRes)[0] || null;
+    if (!template) {
+      const altType = alternateSubjectType(subject.subjectType || 'bidder');
+      const altParams = isPostgres
+        ? [subject.stage, altType, prefName]
+        : [subject.stage, altType, prefName, prefName];
+      const altRes = await pool.query(templateSql, altParams);
+      template = rowsOf(altRes)[0] || null;
+    }
 
     const assessmentSql = isPostgres
       ? `SELECT id, subject_id AS "subjectId", template_id AS "templateId", responses, score, max_score AS "maxScore",
@@ -2106,14 +3713,23 @@ router.get('/subjects/:subjectId/assessment', async (req, res) => {
       if (typeof v === 'object') return v;
       try { return JSON.parse(v); } catch { return fallback; }
     };
+    const subjectMeta = normalizeJson(subject.metadata, {});
+    const assessmentObj = assessment ? { ...assessment, responses: normalizeJson(assessment.responses, {}) } : null;
+    const responsesMerged = (() => {
+      const base = assessmentObj?.responses && typeof assessmentObj.responses === 'object' ? assessmentObj.responses : {};
+      const isRegistry = stageNorm(subject.stage) === stageNorm(STAGE_BIDDER_REGISTRY);
+      if (!isRegistry) return base;
+      // Pre-fill from metadata for registry stage (useful when older saves only touched metadata).
+      const patch = pickBidderRegistryMetadata(subjectMeta);
+      if (!Object.keys(patch).length) return base;
+      return { ...patch, ...base };
+    })();
     return res.status(200).json({
-      subject: { ...subject, metadata: normalizeJson(subject.metadata, {}) },
+      subject: { ...subject, metadata: subjectMeta },
       template: template
         ? { ...template, fields: normalizeTemplateFields(normalizeJson(template.fields, [])) }
         : null,
-      assessment: assessment
-        ? { ...assessment, responses: normalizeJson(assessment.responses, {}) }
-        : null,
+      assessment: assessmentObj ? { ...assessmentObj, responses: responsesMerged } : null,
     });
   } catch (error) {
     console.error('Error loading subject assessment:', error);
@@ -2141,6 +3757,7 @@ router.put('/subjects/:subjectId/assessment', async (req, res) => {
     const subject = rowsOf(subjectRes)[0];
     if (!subject) return res.status(404).json({ message: 'Subject not found.' });
 
+    const prefNameSave = preferredTemplateNameForAssessment(subject.stage);
     const tplSql = isPostgres
       ? `SELECT id, fields
          FROM procurement_stage_templates
@@ -2148,43 +3765,115 @@ router.put('/subjects/:subjectId/assessment', async (req, res) => {
            AND LOWER(TRIM(subject_type)) = LOWER(TRIM($2))
            AND COALESCE(voided, false) = false
            AND COALESCE(active, true) = true
-         ORDER BY id DESC LIMIT 1`
+         ORDER BY
+           CASE WHEN $3::text <> '' AND LOWER(TRIM(name)) = LOWER(TRIM($3::text)) THEN 0 ELSE 1 END,
+           id DESC
+         LIMIT 1`
       : `SELECT id, fields
          FROM procurement_stage_templates
          WHERE LOWER(TRIM(stage)) = LOWER(TRIM(?))
            AND LOWER(TRIM(subject_type)) = LOWER(TRIM(?))
            AND COALESCE(voided, 0) = 0
            AND COALESCE(active, 1) = 1
-         ORDER BY id DESC LIMIT 1`;
-    const tplRes = await pool.query(tplSql, [subject.stage, subject.subjectType || 'bidder']);
-    const tpl = rowsOf(tplRes)[0];
+         ORDER BY
+           CASE WHEN ? <> '' AND LOWER(TRIM(name)) = LOWER(TRIM(?)) THEN 0 ELSE 1 END,
+           id DESC
+         LIMIT 1`;
+    const tplParamsSave = isPostgres
+      ? [subject.stage, subject.subjectType || 'bidder', prefNameSave]
+      : [subject.stage, subject.subjectType || 'bidder', prefNameSave, prefNameSave];
+    const tplRes = await pool.query(tplSql, tplParamsSave);
+    let tpl = rowsOf(tplRes)[0];
+    if (!tpl) {
+      const altType = alternateSubjectType(subject.subjectType || 'bidder');
+      const altParams = isPostgres
+        ? [subject.stage, altType, prefNameSave]
+        : [subject.stage, altType, prefNameSave, prefNameSave];
+      const altRes = await pool.query(tplSql, altParams);
+      tpl = rowsOf(altRes)[0];
+    }
     if (!tpl) return res.status(400).json({ message: 'No active template found for this stage/subject type.' });
     const rawFields = tpl.fields && typeof tpl.fields === 'object' ? tpl.fields : (() => {
       try { return JSON.parse(tpl.fields || '[]'); } catch { return []; }
     })();
     const fields = normalizeTemplateFields(rawFields);
     const scored = scoreAssessment(fields, responses);
-    const qualified = req.body?.qualified !== undefined
+    let qualified = req.body?.qualified !== undefined
       ? Boolean(req.body.qualified === true || req.body.qualified === 1 || req.body.qualified === '1')
       : scored.qualified;
 
+    // For Bid Evaluation, only bidders explicitly recommended should proceed to Award Decision.
+    if (stageNorm(subject.stage) === stageNorm(STAGE_BID_EVALUATION)) {
+      const rec = responses?.recommendedForAward;
+      const yes = rec === true || rec === 1 || rec === '1' || String(rec).toLowerCase() === 'true';
+      if (!yes) qualified = false;
+    }
+
     let saved;
     if (isPostgres) {
-      const upsert = await pool.query(
-        `INSERT INTO procurement_subject_assessments
-          (subject_id, template_id, responses, score, max_score, qualified, decision, notes, submitted_by, created_at, updated_at, voided)
-         VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,NOW(),NOW(),false)
-         RETURNING id, subject_id AS "subjectId", template_id AS "templateId", responses, score, max_score AS "maxScore",
-                   qualified, decision, notes, submitted_by AS "submittedBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [subjectId, tpl.id, JSON.stringify(responses), scored.score, scored.maxScore, qualified, decision, notes, submittedBy]
+      const existing = rowsOf(await pool.query(
+        `SELECT id
+         FROM procurement_subject_assessments
+         WHERE subject_id = $1 AND COALESCE(voided, false) = false
+         ORDER BY updated_at DESC NULLS LAST, id DESC
+         LIMIT 1`,
+        [subjectId]
+      ))[0];
+
+      if (existing?.id) {
+        const upd = await pool.query(
+          `UPDATE procurement_subject_assessments
+           SET template_id = $1,
+               responses = $2::jsonb,
+               score = $3,
+               max_score = $4,
+               qualified = $5,
+               decision = $6,
+               notes = $7,
+               submitted_by = $8,
+               updated_at = NOW(),
+               voided = false
+           WHERE id = $9
+           RETURNING id, subject_id AS "subjectId", template_id AS "templateId", responses, score, max_score AS "maxScore",
+                     qualified, decision, notes, submitted_by AS "submittedBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [tpl.id, JSON.stringify(responses), scored.score, scored.maxScore, qualified, decision, notes, submittedBy, existing.id]
+        );
+        saved = rowsOf(upd)[0];
+      } else {
+        const ins = await pool.query(
+          `INSERT INTO procurement_subject_assessments
+            (subject_id, template_id, responses, score, max_score, qualified, decision, notes, submitted_by, created_at, updated_at, voided)
+           VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,NOW(),NOW(),false)
+           RETURNING id, subject_id AS "subjectId", template_id AS "templateId", responses, score, max_score AS "maxScore",
+                     qualified, decision, notes, submitted_by AS "submittedBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [subjectId, tpl.id, JSON.stringify(responses), scored.score, scored.maxScore, qualified, decision, notes, submittedBy]
+        );
+        saved = rowsOf(ins)[0];
+      }
+      // Ensure "latest assessment" is deterministic: void older rows for this subject.
+      await pool.query(
+        `UPDATE procurement_subject_assessments
+         SET voided = true, updated_at = NOW()
+         WHERE subject_id = $1 AND id <> $2 AND COALESCE(voided, false) = false`,
+        [subjectId, saved.id]
       );
-      saved = rowsOf(upsert)[0];
       await pool.query(
         `UPDATE procurement_stage_subjects
          SET qualified = $1, latest_score = $2, latest_decision = $3, updated_at = NOW()
          WHERE id = $4`,
         [qualified, scored.score, decision, subjectId]
       );
+      if (stageNorm(subject.stage) === stageNorm(STAGE_BIDDER_REGISTRY) && stageNorm(subject.subjectType) === 'bidder') {
+        const metaPatch = pickBidderRegistryMetadata(responses);
+        if (Object.keys(metaPatch).length) {
+          await pool.query(
+            `UPDATE procurement_stage_subjects
+             SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+             WHERE id = $2`,
+            [JSON.stringify(metaPatch), subjectId]
+          );
+        }
+      }
     } else {
       const ins = await pool.query(
         `INSERT INTO procurement_subject_assessments
@@ -2200,12 +3889,35 @@ router.put('/subjects/:subjectId/assessment', async (req, res) => {
         [id]
       );
       saved = rowsOf(sel)[0];
+      // Ensure "latest assessment" is deterministic: void older rows for this subject.
+      await pool.query(
+        `UPDATE procurement_subject_assessments
+         SET voided = 1, updated_at = NOW()
+         WHERE subject_id = ? AND id <> ? AND COALESCE(voided, 0) = 0`,
+        [subjectId, id]
+      );
       await pool.query(
         `UPDATE procurement_stage_subjects
          SET qualified = ?, latest_score = ?, latest_decision = ?, updated_at = NOW()
          WHERE id = ?`,
         [qualified ? 1 : 0, scored.score, decision, subjectId]
       );
+      if (stageNorm(subject.stage) === stageNorm(STAGE_BIDDER_REGISTRY) && stageNorm(subject.subjectType) === 'bidder') {
+        const metaPatch = pickBidderRegistryMetadata(responses);
+        if (Object.keys(metaPatch).length) {
+          const metaRow = rowsOf(await pool.query(
+            `SELECT metadata FROM procurement_stage_subjects WHERE id = ?`,
+            [subjectId]
+          ))[0];
+          let current = {};
+          try { current = metaRow?.metadata && typeof metaRow.metadata === 'object' ? metaRow.metadata : JSON.parse(metaRow?.metadata || '{}'); } catch { current = {}; }
+          const merged = { ...(current && typeof current === 'object' ? current : {}), ...metaPatch };
+          await pool.query(
+            `UPDATE procurement_stage_subjects SET metadata = ?, updated_at = NOW() WHERE id = ?`,
+            [JSON.stringify(merged), subjectId]
+          );
+        }
+      }
     }
     return res.status(200).json({
       ...saved,

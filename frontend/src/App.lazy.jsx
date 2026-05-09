@@ -70,6 +70,7 @@ const ReportingView = lazy(() => import('./pages/ReportingView'));
 const RegionalDashboard = lazy(() => import('./pages/RegionalDashboard'));
 const RegionalBreakdownDashboardPage = lazy(() => import('./pages/RegionalBreakdownDashboardPage'));
 const ProcurementPage = lazy(() => import('./pages/ProcurementPage'));
+const ProcurementProcuredProjectsPage = lazy(() => import('./pages/ProcurementProcuredProjectsPage'));
 const ProcurementStagesPage = lazy(() => import('./pages/ProcurementStagesPage'));
 
 // Loading component
@@ -154,6 +155,10 @@ const router = createBrowserRouter([
       {
         path: 'partners',
         element: <LazyRoute component={ProjectPartnersPage} />,
+      },
+      {
+        path: 'procurement/procured-projects',
+        element: <LazyRoute component={ProcurementProcuredProjectsPage} />,
       },
       {
         path: 'procurement',

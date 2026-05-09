@@ -116,6 +116,7 @@ import ProjectsUploadLogPage from './pages/ProjectsUploadLogPage';
 import ReportingDashboardPage from './pages/ReportingDashboardPage';
 import ProjectOrganizationDashboardPage from './pages/ProjectOrganizationDashboardPage';
 import ProcurementPage from './pages/ProcurementPage';
+import ProcurementProcuredProjectsPage from './pages/ProcurementProcuredProjectsPage';
 import ProcurementStagesPage from './pages/ProcurementStagesPage';
  
 import ReportingView from './components/ReportingView';
@@ -250,6 +251,10 @@ const router = createBrowserRouter([
       {
         path: 'partners',
         element: <ProjectPartnersPage />,
+      },
+      {
+        path: 'procurement/procured-projects',
+        element: <ProcurementProcuredProjectsPage />,
       },
       {
         path: 'procurement',

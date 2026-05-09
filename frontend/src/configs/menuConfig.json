@@ -277,6 +277,12 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
+          "title": "Procured Projects",
+          "icon": "HistoryIcon",
+          "route": "PROCUREMENT_PROCURED_PROJECTS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
           "title": "Procurement stages",
           "icon": "AssignmentIcon",
           "route": "PROCUREMENT_STAGES",

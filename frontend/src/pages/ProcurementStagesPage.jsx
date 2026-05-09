@@ -178,8 +178,7 @@ export default function ProcurementStagesPage() {
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Configure labels shown when recording procurement workflow steps on{' '}
-          <Link to={ROUTES.PROCUREMENT}>Project Procurement</Link>. New installs are seeded with the former default
-          stage list.
+          <Link to={ROUTES.PROCUREMENT}>Project Procurement</Link>.
         </Typography>
       </Paper>
 

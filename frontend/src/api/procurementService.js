@@ -21,6 +21,11 @@ const procurementService = {
     const { data } = await axiosInstance.get('/procurement/projects');
     return data;
   },
+  /** Projects whose procurement finished (contract handoff); workflow & assessments remain on the project for audit. */
+  getCompletedProcurementsHistory: async () => {
+    const { data } = await axiosInstance.get('/procurement/projects/completed-history');
+    return data;
+  },
   getWorkflowHistory: async (projectId) => {
     const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/workflow`);
     return data;
@@ -28,6 +33,13 @@ const procurementService = {
   addWorkflowStep: async (projectId, payload) => {
     const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/workflow`, payload);
     return data;
+  },
+  updateWorkflowStep: async (projectId, workflowId, payload) => {
+    const { data } = await axiosInstance.patch(`/procurement/projects/${projectId}/workflow/${workflowId}`, payload);
+    return data;
+  },
+  deleteWorkflowStep: async (projectId, workflowId) => {
+    await axiosInstance.delete(`/procurement/projects/${projectId}/workflow/${workflowId}`);
   },
   getAttachments: async (projectId, params = {}) => {
     const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/attachments`, { params });
@@ -76,6 +88,13 @@ const procurementService = {
       payload
     );
     return data;
+  },
+  updateSubject: async (subjectId, payload) => {
+    const { data } = await axiosInstance.patch(`/procurement/subjects/${subjectId}`, payload);
+    return data;
+  },
+  deleteSubject: async (subjectId) => {
+    await axiosInstance.delete(`/procurement/subjects/${subjectId}`);
   },
   getSubjectAssessment: async (subjectId) => {
     const { data } = await axiosInstance.get(`/procurement/subjects/${subjectId}/assessment`);

@@ -1,15 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Badge,
   Box,
   Button,
   Checkbox,
   Chip,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
+  IconButton,
   Link,
   MenuItem,
   Paper,
@@ -21,8 +25,15 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { Link as RouterLink } from 'react-router-dom';
+import { ROUTES } from '../configs/appConfig';
 import apiService from '../api';
 
 /** Matches api `/procurement` seed when API/catalog unavailable */
@@ -30,18 +41,81 @@ const PROCUREMENT_STAGE_FALLBACK = [
   'Needs Identification',
   'Requisition Approved',
   'Tender Published',
+  'Bidder Registry',
+  'Bidder Pre-Qualification',
   'Bid Evaluation',
   'Award Decision',
   'Contract Signing',
   'Purchase Order Issued',
+  'Procurement Terminated',
 ];
 
-const DECISIONS = ['Pending', 'Approved', 'Rejected', 'Clarification Required', 'Awarded'];
+/** Standard assessment outcomes for almost all procurement stages. */
+const DECISIONS_STANDARD = ['Pending', 'Approved', 'Rejected', 'Clarification Required'];
+
+/** Only at Award Decision does “Awarded” apply (winning bidder). */
+const STAGE_AWARD_DECISION = 'Award Decision';
+
+/** Pre-qual / bid eval: record closure without award before moving workflow to Procurement Terminated (optional). */
+const STAGE_PRE_QUALIFICATION = 'Bidder Pre-Qualification';
+const STAGE_BID_EVALUATION = 'Bid Evaluation';
+
+function decisionsForStage(stage) {
+  const s = String(stage || '').trim();
+  if (s === STAGE_AWARD_DECISION) return [...DECISIONS_STANDARD, 'Awarded'];
+  if (s === STAGE_PRE_QUALIFICATION || s === STAGE_BID_EVALUATION) return [...DECISIONS_STANDARD, 'Terminated'];
+  return DECISIONS_STANDARD;
+}
+
+/** Short context shown beside the assessment form on wide screens. */
+const STAGE_ASSESSMENT_SIDEBAR_HINTS = {
+  'Needs Identification': 'Capture strategic need, feasibility, and alignment before committing budget.',
+  'Requisition Approved': 'Confirm internal approvals and budget lines match the planned procurement.',
+  'Tender Published': 'Verify advertisement, dates, bid security/fees, and clarification access per PPDA rules.',
+  'Bidder Registry': 'Register bidders and complete master details before downstream stages.',
+  'Bidder Pre-Qualification':
+    'Record qualification outcomes. If no bidder qualifies or procurement stops, choose Terminated here and Save Workflow Step → Procurement Terminated. To readvertise (new tender round), set Stage back to Tender Published.',
+  'Bid Evaluation':
+    'Score criteria and Recommended for award for finalists. If none qualify or procurement stops, use Terminated and/or Procurement Terminated. To readvertise, move Stage to Tender Published (backward moves skip gates).',
+  'Procurement Terminated':
+    'Capture closure reason and references—procurement ends without award. Not a substitute for readvertising; use Tender Published again for a new tender cycle.',
+  'Award Decision': 'Mark the winning bidder as Awarded before contract signing.',
+  'Contract Signing': 'Record execution dates, signatures, and contract metadata.',
+  'Purchase Order Issued': 'Capture LPO / commitment details and fiscal-year alignment.',
+};
+
+function getStageAssessmentSidebarHint(stage) {
+  const s = String(stage || '').trim();
+  return STAGE_ASSESSMENT_SIDEBAR_HINTS[s]
+    || 'Complete the template fields for this stage, save assessment, then save workflow step when the stage is ready.';
+}
+
+const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fmtCurrency = (v) =>
   `KES ${Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const fmtDate = (v) => (v ? new Date(v).toLocaleString() : 'N/A');
+
+/** ISO YYYY-MM-DD: end date from start + duration (days or months). Null if incomplete. */
+function computeContractEndDateIso(startRaw, durationRaw, unitRaw) {
+  const startIso = String(startRaw || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startIso)) return null;
+  const n = Number(durationRaw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const unit = String(unitRaw || '').trim().toLowerCase();
+  if (unit !== 'days' && unit !== 'months') return null;
+  const parts = startIso.split('-').map(Number);
+  const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (Number.isNaN(dt.getTime())) return null;
+  if (unit === 'days') dt.setDate(dt.getDate() + n);
+  else dt.setMonth(dt.getMonth() + n);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export default function ProcurementPage() {
   const [rows, setRows] = useState([]);
@@ -50,27 +124,35 @@ export default function ProcurementPage() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [workflowHistoryOpen, setWorkflowHistoryOpen] = useState(false);
+  const [editingStep, setEditingStep] = useState(null);
+  const [editDecision, setEditDecision] = useState('Pending');
+  const [editNotes, setEditNotes] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingStepId, setDeletingStepId] = useState('');
   const [stageOptions, setStageOptions] = useState(PROCUREMENT_STAGE_FALLBACK);
   const [stepForm, setStepForm] = useState({
     stage: PROCUREMENT_STAGE_FALLBACK[0],
-    decision: 'Pending',
-    notes: '',
   });
   const [saving, setSaving] = useState(false);
   const [attachments, setAttachments] = useState([]);
-  const [checklist, setChecklist] = useState([]);
-  const [newChecklistLabel, setNewChecklistLabel] = useState('');
+  const [stageDocumentsOpen, setStageDocumentsOpen] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
-  const [addingChecklist, setAddingChecklist] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [assessmentTemplate, setAssessmentTemplate] = useState(null);
   const [assessmentResponses, setAssessmentResponses] = useState({});
+  const [assessmentErrors, setAssessmentErrors] = useState({});
   const [assessmentDecision, setAssessmentDecision] = useState('');
   const [assessmentNotes, setAssessmentNotes] = useState('');
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [savingAssessment, setSavingAssessment] = useState(false);
   const [newBidderName, setNewBidderName] = useState('');
+  const [editBidderOpen, setEditBidderOpen] = useState(false);
+  const [editBidderName, setEditBidderName] = useState('');
+  const [savingBidderEdit, setSavingBidderEdit] = useState(false);
+  const [deletingBidder, setDeletingBidder] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -79,7 +161,59 @@ export default function ProcurementPage() {
   const [templateFields, setTemplateFields] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateStage, setTemplateStage] = useState('');
+  const [templateSuccess, setTemplateSuccess] = useState('');
   const [overview, setOverview] = useState(null);
+  const [completedHistory, setCompletedHistory] = useState([]);
+  const bidderStages = new Set([
+    'Bidder Registry',
+    'Bidder Pre-Qualification',
+    'Bid Evaluation',
+    'Award Decision',
+    'Contract Signing',
+  ]);
+  const isBidderStage = bidderStages.has(stepForm.stage);
+  const stageSubjectType = isBidderStage ? 'bidder' : 'generic';
+  const canAddBidders = stepForm.stage === 'Bidder Registry';
+  const selectedSubject = useMemo(
+    () => subjects.find((s) => String(s.id) === String(selectedSubjectId)) || null,
+    [subjects, selectedSubjectId]
+  );
+  const bidderRegistryRows = useMemo(() => {
+    if (stepForm.stage !== 'Bidder Registry') return [];
+    return subjects.map((s) => {
+      const m = s?.metadata && typeof s.metadata === 'object' ? s.metadata : {};
+      const companyName = String(m.companyName || s.subjectName || '').trim();
+      return {
+        id: s.id,
+        companyName,
+        contactName: String(m.contactName || '').trim(),
+        contactPhone: String(m.contactPhone || '').trim(),
+        contactEmail: String(m.contactEmail || '').trim(),
+        updatedAt: s.updatedAt || s.createdAt,
+      };
+    });
+  }, [subjects, stepForm.stage]);
+  const attachmentsScopeLabel = isBidderStage && selectedSubjectId
+    ? `Bidder: ${selectedSubject?.subjectName || selectedSubjectId}`
+    : 'Stage / Project';
+
+  const historyDisplay = useMemo(() => {
+    if (showFullHistory) return history;
+    const byStage = new Map();
+    for (const h of Array.isArray(history) ? history : []) {
+      const key = String(h?.stage || '').trim();
+      if (!key) continue;
+      const prev = byStage.get(key);
+      const t = new Date(h?.updatedAt || h?.createdAt || 0).getTime();
+      const pt = prev ? new Date(prev?.updatedAt || prev?.createdAt || 0).getTime() : -Infinity;
+      if (!prev || t >= pt) byStage.set(key, h);
+    }
+    return Array.from(byStage.values()).sort((a, b) => {
+      const ta = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
+      const tb = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
+      return tb - ta;
+    });
+  }, [history, showFullHistory]);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -134,27 +268,34 @@ export default function ProcurementPage() {
     setStepForm((prev) => {
       if (!stageOptions.length) return prev;
       if (!prev.stage || !stageOptions.includes(prev.stage)) {
-        return { ...prev, stage: stageOptions[0] };
+        return { stage: stageOptions[0] };
       }
       return prev;
     });
   }, [stageOptions]);
 
+  useEffect(() => {
+    if (stepForm.stage === STAGE_AWARD_DECISION) return;
+    if (assessmentDecision !== 'Awarded') return;
+    setAssessmentDecision('Pending');
+  }, [stepForm.stage, assessmentDecision]);
+
+  useEffect(() => {
+    if (stepForm.stage === STAGE_PRE_QUALIFICATION || stepForm.stage === STAGE_BID_EVALUATION) return;
+    if (assessmentDecision !== 'Terminated') return;
+    setAssessmentDecision('Pending');
+  }, [stepForm.stage, assessmentDecision]);
+
   const openWorkflow = async (project) => {
     setSelectedProject(project);
+    setWorkflowHistoryOpen(false);
     setHistory([]);
     setHistoryLoading(true);
     try {
-      const [data, docs, checks] = await Promise.all([
-        apiService.procurement.getWorkflowHistory(project.projectId),
-        apiService.procurement.getAttachments(project.projectId),
-        apiService.procurement.getChecklist(project.projectId),
-      ]);
+      const data = await apiService.procurement.getWorkflowHistory(project.projectId);
       setHistory(Array.isArray(data) ? data : []);
-      setAttachments(Array.isArray(docs) ? docs : []);
-      setChecklist(Array.isArray(checks) ? checks : []);
       if ((stepForm.stage || '').trim()) {
-        const subs = await apiService.procurement.listStageSubjects(project.projectId, stepForm.stage, { subjectType: 'bidder' });
+        const subs = await apiService.procurement.listStageSubjects(project.projectId, stepForm.stage, { subjectType: stageSubjectType });
         const list = Array.isArray(subs) ? subs : [];
         setSubjects(list);
         if (list.length) setSelectedSubjectId(String(list[0].id));
@@ -171,21 +312,70 @@ export default function ProcurementPage() {
     if (!selectedProject?.projectId) return;
     setSaving(true);
     try {
-      await apiService.procurement.addWorkflowStep(selectedProject.projectId, stepForm);
+      await apiService.procurement.addWorkflowStep(selectedProject.projectId, { stage: stepForm.stage });
       const refreshed = await apiService.procurement.getWorkflowHistory(selectedProject.projectId);
       setHistory(Array.isArray(refreshed) ? refreshed : []);
-      const [docs, checks] = await Promise.all([
-        apiService.procurement.getAttachments(selectedProject.projectId),
-        apiService.procurement.getChecklist(selectedProject.projectId),
-      ]);
-      setAttachments(Array.isArray(docs) ? docs : []);
-      setChecklist(Array.isArray(checks) ? checks : []);
+      await loadAttachmentsForScope();
       await loadProjects();
-      setStepForm({ stage: stageOptions[0] || PROCUREMENT_STAGE_FALLBACK[0], decision: 'Pending', notes: '' });
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to save workflow step.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openEditStep = (row) => {
+    setEditingStep(row || null);
+    const d = row?.decision || 'Pending';
+    const stageRow = String(row?.stage || '').trim();
+    const allowAwarded = stageRow === STAGE_AWARD_DECISION;
+    const allowTerminated = stageRow === STAGE_PRE_QUALIFICATION || stageRow === STAGE_BID_EVALUATION;
+    let next = d;
+    if (!allowAwarded && d === 'Awarded') next = 'Pending';
+    if (!allowTerminated && d === 'Terminated') next = 'Pending';
+    setEditDecision(next);
+    setEditNotes(row?.notes || '');
+  };
+
+  const closeEditStep = () => {
+    setEditingStep(null);
+    setEditDecision('Pending');
+    setEditNotes('');
+  };
+
+  const saveEditStep = async () => {
+    if (!selectedProject?.projectId || !editingStep?.id) return;
+    setSavingEdit(true);
+    setError('');
+    try {
+      await apiService.procurement.updateWorkflowStep(selectedProject.projectId, editingStep.id, {
+        decision: editDecision,
+        notes: editNotes,
+      });
+      const refreshed = await apiService.procurement.getWorkflowHistory(selectedProject.projectId);
+      setHistory(Array.isArray(refreshed) ? refreshed : []);
+      await loadProjects();
+      closeEditStep();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update workflow step.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const deleteStep = async (row) => {
+    if (!selectedProject?.projectId || !row?.id) return;
+    setDeletingStepId(String(row.id));
+    setError('');
+    try {
+      await apiService.procurement.deleteWorkflowStep(selectedProject.projectId, row.id);
+      const refreshed = await apiService.procurement.getWorkflowHistory(selectedProject.projectId);
+      setHistory(Array.isArray(refreshed) ? refreshed : []);
+      await loadProjects();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete workflow step.');
+    } finally {
+      setDeletingStepId('');
     }
   };
 
@@ -195,11 +385,15 @@ export default function ProcurementPage() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('stage', stepForm.stage || '');
+    if (isBidderStage && selectedSubjectId) formData.append('subjectId', String(selectedSubjectId));
     formData.append('title', file.name);
     setUploadingDoc(true);
     try {
       await apiService.procurement.uploadAttachment(selectedProject.projectId, formData);
-      const docs = await apiService.procurement.getAttachments(selectedProject.projectId);
+      const docs = await apiService.procurement.getAttachments(selectedProject.projectId, {
+        subjectId: isBidderStage && selectedSubjectId ? String(selectedSubjectId) : undefined,
+        stage: stepForm.stage || '',
+      });
       setAttachments(Array.isArray(docs) ? docs : []);
     } finally {
       setUploadingDoc(false);
@@ -207,44 +401,36 @@ export default function ProcurementPage() {
     }
   };
 
-  const handleAddChecklist = async () => {
-    if (!selectedProject?.projectId || !newChecklistLabel.trim()) return;
-    setAddingChecklist(true);
-    try {
-      await apiService.procurement.addChecklistItem(selectedProject.projectId, {
-        stage: stepForm.stage || '',
-        label: newChecklistLabel.trim(),
-      });
-      const checks = await apiService.procurement.getChecklist(selectedProject.projectId);
-      setChecklist(Array.isArray(checks) ? checks : []);
-      setNewChecklistLabel('');
-    } finally {
-      setAddingChecklist(false);
-    }
-  };
-
-  const handleToggleChecklist = async (item) => {
-    if (!selectedProject?.projectId || !item?.id) return;
-    await apiService.procurement.updateChecklistItem(selectedProject.projectId, item.id, {
-      completed: !Boolean(item.completed),
-    });
-    const checks = await apiService.procurement.getChecklist(selectedProject.projectId);
-    setChecklist(Array.isArray(checks) ? checks : []);
-  };
-
   const loadSubjectsForCurrentStage = useCallback(async () => {
     if (!selectedProject?.projectId || !stepForm.stage) return;
-    const subs = await apiService.procurement.listStageSubjects(selectedProject.projectId, stepForm.stage, { subjectType: 'bidder' });
+    const subs = await apiService.procurement.listStageSubjects(selectedProject.projectId, stepForm.stage, { subjectType: stageSubjectType });
     const list = Array.isArray(subs) ? subs : [];
     setSubjects(list);
     if (list.length && !list.some((s) => String(s.id) === String(selectedSubjectId))) {
       setSelectedSubjectId(String(list[0].id));
     }
-  }, [selectedProject?.projectId, stepForm.stage, selectedSubjectId]);
+  }, [selectedProject?.projectId, stepForm.stage, stageSubjectType, selectedSubjectId]);
 
   useEffect(() => {
     loadSubjectsForCurrentStage();
   }, [loadSubjectsForCurrentStage]);
+
+  const loadAttachmentsForScope = useCallback(async () => {
+    if (!selectedProject?.projectId) return;
+    try {
+      const docs = await apiService.procurement.getAttachments(selectedProject.projectId, {
+        subjectId: isBidderStage && selectedSubjectId ? String(selectedSubjectId) : undefined,
+        stage: stepForm.stage || '',
+      });
+      setAttachments(Array.isArray(docs) ? docs : []);
+    } catch {
+      setAttachments([]);
+    }
+  }, [selectedProject?.projectId, isBidderStage, selectedSubjectId, stepForm.stage]);
+
+  useEffect(() => {
+    loadAttachmentsForScope();
+  }, [loadAttachmentsForScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +438,7 @@ export default function ProcurementPage() {
       if (!selectedSubjectId) {
         setAssessmentTemplate(null);
         setAssessmentResponses({});
+        setAssessmentErrors({});
         setAssessmentDecision('');
         setAssessmentNotes('');
         return;
@@ -262,6 +449,7 @@ export default function ProcurementPage() {
         if (cancelled) return;
         setAssessmentTemplate(payload?.template || null);
         setAssessmentResponses(payload?.assessment?.responses || {});
+        setAssessmentErrors({});
         setAssessmentDecision(payload?.assessment?.decision || '');
         setAssessmentNotes(payload?.assessment?.notes || '');
       } finally {
@@ -273,29 +461,128 @@ export default function ProcurementPage() {
     };
   }, [selectedSubjectId]);
 
+  useEffect(() => {
+    if (stepForm.stage !== 'Contract Signing') return;
+    const computed = computeContractEndDateIso(
+      assessmentResponses?.contractProjectStartDate,
+      assessmentResponses?.contractDurationValue,
+      assessmentResponses?.contractDurationUnit,
+    );
+    if (!computed) return;
+    setAssessmentResponses((prev) => {
+      if (prev.contractProjectEndDate === computed) return prev;
+      return { ...prev, contractProjectEndDate: computed };
+    });
+  }, [
+    stepForm.stage,
+    assessmentResponses?.contractProjectStartDate,
+    assessmentResponses?.contractDurationValue,
+    assessmentResponses?.contractDurationUnit,
+  ]);
+
   const handleAddBidder = async () => {
     if (!selectedProject?.projectId || !stepForm.stage || !newBidderName.trim()) return;
-    await apiService.procurement.createStageSubject(selectedProject.projectId, stepForm.stage, {
+    const created = await apiService.procurement.createStageSubject(selectedProject.projectId, stepForm.stage, {
       subjectType: 'bidder',
       subjectName: newBidderName.trim(),
     });
     setNewBidderName('');
     await loadSubjectsForCurrentStage();
+    if (created?.id) setSelectedSubjectId(String(created.id));
+  };
+
+  const openEditBidder = () => {
+    if (!selectedSubjectId || !selectedSubject) return;
+    setEditBidderName(selectedSubject.subjectName || '');
+    setEditBidderOpen(true);
+  };
+
+  const saveBidderEdit = async () => {
+    if (!selectedSubjectId) return;
+    setSavingBidderEdit(true);
+    setError('');
+    try {
+      await apiService.procurement.updateSubject(selectedSubjectId, { subjectName: editBidderName });
+      setEditBidderOpen(false);
+      await loadSubjectsForCurrentStage();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update bidder.');
+    } finally {
+      setSavingBidderEdit(false);
+    }
+  };
+
+  const deleteSelectedBidder = async () => {
+    if (!selectedSubjectId) return;
+    setDeletingBidder(true);
+    setError('');
+    try {
+      await apiService.procurement.deleteSubject(selectedSubjectId);
+      setSelectedSubjectId('');
+      await loadSubjectsForCurrentStage();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete bidder.');
+    } finally {
+      setDeletingBidder(false);
+    }
+  };
+
+  const validateBidderRegistryField = (key, valueRaw) => {
+    if (stepForm.stage !== 'Bidder Registry') return '';
+    const v = String(valueRaw ?? '').trim();
+    if (key === 'contactEmail') {
+      if (v && !emailRegex.test(v)) return 'Please enter a valid email address (e.g., user@example.com)';
+    }
+    if (key === 'contactPhone') {
+      if (v && !phoneRegex.test(v)) return 'Use 07XXXXXXXX or +2547XXXXXXXX';
+    }
+    return '';
   };
 
   const setAssessmentValue = (key, value) => {
     setAssessmentResponses((prev) => ({ ...prev, [key]: value }));
+    const msg = validateBidderRegistryField(key, value);
+    setAssessmentErrors((prev) => {
+      const next = { ...prev };
+      if (msg) next[key] = msg;
+      else delete next[key];
+      return next;
+    });
+  };
+
+  const validateAssessmentBeforeSave = () => {
+    if (stepForm.stage !== 'Bidder Registry') return true;
+    const next = {};
+    const emailMsg = validateBidderRegistryField('contactEmail', assessmentResponses?.contactEmail);
+    const phoneMsg = validateBidderRegistryField('contactPhone', assessmentResponses?.contactPhone);
+    if (emailMsg) next.contactEmail = emailMsg;
+    if (phoneMsg) next.contactPhone = phoneMsg;
+    setAssessmentErrors(next);
+    return Object.keys(next).length === 0;
   };
 
   const handleSaveAssessment = async () => {
     if (!selectedSubjectId) return;
+    if (!validateAssessmentBeforeSave()) return;
+    const savingForSubjectId = String(selectedSubjectId);
     setSavingAssessment(true);
     try {
-      await apiService.procurement.saveSubjectAssessment(selectedSubjectId, {
+      await apiService.procurement.saveSubjectAssessment(savingForSubjectId, {
         responses: assessmentResponses,
         decision: assessmentDecision,
         notes: assessmentNotes,
       });
+      // Reload the just-saved bidder/item so the form reflects what was persisted.
+      try {
+        const payload = await apiService.procurement.getSubjectAssessment(savingForSubjectId);
+        setAssessmentTemplate(payload?.template || null);
+        setAssessmentResponses(payload?.assessment?.responses || {});
+        setAssessmentErrors({});
+        setAssessmentDecision(payload?.assessment?.decision || '');
+        setAssessmentNotes(payload?.assessment?.notes || '');
+      } catch {
+        // ignore; stage reload below will still refresh list and stats
+      }
       await loadSubjectsForCurrentStage();
     } finally {
       setSavingAssessment(false);
@@ -305,6 +592,7 @@ export default function ProcurementPage() {
   const openTemplatesManager = async () => {
     try {
       setTemplatesOpen(true);
+      setTemplateSuccess('');
       const initialStage = stepForm.stage || stageOptions[0] || '';
       setTemplateStage(initialStage);
       const data = await apiService.procurement.listTemplates({ stage: initialStage, all: true });
@@ -331,18 +619,22 @@ export default function ProcurementPage() {
 
   const onTemplateSelect = (idRaw) => {
     const id = String(idRaw || '');
-    setSelectedTemplateId(id);
     const t = templates.find((x) => String(x.id) === id);
     if (!t) return;
+    const idNum = Number(id);
+    // Fallback templates can have negative ids; treat them as "Create New" while pre-filling fields.
+    setSelectedTemplateId(Number.isFinite(idNum) && idNum > 0 ? id : '');
     setTemplateStage(t.stage || templateStage);
     setTemplateName(t.name || '');
     setTemplateSubjectType(t.subjectType || 'bidder');
     setTemplateFields(Array.isArray(t.fields) ? t.fields : []);
+    setTemplateSuccess('');
   };
 
   const handleTemplateStageChange = async (newStage) => {
     const stage = String(newStage || '').trim();
     setTemplateStage(stage);
+    setTemplateSuccess('');
     setSelectedTemplateId('');
     setTemplateName('');
     setTemplateSubjectType('bidder');
@@ -382,6 +674,7 @@ export default function ProcurementPage() {
   const saveTemplate = async () => {
     if (!templateStage || !templateName.trim() || !templateFields.length) return;
     setSavingTemplate(true);
+    setTemplateSuccess('');
     try {
       const payload = {
         stage: templateStage,
@@ -390,7 +683,8 @@ export default function ProcurementPage() {
         fields: templateFields,
       };
       let savedId = selectedTemplateId;
-      if (selectedTemplateId) {
+      const idNum = Number(selectedTemplateId);
+      if (selectedTemplateId && Number.isFinite(idNum) && idNum > 0) {
         await apiService.procurement.updateTemplate(selectedTemplateId, payload);
       } else {
         const created = await apiService.procurement.createTemplate(payload);
@@ -399,9 +693,18 @@ export default function ProcurementPage() {
       const data = await apiService.procurement.listTemplates({ stage: templateStage, all: true });
       const list = Array.isArray(data) ? data : [];
       setTemplates(list);
-      if (savedId && list.some((t) => String(t.id) === String(savedId))) {
-        onTemplateSelect(savedId);
+      if (savedId) {
+        const t = list.find((x) => String(x.id) === String(savedId));
+        if (t) {
+          setSelectedTemplateId(String(t.id));
+          setTemplateStage(t.stage || templateStage);
+          setTemplateName(t.name || templateName);
+          setTemplateSubjectType(t.subjectType || templateSubjectType || 'bidder');
+          setTemplateFields(Array.isArray(t.fields) ? t.fields : []);
+        }
       }
+      setTemplateSuccess(`Saved at ${new Date().toLocaleTimeString()}`);
+      window.setTimeout(() => setTemplateSuccess(''), 2500);
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to save template.');
     } finally {
@@ -450,7 +753,11 @@ export default function ProcurementPage() {
           </Stack>
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          Projects currently under procurement and their basic workflow progress.
+          Projects currently under procurement and their basic workflow progress. Handed-off projects are listed in{' '}
+          <Link component={RouterLink} to={ROUTES.PROCUREMENT_PROCURED_PROJECTS} underline="hover">
+            Procured Projects
+          </Link>
+          .
         </Typography>
         {overview?.metrics ? (
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
@@ -458,7 +765,6 @@ export default function ProcurementPage() {
             <Chip size="small" label={`Subjects: ${overview.metrics.totalSubjects || 0}`} />
             <Chip size="small" label={`Qualified: ${overview.metrics.totalQualifiedSubjects || 0}`} color="success" />
             <Chip size="small" label={`Assessments: ${overview.metrics.totalAssessments || 0}`} />
-            <Chip size="small" label={`Checklist done: ${overview.metrics.totalChecklistCompleted || 0}/${overview.metrics.totalChecklistItems || 0}`} />
             <Chip size="small" label={`Attachments: ${overview.metrics.totalAttachments || 0}`} />
           </Stack>
         ) : null}
@@ -508,281 +814,514 @@ export default function ProcurementPage() {
         </TableContainer>
       </Paper>
 
-      <Dialog open={Boolean(selectedProject)} onClose={() => setSelectedProject(null)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          Procurement Workflow: {selectedProject?.projectName || ''}
+      <Dialog
+        open={Boolean(selectedProject)}
+        onClose={() => setSelectedProject(null)}
+        maxWidth="lg"
+        fullWidth
+        scroll="paper"
+        PaperProps={{
+          sx: {
+            height: { xs: 'calc(100vh - 16px)', sm: 'calc(100vh - 32px)' },
+            maxHeight: { xs: 'calc(100vh - 16px)', sm: 'calc(100vh - 32px)' },
+            display: 'flex',
+            flexDirection: 'column',
+            m: { xs: 1, sm: 2 },
+          },
+        }}
+      >
+        <DialogTitle sx={{ py: 1, px: 2, flexShrink: 0 }}>
+          <Typography
+            variant="subtitle1"
+            component="div"
+            fontWeight={700}
+            noWrap
+            title={selectedProject?.projectName ? `Procurement Workflow: ${selectedProject.projectName}` : ''}
+          >
+            Procurement Workflow: {selectedProject?.projectName || ''}
+          </Typography>
         </DialogTitle>
-        <DialogContent dividers>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
-            <TextField
-              select
-              label="Stage"
-              value={stepForm.stage}
-              onChange={(e) => setStepForm((p) => ({ ...p, stage: e.target.value }))}
-              size="small"
-              sx={{ minWidth: 220 }}
-            >
-              {stageOptions.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Decision"
-              value={stepForm.decision}
-              onChange={(e) => setStepForm((p) => ({ ...p, decision: e.target.value }))}
-              size="small"
-              sx={{ minWidth: 220 }}
-            >
-              {DECISIONS.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-            </TextField>
-            <TextField
-              label="Notes"
-              value={stepForm.notes}
-              onChange={(e) => setStepForm((p) => ({ ...p, notes: e.target.value }))}
-              size="small"
-              fullWidth
-            />
-          </Stack>
+        <DialogContent
+          dividers
+          sx={{
+            pt: 1,
+            px: { xs: 1.5, sm: 2 },
+            pb: 1,
+            flex: '1 1 auto',
+            overflow: 'auto',
+            minHeight: 0,
+          }}
+        >
+          <Box
+            sx={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              bgcolor: 'background.paper',
+              pb: 1,
+              mb: 0.75,
+              borderBottom: 1,
+              borderColor: 'divider',
+            }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <TextField
+                select
+                label="Stage"
+                value={stepForm.stage}
+                onChange={(e) => setStepForm((p) => ({ ...p, stage: e.target.value }))}
+                size="small"
+                sx={{ minWidth: 280 }}
+              >
+                {stageOptions.map((s) => (
+                  <MenuItem key={s} value={s}>
+                    {s}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Tooltip
+                title={
+                  isBidderStage && !selectedSubjectId
+                    ? 'Select a bidder first, then open to view or upload documents for this stage.'
+                    : 'View and upload documents for the current stage (opens in a panel).'
+                }
+              >
+                <span>
+                  <IconButton
+                    color="primary"
+                    aria-label="Stage documents"
+                    onClick={() => {
+                      setStageDocumentsOpen(true);
+                      void loadAttachmentsForScope();
+                    }}
+                    size="medium"
+                  >
+                    <Badge
+                      color="secondary"
+                      badgeContent={attachments.length}
+                      invisible={attachments.length === 0}
+                      max={99}
+                    >
+                      <AttachFileIcon />
+                    </Badge>
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Box>
 
           {historyLoading ? (
             <Typography variant="body2">Loading workflow history...</Typography>
           ) : (
-            <Stack spacing={2}>
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell><strong>Stage</strong></TableCell>
-                      <TableCell><strong>Decision</strong></TableCell>
-                      <TableCell><strong>Notes</strong></TableCell>
-                      <TableCell><strong>Updated</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {history.map((h) => (
-                      <TableRow key={h.id}>
-                        <TableCell>{h.stage}</TableCell>
-                        <TableCell>{h.decision || 'Pending'}</TableCell>
-                        <TableCell>{h.notes || '-'}</TableCell>
-                        <TableCell>{fmtDate(h.updatedAt || h.createdAt)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {history.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center">No workflow updates yet.</TableCell>
-                      </TableRow>
+            <Stack spacing={1.5}>
+              <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  onClick={() => setWorkflowHistoryOpen((v) => !v)}
+                  sx={{
+                    px: 1.25,
+                    py: 0.75,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setWorkflowHistoryOpen((v) => !v);
+                    }
+                  }}
+                  aria-expanded={workflowHistoryOpen}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <ExpandMoreIcon
+                      sx={{
+                        transform: workflowHistoryOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                      }}
+                    />
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      Workflow history {showFullHistory ? '(full audit trail)' : '(latest per stage)'}
+                    </Typography>
+                    {!workflowHistoryOpen && (
+                      <Chip
+                        size="small"
+                        label={
+                          historyDisplay.length === 0
+                            ? 'No entries'
+                            : `${historyDisplay.length} ${showFullHistory ? 'row' : 'stage'}${historyDisplay.length === 1 ? '' : 's'}`
+                        }
+                        variant="outlined"
+                      />
                     )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    {workflowHistoryOpen ? 'Hide' : 'Show'}
+                  </Typography>
+                </Stack>
+                <Collapse in={workflowHistoryOpen}>
+                  <Stack spacing={1.25} sx={{ px: 1.25, pb: 1.5 }}>
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={showFullHistory}
+                          onChange={(e) => setShowFullHistory(e.target.checked)}
+                          size="small"
+                        />
+                      )}
+                      label={<Typography variant="body2">Show full audit trail (every save)</Typography>}
+                    />
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>Stage</strong></TableCell>
+                            <TableCell><strong>Decision</strong></TableCell>
+                            <TableCell><strong>Notes</strong></TableCell>
+                            <TableCell><strong>Updated</strong></TableCell>
+                            <TableCell align="right"><strong>Actions</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {historyDisplay.map((h) => (
+                            <TableRow key={h.id}>
+                              <TableCell>{h.stage}</TableCell>
+                              <TableCell>{h.decision || 'Pending'}</TableCell>
+                              <TableCell>{h.notes || '-'}</TableCell>
+                              <TableCell>{fmtDate(h.updatedAt || h.createdAt)}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                  <Tooltip title="Edit step">
+                                    <IconButton size="small" onClick={() => openEditStep(h)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete step">
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        disabled={deletingStepId === String(h.id)}
+                                        onClick={() => deleteStep(h)}
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {historyDisplay.length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={5} align="center">No workflow updates yet.</TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
+                </Collapse>
+              </Paper>
 
               <Divider />
-              <Typography variant="subtitle1" fontWeight={700}>Stage / Project Documents</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                <Button variant="outlined" component="label" disabled={uploadingDoc}>
-                  {uploadingDoc ? 'Uploading...' : 'Attach Document'}
-                  <input type="file" hidden onChange={handleUploadAttachment} />
-                </Button>
-                <Typography variant="caption" color="text.secondary">
-                  Document can be tied to current stage: {stepForm.stage || 'N/A'}
+              <Typography variant="subtitle1" fontWeight={700}>
+                {isBidderStage ? 'Bidder assessment (stage template)' : 'Stage assessment (stage template)'}
+              </Typography>
+              {isBidderStage && canAddBidders ? (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    label="Add bidder (registry)"
+                    value={newBidderName}
+                    onChange={(e) => setNewBidderName(e.target.value)}
+                  />
+                  <Button variant="contained" onClick={handleAddBidder} disabled={!newBidderName.trim()}>
+                    Register Bidder
+                  </Button>
+                </Stack>
+              ) : null}
+              {stepForm.stage === 'Bidder Registry' && subjects.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No bidders registered yet. Use “Register Bidder” above to add bidders, then select one to capture registry details using the template fields.
                 </Typography>
-              </Stack>
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell><strong>Title / File</strong></TableCell>
-                      <TableCell><strong>Stage</strong></TableCell>
-                      <TableCell><strong>Uploaded</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {attachments.map((a) => (
-                      <TableRow key={a.id}>
-                        <TableCell>
-                          <Link href={`/${String(a.filePath || '').replace(/^\/+/, '')}`} target="_blank" rel="noreferrer">
-                            {a.title || a.fileName || `Attachment ${a.id}`}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{a.stage || '-'}</TableCell>
-                        <TableCell>{fmtDate(a.createdAt)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {!attachments.length && (
+              ) : null}
+              {stepForm.stage === 'Bidder Registry' && subjects.length ? (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
                       <TableRow>
-                        <TableCell colSpan={3} align="center">No attachments uploaded yet.</TableCell>
+                        <TableCell><strong>Company</strong></TableCell>
+                        <TableCell><strong>Contact person</strong></TableCell>
+                        <TableCell><strong>Phone</strong></TableCell>
+                        <TableCell><strong>Email</strong></TableCell>
+                        <TableCell><strong>Updated</strong></TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-
-              <Divider />
-              <Typography variant="subtitle1" fontWeight={700}>Bidder Suitability Assessment (Stage Template)</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    </TableHead>
+                    <TableBody>
+                      {bidderRegistryRows.map((b) => (
+                        <TableRow
+                          key={b.id}
+                          hover
+                          selected={String(selectedSubjectId) === String(b.id)}
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedSubjectId(String(b.id))}
+                        >
+                          <TableCell>{b.companyName || '-'}</TableCell>
+                          <TableCell>{b.contactName || '-'}</TableCell>
+                          <TableCell>{b.contactPhone || '-'}</TableCell>
+                          <TableCell>{b.contactEmail || '-'}</TableCell>
+                          <TableCell>{fmtDate(b.updatedAt)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : null}
+              {(isBidderStage || subjects.length > 1) ? (
                 <TextField
+                  select
                   size="small"
-                  fullWidth
-                  label="Add bidder"
-                  value={newBidderName}
-                  onChange={(e) => setNewBidderName(e.target.value)}
-                />
-                <Button variant="contained" onClick={handleAddBidder} disabled={!newBidderName.trim()}>
-                  Add Bidder
-                </Button>
-              </Stack>
-              <TextField
-                select
-                size="small"
-                label="Select bidder"
-                value={selectedSubjectId}
-                onChange={(e) => setSelectedSubjectId(e.target.value)}
-                sx={{ minWidth: 260 }}
-              >
-                {subjects.map((s) => (
-                  <MenuItem key={s.id} value={String(s.id)}>
-                    {s.subjectName} {s.latestScore != null ? `(${Number(s.latestScore).toFixed(2)})` : ''}
-                  </MenuItem>
-                ))}
-              </TextField>
+                  label={isBidderStage ? 'Select bidder' : 'Select item'}
+                  value={selectedSubjectId}
+                  onChange={(e) => setSelectedSubjectId(e.target.value)}
+                  sx={{ minWidth: 260 }}
+                >
+                  {subjects.map((s) => (
+                    <MenuItem key={s.id} value={String(s.id)}>
+                      {s.subjectName} {s.latestScore != null ? `(${Number(s.latestScore).toFixed(2)})` : ''}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              ) : null}
+              {stepForm.stage === 'Bidder Registry' ? (
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={openEditBidder}
+                    disabled={!selectedSubjectId}
+                  >
+                    Edit bidder
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    onClick={deleteSelectedBidder}
+                    disabled={!selectedSubjectId || deletingBidder}
+                  >
+                    {deletingBidder ? 'Deleting...' : 'Delete bidder'}
+                  </Button>
+                </Stack>
+              ) : null}
 
               {assessmentLoading ? (
-                <Typography variant="body2">Loading bidder assessment...</Typography>
+                <Typography variant="body2">Loading assessment...</Typography>
               ) : assessmentTemplate?.fields?.length ? (
-                <Stack spacing={1}>
-                  {assessmentTemplate.fields.map((f) => {
-                    const key = f.key;
-                    const val = assessmentResponses?.[key];
-                    if (f.type === 'checkbox') {
-                      return (
-                        <Stack key={key} direction="row" spacing={1} alignItems="center">
-                          <Checkbox checked={Boolean(val)} onChange={(e) => setAssessmentValue(key, e.target.checked)} />
-                          <Typography>{f.label}</Typography>
-                        </Stack>
-                      );
-                    }
-                    if (f.type === 'select') {
-                      return (
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start">
+                  <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                        gap: 1,
+                        columnGap: 2,
+                        rowGap: 0.5,
+                        alignItems: 'start',
+                      }}
+                    >
+                      {assessmentTemplate.fields.map((f) => {
+                        const key = f.key;
+                        if (stepForm.stage === 'Bid Evaluation' && key === 'recommendedForAward') return null;
+                        const val = assessmentResponses?.[key];
+                        const fullSpan = { gridColumn: '1 / -1' };
+                        if (f.type === 'checkbox') {
+                          return (
+                            <Stack key={key} direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }}>
+                              <Checkbox checked={Boolean(val)} onChange={(e) => setAssessmentValue(key, e.target.checked)} sx={{ py: 0.25 }} />
+                              <Typography variant="body2" sx={{ pt: 0.35 }}>{f.label}</Typography>
+                            </Stack>
+                          );
+                        }
+                        if (f.type === 'select') {
+                          return (
+                            <TextField
+                              key={key}
+                              select
+                              size="small"
+                              fullWidth
+                              sx={fullSpan}
+                              label={f.label}
+                              value={val ?? ''}
+                              onChange={(e) => setAssessmentValue(key, e.target.value)}
+                            >
+                              {(Array.isArray(f.options) ? f.options : []).map((o, oi) => (
+                                <MenuItem key={o === '' ? `opt-empty-${oi}` : String(o)} value={o}>
+                                  {o === '' ? '—' : o === 'days' ? 'Days' : o === 'months' ? 'Months' : o}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                          );
+                        }
+                        if (f.type === 'number') {
+                          return (
+                            <TextField
+                              key={key}
+                              size="small"
+                              type="number"
+                              fullWidth
+                              sx={fullSpan}
+                              label={f.label}
+                              value={val ?? ''}
+                              onChange={(e) => setAssessmentValue(key, e.target.value)}
+                              inputProps={{
+                                ...(f.min != null ? { min: f.min } : {}),
+                                ...(f.max != null ? { max: f.max } : {}),
+                              }}
+                            />
+                          );
+                        }
+                        if (f.type === 'date') {
+                          return (
+                            <TextField
+                              key={key}
+                              type="date"
+                              size="small"
+                              fullWidth
+                              sx={fullSpan}
+                              label={f.label}
+                              value={val ?? ''}
+                              onChange={(e) => setAssessmentValue(key, e.target.value)}
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          );
+                        }
+                        return (
+                          <TextField
+                            key={key}
+                            size="small"
+                            fullWidth
+                            sx={fullSpan}
+                            label={f.label}
+                            multiline={f.type === 'textarea'}
+                            minRows={f.type === 'textarea' ? 2 : undefined}
+                            type={stepForm.stage === 'Bidder Registry' && key === 'contactEmail' ? 'email' : (stepForm.stage === 'Bidder Registry' && key === 'contactPhone' ? 'tel' : undefined)}
+                            value={val ?? ''}
+                            onChange={(e) => setAssessmentValue(key, e.target.value)}
+                            error={Boolean(assessmentErrors?.[key])}
+                            helperText={assessmentErrors?.[key] || ''}
+                          />
+                        );
+                      })}
+                    </Box>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }} sx={{ mt: 1.5 }}>
+                      <Stack spacing={0.5} sx={{ minWidth: 240 }}>
                         <TextField
-                          key={key}
                           select
                           size="small"
-                          label={f.label}
-                          value={val ?? ''}
-                          onChange={(e) => setAssessmentValue(key, e.target.value)}
+                          label="Assessment Decision"
+                          value={assessmentDecision}
+                          onChange={(e) => setAssessmentDecision(e.target.value)}
+                          fullWidth
+                          helperText={
+                            stepForm.stage === STAGE_AWARD_DECISION
+                              ? 'Set “Awarded” for the winning bidder. Contract Signing will list only Awarded bidders.'
+                              : stepForm.stage === STAGE_BID_EVALUATION
+                                ? 'Tick “Recommended for award” below when proceeding to award. Use Terminated when no qualifying bidder or procurement must stop.'
+                                : stepForm.stage === STAGE_PRE_QUALIFICATION
+                                  ? 'Use Terminated when no bidder qualifies or procurement stops; then Save Workflow Step → Procurement Terminated if closing without award.'
+                                  : ''
+                          }
                         >
-                          {(Array.isArray(f.options) ? f.options : []).map((o) => (
-                            <MenuItem key={o} value={o}>{o}</MenuItem>
-                          ))}
+                          {decisionsForStage(stepForm.stage).map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
                         </TextField>
-                      );
-                    }
-                    if (f.type === 'number') {
-                      return (
-                        <TextField
-                          key={key}
-                          size="small"
-                          type="number"
-                          label={f.label}
-                          value={val ?? ''}
-                          onChange={(e) => setAssessmentValue(key, e.target.value)}
-                        />
-                      );
-                    }
-                    return (
+                        {stepForm.stage === 'Bid Evaluation' ? (
+                          <Stack direction="row" spacing={1} alignItems="flex-start">
+                            <Checkbox
+                              size="small"
+                              checked={Boolean(assessmentResponses?.recommendedForAward)}
+                              onChange={(e) => setAssessmentValue('recommendedForAward', e.target.checked)}
+                              sx={{ py: 0, mt: -0.5 }}
+                            />
+                            <Typography variant="body2" color="text.secondary" sx={{ pt: 0.25 }}>
+                              Recommended for award (required for Award Decision list)
+                            </Typography>
+                          </Stack>
+                        ) : null}
+                      </Stack>
                       <TextField
-                        key={key}
                         size="small"
-                        label={f.label}
-                        multiline={f.type === 'textarea'}
-                        minRows={f.type === 'textarea' ? 2 : undefined}
-                        value={val ?? ''}
-                        onChange={(e) => setAssessmentValue(key, e.target.value)}
+                        fullWidth
+                        label="Assessment Notes"
+                        value={assessmentNotes}
+                        onChange={(e) => setAssessmentNotes(e.target.value)}
                       />
-                    );
-                  })}
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <TextField
-                      size="small"
-                      label="Assessment Decision"
-                      value={assessmentDecision}
-                      onChange={(e) => setAssessmentDecision(e.target.value)}
-                      sx={{ minWidth: 240 }}
-                    />
-                    <TextField
+                      <Button variant="contained" onClick={handleSaveAssessment} disabled={savingAssessment || !selectedSubjectId}>
+                        {stepForm.stage === 'Bidder Registry' ? 'Save Bidder Details' : 'Save Assessment'}
+                      </Button>
+                      <Button variant="outlined" onClick={() => exportBidderSheet('xlsx')} disabled={!subjects.length}>
+                        Export Excel
+                      </Button>
+                      <Button variant="outlined" onClick={() => exportBidderSheet('pdf')} disabled={!subjects.length}>
+                        Export PDF
+                      </Button>
+                    </Stack>
+                  </Box>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 1.5,
+                      width: { xs: '100%', lg: 280 },
+                      flexShrink: 0,
+                      bgcolor: 'action.hover',
+                      position: { lg: 'sticky' },
+                      top: { lg: 0 },
+                      alignSelf: { lg: 'flex-start' },
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                      Stage guide
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                      {getStageAssessmentSidebarHint(stepForm.stage)}
+                    </Typography>
+                    {selectedSubject ? (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.25 }}>
+                        <strong>Subject:</strong> {selectedSubject.subjectName || '—'}
+                      </Typography>
+                    ) : null}
+                    <Button
                       size="small"
                       fullWidth
-                      label="Assessment Notes"
-                      value={assessmentNotes}
-                      onChange={(e) => setAssessmentNotes(e.target.value)}
-                    />
-                    <Button variant="contained" onClick={handleSaveAssessment} disabled={savingAssessment || !selectedSubjectId}>
-                      Save Assessment
+                      variant="outlined"
+                      startIcon={<AttachFileIcon />}
+                      onClick={() => {
+                        setStageDocumentsOpen(true);
+                        void loadAttachmentsForScope();
+                      }}
+                    >
+                      Stage documents
                     </Button>
-                    <Button variant="outlined" onClick={() => exportBidderSheet('xlsx')} disabled={!subjects.length}>
-                      Export Excel
-                    </Button>
-                    <Button variant="outlined" onClick={() => exportBidderSheet('pdf')} disabled={!subjects.length}>
-                      Export PDF
-                    </Button>
-                  </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                      Files are scoped to this stage (and selected bidder when applicable). Same list as the header paperclip.
+                    </Typography>
+                  </Paper>
                 </Stack>
               ) : (
                 <Typography variant="body2" color="text.secondary">
                   No active stage template found for this stage / subject type.
                 </Typography>
               )}
-
-              <Divider />
-              <Typography variant="subtitle1" fontWeight={700}>Data Collection Checklist</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <TextField
-                  size="small"
-                  fullWidth
-                  label="Checklist item"
-                  value={newChecklistLabel}
-                  onChange={(e) => setNewChecklistLabel(e.target.value)}
-                />
-                <Button variant="contained" onClick={handleAddChecklist} disabled={addingChecklist || !newChecklistLabel.trim()}>
-                  Add
-                </Button>
-              </Stack>
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell><strong>Done</strong></TableCell>
-                      <TableCell><strong>Item</strong></TableCell>
-                      <TableCell><strong>Stage</strong></TableCell>
-                      <TableCell><strong>Updated</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {checklist.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell padding="checkbox">
-                          <Checkbox checked={Boolean(item.completed)} onChange={() => handleToggleChecklist(item)} />
-                        </TableCell>
-                        <TableCell>{item.label}</TableCell>
-                        <TableCell>{item.stage || '-'}</TableCell>
-                        <TableCell>{fmtDate(item.updatedAt || item.createdAt)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {!checklist.length && (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center">No checklist items yet.</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
             </Stack>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ py: 1, px: 2, flexShrink: 0, flexWrap: 'wrap', gap: 1 }}>
           <Button onClick={() => setSelectedProject(null)}>Close</Button>
           <Button variant="outlined" onClick={() => exportComprehensive('project')} disabled={!selectedProject?.projectId}>
             Export Project Workbook
@@ -793,10 +1332,108 @@ export default function ProcurementPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={stageDocumentsOpen} onClose={() => setStageDocumentsOpen(false)} maxWidth="md" fullWidth scroll="paper">
+        <DialogTitle sx={{ pb: 1 }}>
+          Documents for this stage
+          <Typography component="div" variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 400 }}>
+            {stepForm.stage || '—'} · {attachmentsScopeLabel}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            {isBidderStage && !selectedSubjectId ? (
+              <Alert severity="info">Select a bidder in the assessment section below to view or upload documents for this stage.</Alert>
+            ) : null}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+              <Button
+                variant="outlined"
+                component="label"
+                disabled={uploadingDoc || (isBidderStage && !selectedSubjectId)}
+              >
+                {uploadingDoc ? 'Uploading...' : 'Attach document'}
+                <input type="file" hidden onChange={handleUploadAttachment} />
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                {isBidderStage
+                  ? (selectedSubjectId
+                    ? 'Files are stored for this bidder at the current stage.'
+                    : 'Choose a bidder first.')
+                  : `Stored under stage “${stepForm.stage || '—'}”.`}
+              </Typography>
+            </Stack>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Title / file</strong></TableCell>
+                    <TableCell><strong>Stage</strong></TableCell>
+                    <TableCell><strong>Uploaded</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {attachments.map((a) => (
+                    <TableRow key={a.id}>
+                      <TableCell>
+                        <Link href={`/${String(a.filePath || '').replace(/^\/+/, '')}`} target="_blank" rel="noreferrer">
+                          {a.title || a.fileName || `Attachment ${a.id}`}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{a.stage || '—'}</TableCell>
+                      <TableCell>{fmtDate(a.createdAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {!attachments.length && (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">No attachments for this stage yet.</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStageDocumentsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(editingStep)} onClose={closeEditStep} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit workflow step</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <TextField size="small" label="Stage" value={editingStep?.stage || ''} disabled />
+            <TextField
+              select
+              size="small"
+              label="Decision"
+              value={editDecision}
+              onChange={(e) => setEditDecision(e.target.value)}
+            >
+              {decisionsForStage(editingStep?.stage).map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+            </TextField>
+            <TextField
+              size="small"
+              label="Notes"
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              multiline
+              minRows={2}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEditStep} disabled={savingEdit}>Cancel</Button>
+          <Button variant="contained" onClick={saveEditStep} disabled={savingEdit}>
+            {savingEdit ? 'Saving...' : 'Save changes'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={templatesOpen} onClose={() => setTemplatesOpen(false)} fullWidth maxWidth="lg">
         <DialogTitle>Procurement Stage Template Manager</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1}>
+            {templateSuccess ? <Alert severity="success">{templateSuccess}</Alert> : null}
             <TextField
               select
               size="small"
@@ -875,6 +1512,25 @@ export default function ProcurementPage() {
           <Button onClick={() => setTemplatesOpen(false)}>Close</Button>
           <Button variant="contained" onClick={saveTemplate} disabled={savingTemplate}>
             Save Template
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editBidderOpen} onClose={() => setEditBidderOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit bidder</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            size="small"
+            fullWidth
+            label="Bidder name"
+            value={editBidderName}
+            onChange={(e) => setEditBidderName(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditBidderOpen(false)} disabled={savingBidderEdit}>Cancel</Button>
+          <Button variant="contained" onClick={saveBidderEdit} disabled={savingBidderEdit || !editBidderName.trim()}>
+            {savingBidderEdit ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>

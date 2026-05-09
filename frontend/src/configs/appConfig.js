@@ -70,6 +70,8 @@ export const ROUTES = {
     PROJECT_STATUS: '/projects/status',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
+    /** Completed procurements (handed off to contractor; audit trail on project). */
+    PROCUREMENT_PROCURED_PROJECTS: '/procurement/procured-projects',
     /** Catalog of workflow stages for procurement (sidebar under Procurement). */
     PROCUREMENT_STAGES: '/procurement-stages',
     /** Link registry planning activities to projects (Projects sidebar). */

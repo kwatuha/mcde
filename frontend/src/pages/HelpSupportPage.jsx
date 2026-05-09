@@ -156,6 +156,31 @@ const HelpSupportPage = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                Procurement (Bidder Flow)
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Register all bidders once in Bidder Registry (master list). Pre-Qualification starts from Registry, then bidders drop off as they fail qualification.
+                Bid Evaluation lists only qualified pre-qualified bidders; Award Decision lists bidders qualified at Bid Evaluation; Contract Signing lists the bidder marked Awarded at Award.
+                Stage transitions enforce gate rules (minimum qualified bidders and optional minimum score in procurement_stage_gate_rules).
+                If no one qualifies or procurement must stop, use assessment decision Terminated at Pre-Qualification or Bid Evaluation, then save a workflow step with Stage set to Procurement Terminated to record closure without award.
+                To readvertise (a new tender round), move the Stage selector back to Tender Published—backward moves skip gates; you do not need a separate “re-advertise” stage in the catalog (void or hide that label under Procurement stages if it was added).
+              </Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                Purchase orders &amp; Kenya financial year (30 June)
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Under Kenya PFM practice, budget commitments tied to an LPO/PO typically must be utilised or paid within the financial year; amounts not covered by payment/commitment before the year-end (30 June) are treated as lapsed—often requiring cancellation of the old commitment and a fresh procurement action that produces a new PO for continued spend.
+                In this app, record each PO under Purchase Order Issued (reference, issue date, acknowledgement). If you issue a replacement PO after a lapse, tick &quot;supersedes prior lapsed PO&quot; and capture the prior PO reference and notes; you may add another workflow step at the same stage when a new PO is registered.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
                 Troubleshooting
               </Typography>
               <Divider sx={{ mb: 2 }} />
