@@ -16,9 +16,7 @@ import {
   Tooltip,
   Stack,
   useTheme,
-  Link as MuiLink,
 } from '@mui/material';
-import { Link } from 'react-router-dom';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -29,8 +27,6 @@ import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
 import Header from './dashboard/Header';
 import { tokens } from './dashboard/theme';
-import { ROUTES } from '../configs/appConfig';
-
 const checkUserPrivilege = (user, privilegeName) =>
   user && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
 
@@ -249,23 +245,6 @@ export default function PlanningProjectActivitiesPage() {
                   {message}
                 </Alert>
               )}
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Define activities with a short code and link each to an indicator so progress can be measured consistently.
-                Create KPIs / indicators first under{' '}
-                <MuiLink component={Link} to={ROUTES.PLANNING_INDICATORS}>
-                  Indicators & KPIs
-                </MuiLink>
-                . Later, projects can reference these activities when you attach delivery to indicators. For a standard
-                risk register (code, name, description), use{' '}
-                <MuiLink component={Link} to={ROUTES.PLANNING_PROJECT_RISKS} fontWeight={600}>
-                  Project Risks
-                </MuiLink>
-                . To attach catalog activities to a live project, use the Projects menu{' '}
-                <MuiLink component={Link} to={ROUTES.PROJECT_PLANNING_ACTIVITY_LINKS} fontWeight={600}>
-                  Project Activities
-                </MuiLink>{' '}
-                screen.
-              </Alert>
               {!indicators.length && canRead && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   No indicators found. Add KPIs / indicators before creating activities.

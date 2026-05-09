@@ -445,12 +445,15 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
 
   const [openTreeGroups, setOpenTreeGroups] = useState(() => new Set());
   const [treeSidebarLogoFailed, setTreeSidebarLogoFailed] = useState(false);
+  /** Accordion: opening one category collapses others (less sidebar scrolling). */
   const toggleTreeGroup = useCallback((id) => {
     setOpenTreeGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      if (prev.has(id)) {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }
+      return new Set([id]);
     });
   }, []);
 
@@ -461,12 +464,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
 
   useEffect(() => {
     if (!isTreeLayout || !activeCategoryIdForPath || normalizedRole === 'contractor') return;
-    setOpenTreeGroups((prev) => {
-      if (prev.has(activeCategoryIdForPath)) return prev;
-      const next = new Set(prev);
-      next.add(activeCategoryIdForPath);
-      return next;
-    });
+    setOpenTreeGroups(new Set([activeCategoryIdForPath]));
   }, [isTreeLayout, activeCategoryIdForPath, normalizedRole]);
 
   useEffect(() => {

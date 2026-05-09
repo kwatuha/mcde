@@ -51,13 +51,6 @@ export default function ProcurementProcuredProjectsPage() {
         <Typography variant="h6" fontWeight={800}>
           Procured projects
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Projects that finished procurement (Contract Signing saved as Approved). The winning bidder was linked as a contractor and the project moved to execution (
-          <strong>Not Started</strong>). Workflow steps, bidder assessments, and attachments remain on each project for audit.
-          Use <strong>View procurement history</strong> to open the same workflow dialog as active projects (browse stages, assessments, attachments) and the workbook viewer from the eye icon—or <strong>Workbook</strong> to jump straight to the HTML workbook.
-          If contract signing happened before a purchase order was recorded, use the <strong>LPO / PO</strong> column: an amber badge means no PO activity yet at the
-          &quot;Purchase Order Issued&quot; stage. <strong>Record / manage PO</strong> opens the procurement page focused on that stage so you can add details, documents, or replacement POs (e.g. after fiscal year end).
-        </Typography>
       </Paper>
 
       {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}

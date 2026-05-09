@@ -125,6 +125,24 @@ const HelpSupportPage = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                Planning — Project activities catalog
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="body2" color="text.secondary">
+                Define activities with a short code and link each to an indicator so progress can be measured consistently.
+                Create KPIs / indicators first under <strong>Indicators &amp; KPIs</strong> (Planning). Later, projects can
+                reference these activities when you attach delivery to indicators. For a standard risk register (code,
+                name, description), use <strong>Project Risks</strong> (Planning). To attach catalog activities to a live
+                project, use the Projects menu <strong>Project Activities</strong> screen (Project activity links).
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
                 Approval Workflows Guide
               </Typography>
               <Divider sx={{ mb: 2 }} />
