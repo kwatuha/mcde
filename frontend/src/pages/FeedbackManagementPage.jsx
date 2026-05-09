@@ -286,7 +286,7 @@ const FeedbackManagementPage = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 2 }}>
+    <Container maxWidth={false} sx={{ py: 2, px: { xs: 1, sm: 2, md: 2.5 }, width: '100%' }}>
       {/* Header */}
       <Box sx={{ mb: 2 }}>
         <Typography variant="h5" fontWeight="bold" gutterBottom>
@@ -367,13 +367,23 @@ const FeedbackManagementPage = () => {
 
       {/* Tab Content */}
       {activeTab === 0 ? (
-        <Box>
+        <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
 
-      {/* Statistics Cards */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} sm={6} md={3}>
+      {/* Statistics Cards — fill row width (auto-fit columns) */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+          gap: 2,
+          mb: 2,
+          width: '100%',
+          maxWidth: '100%',
+        }}
+      >
           <Card 
             sx={{ 
+              height: '100%',
+              minWidth: 0,
               background: 'linear-gradient(135deg, #2196f3 0%, #42a5f5 100%)', 
               color: 'white',
               cursor: 'pointer',
@@ -395,11 +405,11 @@ const FeedbackManagementPage = () => {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
           <Card 
             sx={{ 
+              height: '100%',
+              minWidth: 0,
               background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)', 
               color: 'white',
               cursor: 'pointer',
@@ -421,11 +431,11 @@ const FeedbackManagementPage = () => {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
           <Card 
             sx={{ 
+              height: '100%',
+              minWidth: 0,
               background: 'linear-gradient(135deg, #4caf50 0%, #66bb6a 100%)', 
               color: 'white',
               cursor: 'pointer',
@@ -447,11 +457,11 @@ const FeedbackManagementPage = () => {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
           <Card 
             sx={{ 
+              height: '100%',
+              minWidth: 0,
               background: 'linear-gradient(135deg, #9c27b0 0%, #ba68c8 100%)', 
               color: 'white',
               cursor: 'pointer',
@@ -473,8 +483,7 @@ const FeedbackManagementPage = () => {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
-      </Grid>
+      </Box>
 
       {/* Filters */}
       <Paper elevation={2} sx={{ p: 2, mb: 2 }}>

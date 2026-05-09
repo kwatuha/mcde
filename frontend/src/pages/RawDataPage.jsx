@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import { getThemedDataGridSx } from '../utils/dataGridTheme';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import apiService from '../api';
@@ -21,6 +22,8 @@ import { tokens } from "./dashboard/theme";
 
 function RawDataPage() {
   const theme = useTheme();
+  const { isTreeLayout } = useNavigationLayout();
+  const isTreeGrid = isTreeLayout && theme.palette.mode === 'light';
   const colors = tokens(theme.palette.mode);
   const isLight = theme.palette.mode === 'light';
   
@@ -256,9 +259,16 @@ function RawDataPage() {
           sx={{
             overflow: 'hidden',
             ...getThemedDataGridSx(theme, colors, {
-              '& .MuiDataGrid-columnHeader': {
-                '&:hover': { backgroundColor: `${isLight ? colors.blueAccent[200] : colors.blueAccent[600]} !important` },
-              },
+              _isTreeLayout: isTreeGrid,
+              ...(!isTreeGrid
+                ? {
+                    '& .MuiDataGrid-columnHeader': {
+                      '&:hover': {
+                        backgroundColor: `${isLight ? colors.blueAccent[200] : colors.blueAccent[600]} !important`,
+                      },
+                    },
+                  }
+                : {}),
             }),
           }}
         >

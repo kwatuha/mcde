@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Box, Button, Tooltip, useTheme } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import GridViewIcon from '@mui/icons-material/GridView';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import GroupIcon from '@mui/icons-material/Group';
@@ -30,14 +31,25 @@ import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import UpdateIcon from '@mui/icons-material/Update';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
+import GroupsIcon from '@mui/icons-material/Groups';
+import HandshakeIcon from '@mui/icons-material/Handshake';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import EventNoteIcon from '@mui/icons-material/EventNote';
+import CelebrationIcon from '@mui/icons-material/Celebration';
+import GavelIcon from '@mui/icons-material/Gavel';
+import CategoryIcon from '@mui/icons-material/Category';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import HistoryIcon from '@mui/icons-material/History';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
+import SpeedIcon from '@mui/icons-material/Speed';
+import ArticleIcon from '@mui/icons-material/Article';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
+import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 
 /** First sidebar destination when switching ribbon tab (menuConfig `route` keys). */
@@ -47,31 +59,17 @@ const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   reporting: 'PROJECTS',
   management: 'BUDGET_MANAGEMENT',
   procurement: 'PROCUREMENT',
+  monitoring: 'PROJECT_DOCUMENTS_BY_PROJECT',
   reports: 'REPORT_LIBRARY',
   hr: 'HR_EMPLOYEES',
   public: 'PUBLIC_APPROVAL',
   admin: 'USER_MANAGEMENT',
 };
 
-/** Which ribbon category owns this pathname (first match in menu order). */
-function findCategoryIdForPath(pathname, menuCategories) {
-  for (const cat of menuCategories) {
-    if (!cat.submenus?.length) continue;
-    for (const sub of cat.submenus) {
-      const route = sub.route && ROUTES[sub.route] ? ROUTES[sub.route] : sub.to;
-      if (!route) continue;
-      const routePath = String(route).split('?')[0];
-      if (pathname === routePath || pathname.startsWith(`${routePath}/`)) {
-        return cat.id;
-      }
-    }
-  }
-  return null;
-}
-
 // Icon mapping for Material-UI icons
 const ICON_MAP = {
   DashboardIcon,
+  GridViewIcon,
   AssessmentIcon,
   SettingsIcon,
   GroupIcon,
@@ -89,6 +87,14 @@ const ICON_MAP = {
   AnnouncementIcon,
   PublicIcon,
   ApartmentIcon,
+  CategoryIcon,
+  AnalyticsIcon,
+  GroupsIcon,
+  HandshakeIcon,
+  ScheduleIcon,
+  EventNoteIcon,
+  CelebrationIcon,
+  GavelIcon,
   MenuBookIcon,
   LocationOnIcon,
   WorkIcon,
@@ -105,6 +111,8 @@ const ICON_MAP = {
   RepeatIcon,
   FactCheckIcon,
   ChecklistIcon,
+  SpeedIcon,
+  ArticleIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching
@@ -112,6 +120,7 @@ export default function RibbonMenu({ isAdmin = false }) {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const { layoutMode } = useNavigationLayout();
   const { hasPrivilege, user } = useAuth();
   const { selectedCategoryId, setSelectedCategoryId } = useMenuCategory();
   const [collapsed, setCollapsed] = useState(false);
@@ -128,8 +137,6 @@ export default function RibbonMenu({ isAdmin = false }) {
     return index >= 0 ? index : 0;
   }, [selectedCategoryId, menuCategories]);
   
-  const go = (to) => () => navigate(to);
-
   // Only collapse the primary menu bar height on scroll
   useEffect(() => {
     let ticking = false;
@@ -258,68 +265,9 @@ export default function RibbonMenu({ isAdmin = false }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [isAdmin, menuCategories, setSelectedCategoryId]);
 
-
-  const Btn = ({ title, icon, to, route, onClick }) => {
-    const IconComponent = ICON_MAP[icon] || DashboardIcon;
-    const targetRoute = route && ROUTES[route] ? ROUTES[route] : to;
-    const isActive = targetRoute && location.pathname.includes(String(targetRoute).split('?')[0]);
-    
-    return (
-      <Tooltip title={title} arrow>
-        <Button size="small" variant="contained" onClick={onClick || go(targetRoute)}
-          sx={{
-            px: 0.75,
-            minWidth: 50,
-            lineHeight: 1.2,
-            fontSize: 10,
-            height: 38,
-            borderRadius: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 0.5,
-            textTransform: 'none',
-            letterSpacing: 0.3,
-            color: '#fff',
-            background: isActive
-              ? 'linear-gradient(180deg, #1e40af, #1e3a8a)'
-              : 'linear-gradient(180deg, #3b82f6, #2563eb)',
-            border: isActive 
-              ? '2px solid #00FFFF'
-              : '1px solid rgba(255,255,255,0.3)',
-            boxShadow: isActive
-              ? '0 4px 8px rgba(0,0,0,0.15), inset 0 0 8px rgba(0,255,255,0.2), 0 0 12px rgba(0,255,255,0.3)'
-              : '0 2px 6px rgba(0,0,0,0.1)',
-            transition: 'transform 120ms ease, box-shadow 120ms ease, background 120ms ease',
-            '&:hover': {
-              transform: 'translateY(-1px)',
-              background: isActive
-                ? 'linear-gradient(180deg, #1e40af, #1e3a8a)'
-                : 'linear-gradient(180deg, #2563eb, #1d4ed8)'
-            },
-            '&:active': {
-              transform: 'translateY(0px)',
-            }
-          }}>
-          <Box sx={{
-            width: 18,
-            height: 18,
-            borderRadius: '50%',
-            display: 'grid',
-            placeItems: 'center',
-            backgroundColor: 'rgba(255,255,255,0.35)',
-            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.6), 0 1px 2px rgba(0,0,0,0.2)'
-          }}>
-            <Box sx={{ lineHeight: 0, fontSize: 18, color: isActive ? '#00FFFF' : '#FFD700' }}>
-              <IconComponent fontSize="small" />
-            </Box>
-          </Box>
-          <Box component="span" className="label" sx={{ display: { xs: 'none', sm: 'inline' } }}>{title}</Box>
-        </Button>
-      </Tooltip>
-    );
-  };
+  if (layoutMode === 'tree') {
+    return null;
+  }
 
   return (
     <Box sx={{

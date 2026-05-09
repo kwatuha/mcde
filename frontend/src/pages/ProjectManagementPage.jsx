@@ -6,7 +6,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, ToggleButton, ToggleButtonGroup, Collapse,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
-import { getThemedDataGridSx } from '../utils/dataGridTheme';
+import { getThemedDataGridSx, TREE_LAYOUT_GRID } from '../utils/dataGridTheme';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewDetailsIcon, FilterList as FilterListIcon, BarChart as GanttChartIcon,
   ArrowForward as ArrowForwardIcon, ArrowBack as ArrowBackIcon, Settings as SettingsIcon, Category as CategoryIcon,
@@ -40,6 +40,7 @@ import {
 import { isVoidedProject } from '../utils/sectorGapDrilldown';
 import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
 import { ROUTES } from '../configs/appConfig';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
 
 // Import our new, compact components and hooks
@@ -77,6 +78,8 @@ function ProjectManagementPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const theme = useTheme();
+  const { isTreeLayout } = useNavigationLayout();
+  const isTreeGrid = isTreeLayout && theme.palette.mode === 'light';
   const colors = tokens(theme.palette.mode); // Initialize colors
   const isLight = theme.palette.mode === 'light';
   const ui = {
@@ -2779,50 +2782,77 @@ function ProjectManagementPage() {
           ref={dataGridRef}
             sx={{
               mt: 0.5,
-              backgroundColor: ui.bodyBg,
-              borderRadius: '8px',
-              overflow: 'hidden',
-              boxShadow: ui.elevatedShadow,
-              border: `1px solid ${ui.border}`,
+              ...(isTreeGrid
+                ? {
+                    backgroundColor: theme.palette.background.paper,
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                    boxShadow: 'none',
+                    border: `1px solid ${TREE_LAYOUT_GRID.border}`,
+                  }
+                : {
+                    backgroundColor: ui.bodyBg,
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    boxShadow: ui.elevatedShadow,
+                    border: `1px solid ${ui.border}`,
+                  }),
               width: '100%',
-              ...getThemedDataGridSx(theme, colors, { _stickyHeaderTop: 74 }),
-              '& .MuiDataGrid-columnHeaders': {
-                minHeight: '40px !important',
-                maxHeight: '40px !important',
-                fontSize: '0.8125rem', // Compact header font
-                '& .MuiDataGrid-columnHeaderTitle': {
-                  fontSize: '0.8125rem',
-                  fontWeight: 600,
-                },
-              },
-              // Ensure Actions column header has same background as other headers (no white strip)
-              '& .MuiDataGrid-columnHeader[data-field="actions"]': {
-                backgroundColor: `${theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.04)' : colors.blueAccent[800]} !important`,
-              },
-              '& .MuiDataGrid-columnHeader[data-field="actions"] .MuiDataGrid-columnHeaderTitleContainer': {
-                backgroundColor: 'inherit !important',
-                overflow: 'visible',
-                paddingRight: 8,
-              },
-              // Ensure Actions column cells are properly aligned
-              '& .MuiDataGrid-cell[data-field="actions"]': {
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '4px !important',
-              },
-              '& .MuiDataGrid-footerContainer': {
-                minHeight: '40px !important',
-                maxHeight: '40px !important',
-                fontSize: '0.8125rem',
-                color: `${theme.palette.text.primary} !important`,
-              },
-              '& .MuiDataGrid-footerContainer .MuiTablePagination-selectLabel, & .MuiDataGrid-footerContainer .MuiTablePagination-displayedRows': {
-                color: `${theme.palette.text.primary} !important`,
-              },
-              '& .MuiDataGrid-footerContainer .MuiTablePagination-select': {
-                color: `${theme.palette.text.primary} !important`,
-              },
+              ...getThemedDataGridSx(theme, colors, {
+                _stickyHeaderTop: 74,
+                _isTreeLayout: isTreeGrid,
+              }),
+              ...(isTreeGrid
+                ? {
+                    '& .MuiDataGrid-columnHeader[data-field="actions"] .MuiDataGrid-columnHeaderTitleContainer': {
+                      backgroundColor: 'inherit !important',
+                      overflow: 'visible',
+                      paddingRight: 8,
+                    },
+                    '& .MuiDataGrid-cell[data-field="actions"]': {
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '4px !important',
+                    },
+                  }
+                : {
+                    '& .MuiDataGrid-columnHeaders': {
+                      minHeight: '40px !important',
+                      maxHeight: '40px !important',
+                      fontSize: '0.8125rem',
+                      '& .MuiDataGrid-columnHeaderTitle': {
+                        fontSize: '0.8125rem',
+                        fontWeight: 600,
+                      },
+                    },
+                    '& .MuiDataGrid-columnHeader[data-field="actions"]': {
+                      backgroundColor: `${theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.04)' : colors.blueAccent[800]} !important`,
+                    },
+                    '& .MuiDataGrid-columnHeader[data-field="actions"] .MuiDataGrid-columnHeaderTitleContainer': {
+                      backgroundColor: 'inherit !important',
+                      overflow: 'visible',
+                      paddingRight: 8,
+                    },
+                    '& .MuiDataGrid-cell[data-field="actions"]': {
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '4px !important',
+                    },
+                    '& .MuiDataGrid-footerContainer': {
+                      minHeight: '40px !important',
+                      maxHeight: '40px !important',
+                      fontSize: '0.8125rem',
+                      color: `${theme.palette.text.primary} !important`,
+                    },
+                    '& .MuiDataGrid-footerContainer .MuiTablePagination-selectLabel, & .MuiDataGrid-footerContainer .MuiTablePagination-displayedRows': {
+                      color: `${theme.palette.text.primary} !important`,
+                    },
+                    '& .MuiDataGrid-footerContainer .MuiTablePagination-select': {
+                      color: `${theme.palette.text.primary} !important`,
+                    },
+                  }),
             }}
         >
           <DataGrid

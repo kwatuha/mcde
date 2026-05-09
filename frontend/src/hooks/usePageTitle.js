@@ -13,6 +13,7 @@ const routeTitles = {
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
   '/projects/teams': { title: 'Project Teams', subtitle: 'Manage team members across projects' },
   '/projects/status': { title: 'Project Status', subtitle: 'Manage overall status and progress updates' },
+  '/projects/updates': { title: 'Project Updates', subtitle: 'Monitoring hub for status, documents, and feedback' },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
     subtitle: 'Associate Planning catalog activities with projects',
@@ -150,6 +151,8 @@ export const usePageTitleEffect = () => {
     if (!titleInfo && path.startsWith('/projects/')) {
       if (path === '/projects/feedback-by-project') {
         titleInfo = { title: 'Project Feedback', subtitle: 'Public feedback by project' };
+      } else if (path === '/projects/updates') {
+        titleInfo = { title: 'Project Updates', subtitle: 'Monitoring hub for status, documents, and feedback' };
       } else if (path === '/projects/documents-by-project') {
         titleInfo = { title: 'Project Documents', subtitle: 'Attachments by project' };
       } else if (path === '/projects/planning-activity-links') {

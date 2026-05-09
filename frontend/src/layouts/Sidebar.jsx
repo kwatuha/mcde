@@ -61,15 +61,31 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import HistoryIcon from '@mui/icons-material/History';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
+import GridViewIcon from '@mui/icons-material/GridView';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
+import GroupsIcon from '@mui/icons-material/Groups';
+import HandshakeIcon from '@mui/icons-material/Handshake';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import EventNoteIcon from '@mui/icons-material/EventNote';
+import CelebrationIcon from '@mui/icons-material/Celebration';
+import GavelIcon from '@mui/icons-material/Gavel';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import SpeedIcon from '@mui/icons-material/Speed';
+import ArticleIcon from '@mui/icons-material/Article';
+import UpdateIcon from '@mui/icons-material/Update';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 import { useSidebar } from '../context/SidebarContext.jsx';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { ROUTES } from '../configs/appConfig.js';
-import { getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
+import { TREE_MENU_CATEGORY_ORDER } from '../configs/navigationLayoutConfig.js';
+import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
 import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
-import logo from '../assets/logo.png';
-import userProfilePicture from '../assets/user.png';
+import gprisLogo from '../assets/gpris.png';
+import logoFallback from '../assets/logo.png';
 
 // Icon mapping for Material-UI icons
 const ICON_MAP = {
@@ -101,9 +117,56 @@ const ICON_MAP = {
   StraightenIcon,
   HistoryIcon,
   WorkHistoryIcon,
+  GridViewIcon,
+  AnalyticsIcon,
+  GroupsIcon,
+  HandshakeIcon,
+  FactCheckIcon,
+  ScheduleIcon,
+  EventNoteIcon,
+  CelebrationIcon,
+  GavelIcon,
+  ChecklistIcon,
+  VerifiedUserIcon,
+  SpeedIcon,
+  ArticleIcon,
+  UpdateIcon,
 };
 
-const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed }) => {
+/** Visible submenu rows for one ribbon category (shared by ribbon sidebar & tree sidebar). */
+function filterCategorySubmenusToNavItems(category, hasPrivilege, user, isAdminLike) {
+  if (!category?.submenus) return [];
+  return category.submenus
+    .filter((submenu) => {
+      if (submenu.hidden) return false;
+      if (submenu.permission && submenu.roles) {
+        const hasPermission = hasPrivilege && hasPrivilege(submenu.permission);
+        const hasRole = hasConfiguredRole(user, submenu.roles);
+        return hasPermission || hasRole;
+      }
+      if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
+        const any = hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p));
+        if (!any && !isAdminLike) return false;
+      } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
+        return false;
+      }
+      if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) {
+        return false;
+      }
+      return true;
+    })
+    .map((submenu) => {
+      const route = submenu.route && ROUTES[submenu.route] ? ROUTES[submenu.route] : submenu.to;
+      const IconComponent = ICON_MAP[submenu.icon] || DashboardIcon;
+      return {
+        title: submenu.title,
+        to: route,
+        icon: <IconComponent />,
+      };
+    });
+}
+
+const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed, nested, treeChrome }) => {
   const navigate = useNavigate();
   
   if (privilegeCheck && !privilegeCheck()) {
@@ -115,6 +178,19 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
     navigate(to);
   }, [to, setSelected, navigate]);
 
+  const isSel = selected === to;
+  const labelColor = treeChrome
+    ? nested
+      ? isSel
+        ? 'rgba(255,255,255,0.98)'
+        : 'rgba(255,255,255,0.82)'
+      : isSel
+        ? '#fff'
+        : 'rgba(255,255,255,0.95)'
+    : isSel
+      ? theme.palette.primary.main
+      : theme.palette.text.primary;
+
   return (
     <Tooltip title={isCollapsed ? title : ''} placement="right" arrow>
       <Box
@@ -123,14 +199,28 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
           display: 'flex',
           alignItems: 'center',
           justifyContent: isCollapsed ? 'center' : 'flex-start',
-          padding: isCollapsed ? '8px' : '6px 10px',
-          margin: '2px 6px',
-          borderRadius: '6px',
+          padding: isCollapsed
+            ? '8px'
+            : treeChrome
+              ? nested
+                ? '3px 8px 3px 12px'
+                : '4px 8px'
+              : nested
+                ? '5px 10px 5px 18px'
+                : '6px 10px',
+          margin: treeChrome ? '1px 4px' : '2px 6px',
+          borderRadius: treeChrome ? '5px' : '6px',
           cursor: 'pointer',
-          backgroundColor: selected === to ? theme.palette.action.selected : 'transparent',
-          color: selected === to ? theme.palette.primary.main : theme.palette.text.primary,
+          backgroundColor: treeChrome
+            ? isSel
+              ? 'rgba(255,255,255,0.18)'
+              : 'transparent'
+            : isSel
+              ? theme.palette.action.selected
+              : 'transparent',
+          color: labelColor,
           '&:hover': {
-            backgroundColor: theme.palette.action.hover,
+            backgroundColor: treeChrome ? 'rgba(255,255,255,0.12)' : theme.palette.action.hover,
             transform: isCollapsed ? 'scale(1.1)' : 'translateX(2px)',
             transition: 'all 0.2s ease-in-out',
           },
@@ -139,11 +229,20 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
       <Box sx={{ 
         display: 'flex', 
         alignItems: 'center', 
-        marginRight: isCollapsed ? 0 : '10px',
-        minWidth: isCollapsed ? 'auto' : '20px',
+        marginRight: isCollapsed ? 0 : treeChrome ? '7px' : '10px',
+        minWidth: isCollapsed ? 'auto' : treeChrome ? '17px' : '20px',
         justifyContent: 'center',
         '& svg': {
-          fontSize: isCollapsed ? '20px' : '18px',
+          fontSize: isCollapsed
+            ? '20px'
+            : treeChrome
+              ? nested
+                ? '15px'
+                : '17px'
+              : nested
+                ? '16px'
+                : '18px',
+          color: treeChrome ? '#0A2D68' : undefined,
         },
       }}>
         {icon}
@@ -152,8 +251,8 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
           <Typography 
             variant="body2" 
             sx={{ 
-              fontSize: '0.8rem', 
-              fontWeight: selected === to ? '600' : '500',
+              fontSize: treeChrome ? (nested ? '0.78rem' : '0.8125rem') : nested ? '0.78rem' : '0.8rem',
+              fontWeight: selected === to ? '600' : nested ? '500' : '500',
               overflow: 'hidden', 
               whiteSpace: 'nowrap', 
               textOverflow: 'ellipsis',
@@ -168,7 +267,23 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
   );
 });
 
-const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isCollapsed }) => {
+const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isCollapsed, treeChrome, isActiveGroup = false }) => {
+  /* CIMES-like: one muted strip for the route’s category; inactive rows stay clean (no “always on” tint). */
+  const headerBg = treeChrome
+    ? isActiveGroup
+      ? 'rgba(73, 89, 109, 0.45)'
+      : 'transparent'
+    : isActiveGroup
+      ? 'rgba(255,255,255,0.14)'
+      : 'transparent';
+
+  const headerHoverBg = treeChrome
+    ? isActiveGroup
+      ? 'rgba(73, 89, 109, 0.52)'
+      : 'rgba(255,255,255,0.14)'
+    : isActiveGroup
+      ? 'rgba(255,255,255,0.18)'
+      : 'rgba(255,255,255,0.08)';
 
   return (
     <Box>
@@ -179,20 +294,21 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
             display: 'flex',
             alignItems: 'center',
             justifyContent: isCollapsed ? 'center' : 'space-between',
-            padding: isCollapsed ? '10px' : '10px 12px',
-            margin: '4px 8px',
-            borderRadius: '6px',
+            padding: isCollapsed ? '10px' : treeChrome ? '6px 10px' : '10px 12px',
+            margin: treeChrome ? '2px 6px' : '4px 8px',
+            borderRadius: treeChrome ? '5px' : '6px',
             cursor: 'pointer',
-            backgroundColor: theme.palette.action.hover,
-            color: theme.palette.text.primary,
+            backgroundColor: headerBg,
+            color: treeChrome ? 'rgba(255,255,255,0.96)' : theme.palette.text.primary,
             '&:hover': {
-              backgroundColor: theme.palette.action.selected,
+              backgroundColor: headerHoverBg,
               transition: 'all 0.2s ease-in-out',
             },
+            '& .MuiSvgIcon-root': treeChrome ? { color: '#0A2D68' } : {},
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', width: '100%' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', marginRight: isCollapsed ? 0 : '12px' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', marginRight: isCollapsed ? 0 : treeChrome ? '8px' : '12px' }}>
               {icon}
             </Box>
             {!isCollapsed && (
@@ -200,17 +316,22 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
                 <Typography 
                   variant="body2" 
                   sx={{ 
-                    fontSize: '0.9rem', 
-                    fontWeight: '600', 
+                    fontSize: treeChrome ? '0.8125rem' : '0.9rem',
+                    fontWeight: '700',
                     overflow: 'visible', 
                     whiteSpace: 'nowrap', 
                     textOverflow: 'unset',
                     flex: 1,
+                    letterSpacing: treeChrome ? '0.02em' : undefined,
                   }}
                 >
                   {title}
                 </Typography>
-                {isOpen ? <ExpandLessIcon sx={{ fontSize: '18px' }} /> : <ExpandMoreIcon sx={{ fontSize: '18px' }} />}
+                {isOpen ? (
+                  <ExpandLessIcon sx={{ fontSize: treeChrome ? '17px' : '18px' }} />
+                ) : (
+                  <ExpandMoreIcon sx={{ fontSize: treeChrome ? '17px' : '18px' }} />
+                )}
               </>
             )}
           </Box>
@@ -218,7 +339,7 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
       </Tooltip>
       {!isCollapsed && (
         <Collapse in={isOpen} timeout="auto" unmountOnExit>
-          <Box sx={{ pl: 0.5 }}>
+          <Box sx={{ pl: treeChrome ? 0.25 : 0.5 }}>
             {children}
           </Box>
         </Collapse>
@@ -227,7 +348,7 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
   );
 };
 
-const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed }) => {
+const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nested, treeChrome }) => {
   return (
     <Fade in={true} timeout={300}>
       <Box>
@@ -243,6 +364,8 @@ const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed }) =>
                 privilegeCheck={item.privilege}
                 theme={theme}
                 isCollapsed={isCollapsed}
+                nested={nested}
+                treeChrome={treeChrome}
               />
             </Box>
           </Zoom>
@@ -252,7 +375,7 @@ const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed }) =>
   );
 };
 
-const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
+const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPinnedOpen = false, onTogglePinned }) => {
   const theme = useTheme();
   const { selectedCategoryId } = useMenuCategory();
   const { user, hasPrivilege } = useAuth();
@@ -282,6 +405,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   };
   
   const location = useLocation();
+  const { isTreeLayout } = useNavigationLayout();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   const fullPath = `${location.pathname}${location.search || ''}`;
@@ -289,7 +413,7 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   const previousFullPathRef = useRef(fullPath);
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isAdminLike = isAdmin(user);
-  
+
   // Memoize setSelected to prevent Item components from re-rendering unnecessarily
   const stableSetSelected = useCallback((value) => {
     setSelected(value);
@@ -298,58 +422,63 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
   // Get sidebar collapse state from context
   const { isCollapsed, toggleSidebar } = useSidebar();
   
-  // Get filtered menu categories
+  // Get filtered menu categories (tree layout uses CIMES-style category order)
   const menuCategories = useMemo(() => {
-    return getFilteredMenuCategories(isAdminLike, hasPrivilege, user);
-  }, [hasPrivilege, user, isAdminLike]);
-  
+    const cats = getFilteredMenuCategories(isAdminLike, hasPrivilege, user);
+    if (!isTreeLayout) return cats;
+    const orderIndex = (id) => {
+      const i = TREE_MENU_CATEGORY_ORDER.indexOf(id);
+      return i === -1 ? 999 : i;
+    };
+    return [...cats].sort((a, b) => orderIndex(a.id) - orderIndex(b.id));
+  }, [hasPrivilege, user, isAdminLike, isTreeLayout]);
+
+  const [openTreeGroups, setOpenTreeGroups] = useState(() => new Set());
+  const [treeSidebarLogoFailed, setTreeSidebarLogoFailed] = useState(false);
+  const toggleTreeGroup = useCallback((id) => {
+    setOpenTreeGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const activeCategoryIdForPath = useMemo(
+    () => findCategoryIdForPath(location.pathname, menuCategories),
+    [location.pathname, menuCategories]
+  );
+
+  useEffect(() => {
+    if (!isTreeLayout || !activeCategoryIdForPath || normalizedRole === 'contractor') return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has(activeCategoryIdForPath)) return prev;
+      const next = new Set(prev);
+      next.add(activeCategoryIdForPath);
+      return next;
+    });
+  }, [isTreeLayout, activeCategoryIdForPath, normalizedRole]);
+
+  useEffect(() => {
+    if (!isTreeLayout || normalizedRole !== 'contractor') return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('contractor-root')) return prev;
+      const next = new Set(prev);
+      next.add('contractor-root');
+      return next;
+    });
+  }, [isTreeLayout, normalizedRole]);
+
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
     return menuCategories.find(cat => cat.id === selectedCategoryId) || menuCategories[0];
   }, [selectedCategoryId, menuCategories]);
   
   // Get submenu items for the selected category
-  const submenuItems = useMemo(() => {
-    if (!selectedCategory || !selectedCategory.submenus) return [];
-    
-    return selectedCategory.submenus
-      .filter(submenu => {
-        // Filter based on permissions and visibility
-        if (submenu.hidden) return false;
-        
-        // If both permission and roles are specified, user needs EITHER permission OR role (OR logic)
-        if (submenu.permission && submenu.roles) {
-          const hasPermission = hasPrivilege && hasPrivilege(submenu.permission);
-          const hasRole = hasConfiguredRole(user, submenu.roles);
-          // Show if user has permission OR role
-          return hasPermission || hasRole;
-        }
-
-        // Optional: any of these privileges (menu JSON `permissionsAny`); admin-like users bypass
-        if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
-          const any = hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p));
-          if (!any && !isAdminLike) return false;
-        } else if (submenu.permission && hasPrivilege && !hasPrivilege(submenu.permission)) {
-          return false;
-        }
-        
-        // Check role-based visibility (if only roles are specified)
-        if (submenu.roles && user && !hasConfiguredRole(user, submenu.roles)) {
-          return false;
-        }
-        
-        return true;
-      })
-      .map(submenu => {
-        const route = submenu.route && ROUTES[submenu.route] ? ROUTES[submenu.route] : submenu.to;
-        const IconComponent = ICON_MAP[submenu.icon] || DashboardIcon;
-        return {
-          title: submenu.title,
-          to: route,
-          icon: <IconComponent />,
-        };
-      });
-  }, [selectedCategory, hasPrivilege, user, isAdminLike]);
+  const submenuItems = useMemo(
+    () => filterCategorySubmenusToNavItems(selectedCategory, hasPrivilege, user, isAdminLike),
+    [selectedCategory, hasPrivilege, user, isAdminLike]
+  );
   
   // Update selected state when route changes (pathname + query for e.g. planning indicators section)
   useEffect(() => {
@@ -411,25 +540,31 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
     return [...dashboardItems, ...reportingItems, ...managementItems];
   }, [normalizedRole, isAdminLike]);
 
-  // Sidebar width based on collapsed state
-  const expandedWidth = 200; // Width with labels
   const collapsedWidth = 64; // Width with icons only
-  const currentWidth = isCollapsed ? collapsedWidth : expandedWidth;
+  const currentWidth = isCollapsed ? collapsedWidth : expandedSidebarWidth;
+  const treeChromeLight = isTreeLayout && theme.palette.mode !== 'dark';
+  const sidebarTop = treeSidebarFlushTop ? 0 : '48px';
+  const sidebarHeight = treeSidebarFlushTop ? '100vh' : 'calc(100vh - 48px)';
+  const treeBrandMt = treeSidebarFlushTop ? 1 : 4;
+  const treeBrandLogoH = treeSidebarFlushTop ? 44 : 40;
+  const treeBrandLogoMaxW = treeSidebarFlushTop ? 128 : 118;
 
   return (
     <Box
       sx={{
-        backgroundColor: theme.palette.mode === 'dark' 
-          ? colors.primary[600] 
-          : '#f0f9ff',
+        backgroundColor: theme.palette.mode === 'dark'
+          ? colors.primary[600]
+          : treeChromeLight
+            ? '#3bace0'
+            : '#f0f9ff',
         borderRight: `none`,
         boxShadow: theme.palette.mode === 'dark' 
           ? '6px 0 20px rgba(0, 0, 0, 0.5), inset -3px 0 6px rgba(255, 255, 255, 0.1)'
           : '6px 0 20px rgba(0, 0, 0, 0.2), inset -3px 0 6px rgba(0, 0, 0, 0.08)',
         position: 'fixed',
-        top: '64px',
+        top: sidebarTop,
         left: 0,
-        height: 'calc(100vh - 64px)',
+        height: sidebarHeight,
         width: `${currentWidth}px`,
         zIndex: 999,
         display: 'block',
@@ -443,9 +578,11 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           right: 0,
           width: '12px',
           height: '12px',
-          background: theme.palette.mode === 'dark' 
-            ? colors.primary[600] 
-            : colors.primary[100],
+          background: theme.palette.mode === 'dark'
+            ? colors.primary[600]
+            : treeChromeLight
+              ? '#3bace0'
+              : colors.primary[100],
           clipPath: 'polygon(100% 0, 0 0, 0 100%)',
           zIndex: 2,
         },
@@ -456,9 +593,11 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           right: 0,
           width: '12px',
           height: '12px',
-          background: theme.palette.mode === 'dark' 
-            ? colors.primary[600] 
-            : colors.primary[100],
+          background: theme.palette.mode === 'dark'
+            ? colors.primary[600]
+            : treeChromeLight
+              ? '#3bace0'
+              : colors.primary[100],
           clipPath: 'polygon(100% 0, 100% 100%, 0 100%)',
           zIndex: 2,
         },
@@ -561,9 +700,9 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
         "& .pro-sidebar": {
           zIndex: 999,
           position: "fixed !important",
-          top: "64px !important", // Start below the AppBar
+          top: `${typeof sidebarTop === 'number' ? `${sidebarTop}px` : sidebarTop} !important`,
           left: "0 !important",
-          height: "calc(100vh - 64px) !important", // Adjust height to account for AppBar
+          height: `${sidebarHeight} !important`,
           width: `${currentWidth}px !important`,
           display: "block !important",
           visibility: "visible !important",
@@ -574,19 +713,23 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
       <Box
         sx={{
           position: 'fixed',
-          top: '64px',
+          top: sidebarTop,
           left: 0,
-          height: 'calc(100vh - 64px)',
+          height: sidebarHeight,
           width: `${currentWidth}px`,
           zIndex: 999,
           display: 'block',
           visibility: 'visible',
-          backgroundColor: theme.palette.mode === 'dark'
+          background: theme.palette.mode === 'dark'
             ? colors.primary[600]
-            : '#81d4fa',
+            : treeChromeLight
+              ? 'linear-gradient(180deg, #4fb6e8 0%, #3bace0 40%, #2f9acb 100%)'
+              : '#81d4fa',
           borderRight: `1px solid ${theme.palette.mode === 'dark'
             ? colors.primary[400]
-            : '#4fc3f7'}`,
+            : treeChromeLight
+              ? 'rgba(10,45,104,0.25)'
+              : '#4fc3f7'}`,
           transition: 'width 0.3s ease-in-out',
         }}
       >
@@ -595,14 +738,14 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
           width: '100%',
           overflowY: 'auto',
           overflowX: 'hidden',
-          py: 1.5,
-          px: 0.5,
+          py: isTreeLayout ? 0.5 : 1.5,
+          px: isTreeLayout ? 0.35 : 0.5,
           position: 'relative',
         }}>
           {/* Toggle Button */}
           <Box sx={{
             position: 'absolute',
-            top: 8,
+            top: isTreeLayout ? 4 : 8,
             right: isCollapsed ? 4 : 8,
             zIndex: 1000,
             transition: 'right 0.3s ease-in-out',
@@ -629,71 +772,245 @@ const Sidebar = ({ isPinnedOpen = false, onTogglePinned }) => {
                   },
                   transition: 'all 0.2s ease-in-out',
                   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                  width: 28,
-                  height: 28,
+                  width: isTreeLayout ? 26 : 28,
+                  height: isTreeLayout ? 26 : 28,
                 }}
               >
-                {isCollapsed ? <ChevronRightIcon sx={{ fontSize: 16 }} /> : <ChevronLeftIcon sx={{ fontSize: 16 }} />}
+                {isCollapsed ? (
+                  <ChevronRightIcon sx={{ fontSize: isTreeLayout ? 15 : 16 }} />
+                ) : (
+                  <ChevronLeftIcon sx={{ fontSize: isTreeLayout ? 15 : 16 }} />
+                )}
               </IconButton>
             </Tooltip>
           </Box>
 
-          {/* Category Title */}
-          {selectedCategory && !isCollapsed && (
-            <Box sx={{ 
-              px: 1.5, 
-              py: 1, 
-              mb: 1.5,
-              mt: 4, // Add top margin to account for toggle button
-              backgroundColor: theme.palette.mode === 'dark' 
-                ? 'rgba(255,255,255,0.1)' 
-                : 'rgba(255,255,255,0.5)',
-              borderRadius: '6px',
-              border: `1px solid ${theme.palette.mode === 'dark' 
-                ? 'rgba(255,255,255,0.1)' 
-                : 'rgba(0,0,0,0.1)'}`,
-            }}>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  color: theme.palette.mode === 'dark' 
-                    ? colors.blueAccent[400] 
-                    : '#0284c7',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+          {isTreeLayout ? (
+            <>
+              {/* CIMES-style brand strip (tree layout only; emblem matches AppBar) */}
+              {!isCollapsed ? (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    mt: treeBrandMt,
+                    mb: 0.5,
+                    px: 1,
+                    pr: 4.5,
+                    minHeight: 36,
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
+                    alt=""
+                    aria-hidden
+                    onError={() => setTreeSidebarLogoFailed(true)}
+                    sx={{
+                      height: treeBrandLogoH,
+                      width: 'auto',
+                      maxWidth: treeBrandLogoMaxW,
+                      objectFit: 'contain',
+                      objectPosition: 'center left',
+                      flexShrink: 0,
+                      display: 'block',
+                      filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
+                    }}
+                  />
+                  <Typography
+                    component="div"
+                    sx={{
+                      fontWeight: 800,
+                      fontSize: '1.125rem',
+                      color: treeChromeLight ? '#0A2D68' : theme.palette.common.white,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.15,
+                      minWidth: 0,
+                    }}
+                  >
+                    MCMES
+                  </Typography>
+                </Box>
+              ) : (
+                <Tooltip title="MCMES" placement="right" arrow>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      mt: treeBrandMt,
+                      mb: 0.5,
+                      px: 0.5,
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
+                      alt=""
+                      aria-hidden
+                      onError={() => setTreeSidebarLogoFailed(true)}
+                      sx={{
+                        height: treeSidebarFlushTop ? 36 : 34,
+                        width: 'auto',
+                        maxWidth: 44,
+                        objectFit: 'contain',
+                        filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
+                      }}
+                    />
+                  </Box>
+                </Tooltip>
+              )}
+              <Divider
+                sx={{
+                  mx: 1,
+                  mb: 0.5,
+                  borderColor: treeChromeLight ? 'rgba(10,45,104,0.22)' : 'rgba(255,255,255,0.12)',
                 }}
-              >
-                {selectedCategory.label}
-              </Typography>
-            </Box>
-          )}
-          
-          {selectedCategory && isCollapsed && (
-            <Box sx={{ mt: 4, mb: 1 }} /> // Spacer when collapsed
-          )}
-          
-          {/* Submenu Items */}
-          {submenuItems.length > 0 ? (
-            <SearchableMenu 
-              items={submenuItems}
-              selected={selected}
-              setSelected={stableSetSelected}
-              theme={theme}
-              isCollapsed={isCollapsed}
-            />
-          ) : (
-            !isCollapsed && (
-              <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No items available
+              />
+              {!isCollapsed && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    mb: 0.5,
+                    px: 1,
+                    fontWeight: 700,
+                    fontSize: '0.72rem',
+                    letterSpacing: '0.07em',
+                    textTransform: 'uppercase',
+                    color: treeChromeLight ? 'rgba(255,255,255,0.72)' : 'text.secondary',
+                  }}
+                >
+                  Menu
                 </Typography>
-              </Box>
-            )
+              )}
+              {isCollapsed ? <Box sx={{ mb: 0.25 }} /> : null}
+              {normalizedRole === 'contractor' ? (
+                <MenuGroup
+                  title="Contractor"
+                  icon={
+                    <PaidIcon
+                      sx={{
+                        color: treeChromeLight ? '#0A2D68' : undefined,
+                        fontSize: treeChromeLight ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('contractor-root')}
+                  onToggle={() => toggleTreeGroup('contractor-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={isCollapsed}
+                  treeChrome={treeChromeLight}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.CONTRACTOR_DASHBOARD)}
+                >
+                  <SearchableMenu
+                    items={contractorItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={isCollapsed}
+                    nested
+                    treeChrome={treeChromeLight}
+                  />
+                </MenuGroup>
+              ) : (
+                menuCategories.map((cat) => {
+                  const items = filterCategorySubmenusToNavItems(cat, hasPrivilege, user, isAdminLike);
+                  if (!items.length) return null;
+                  const IconComp = ICON_MAP[cat.icon] || DashboardIcon;
+                  return (
+                    <MenuGroup
+                      key={cat.id}
+                      title={cat.labelTree || cat.label}
+                      icon={
+                        <IconComp
+                          sx={{
+                            color: treeChromeLight ? '#0A2D68' : undefined,
+                            fontSize: treeChromeLight ? 19 : undefined,
+                          }}
+                        />
+                      }
+                      isOpen={openTreeGroups.has(cat.id)}
+                      onToggle={() => toggleTreeGroup(cat.id)}
+                      theme={theme}
+                      colors={colors}
+                      isCollapsed={isCollapsed}
+                      treeChrome={treeChromeLight}
+                      isActiveGroup={activeCategoryIdForPath === cat.id}
+                    >
+                      <SearchableMenu
+                        items={items}
+                        selected={selected}
+                        setSelected={stableSetSelected}
+                        theme={theme}
+                        isCollapsed={isCollapsed}
+                        nested
+                        treeChrome={treeChromeLight}
+                      />
+                    </MenuGroup>
+                  );
+                })
+              )}
+            </>
+          ) : (
+            <>
+              {selectedCategory && !isCollapsed && (
+                <Box sx={{
+                  px: 1.5,
+                  py: 1,
+                  mb: 1.5,
+                  mt: 4,
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(255,255,255,0.5)',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)'}`,
+                }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: theme.palette.mode === 'dark'
+                        ? colors.blueAccent[400]
+                        : '#0284c7',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedCategory.label}
+                  </Typography>
+                </Box>
+              )}
+
+              {selectedCategory && isCollapsed && (
+                <Box sx={{ mt: 4, mb: 1 }} />
+              )}
+
+              {submenuItems.length > 0 ? (
+                <SearchableMenu
+                  items={submenuItems}
+                  selected={selected}
+                  setSelected={stableSetSelected}
+                  theme={theme}
+                  isCollapsed={isCollapsed}
+                />
+              ) : (
+                !isCollapsed && (
+                  <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No items available
+                    </Typography>
+                  </Box>
+                )
+              )}
+            </>
           )}
         </Box>
       </Box>

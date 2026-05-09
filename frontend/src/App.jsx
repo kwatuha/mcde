@@ -16,6 +16,7 @@ import ProjectManagementPage from './pages/ProjectManagementPage';
 import ProjectTeamsPage from './pages/ProjectTeamsPage';
 import ProjectPartnersPage from './pages/ProjectPartnersPage';
 import ProjectStatusPage from './pages/ProjectStatusPage';
+import ProjectUpdatesPage from './pages/ProjectUpdatesPage';
 import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
@@ -243,6 +244,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/status',
         element: <ProjectStatusPage />,
+      },
+      {
+        path: 'projects/updates',
+        element: <ProjectUpdatesPage />,
       },
       {
         path: 'projects/teams',

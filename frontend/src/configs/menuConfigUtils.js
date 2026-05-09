@@ -1,5 +1,49 @@
 import menuConfig from './menuConfig.json';
+import { ROUTES } from './appConfig.js';
 import { normalizeRoleName, canAccessProjectBySectorDashboard } from '../utils/privilegeUtils.js';
+
+/** Paths that should highlight the Monitoring tree group when the same route key appears under Projects or elsewhere. */
+const MONITORING_PREFERRED_ROUTE_PATHS = [
+  ROUTES.PROJECT_DOCUMENTS_BY_PROJECT,
+  ROUTES.PROJECT_STATUS,
+  ROUTES.PROJECT_EVALUATION,
+  ROUTES.PROJECT_FEEDBACK_BY_PROJECT,
+  ROUTES.PROJECT_UPDATES,
+  ROUTES.DATA_COLLECTION_TOOLS,
+].map((r) => String(r).split('?')[0]);
+
+function pathMatchesRoute(basePath, routePath) {
+  return basePath === routePath || basePath.startsWith(`${routePath}/`);
+}
+
+/** First ribbon / sidebar category whose submenu matches this path (for syncing highlight & auto-expand). */
+export function findCategoryIdForPath(pathname, menuCategories) {
+  if (!pathname || !Array.isArray(menuCategories)) return null;
+  const basePath = String(pathname).split('?')[0];
+
+  const matchingCategoryIds = [];
+  for (const cat of menuCategories) {
+    if (!cat.submenus?.length) continue;
+    for (const sub of cat.submenus) {
+      const route = sub.route && ROUTES[sub.route] ? ROUTES[sub.route] : sub.to;
+      if (!route) continue;
+      const routePath = String(route).split('?')[0];
+      if (pathMatchesRoute(basePath, routePath)) {
+        matchingCategoryIds.push(cat.id);
+        break;
+      }
+    }
+  }
+
+  if (!matchingCategoryIds.length) return null;
+
+  const preferMonitoring =
+    MONITORING_PREFERRED_ROUTE_PATHS.some((p) => pathMatchesRoute(basePath, p)) &&
+    matchingCategoryIds.includes('monitoring');
+  if (preferMonitoring) return 'monitoring';
+
+  return matchingCategoryIds[0];
+}
 
 const ADMIN_ROLE_NAMES = new Set(['admin', 'mda_ict_admin', 'super_admin', 'administrator', 'ict_admin']);
 const EXECUTIVE_VIEWER_ROLE_NAMES = new Set(['executive_viewer', 'project_lead']);
@@ -55,6 +99,8 @@ export const ICON_MAP = {
   UpdateIcon: () => import('@mui/icons-material/Update').then(m => m.default),
   RepeatIcon: () => import('@mui/icons-material/Repeat').then(m => m.default),
   FactCheckIcon: () => import('@mui/icons-material/FactCheck').then(m => m.default),
+  SpeedIcon: () => import('@mui/icons-material/Speed').then(m => m.default),
+  ArticleIcon: () => import('@mui/icons-material/Article').then(m => m.default),
 };
 
 // Get icon component by name

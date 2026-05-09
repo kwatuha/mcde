@@ -68,6 +68,8 @@ export const ROUTES = {
     PROJECT_TEAMS: '/projects/teams',
     /** Project-wide status/progress updates screen. */
     PROJECT_STATUS: '/projects/status',
+    /** Monitoring hub linking to status, documents, evaluation, and feedback (sidebar under Monitoring). */
+    PROJECT_UPDATES: '/projects/updates',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
     /** Completed procurements (handed off to contractor; audit trail on project). */

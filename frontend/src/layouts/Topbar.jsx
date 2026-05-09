@@ -23,11 +23,15 @@ import { usePageTitle } from '../context/PageTitleContext';
 import { useProfileModal } from '../context/ProfileModalContext';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { ROUTES } from '../configs/appConfig';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
+import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 const Topbar = () => {
   const theme = useTheme();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { layoutMode, toggleLayoutMode } = useNavigationLayout();
   const { pageTitle, pageSubtitle } = usePageTitle();
   const { openModal: openProfileModal } = useProfileModal();
   const [anchorEl, setAnchorEl] = useState(null);
@@ -111,6 +115,26 @@ const Topbar = () => {
 
       {/* RIGHT SECTION */}
       <Box display="flex" alignItems="center" gap={1}>
+        <Tooltip
+          title={
+            layoutMode === 'tree'
+              ? 'Switch to ribbon tabs (category bar) + sidebar section'
+              : 'Switch to full sidebar tree (all modules expanded-style, like CIMES)'
+          }
+        >
+          <IconButton
+            size="small"
+            onClick={toggleLayoutMode}
+            sx={{
+              color: 'white',
+              opacity: 0.92,
+              '&:hover': { opacity: 1, bgcolor: 'rgba(255,255,255,0.12)' },
+            }}
+            aria-label={layoutMode === 'tree' ? 'Use ribbon navigation layout' : 'Use full sidebar tree layout'}
+          >
+            {layoutMode === 'tree' ? <ViewQuiltIcon fontSize="small" /> : <AccountTreeIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
         <Tooltip
           title={
             <>

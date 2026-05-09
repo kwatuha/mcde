@@ -75,6 +75,7 @@
     {
       "id": "finance",
       "label": "Finance",
+      "labelTree": "Financial Tracking",
       "icon": "AttachMoneyIcon",
       "submenus": [
         {
@@ -303,8 +304,51 @@
       ]
     },
     {
+      "id": "monitoring",
+      "label": "Monitoring",
+      "icon": "SpeedIcon",
+      "submenus": [
+        {
+          "title": "Project Documents",
+          "icon": "DescriptionIcon",
+          "route": "PROJECT_DOCUMENTS_BY_PROJECT",
+          "permissionsAny": ["document.read_all", "document.create"]
+        },
+        {
+          "title": "Project Status",
+          "icon": "UpdateIcon",
+          "route": "PROJECT_STATUS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Project Updates",
+          "icon": "ArticleIcon",
+          "route": "PROJECT_UPDATES",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Project evaluation",
+          "icon": "FactCheckIcon",
+          "route": "PROJECT_EVALUATION",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Stakeholder feedback",
+          "icon": "FeedbackIcon",
+          "route": "PROJECT_FEEDBACK_BY_PROJECT"
+        },
+        {
+          "title": "Checklists & visits",
+          "icon": "ChecklistIcon",
+          "route": "DATA_COLLECTION_TOOLS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        }
+      ]
+    },
+    {
       "id": "reports",
       "label": "Reports",
+      "labelTree": "Evaluation",
       "icon": "AssessmentIcon",
       "submenus": [
         {
@@ -446,6 +490,7 @@
     {
       "id": "admin",
       "label": "Admin",
+      "labelTree": "Settings",
       "icon": "GroupIcon",
       "adminOnly": true,
       "submenus": [

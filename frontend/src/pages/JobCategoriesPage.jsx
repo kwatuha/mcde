@@ -17,9 +17,12 @@ import axiosInstance from '../api/axiosInstance';
 import { tokens } from "./dashboard/theme";
 import Header from "./dashboard/Header";
 import { getThemedDataGridSx } from '../utils/dataGridTheme';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 
 function JobCategoriesPage() {
   const theme = useTheme();
+  const { isTreeLayout } = useNavigationLayout();
+  const isTreeGrid = isTreeLayout && theme.palette.mode === 'light';
   const colors = tokens(theme.palette.mode);
   const isLight = theme.palette.mode === 'light';
 
@@ -320,13 +323,18 @@ function JobCategoriesPage() {
           width: '100%',
           overflow: 'hidden',
           ...getThemedDataGridSx(theme, colors, {
-            '& .MuiDataGrid-columnHeader': {
-              '&:hover': {
-                backgroundColor: isLight
-                  ? 'rgba(25, 118, 210, 0.08) !important'
-                  : `${colors.blueAccent[700]} !important`,
-              },
-            },
+            _isTreeLayout: isTreeGrid,
+            ...(!isTreeGrid
+              ? {
+                  '& .MuiDataGrid-columnHeader': {
+                    '&:hover': {
+                      backgroundColor: isLight
+                        ? 'rgba(25, 118, 210, 0.08) !important'
+                        : `${colors.blueAccent[700]} !important`,
+                    },
+                  },
+                }
+              : {}),
           }),
         }}
       >

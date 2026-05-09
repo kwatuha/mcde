@@ -8,6 +8,7 @@ import {
   CssBaseline,
   Button,
   CircularProgress,
+  GlobalStyles,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Outlet, useNavigate, Navigate, useLocation } from 'react-router-dom';
@@ -17,9 +18,10 @@ import { ProfileModalProvider, useProfileModal } from '../context/ProfileModalCo
 import ProfileModal from '../components/ProfileModal.jsx';
 import { MenuCategoryProvider } from '../context/MenuCategoryContext.jsx';
 import { SidebarProvider, useSidebar } from '../context/SidebarContext.jsx';
+import { NavigationLayoutProvider, useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
-import { useTheme } from "@mui/material";
+import { useTheme, useMediaQuery } from "@mui/material";
 import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
 // ✨ Removed old theme system imports
 import Topbar from "./Topbar.jsx";
@@ -27,12 +29,15 @@ import Sidebar from "./Sidebar.jsx";
 import FloatingChatButton from "../components/chat/FloatingChatButton.jsx";
 import RibbonMenu from "./RibbonMenu.jsx";
 import gprisLogo from '../assets/gpris.png';
+import { treeLayoutDataGridGlobalStyles } from '../utils/dataGridTheme.js';
 
-const expandedSidebarWidth = 200; // Width with labels
-const collapsedSidebarWidth = 64; // Width with icons only
+const expandedSidebarWidthRibbon = 200;
+const expandedSidebarWidthTree = 248;
+const collapsedSidebarWidth = 64;
 
 function MainLayoutContent() {
   const theme = useTheme();
+  const isDesktopUp = useMediaQuery(theme.breakpoints.up('sm'));
   // ✨ Using MUI theme directly - simpler and clearer!
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -56,10 +61,13 @@ function MainLayoutContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isCollapsed } = useSidebar();
+  const { isTreeLayout } = useNavigationLayout();
   const { isOpen: isProfileModalOpen, closeModal: closeProfileModal } = useProfileModal();
-  
-  // Calculate current sidebar width
+
+  const expandedSidebarWidth = isTreeLayout ? expandedSidebarWidthTree : expandedSidebarWidthRibbon;
   const currentSidebarWidth = isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth;
+  /** Full-viewport sidebar + inset AppBar (tree only, sm+); phones keep bar over full width. */
+  const treeSidebarFlushTop = isTreeLayout && isDesktopUp;
 
   // Auto-update page title based on route
   usePageTitleEffect();
@@ -121,10 +129,17 @@ function MainLayoutContent() {
       <AppBar
         position="fixed"
         sx={{
-          width: '100%',
-          left: 0,
-          right: 0,
           zIndex: 1000,
+          ...(treeSidebarFlushTop
+            ? {
+                left: `${currentSidebarWidth}px`,
+                width: `calc(100% - ${currentSidebarWidth}px)`,
+                transition: 'left 0.3s ease-in-out, width 0.3s ease-in-out',
+              }
+            : {
+                left: 0,
+                width: '100%',
+              }),
         }}
       >
         <Toolbar sx={{ p: 0, minHeight: '48px !important', height: '48px' }}>
@@ -139,7 +154,8 @@ function MainLayoutContent() {
               <MenuIcon fontSize="small" />
             </IconButton>
             
-            {/* Emblem before wordmark — standard gov / institutional header pattern */}
+            {/* Tree + desktop: brand lives in full-height sidebar; keep header for titles + actions only */}
+            {!(treeSidebarFlushTop) && (
             <Box
               sx={{
                 display: 'flex',
@@ -158,9 +174,9 @@ function MainLayoutContent() {
                   aria-hidden
                   onError={() => setHeaderGovLogoFailed(true)}
                   sx={{
-                    height: { xs: 28, sm: 32 },
+                    height: { xs: 36, sm: 42 },
                     width: 'auto',
-                    maxWidth: { xs: 72, sm: 108 },
+                    maxWidth: { xs: 96, sm: 144 },
                     objectFit: 'contain',
                     objectPosition: 'center',
                     display: 'block',
@@ -173,11 +189,12 @@ function MainLayoutContent() {
                 variant="h6"
                 noWrap
                 component="div"
-                sx={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em' }}
+                sx={{ color: 'white', fontWeight: 700, fontSize: { xs: '1.05rem', sm: '1.15rem' }, letterSpacing: '-0.01em' }}
               >
                 MCMES
               </Typography>
             </Box>
+            )}
             
             <Topbar />
             
@@ -207,7 +224,9 @@ function MainLayoutContent() {
         </Toolbar>
       </AppBar>
       <Box sx={{ display: 'flex' }}>
-        <Sidebar 
+        <Sidebar
+          expandedSidebarWidth={expandedSidebarWidth}
+          treeSidebarFlushTop={treeSidebarFlushTop}
           mobileOpen={mobileOpen}
           onMobileClose={handleDrawerToggle}
           isPinnedOpen={isSidebarPinnedOpen}
@@ -215,6 +234,7 @@ function MainLayoutContent() {
         />
         <Box
           component="main"
+          className="mcmes-app-main"
           sx={{
             flexGrow: 1, 
             p: 0,
@@ -234,6 +254,9 @@ function MainLayoutContent() {
             flexDirection: 'column',
           }}
         >
+          {isTreeLayout && theme.palette.mode === 'light' ? (
+            <GlobalStyles styles={treeLayoutDataGridGlobalStyles} />
+          ) : null}
           {/* Ribbon-style top menu (experimental) */}
           <RibbonMenu isAdmin={isAdminLike} />
           <Box sx={{ 
@@ -263,9 +286,11 @@ function MainLayout() {
     <PageTitleProvider>
       <ProfileModalProvider>
         <MenuCategoryProvider>
-          <SidebarProvider>
-            <MainLayoutContent />
-          </SidebarProvider>
+          <NavigationLayoutProvider>
+            <SidebarProvider>
+              <MainLayoutContent />
+            </SidebarProvider>
+          </NavigationLayoutProvider>
         </MenuCategoryProvider>
       </ProfileModalProvider>
     </PageTitleProvider>

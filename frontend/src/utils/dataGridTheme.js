@@ -1,10 +1,245 @@
 // src/utils/dataGridTheme.js
 // Centralized DataGrid styling based on the current MUI theme and our Professional tokens
 
+/** CIMES-style grid (tree navigation + light mode); also applied via GlobalStyles in MainLayout. */
+export const TREE_LAYOUT_GRID = {
+  headerBg: '#003366',
+  headerText: '#ffffff',
+  headerBorder: 'rgba(255, 255, 255, 0.22)',
+  sortIcon: '#90caf9',
+  bodyText: '#003366',
+  rowOdd: '#f2f2f2',
+  rowEven: '#ffffff',
+  rowHover: '#e8eef5',
+  border: '#e0e0e0',
+  link: '#007bff',
+  footerBg: '#f8f9fa',
+};
+
+/**
+ * GlobalStyles selector object — scope under `.mcmes-app-main` (MainLayout content).
+ * Use when navigation layout is tree + light mode so all DataGrids align without per-page sx.
+ */
+export const treeLayoutDataGridGlobalStyles = {
+  '.mcmes-app-main .MuiDataGrid-root': {
+    border: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    borderRadius: '4px',
+    color: TREE_LAYOUT_GRID.bodyText,
+  },
+  '.mcmes-app-main .MuiDataGrid-columnHeaders, .mcmes-app-main .MuiDataGrid-columnHeader, .mcmes-app-main .MuiDataGrid-columnHeaderRow':
+    {
+      backgroundColor: `${TREE_LAYOUT_GRID.headerBg} !important`,
+      borderBottom: `1px solid ${TREE_LAYOUT_GRID.border}`,
+      color: `${TREE_LAYOUT_GRID.headerText} !important`,
+    },
+  '.mcmes-app-main .MuiDataGrid-columnHeaderTitle': {
+    color: `${TREE_LAYOUT_GRID.headerText} !important`,
+    fontWeight: '700 !important',
+  },
+  '.mcmes-app-main .MuiDataGrid-columnSeparator': {
+    color: `${TREE_LAYOUT_GRID.headerBorder} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-iconSeparator': {
+    color: `${TREE_LAYOUT_GRID.headerBorder} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-sortIcon': {
+    color: `${TREE_LAYOUT_GRID.sortIcon} !important`,
+    opacity: '1 !important',
+  },
+  '.mcmes-app-main .MuiDataGrid-menuIcon, .mcmes-app-main .MuiDataGrid-menuIcon .MuiSvgIcon-root': {
+    color: `${TREE_LAYOUT_GRID.sortIcon} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-columnHeader .MuiSvgIcon-root': {
+    color: `${TREE_LAYOUT_GRID.sortIcon} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-cell': {
+    borderRight: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    borderBottom: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-row:nth-of-type(odd)': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowOdd} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-row:nth-of-type(even)': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowEven} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-row:hover': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowHover} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-row.Mui-selected': {
+    backgroundColor: 'rgba(0, 51, 102, 0.12) !important',
+  },
+  '.mcmes-app-main .MuiDataGrid-row.Mui-selected:hover': {
+    backgroundColor: 'rgba(0, 51, 102, 0.16) !important',
+  },
+  '.mcmes-app-main .MuiDataGrid-virtualScroller': {
+    backgroundColor: TREE_LAYOUT_GRID.rowEven,
+  },
+  '.mcmes-app-main .MuiDataGrid-footerContainer': {
+    backgroundColor: `${TREE_LAYOUT_GRID.footerBg} !important`,
+    borderTop: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-toolbarContainer, .mcmes-app-main .MuiDataGrid-toolbar': {
+    backgroundColor: `${TREE_LAYOUT_GRID.footerBg} !important`,
+    borderBottom: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    color: TREE_LAYOUT_GRID.bodyText,
+  },
+  '.mcmes-app-main .MuiTablePagination-toolbar, .mcmes-app-main .MuiTablePagination-selectLabel, .mcmes-app-main .MuiTablePagination-displayedRows':
+    {
+      color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+    },
+  '.mcmes-app-main .MuiTablePagination-actions .MuiIconButton-root': {
+    color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+  },
+  '.mcmes-app-main .MuiDataGrid-cell a, .mcmes-app-main .MuiDataGrid-cell .MuiLink-root': {
+    color: `${TREE_LAYOUT_GRID.link} !important`,
+  },
+
+  // --- MUI Table (reports, documents, procurement, import preview, audit trail, ministries, etc.) ---
+  '.mcmes-app-main .MuiTable-root': {
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    width: '100%',
+  },
+  '.mcmes-app-main .MuiTableHead-root': {
+    backgroundColor: `${TREE_LAYOUT_GRID.headerBg} !important`,
+  },
+  '.mcmes-app-main .MuiTableCell-head, .mcmes-app-main .MuiTableHead-root .MuiTableCell-root': {
+    backgroundColor: `${TREE_LAYOUT_GRID.headerBg} !important`,
+    color: `${TREE_LAYOUT_GRID.headerText} !important`,
+    fontWeight: '700 !important',
+    borderBottom: `2px solid ${TREE_LAYOUT_GRID.border} !important`,
+    borderRight: `1px solid ${TREE_LAYOUT_GRID.headerBorder} !important`,
+  },
+  '.mcmes-app-main .MuiTableCell-head:last-of-type, .mcmes-app-main .MuiTableHead-root .MuiTableCell-root:last-of-type':
+    {
+      borderRight: 'none !important',
+    },
+  '.mcmes-app-main .MuiTableCell-stickyHeader.MuiTableCell-head': {
+    backgroundColor: `${TREE_LAYOUT_GRID.headerBg} !important`,
+    backgroundImage: 'none !important',
+  },
+  '.mcmes-app-main .MuiTableBody-root .MuiTableCell-root': {
+    borderColor: `${TREE_LAYOUT_GRID.border} !important`,
+    color: `${TREE_LAYOUT_GRID.bodyText}`,
+    borderRight: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    borderBottom: `1px solid ${TREE_LAYOUT_GRID.border}`,
+  },
+  '.mcmes-app-main .MuiTableBody-root .MuiTableRow-root:nth-of-type(odd)': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowOdd} !important`,
+  },
+  '.mcmes-app-main .MuiTableBody-root .MuiTableRow-root:nth-of-type(even)': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowEven} !important`,
+  },
+  '.mcmes-app-main .MuiTableBody-root .MuiTableRow-root:hover': {
+    backgroundColor: `${TREE_LAYOUT_GRID.rowHover} !important`,
+  },
+  '.mcmes-app-main .MuiTableBody-root .MuiTableCell-root a, .mcmes-app-main .MuiTableBody-root .MuiTableCell-root .MuiLink-root':
+    {
+      color: `${TREE_LAYOUT_GRID.link} !important`,
+    },
+  '.mcmes-app-main .MuiTablePagination-root': {
+    borderTop: `1px solid ${TREE_LAYOUT_GRID.border}`,
+    backgroundColor: `${TREE_LAYOUT_GRID.footerBg} !important`,
+    color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+  },
+  '.mcmes-app-main .MuiTablePagination-toolbar, .mcmes-app-main .MuiTablePagination-selectLabel, .mcmes-app-main .MuiTablePagination-displayedRows':
+    {
+      color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+    },
+  '.mcmes-app-main .MuiTablePagination-actions .MuiIconButton-root': {
+    color: `${TREE_LAYOUT_GRID.bodyText} !important`,
+  },
+};
+
 export function getThemedDataGridSx(theme, colors, overrides = {}) {
   const isLight = theme.palette.mode === 'light';
-  const { _stickyHeaderTop = 0, ...restOverrides } = overrides;
+  const { _stickyHeaderTop = 0, _isTreeLayout = false, ...restOverrides } = overrides;
   const stickyTop = typeof _stickyHeaderTop === 'number' ? `${_stickyHeaderTop}px` : _stickyHeaderTop;
+
+  if (_isTreeLayout && isLight) {
+    const G = TREE_LAYOUT_GRID;
+    return {
+      borderRadius: '4px',
+      border: `1px solid ${G.border}`,
+      '& .MuiDataGrid-root': { border: 'none', color: G.bodyText },
+      '& .MuiDataGrid-cell': {
+        borderRight: `1px solid ${G.border}`,
+        borderBottom: `1px solid ${G.border}`,
+        color: `${G.bodyText} !important`,
+        fontSize: 13,
+        lineHeight: 1.45,
+      },
+      '& .MuiDataGrid-columnHeaders': {
+        backgroundColor: `${G.headerBg} !important`,
+        borderBottom: `1px solid ${G.border}`,
+        minHeight: '48px',
+        height: '48px',
+        position: 'sticky',
+        top: stickyTop,
+        zIndex: 10,
+      },
+      '& .MuiDataGrid-columnHeader': {
+        backgroundColor: `${G.headerBg} !important`,
+      },
+      '& .MuiDataGrid-columnHeaderTitle': {
+        color: `${G.headerText} !important`,
+        fontWeight: 700,
+      },
+      '& .MuiDataGrid-columnSeparator, & .MuiDataGrid-iconSeparator': {
+        color: `${G.headerBorder} !important`,
+      },
+      '& .MuiDataGrid-sortIcon': {
+        color: `${G.sortIcon} !important`,
+        opacity: 1,
+      },
+      '& .MuiDataGrid-menuIcon, & .MuiDataGrid-columnHeader .MuiSvgIcon-root': {
+        color: `${G.sortIcon} !important`,
+      },
+      '& .MuiDataGrid-columnHeaderTitleContainer': {
+        paddingRight: '40px',
+      },
+      '& .MuiDataGrid-iconButtonContainer': {
+        color: `${G.sortIcon}`,
+      },
+      '& .MuiDataGrid-virtualScroller': {
+        backgroundColor: G.rowEven,
+      },
+      '& .MuiDataGrid-row:nth-of-type(odd)': {
+        backgroundColor: `${G.rowOdd} !important`,
+      },
+      '& .MuiDataGrid-row:nth-of-type(even)': {
+        backgroundColor: `${G.rowEven} !important`,
+      },
+      '& .MuiDataGrid-row:hover': {
+        backgroundColor: `${G.rowHover} !important`,
+      },
+      '& .MuiDataGrid-row.Mui-selected': {
+        backgroundColor: 'rgba(0, 51, 102, 0.12) !important',
+      },
+      '& .MuiDataGrid-toolbar, & .MuiDataGrid-toolbarContainer': {
+        backgroundColor: `${G.footerBg} !important`,
+        borderBottom: `1px solid ${G.border}`,
+        borderRadius: 0,
+      },
+      '& .MuiDataGrid-footerContainer': {
+        borderTop: `1px solid ${G.border}`,
+        backgroundColor: `${G.footerBg} !important`,
+        color: G.bodyText,
+      },
+      '& .MuiTablePagination-toolbar, & .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+        color: `${G.bodyText} !important`,
+      },
+      '& .MuiTablePagination-actions .MuiSvgIcon-root, & .MuiTablePagination-actions .MuiIconButton-root': {
+        color: G.bodyText,
+      },
+      '& .MuiDataGrid-cell a, & .MuiDataGrid-cell .MuiLink-root': {
+        color: `${G.link} !important`,
+      },
+      ...restOverrides,
+    };
+  }
 
   return {
     // Frame

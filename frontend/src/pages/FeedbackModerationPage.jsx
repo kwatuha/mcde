@@ -77,7 +77,6 @@ import {
 
 const FeedbackModerationPage = () => {
   const { user, hasPrivilege } = useAuth();
-  console.log('FeedbackModerationPage component rendered');
   const [activeTab, setActiveTab] = useState(0);
   const [feedbacks, setFeedbacks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +113,6 @@ const FeedbackModerationPage = () => {
         return;
       }
       setLoading(true);
-      console.log('Fetching moderation queue...');
       const params = new URLSearchParams({
         page,
         limit: 10,
@@ -127,12 +125,10 @@ const FeedbackModerationPage = () => {
         params.append('search', searchTerm);
       }
 
-      console.log('API URL:', `/moderate/queue?${params.toString()}`);
       const response = await axiosInstance.get(
         `/moderate/queue?${params.toString()}`
       );
 
-      console.log('Moderation API response:', response.data);
       setFeedbacks(response.data.items || []);
       setTotalPages(response.data.pagination?.totalPages || 1);
       setError(null);
@@ -426,10 +422,8 @@ const FeedbackModerationPage = () => {
     );
   }
 
-  console.log('FeedbackModerationPage render - feedbacks:', feedbacks.length, 'loading:', loading);
-  
   return (
-    <Box>
+    <Box sx={{ width: '100%', maxWidth: '100%', px: { xs: 0.5, sm: 1, md: 1.5 }, boxSizing: 'border-box' }}>
       {/* Header */}
       <Box sx={{ 
         mb: 2,
@@ -516,10 +510,20 @@ const FeedbackModerationPage = () => {
 
       {/* Statistics Cards */}
       {statistics && (
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={12} sm={6} md={3}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+            gap: 2,
+            mb: 2,
+            width: '100%',
+            maxWidth: '100%',
+          }}
+        >
             <Card 
               sx={{ 
+                height: '100%',
+                minWidth: 0,
                 background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)', 
                 color: 'white',
                 cursor: 'pointer',
@@ -541,10 +545,10 @@ const FeedbackModerationPage = () => {
                 </Typography>
               </CardContent>
             </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
             <Card 
               sx={{ 
+                height: '100%',
+                minWidth: 0,
                 background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)', 
                 color: 'white',
                 cursor: 'pointer',
@@ -566,11 +570,11 @@ const FeedbackModerationPage = () => {
                 </Typography>
               </CardContent>
             </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
             <Tooltip title="Permanently rejected feedback - requires justification to reopen" arrow>
               <Card 
                 sx={{ 
+                  height: '100%',
+                  minWidth: 0,
                   background: 'linear-gradient(135deg, #f44336 0%, #ef5350 100%)', 
                   color: 'white',
                   cursor: 'pointer',
@@ -593,11 +597,11 @@ const FeedbackModerationPage = () => {
                 </CardContent>
               </Card>
             </Tooltip>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
             <Tooltip title="Flagged for further review - can be easily re-reviewed, approved, or rejected" arrow>
               <Card 
                 sx={{ 
+                  height: '100%',
+                  minWidth: 0,
                   background: 'linear-gradient(135deg, #9c27b0 0%, #ba68c8 100%)', 
                   color: 'white',
                   cursor: 'pointer',
@@ -620,8 +624,7 @@ const FeedbackModerationPage = () => {
                 </CardContent>
               </Card>
             </Tooltip>
-          </Grid>
-        </Grid>
+        </Box>
       )}
 
       {/* Success Message */}
