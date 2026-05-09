@@ -18,6 +18,9 @@ api/.env.remote
 # Real deploy secrets on the server / local — keep scripts and .env.deploy.example in git
 deploy/.env.deploy
 deploy/.env.deploy.db
+scripts/deploy-procurement-workflow.sh
+scripts/export-procurement-and-rbac-pg.sh
+
 
 
 
