@@ -1616,6 +1616,341 @@ router.get('/projects/:projectId/stages/:stage/evaluation-export', async (req, r
   }
 });
 
+router.get('/overview', async (req, res) => {
+  try {
+    let schemaReady = true;
+    try {
+      await ensureProcurementSchema();
+    } catch (e) {
+      schemaReady = false;
+    }
+    const projects = await (async () => {
+      try {
+        const r = await pool.query(
+          isPostgres
+            ? `SELECT p.project_id AS "projectId", p.name AS "projectName",
+                      COALESCE(p.progress->>'status','') AS "projectStatus"
+               FROM projects p
+               WHERE COALESCE(p.voided,false)=false
+                 AND LOWER(COALESCE(p.progress->>'status','')) LIKE '%procurement%'`
+            : `SELECT p.id AS projectId, p.projectName, COALESCE(p.status,'') AS projectStatus
+               FROM projects p
+               WHERE COALESCE(p.voided,0)=0
+                 AND LOWER(COALESCE(p.status,'')) LIKE '%procurement%'`
+        );
+        return rowsOf(r);
+      } catch {
+        return [];
+      }
+    })();
+    const stageDistribution = {};
+    const statusDistribution = {};
+    const metrics = {
+      projectsUnderProcurement: projects.length,
+      totalSubjects: 0,
+      totalQualifiedSubjects: 0,
+      totalAssessments: 0,
+      totalChecklistItems: 0,
+      totalChecklistCompleted: 0,
+      totalAttachments: 0,
+    };
+    if (!schemaReady) {
+      return res.status(200).json({ metrics, stageDistribution, statusDistribution });
+    }
+
+    const aggregateQueries = isPostgres
+      ? {
+          stages: `SELECT COALESCE(stage,'Unspecified') AS k, COUNT(*)::int AS c
+                   FROM project_procurement_workflow
+                   WHERE COALESCE(voided,false)=false
+                   GROUP BY COALESCE(stage,'Unspecified')`,
+          subjects: `SELECT COUNT(*)::int AS total,
+                            SUM(CASE WHEN COALESCE(qualified,false)=true THEN 1 ELSE 0 END)::int AS qualified
+                     FROM procurement_stage_subjects
+                     WHERE COALESCE(voided,false)=false`,
+          assessments: `SELECT COUNT(*)::int AS c FROM procurement_subject_assessments WHERE COALESCE(voided,false)=false`,
+          checklist: `SELECT COUNT(*)::int AS total,
+                             SUM(CASE WHEN COALESCE(completed,false)=true THEN 1 ELSE 0 END)::int AS completed
+                      FROM procurement_checklist_items
+                      WHERE COALESCE(voided,false)=false`,
+          attachments: `SELECT COUNT(*)::int AS c FROM procurement_attachments WHERE COALESCE(voided,false)=false`,
+        }
+      : {
+          stages: `SELECT COALESCE(stage,'Unspecified') AS k, COUNT(*) AS c
+                   FROM project_procurement_workflow
+                   WHERE COALESCE(voided,0)=0
+                   GROUP BY COALESCE(stage,'Unspecified')`,
+          subjects: `SELECT COUNT(*) AS total,
+                            SUM(CASE WHEN COALESCE(qualified,0)=1 THEN 1 ELSE 0 END) AS qualified
+                     FROM procurement_stage_subjects
+                     WHERE COALESCE(voided,0)=0`,
+          assessments: `SELECT COUNT(*) AS c FROM procurement_subject_assessments WHERE COALESCE(voided,0)=0`,
+          checklist: `SELECT COUNT(*) AS total,
+                             SUM(CASE WHEN COALESCE(completed,0)=1 THEN 1 ELSE 0 END) AS completed
+                      FROM procurement_checklist_items
+                      WHERE COALESCE(voided,0)=0`,
+          attachments: `SELECT COUNT(*) AS c FROM procurement_attachments WHERE COALESCE(voided,0)=0`,
+        };
+    try {
+      const [stg, sub, ass, chk, att] = await Promise.all([
+        pool.query(aggregateQueries.stages),
+        pool.query(aggregateQueries.subjects),
+        pool.query(aggregateQueries.assessments),
+        pool.query(aggregateQueries.checklist),
+        pool.query(aggregateQueries.attachments),
+      ]);
+      rowsOf(stg).forEach((r) => {
+        stageDistribution[String(r.k || 'Unspecified')] = Number(r.c || 0);
+      });
+      const s = rowsOf(sub)[0] || {};
+      const a = rowsOf(ass)[0] || {};
+      const c = rowsOf(chk)[0] || {};
+      const t = rowsOf(att)[0] || {};
+      metrics.totalSubjects = Number(s.total || 0);
+      metrics.totalQualifiedSubjects = Number(s.qualified || 0);
+      metrics.totalAssessments = Number(a.c || 0);
+      metrics.totalChecklistItems = Number(c.total || 0);
+      metrics.totalChecklistCompleted = Number(c.completed || 0);
+      metrics.totalAttachments = Number(t.c || 0);
+    } catch {
+      // Keep fail-soft
+    }
+    projects.forEach((p) => {
+      const key = String(p.projectStatus || 'Unknown');
+      statusDistribution[key] = (statusDistribution[key] || 0) + 1;
+    });
+    return res.status(200).json({ metrics, stageDistribution, statusDistribution });
+  } catch (error) {
+    console.error('Error building procurement overview:', error);
+    return res.status(200).json({
+      metrics: {
+        projectsUnderProcurement: 0,
+        totalSubjects: 0,
+        totalQualifiedSubjects: 0,
+        totalAssessments: 0,
+        totalChecklistItems: 0,
+        totalChecklistCompleted: 0,
+        totalAttachments: 0,
+      },
+      stageDistribution: {},
+      statusDistribution: {},
+    });
+  }
+});
+
+router.get('/export/comprehensive', async (req, res) => {
+  const projectId = req.query?.projectId != null && req.query?.projectId !== ''
+    ? Number(req.query.projectId)
+    : null;
+  const hasProjectFilter = Number.isFinite(projectId);
+  try {
+    let schemaReady = true;
+    try {
+      await ensureProcurementSchema();
+    } catch {
+      schemaReady = false;
+    }
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Procurement Module';
+    wb.created = new Date();
+    const summary = wb.addWorksheet('Summary');
+    summary.columns = [{ header: 'Metric', key: 'metric', width: 34 }, { header: 'Value', key: 'value', width: 36 }];
+    summary.addRows([
+      { metric: 'Generated At', value: new Date().toISOString() },
+      { metric: 'Scope', value: hasProjectFilter ? `Project ${projectId}` : 'All Projects' },
+      { metric: 'Schema Ready', value: schemaReady ? 'Yes' : 'No (fallback export)' },
+    ]);
+    summary.getRow(1).font = { bold: true };
+
+    if (!schemaReady) {
+      const filename = `procurement-comprehensive-${hasProjectFilter ? `project-${projectId}` : 'all'}-${new Date().toISOString().slice(0,10)}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      await wb.xlsx.write(res);
+      res.end();
+      return;
+    }
+
+    const wherePg = hasProjectFilter ? 'WHERE project_id = $1' : '';
+    const whereMy = hasProjectFilter ? 'WHERE project_id = ?' : '';
+    const params = hasProjectFilter ? [projectId] : [];
+    const queries = isPostgres
+      ? {
+          workflows: `SELECT id, project_id AS "projectId", stage, decision, notes, actor_id AS "actorId",
+                             created_at AS "createdAt", updated_at AS "updatedAt"
+                      FROM project_procurement_workflow
+                      ${wherePg} ${wherePg ? 'AND' : 'WHERE'} COALESCE(voided,false)=false
+                      ORDER BY project_id, updated_at DESC NULLS LAST`,
+          subjects: `SELECT id, project_id AS "projectId", stage, subject_type AS "subjectType",
+                            subject_name AS "subjectName", qualified, latest_score AS "latestScore",
+                            latest_decision AS "latestDecision", metadata, created_at AS "createdAt", updated_at AS "updatedAt"
+                     FROM procurement_stage_subjects
+                     ${wherePg} ${wherePg ? 'AND' : 'WHERE'} COALESCE(voided,false)=false
+                     ORDER BY project_id, stage, id`,
+          assessments: `SELECT a.id, a.subject_id AS "subjectId", s.project_id AS "projectId", s.stage,
+                               s.subject_name AS "subjectName", a.template_id AS "templateId", a.score,
+                               a.max_score AS "maxScore", a.qualified, a.decision, a.notes, a.responses,
+                               a.updated_at AS "updatedAt"
+                        FROM procurement_subject_assessments a
+                        JOIN procurement_stage_subjects s ON s.id = a.subject_id
+                        ${hasProjectFilter ? 'WHERE s.project_id = $1 AND' : 'WHERE'} COALESCE(a.voided,false)=false
+                        ORDER BY s.project_id, s.stage, s.subject_name, a.updated_at DESC NULLS LAST`,
+          checklist: `SELECT id, project_id AS "projectId", stage, label, notes, completed,
+                             completed_at AS "completedAt", completed_by AS "completedBy",
+                             created_at AS "createdAt", updated_at AS "updatedAt"
+                      FROM procurement_checklist_items
+                      ${wherePg} ${wherePg ? 'AND' : 'WHERE'} COALESCE(voided,false)=false
+                      ORDER BY project_id, stage, id`,
+          attachments: `SELECT id, project_id AS "projectId", stage, file_name AS "fileName", file_path AS "filePath",
+                               title, notes, uploaded_by AS "uploadedBy", created_at AS "createdAt"
+                        FROM procurement_attachments
+                        ${wherePg} ${wherePg ? 'AND' : 'WHERE'} COALESCE(voided,false)=false
+                        ORDER BY project_id, stage, created_at DESC NULLS LAST`,
+          templates: `SELECT id, stage, name, subject_type AS "subjectType", active, fields,
+                             created_at AS "createdAt", updated_at AS "updatedAt"
+                      FROM procurement_stage_templates
+                      WHERE COALESCE(voided,false)=false
+                      ORDER BY stage, id`,
+        }
+      : {
+          workflows: `SELECT id, project_id AS projectId, stage, decision, notes, actor_id AS actorId,
+                             created_at AS createdAt, updated_at AS updatedAt
+                      FROM project_procurement_workflow
+                      ${whereMy} ${whereMy ? 'AND' : 'WHERE'} COALESCE(voided,0)=0
+                      ORDER BY project_id, updated_at DESC`,
+          subjects: `SELECT id, project_id AS projectId, stage, subject_type AS subjectType, subject_name AS subjectName,
+                            qualified, latest_score AS latestScore, latest_decision AS latestDecision, metadata,
+                            created_at AS createdAt, updated_at AS updatedAt
+                     FROM procurement_stage_subjects
+                     ${whereMy} ${whereMy ? 'AND' : 'WHERE'} COALESCE(voided,0)=0
+                     ORDER BY project_id, stage, id`,
+          assessments: `SELECT a.id, a.subject_id AS subjectId, s.project_id AS projectId, s.stage, s.subject_name AS subjectName,
+                               a.template_id AS templateId, a.score, a.max_score AS maxScore, a.qualified, a.decision, a.notes, a.responses,
+                               a.updated_at AS updatedAt
+                        FROM procurement_subject_assessments a
+                        JOIN procurement_stage_subjects s ON s.id = a.subject_id
+                        ${hasProjectFilter ? 'WHERE s.project_id = ? AND' : 'WHERE'} COALESCE(a.voided,0)=0
+                        ORDER BY s.project_id, s.stage, s.subject_name, a.updated_at DESC`,
+          checklist: `SELECT id, project_id AS projectId, stage, label, notes, completed, completed_at AS completedAt,
+                             completed_by AS completedBy, created_at AS createdAt, updated_at AS updatedAt
+                      FROM procurement_checklist_items
+                      ${whereMy} ${whereMy ? 'AND' : 'WHERE'} COALESCE(voided,0)=0
+                      ORDER BY project_id, stage, id`,
+          attachments: `SELECT id, project_id AS projectId, stage, file_name AS fileName, file_path AS filePath,
+                               title, notes, uploaded_by AS uploadedBy, created_at AS createdAt
+                        FROM procurement_attachments
+                        ${whereMy} ${whereMy ? 'AND' : 'WHERE'} COALESCE(voided,0)=0
+                        ORDER BY project_id, stage, created_at DESC`,
+          templates: `SELECT id, stage, name, subject_type AS subjectType, active, fields, created_at AS createdAt, updated_at AS updatedAt
+                      FROM procurement_stage_templates
+                      WHERE COALESCE(voided,0)=0
+                      ORDER BY stage, id`,
+        };
+
+    const [workflows, subjects, assessments, checklist, attachments, templates] = await Promise.all([
+      pool.query(queries.workflows, params).then(rowsOf).catch(() => []),
+      pool.query(queries.subjects, params).then(rowsOf).catch(() => []),
+      pool.query(queries.assessments, params).then(rowsOf).catch(() => []),
+      pool.query(queries.checklist, params).then(rowsOf).catch(() => []),
+      pool.query(queries.attachments, params).then(rowsOf).catch(() => []),
+      pool.query(queries.templates).then(rowsOf).catch(() => []),
+    ]);
+
+    const addSheet = (name, cols, data) => {
+      const ws = wb.addWorksheet(name);
+      ws.columns = cols;
+      (data || []).forEach((row) => ws.addRow(row));
+      ws.getRow(1).font = { bold: true };
+      return ws;
+    };
+    addSheet(
+      'Workflow',
+      [
+        { header: 'Project ID', key: 'projectId', width: 12 },
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Decision', key: 'decision', width: 20 },
+        { header: 'Notes', key: 'notes', width: 40 },
+        { header: 'Actor ID', key: 'actorId', width: 12 },
+        { header: 'Updated At', key: 'updatedAt', width: 24 },
+      ],
+      workflows
+    );
+    addSheet(
+      'Subjects',
+      [
+        { header: 'Project ID', key: 'projectId', width: 12 },
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Subject Type', key: 'subjectType', width: 16 },
+        { header: 'Subject Name', key: 'subjectName', width: 28 },
+        { header: 'Qualified', key: 'qualified', width: 12 },
+        { header: 'Latest Score', key: 'latestScore', width: 14 },
+        { header: 'Latest Decision', key: 'latestDecision', width: 20 },
+        { header: 'Metadata (JSON)', key: 'metadataJson', width: 50 },
+      ],
+      subjects.map((s) => ({ ...s, metadataJson: JSON.stringify(s.metadata || {}) }))
+    );
+    addSheet(
+      'Assessments',
+      [
+        { header: 'Project ID', key: 'projectId', width: 12 },
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Subject Name', key: 'subjectName', width: 28 },
+        { header: 'Score', key: 'score', width: 12 },
+        { header: 'Max Score', key: 'maxScore', width: 12 },
+        { header: 'Qualified', key: 'qualified', width: 12 },
+        { header: 'Decision', key: 'decision', width: 20 },
+        { header: 'Notes', key: 'notes', width: 32 },
+        { header: 'Responses (JSON)', key: 'responsesJson', width: 60 },
+      ],
+      assessments.map((a) => ({ ...a, responsesJson: JSON.stringify(a.responses || {}) }))
+    );
+    addSheet(
+      'Checklist',
+      [
+        { header: 'Project ID', key: 'projectId', width: 12 },
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Item', key: 'label', width: 32 },
+        { header: 'Completed', key: 'completed', width: 12 },
+        { header: 'Completed At', key: 'completedAt', width: 24 },
+        { header: 'Notes', key: 'notes', width: 40 },
+      ],
+      checklist
+    );
+    addSheet(
+      'Attachments',
+      [
+        { header: 'Project ID', key: 'projectId', width: 12 },
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Title', key: 'title', width: 30 },
+        { header: 'File Name', key: 'fileName', width: 30 },
+        { header: 'File Path', key: 'filePath', width: 50 },
+        { header: 'Uploaded At', key: 'createdAt', width: 24 },
+      ],
+      attachments
+    );
+    addSheet(
+      'Templates',
+      [
+        { header: 'Stage', key: 'stage', width: 24 },
+        { header: 'Template Name', key: 'name', width: 30 },
+        { header: 'Subject Type', key: 'subjectType', width: 16 },
+        { header: 'Active', key: 'active', width: 10 },
+        { header: 'Fields (JSON)', key: 'fieldsJson', width: 80 },
+      ],
+      templates.map((t) => ({ ...t, fieldsJson: JSON.stringify(t.fields || []) }))
+    );
+
+    const filename = `procurement-comprehensive-${hasProjectFilter ? `project-${projectId}` : 'all'}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error exporting procurement comprehensive workbook:', error);
+    return res.status(500).json({ message: 'Error exporting procurement comprehensive workbook', error: error.message });
+  }
+});
+
 router.get('/projects/:projectId/stages/:stage/subjects', async (req, res) => {
   const projectId = Number(req.params.projectId);
   const stage = String(req.params.stage || '').trim();

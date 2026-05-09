@@ -58,6 +58,11 @@
           "route": "ABSORPTION_REPORT"
         },
         {
+          "title": "Project Finance Overview",
+          "icon": "AttachMoneyIcon",
+          "route": "PROJECT_FINANCE_OVERVIEW_REPORT"
+        },
+        {
           "title": "Performance Mgmt",
           "icon": "AssessmentIcon",
           "route": "PERFORMANCE_MANAGEMENT_REPORT"

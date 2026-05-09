@@ -26,6 +26,7 @@ import ReportsPage from './pages/ReportsPage';
 import ReportLibraryPage from './pages/ReportLibraryPage';
 import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
+import ProjectFinanceOverviewPage from './pages/ProjectFinanceOverviewPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -301,6 +302,10 @@ const router = createBrowserRouter([
       {
         path: 'budget-justification-report',
         element: <BudgetJustificationReportPage />,
+      },
+      {
+        path: 'project-finance-overview',
+        element: <ProjectFinanceOverviewPage />,
       },
       {
         path: 'scheduled-reports',

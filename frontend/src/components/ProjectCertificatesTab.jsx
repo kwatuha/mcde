@@ -176,6 +176,8 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const [file, setFile] = useState(null);
   const [generatedPdfFile, setGeneratedPdfFile] = useState(null);
   const [bqItems, setBqItems] = useState([]);
+  /** BQ lines with progress % effective on or before certificate request date (see project_bq_progress_logs). */
+  const [bqItemsAsOf, setBqItemsAsOf] = useState([]);
   const [assignedContractors, setAssignedContractors] = useState([]);
   const [taxRates, setTaxRates] = useState([]);
   const [projectDetails, setProjectDetails] = useState(null);
@@ -255,6 +257,25 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   }, [projectId]);
 
   useEffect(() => {
+    if (!projectId || !form.requestDate) {
+      setBqItemsAsOf([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await projectService.bq.getItemsAsOf(projectId, form.requestDate);
+        if (!cancelled) setBqItemsAsOf(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setBqItemsAsOf([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, form.requestDate]);
+
+  useEffect(() => {
     const load = async () => {
       if (!projectId) return;
       try {
@@ -313,8 +334,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   }, [projectDetails]);
 
   const certificateBqItems = useMemo(
-    () => resolveBqItemsForCertificate(bqItems, draft, assignedContractors),
-    [bqItems, draft, assignedContractors]
+    () =>
+      resolveBqItemsForCertificate(
+        bqItemsAsOf.length ? bqItemsAsOf : bqItems,
+        draft,
+        assignedContractors
+      ),
+    [bqItems, bqItemsAsOf, draft, assignedContractors]
   );
 
   /** When only one contractor is assigned, default the payment certificate to them. */
@@ -352,9 +378,15 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     return next;
   }, [certificates]);
 
-  const calculateCertificateAmounts = useCallback((draftSnapshot) => {
+  const calculateCertificateAmounts = useCallback((draftSnapshot, bqItemsOverride) => {
     const d = draftSnapshot || draft;
-    const bqForCert = resolveBqItemsForCertificate(bqItems, d, assignedContractors);
+    const bqSource =
+      Array.isArray(bqItemsOverride) && bqItemsOverride.length
+        ? bqItemsOverride
+        : bqItemsAsOf.length
+          ? bqItemsAsOf
+          : bqItems;
+    const bqForCert = resolveBqItemsForCertificate(bqSource, d, assignedContractors);
     const parseMoney = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
     const rateLookup = taxRates.reduce((acc, row) => {
       acc[String(row.tax_type || '').toLowerCase()] = {
@@ -410,7 +442,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       vatWithholdingRate,
       retentionRate,
     };
-  }, [bqItems, draft, taxRates, assignedContractors]);
+  }, [bqItems, bqItemsAsOf, draft, taxRates, assignedContractors]);
 
   const createCertificatePdfFile = async (params = {}) => {
     const d = { ...draft, ...(params.draft || {}) };
@@ -444,7 +476,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       withholdingTaxRate,
       vatWithholdingRate,
       retentionRate,
-    } = calculateCertificateAmounts(d);
+    } = calculateCertificateAmounts(d, params.bqItemsOverride);
     const contractSumValue = Number(String(d.contractSum || '').replace(/,/g, '')) || 0;
     const contractSumFormatted = contractSumValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -810,13 +842,24 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const handleGenerateDraftPdf = async () => {
     setError('');
     try {
+      const asOf = form.requestDate || new Date().toISOString().slice(0, 10);
       let bqProgressAttribution = null;
+      let bqItemsOverride = null;
       try {
-        bqProgressAttribution = await projectService.bq.getLatestProgressAttribution(projectId);
+        const [attr, lines] = await Promise.all([
+          projectService.bq.getProgressAttributionAsOf(projectId, asOf).catch(() => null),
+          projectService.bq.getItemsAsOf(projectId, asOf).catch(() => null),
+        ]);
+        bqProgressAttribution = attr;
+        bqItemsOverride = Array.isArray(lines) && lines.length ? lines : null;
       } catch {
         /* non-blocking */
       }
-      const generated = await createCertificatePdfFile({ workflowDetail: null, bqProgressAttribution });
+      const generated = await createCertificatePdfFile({
+        workflowDetail: null,
+        bqProgressAttribution,
+        bqItemsOverride,
+      });
       setGeneratedPdfFile(generated);
       setMessage('Certificate PDF draft generated. Save to upload it.');
     } catch (err) {
@@ -830,14 +873,17 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     setPdfWithApprovalsBusyId(cid);
     setError('');
     try {
-      const [workflowDetail, bqProgressAttribution] = await Promise.all([
+      const fRow = formFieldsFromCertificateRow(cert);
+      const asOfCert = fRow.requestDate || new Date().toISOString().slice(0, 10);
+      const [workflowDetail, bqProgressAttribution, linesAsOf] = await Promise.all([
         apiService.approvalWorkflow
           .getByEntity(CERTIFICATE_APPROVAL_ENTITY, String(cid))
           .catch((e) => {
             if (e?.response?.status === 404) return null;
             throw e;
           }),
-        projectService.bq.getLatestProgressAttribution(projectId).catch(() => null),
+        projectService.bq.getProgressAttributionAsOf(projectId, asOfCert).catch(() => null),
+        projectService.bq.getItemsAsOf(projectId, asOfCert).catch(() => null),
       ]);
       let stored = { ...draft, ...parseStoredCertificateData(cert) };
       if (!String(stored.contractorName || '').trim() && stored.contractorId != null && stored.contractorId !== '') {
@@ -846,8 +892,15 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           stored = { ...stored, contractorName: match.companyName };
         }
       }
-      const f = formFieldsFromCertificateRow(cert);
-      const file = await createCertificatePdfFile({ draft: stored, form: f, workflowDetail, bqProgressAttribution });
+      const f = fRow;
+      const bqItemsOverride = Array.isArray(linesAsOf) && linesAsOf.length ? linesAsOf : null;
+      const file = await createCertificatePdfFile({
+        draft: stored,
+        form: f,
+        workflowDetail,
+        bqProgressAttribution,
+        bqItemsOverride,
+      });
       const blobUrl = URL.createObjectURL(file);
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -896,14 +949,31 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     try {
       const payload = new FormData();
       const uploadSource = generatedPdfFile && !file ? 'generated' : 'attached';
-      const idsForCert = resolveBqItemsForCertificate(bqItems, draft, assignedContractors).map((it) =>
+      const asOfSubmit = form.requestDate || new Date().toISOString().slice(0, 10);
+      let linesForSubmit = bqItemsAsOf;
+      if (!linesForSubmit.length) {
+        try {
+          const fetched = await projectService.bq.getItemsAsOf(projectId, asOfSubmit);
+          linesForSubmit = Array.isArray(fetched) ? fetched : [];
+        } catch {
+          linesForSubmit = [];
+        }
+      }
+      const bqSourceSubmit = linesForSubmit.length ? linesForSubmit : bqItems;
+      const idsForCert = resolveBqItemsForCertificate(bqSourceSubmit, draft, assignedContractors).map((it) =>
         Number(it.itemId)
       );
-      const patchDraft = {
+      const patchDraftBase = {
         ...draft,
         projectCertificateSequence: suggestedSequence,
         projectTotalCertificatesAtGeneration: suggestedSequence,
         certificateBqItemIds: idsForCert.length > 0 ? idsForCert : null,
+      };
+      const amountsSnapshot = calculateCertificateAmounts(patchDraftBase, bqSourceSubmit);
+      const patchDraft = {
+        ...patchDraftBase,
+        snapshotComputedNet: amountsSnapshot.computedNet,
+        snapshotProgressAsOf: asOfSubmit,
       };
       payload.append('projectId', String(projectId));
       payload.append('document', fileToUpload);

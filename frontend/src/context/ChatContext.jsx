@@ -5,6 +5,30 @@ import { axiosInstance } from '../api';
 
 const ChatContext = createContext();
 
+/** Stable when chat is off — avoids a new context value every render. */
+const CHAT_DISABLED_PROVIDER_VALUE = Object.freeze({
+  socket: null,
+  isConnected: false,
+  rooms: [],
+  activeRoom: null,
+  messages: {},
+  typingUsers: {},
+  unreadCounts: {},
+  onlineUsers: new Set(),
+  fetchRooms: () => Promise.resolve(),
+  fetchMessages: () => Promise.resolve(),
+  sendMessage: () => {},
+  joinRoom: () => {},
+  leaveRoom: () => {},
+  createRoom: () => Promise.resolve(null),
+  createRoleRoom: () => Promise.resolve(null),
+  fetchRoles: () => Promise.resolve([]),
+  fetchParticipants: () => Promise.resolve([]),
+  uploadFile: () => Promise.resolve(null),
+  getTotalUnreadCount: () => 0,
+  setActiveRoom: () => {},
+});
+
 export const useChat = () => {
   const context = useContext(ChatContext);
   if (!context) {
@@ -19,31 +43,8 @@ export const ChatProvider = ({ children }) => {
   
   // If chat is disabled, return a no-op provider
   if (!chatEnabled) {
-    const noOpValue = {
-      socket: null,
-      isConnected: false,
-      rooms: [],
-      activeRoom: null,
-      messages: {},
-      typingUsers: {},
-      unreadCounts: {},
-      onlineUsers: new Set(),
-      fetchRooms: () => Promise.resolve(),
-      fetchMessages: () => Promise.resolve(),
-      sendMessage: () => {},
-      joinRoom: () => {},
-      leaveRoom: () => {},
-      createRoom: () => Promise.resolve(null),
-      createRoleRoom: () => Promise.resolve(null),
-      fetchRoles: () => Promise.resolve([]),
-      fetchParticipants: () => Promise.resolve([]),
-      uploadFile: () => Promise.resolve(null),
-      getTotalUnreadCount: () => 0,
-      setActiveRoom: () => {},
-    };
-    
     return (
-      <ChatContext.Provider value={noOpValue}>
+      <ChatContext.Provider value={CHAT_DISABLED_PROVIDER_VALUE}>
         {children}
       </ChatContext.Provider>
     );

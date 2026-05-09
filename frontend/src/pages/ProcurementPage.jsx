@@ -79,6 +79,7 @@ export default function ProcurementPage() {
   const [templateFields, setTemplateFields] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateStage, setTemplateStage] = useState('');
+  const [overview, setOverview] = useState(null);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -97,6 +98,21 @@ export default function ProcurementPage() {
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiService.procurement.getOverview();
+        if (!cancelled) setOverview(data || null);
+      } catch {
+        if (!cancelled) setOverview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -410,6 +426,13 @@ export default function ProcurementPage() {
     downloadBlob(blob, fileName);
   };
 
+  const exportComprehensive = async (scope = 'all') => {
+    const params = {};
+    if (scope === 'project' && selectedProject?.projectId) params.projectId = selectedProject.projectId;
+    const { blob, fileName } = await apiService.procurement.exportComprehensiveWorkbook(params);
+    downloadBlob(blob, fileName);
+  };
+
   return (
     <Box sx={{ p: 2 }}>
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
@@ -417,13 +440,28 @@ export default function ProcurementPage() {
           <Typography variant="h6" fontWeight={800}>
             Procurement Management
           </Typography>
-          <Button size="small" variant="outlined" onClick={openTemplatesManager}>
-            Manage Templates
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" onClick={() => exportComprehensive('all')}>
+              Export Comprehensive Excel
+            </Button>
+            <Button size="small" variant="outlined" onClick={openTemplatesManager}>
+              Manage Templates
+            </Button>
+          </Stack>
         </Stack>
         <Typography variant="body2" color="text.secondary">
           Projects currently under procurement and their basic workflow progress.
         </Typography>
+        {overview?.metrics ? (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
+            <Chip size="small" label={`Projects: ${overview.metrics.projectsUnderProcurement || 0}`} />
+            <Chip size="small" label={`Subjects: ${overview.metrics.totalSubjects || 0}`} />
+            <Chip size="small" label={`Qualified: ${overview.metrics.totalQualifiedSubjects || 0}`} color="success" />
+            <Chip size="small" label={`Assessments: ${overview.metrics.totalAssessments || 0}`} />
+            <Chip size="small" label={`Checklist done: ${overview.metrics.totalChecklistCompleted || 0}/${overview.metrics.totalChecklistItems || 0}`} />
+            <Chip size="small" label={`Attachments: ${overview.metrics.totalAttachments || 0}`} />
+          </Stack>
+        ) : null}
       </Paper>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -746,6 +784,9 @@ export default function ProcurementPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectedProject(null)}>Close</Button>
+          <Button variant="outlined" onClick={() => exportComprehensive('project')} disabled={!selectedProject?.projectId}>
+            Export Project Workbook
+          </Button>
           <Button variant="contained" onClick={saveStep} disabled={saving}>
             Save Workflow Step
           </Button>

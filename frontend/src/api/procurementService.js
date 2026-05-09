@@ -94,6 +94,19 @@ const procurementService = {
     const match = cd.match(/filename="?([^"]+)"?/i);
     return { blob: data, fileName: match?.[1] || `bidder-evaluation.${format}` };
   },
+  exportComprehensiveWorkbook: async (params = {}) => {
+    const { data, headers } = await axiosInstance.get('/procurement/export/comprehensive', {
+      params,
+      responseType: 'blob',
+    });
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || 'procurement-comprehensive.xlsx' };
+  },
+  getOverview: async () => {
+    const { data } = await axiosInstance.get('/procurement/overview');
+    return data;
+  },
 };
 
 export default procurementService;

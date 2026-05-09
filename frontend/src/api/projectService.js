@@ -567,6 +567,20 @@ const projectService = {
       const response = await axiosInstance.get(`/projects/${projectId}/bq/latest-progress-attribution`);
       return response.data;
     },
+    /** BQ lines with progress % effective on or before `asOf` (YYYY-MM-DD) — used for certificate amounts. */
+    getItemsAsOf: async (projectId, asOf) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/bq/items-as-of`, {
+        params: { asOf: String(asOf || '').slice(0, 10) },
+      });
+      return response.data;
+    },
+    /** Progress confirmer row for logs on or before certificate date. */
+    getProgressAttributionAsOf: async (projectId, asOf) => {
+      const response = await axiosInstance.get(`/projects/${projectId}/bq/progress-attribution-as-of`, {
+        params: { asOf: String(asOf || '').slice(0, 10) },
+      });
+      return response.data;
+    },
     createItem: async (projectId, payload) => {
       const response = await axiosInstance.post(`/projects/${projectId}/bq`, payload);
       return response.data;

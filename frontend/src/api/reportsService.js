@@ -363,6 +363,27 @@ const reportsService = {
     }
     return { blob: response.data, fileName };
   },
+  getProjectFinanceOverview: async (filters = {}) => {
+    const response = await axiosInstance.get('/reports/project-finance-overview', { params: filters });
+    return response.data;
+  },
+  getPartnerContributions: async () => {
+    const response = await axiosInstance.get('/reports/partner-contributions');
+    return response.data;
+  },
+  downloadProjectFinancialStatement: async (projectId) => {
+    const response = await axiosInstance.get('/reports/project-financial-statement/export', {
+      params: { projectId },
+      responseType: 'blob',
+    });
+    let fileName = 'project-financial-statement.xlsx';
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const m = cd.match(/filename="?([^";\n]+)"?/i);
+      if (m?.[1]) fileName = m[1].replace(/"/g, '');
+    }
+    return { blob: response.data, fileName };
+  },
 };
 
 export default reportsService;

@@ -267,6 +267,158 @@ router.get('/latest-progress-attribution', async (req, res) => {
     }
 });
 
+/**
+ * BQ lines with progress_percent as it stood on or before `asOf` (certificate / valuation date).
+ * Uses project_bq_progress_logs; falls back to current item progress only when the line has no history yet.
+ */
+router.get('/items-as-of', async (req, res) => {
+    const projectId = Number(req.params.projectId);
+    const asOfRaw = String(req.query.asOf || '').trim().slice(0, 10);
+    if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: 'Invalid project id.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfRaw)) {
+        return res.status(400).json({ message: 'Query asOf must be a date in YYYY-MM-DD format.' });
+    }
+
+    try {
+        await ensureTable();
+        if (isPostgres) {
+            const result = await pool.query(
+                `SELECT
+                    i.id AS "itemId",
+                    i.project_id AS "projectId",
+                    i.activity_name AS "activityName",
+                    i.milestone_name AS "milestoneName",
+                    i.start_date AS "startDate",
+                    i.end_date AS "endDate",
+                    i.budget_amount AS "budgetAmount",
+                    COALESCE(
+                        (
+                            SELECT l.progress_percent
+                            FROM project_bq_progress_logs l
+                            WHERE l.bq_item_id = i.id AND l.progress_date <= $2::date
+                            ORDER BY l.progress_date DESC, l.id DESC
+                            LIMIT 1
+                        ),
+                        CASE
+                            WHEN NOT EXISTS (
+                                SELECT 1 FROM project_bq_progress_logs l2 WHERE l2.bq_item_id = i.id
+                            ) THEN i.progress_percent
+                            ELSE 0
+                        END
+                    ) AS "progressPercent",
+                    i.remarks,
+                    i.completed,
+                    i.completion_date AS "completionDate",
+                    i.sort_order AS "sortOrder",
+                    i.created_at AS "createdAt",
+                    i.updated_at AS "updatedAt"
+                 FROM project_bq_items i
+                 WHERE i.project_id = $1 AND i.voided = false
+                 ORDER BY i.sort_order ASC, i.id ASC`,
+                [projectId, asOfRaw]
+            );
+            return res.status(200).json(result.rows || []);
+        }
+        const [rows] = await pool.query(
+            `SELECT
+                i.id AS itemId,
+                i.project_id AS projectId,
+                i.activity_name AS activityName,
+                i.milestone_name AS milestoneName,
+                i.start_date AS startDate,
+                i.end_date AS endDate,
+                i.budget_amount AS budgetAmount,
+                COALESCE(
+                    (
+                        SELECT l.progress_percent
+                        FROM project_bq_progress_logs l
+                        WHERE l.bq_item_id = i.id AND l.progress_date <= ?
+                        ORDER BY l.progress_date DESC, l.id DESC
+                        LIMIT 1
+                    ),
+                    CASE
+                        WHEN NOT EXISTS (
+                            SELECT 1 FROM project_bq_progress_logs l2 WHERE l2.bq_item_id = i.id
+                        ) THEN i.progress_percent
+                        ELSE 0
+                    END
+                ) AS progressPercent,
+                i.remarks,
+                i.completed,
+                i.completion_date AS completionDate,
+                i.sort_order AS sortOrder,
+                i.created_at AS createdAt,
+                i.updated_at AS updatedAt
+             FROM project_bq_items i
+             WHERE i.project_id = ? AND i.voided = 0
+             ORDER BY i.sort_order ASC, i.id ASC`,
+            [asOfRaw, projectId]
+        );
+        return res.status(200).json(rows || []);
+    } catch (error) {
+        console.error('Error loading BQ items as-of date:', error);
+        return res.status(500).json({ message: 'Error loading BQ items as-of date', error: error.message });
+    }
+});
+
+/** Progress confirmer attribution for logs on or before `asOf` (matches certificate date semantics). */
+router.get('/progress-attribution-as-of', async (req, res) => {
+    const projectId = Number(req.params.projectId);
+    const asOfRaw = String(req.query.asOf || '').trim().slice(0, 10);
+    if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: 'Invalid project id.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfRaw)) {
+        return res.status(400).json({ message: 'Query asOf must be a date in YYYY-MM-DD format.' });
+    }
+    try {
+        await ensureTable();
+        if (isPostgres) {
+            const result = await pool.query(
+                `SELECT
+                    l.progress_date AS "progressDate",
+                    l.created_at AS "recordedAt",
+                    l.progress_percent AS "progressPercent",
+                    NULLIF(TRIM(CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, ''))), '') AS "fullName",
+                    NULLIF(TRIM(r.name), '') AS "roleName",
+                    COALESCE(NULLIF(TRIM(i.activity_name), ''), NULLIF(TRIM(i.milestone_name), ''), 'BQ item') AS "activityName"
+                 FROM project_bq_progress_logs l
+                 INNER JOIN project_bq_items i ON i.id = l.bq_item_id AND i.project_id = $1 AND i.voided = false
+                 LEFT JOIN users u ON u.userid = l.created_by
+                 LEFT JOIN roles r ON r.roleid = u.roleid
+                 WHERE l.progress_date <= $2::date
+                 ORDER BY l.progress_date DESC, l.id DESC
+                 LIMIT 1`,
+                [projectId, asOfRaw]
+            );
+            return res.status(200).json(result.rows?.[0] || null);
+        }
+        const [rows] = await pool.query(
+            `SELECT
+                l.progress_date AS progressDate,
+                l.created_at AS recordedAt,
+                l.progress_percent AS progressPercent,
+                NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), '') AS fullName,
+                NULLIF(TRIM(r.roleName), '') AS roleName,
+                COALESCE(NULLIF(TRIM(i.activity_name), ''), NULLIF(TRIM(i.milestone_name), ''), 'BQ item') AS activityName
+             FROM project_bq_progress_logs l
+             INNER JOIN project_bq_items i ON i.id = l.bq_item_id AND i.project_id = ? AND i.voided = 0
+             LEFT JOIN users u ON u.userId = l.created_by
+             LEFT JOIN roles r ON r.roleId = u.roleId
+             WHERE l.progress_date <= ?
+             ORDER BY l.progress_date DESC, l.id DESC
+             LIMIT 1`,
+            [projectId, asOfRaw]
+        );
+        return res.status(200).json(rows?.[0] || null);
+    } catch (error) {
+        console.error('Error loading BQ progress attribution as-of:', error);
+        return res.status(500).json({ message: 'Error loading BQ progress attribution as-of', error: error.message });
+    }
+});
+
 router.post('/', async (req, res) => {
     const projectId = Number(req.params.projectId);
     if (!Number.isFinite(projectId)) {

@@ -3236,4 +3236,647 @@ router.get('/budget-justification/download', async (req, res) => {
     }
 });
 
+async function tableExistsInDb(tableName) {
+    const DB_TYPE = getDBType();
+    if (DB_TYPE === 'postgresql') {
+        const r = await pool.query(
+            `SELECT 1 FROM information_schema.tables
+             WHERE table_schema='public' AND table_name=$1 LIMIT 1`,
+            [tableName]
+        );
+        return (r.rows || []).length > 0;
+    }
+    const r = await pool.query(`SHOW TABLES LIKE ?`, [tableName]);
+    const rows = Array.isArray(r) ? (r[0] || []) : (r.rows || []);
+    return rows.length > 0;
+}
+
+async function columnExistsInDb(tableName, columnName) {
+    const DB_TYPE = getDBType();
+    const tn = String(tableName);
+    const cn = String(columnName);
+    try {
+        if (DB_TYPE === 'postgresql') {
+            const r = await pool.query(
+                `SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND lower(table_name) = lower($1)
+                   AND lower(column_name) = lower($2)
+                 LIMIT 1`,
+                [tn, cn]
+            );
+            return (r.rows || []).length > 0;
+        }
+        const r = await pool.query(
+            `SELECT 1 FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND lower(table_name) = lower(?)
+               AND lower(column_name) = lower(?)
+             LIMIT 1`,
+            [tn, cn]
+        );
+        const rows = Array.isArray(r) ? (r[0] || []) : (r.rows || []);
+        return rows.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+router.get('/project-finance-overview', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const hasFundingEntries = await tableExistsInDb('project_funding_entries').catch(() => false);
+        const hasCertificates = await tableExistsInDb('projectcertificate').catch(() => false);
+        const hasCertNetAmountColumn = hasCertificates && await columnExistsInDb('projectcertificate', 'certificateNetAmount').catch(() => false);
+        const hasCertDataColumn = hasCertificates && await columnExistsInDb('projectcertificate', 'certificateData').catch(() => false);
+        const projectsHasName = await columnExistsInDb('projects', 'name').catch(() => false);
+        const projectsHasProjectName = await columnExistsInDb('projects', 'projectName').catch(() => false);
+        const pgTitleLikeExpr = isPg
+            ? (projectsHasName && projectsHasProjectName
+                ? `LOWER(TRIM(COALESCE(NULLIF(p.name::text, ''), NULLIF(p."projectName"::text, ''))))`
+                : projectsHasProjectName
+                    ? `LOWER(TRIM(COALESCE(p."projectName"::text, '')))`
+                    : projectsHasName
+                        ? `LOWER(COALESCE(p.name::text, ''))`
+                        : `LOWER(''::text)`)
+            : '';
+        const pgProjectNameSelect = isPg
+            ? (projectsHasName && projectsHasProjectName
+                ? `COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(p."projectName"), ''), CONCAT('Project #', p.project_id))`
+                : projectsHasProjectName
+                    ? `COALESCE(NULLIF(TRIM(p."projectName"), ''), CONCAT('Project #', p.project_id))`
+                    : projectsHasName
+                        ? `COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id))`
+                        : `CONCAT('Project #', p.project_id)`)
+            : '';
+        const myProjectNameSelect = !isPg
+            ? (projectsHasName && projectsHasProjectName
+                ? `COALESCE(NULLIF(TRIM(p.projectName), ''), NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.id))`
+                : projectsHasName
+                    ? `COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.id))`
+                    : `COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id))`)
+            : '';
+        const params = [];
+        const where = [isPg ? 'COALESCE(p.voided,false)=false' : 'COALESCE(p.voided,0)=0'];
+        const projectName = String(req.query.projectName || '').trim();
+        const department = String(req.query.department || '').trim();
+        if (projectName) {
+            if (isPg) {
+                params.push(`%${projectName.toLowerCase()}%`);
+                where.push(`${pgTitleLikeExpr} LIKE $${params.length}`);
+            } else {
+                params.push(`%${projectName.toLowerCase()}%`);
+                const myTitle = projectsHasName && projectsHasProjectName
+                    ? `LOWER(TRIM(COALESCE(NULLIF(p.projectName, ''), NULLIF(p.name, ''))))`
+                    : projectsHasName
+                        ? `LOWER(COALESCE(p.name, ''))`
+                        : `LOWER(COALESCE(p.projectName, ''))`;
+                where.push(`${myTitle} LIKE ?`);
+            }
+        }
+        if (department) {
+            if (isPg) {
+                params.push(department);
+                where.push(`COALESCE(p.ministry,'') = $${params.length}`);
+            } else {
+                params.push(department);
+                where.push(`COALESCE(d.name,'') = ?`);
+            }
+        }
+        const limit = Number(req.query.limit || 500);
+        const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric,0)` : `COALESCE(p.costOfProject,0)`;
+        const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric,0)` : `COALESCE(p.paidOut,0)`;
+        const fundingExpr = hasFundingEntries
+            ? (isPg
+                ? `(SELECT COALESCE(SUM(fe.amount),0) FROM project_funding_entries fe WHERE fe.project_id = p.project_id AND COALESCE(fe.voided,false)=false)`
+                : `(SELECT COALESCE(SUM(fe.amount),0) FROM project_funding_entries fe WHERE fe.project_id = p.id AND COALESCE(fe.voided,0)=0)`)
+            : `0`;
+        /** Prefer persisted snapshot (BQ + tax at certificate date); then column / JSON amounts. */
+        let certExpr = '0';
+        if (hasCertificates) {
+            const partsPg = [];
+            const partsMy = [];
+            if (hasCertDataColumn) {
+                partsPg.push(`NULLIF(TRIM(c."certificateData"->>'snapshotComputedNet'),'')::numeric`);
+                partsMy.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.snapshotComputedNet')), '') AS DECIMAL(18,2))`);
+            }
+            if (hasCertNetAmountColumn) {
+                partsPg.push(`c."certificateNetAmount"`);
+                partsMy.push('c.certificateNetAmount');
+            }
+            if (hasCertDataColumn) {
+                partsPg.push(`NULLIF(TRIM(c."certificateData"->>'certificateNetAmount'),'')::numeric`);
+                partsPg.push(`NULLIF(TRIM(c."certificateData"->>'netAmount'),'')::numeric`);
+                partsMy.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.certificateNetAmount')), '') AS DECIMAL(18,2))`);
+                partsMy.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.netAmount')), '') AS DECIMAL(18,2))`);
+            }
+            const innerPg = partsPg.length ? `COALESCE(${partsPg.join(', ')}, 0)` : '0';
+            const innerMy = partsMy.length ? `COALESCE(${partsMy.join(', ')}, 0)` : '0';
+            certExpr = isPg
+                ? `(SELECT COALESCE(SUM(${innerPg}),0) FROM projectcertificate c WHERE c."projectId" = p.project_id AND COALESCE(c.voided,false)=false)`
+                : `(SELECT COALESCE(SUM(${innerMy}),0) FROM projectcertificate c WHERE c.projectId = p.id AND COALESCE(c.voided,0)=0)`;
+        }
+        const sql = isPg
+            ? `
+                SELECT
+                    p.project_id AS "projectId",
+                    ${pgProjectNameSelect} AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                    ${budgetExpr} AS "budgetAmount",
+                    ${paidExpr} AS "paidAmount",
+                    ${fundingExpr} AS "partnerFundingAmount",
+                    ${certExpr} AS "certifiedAmount"
+                FROM projects p
+                WHERE ${where.join(' AND ')}
+                ORDER BY p.project_id DESC
+                LIMIT ${Number.isFinite(limit) ? Math.max(1, Math.min(5000, limit)) : 500}
+            `
+            : `
+                SELECT
+                    p.id AS projectId,
+                    ${myProjectNameSelect} AS projectName,
+                    COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                    ${budgetExpr} AS budgetAmount,
+                    ${paidExpr} AS paidAmount,
+                    ${fundingExpr} AS partnerFundingAmount,
+                    ${certExpr} AS certifiedAmount
+                FROM projects p
+                LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+                WHERE ${where.join(' AND ')}
+                ORDER BY p.id DESC
+                LIMIT ${Number.isFinite(limit) ? Math.max(1, Math.min(5000, limit)) : 500}
+            `;
+        const result = await pool.query(sql, params);
+        const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+        const normalized = rows.map((r) => {
+            const budget = Number(r.budgetAmount || 0);
+            const paid = Number(r.paidAmount || 0);
+            const partnerFunding = Number(r.partnerFundingAmount || 0);
+            const certified = Number(r.certifiedAmount || 0);
+            return {
+                ...r,
+                budgetAmount: budget,
+                paidAmount: paid,
+                partnerFundingAmount: partnerFunding,
+                certifiedAmount: certified,
+                pendingBillAmount: Math.max(0, certified - paid),
+                absorptionPercentage: budget > 0 ? (paid / budget) * 100 : 0,
+                financingGapAmount: Math.max(0, budget - partnerFunding),
+            };
+        });
+        const summary = normalized.reduce((acc, r) => {
+            acc.totalBudget += r.budgetAmount;
+            acc.totalPaid += r.paidAmount;
+            acc.totalPartnerFunding += r.partnerFundingAmount;
+            acc.totalCertified += r.certifiedAmount;
+            acc.totalPendingBills += r.pendingBillAmount;
+            acc.totalFinancingGap += r.financingGapAmount;
+            acc.count += 1;
+            return acc;
+        }, { count: 0, totalBudget: 0, totalPaid: 0, totalPartnerFunding: 0, totalCertified: 0, totalPendingBills: 0, totalFinancingGap: 0 });
+        return res.status(200).json({ rows: normalized, summary });
+    } catch (error) {
+        console.error('Error building project finance overview:', error);
+        return res.status(500).json({ message: 'Error building project finance overview', error: error.message });
+    }
+});
+
+router.get('/partner-contributions', async (_req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const hasFundingEntries = await tableExistsInDb('project_funding_entries').catch(() => false);
+        const hasPartners = await tableExistsInDb('project_partners').catch(() => false);
+        if (!hasFundingEntries || !hasPartners) return res.status(200).json({ rows: [], summary: { count: 0, totalContribution: 0 } });
+        const sql = isPg
+            ? `
+                SELECT
+                    COALESCE(pp.partner_id, fe.partner_id, fs.partner_id) AS "partnerId",
+                    COALESCE(NULLIF(TRIM(pp.partner_name), ''), 'Unassigned Partner') AS "partnerName",
+                    COUNT(DISTINCT fe.project_id) AS "projectsSupported",
+                    COALESCE(SUM(fe.amount), 0) AS "totalContribution"
+                FROM project_funding_entries fe
+                LEFT JOIN funding_sources fs ON fs.source_id = fe.source_id
+                LEFT JOIN project_partners pp ON pp.partner_id = COALESCE(fe.partner_id, fs.partner_id)
+                WHERE COALESCE(fe.voided, false) = false
+                GROUP BY COALESCE(pp.partner_id, fe.partner_id, fs.partner_id), COALESCE(NULLIF(TRIM(pp.partner_name), ''), 'Unassigned Partner')
+                ORDER BY "totalContribution" DESC, "partnerName" ASC
+            `
+            : `
+                SELECT
+                    COALESCE(pp.partner_id, fe.partner_id, fs.partner_id) AS partnerId,
+                    COALESCE(NULLIF(TRIM(pp.partner_name), ''), 'Unassigned Partner') AS partnerName,
+                    COUNT(DISTINCT fe.project_id) AS projectsSupported,
+                    COALESCE(SUM(fe.amount), 0) AS totalContribution
+                FROM project_funding_entries fe
+                LEFT JOIN funding_sources fs ON fs.source_id = fe.source_id
+                LEFT JOIN project_partners pp ON pp.partner_id = COALESCE(fe.partner_id, fs.partner_id)
+                WHERE COALESCE(fe.voided, 0) = 0
+                GROUP BY COALESCE(pp.partner_id, fe.partner_id, fs.partner_id), COALESCE(NULLIF(TRIM(pp.partner_name), ''), 'Unassigned Partner')
+                ORDER BY totalContribution DESC, partnerName ASC
+            `;
+        const result = await pool.query(sql);
+        const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+        const normalized = rows.map((r) => ({
+            partnerId: r.partnerId ?? r.partnerid ?? null,
+            partnerName: r.partnerName ?? r.partnername ?? 'Unassigned Partner',
+            projectsSupported: Number(r.projectsSupported ?? r.projectssupported ?? 0),
+            totalContribution: Number(r.totalContribution ?? r.totalcontribution ?? 0),
+        }));
+        const summary = normalized.reduce((acc, r) => {
+            acc.count += 1;
+            acc.totalContribution += r.totalContribution;
+            return acc;
+        }, { count: 0, totalContribution: 0 });
+        return res.status(200).json({ rows: normalized, summary });
+    } catch (error) {
+        console.error('Error building partner contributions report:', error);
+        return res.status(500).json({ message: 'Error building partner contributions report', error: error.message });
+    }
+});
+
+/** Same entity_id mapping as project certificates + approval workflow engine. */
+const CERT_APPROVAL_ENTITY_TYPES_SQL = `('project_certificate','payment_certificate','certificate')`;
+
+/**
+ * Extra SELECT fragments + JOIN for certificate rows on project financial statement Excel (approval trail).
+ * @returns {{ extraSelect: string, extraJoin: string }}
+ */
+function certificateExportApprovalSql(isPg, { hasApprovalWf, hasUsersTbl, hasRolesTbl, hasApprovedByLegacy, hasApproverRemarks }) {
+    const legacyBy = hasApprovedByLegacy
+        ? (isPg
+            ? `COALESCE(NULLIF(TRIM(c."approvedBy"), ''), '') AS "legacyApprovedByText"`
+            : `COALESCE(NULLIF(TRIM(c.approvedBy), ''), '') AS legacyApprovedByText`)
+        : (isPg ? `''::text AS "legacyApprovedByText"` : `'' AS legacyApprovedByText`);
+    const remarks = hasApproverRemarks
+        ? (isPg
+            ? `COALESCE(NULLIF(TRIM(c."approverRemarks"), ''), '') AS "approverRemarks"`
+            : `COALESCE(NULLIF(TRIM(c.approverRemarks), ''), '') AS approverRemarks`)
+        : (isPg ? `''::text AS "approverRemarks"` : `'' AS approverRemarks`);
+
+    if (!hasApprovalWf) {
+        return {
+            extraSelect: `
+                   , ${legacyBy}
+                   , ${remarks}
+                   , ${isPg ? 'NULL::text' : 'NULL'} AS ${isPg ? '"approvalWorkflowStatus"' : 'approvalWorkflowStatus'}
+                   , ${isPg ? 'NULL::timestamptz' : 'NULL'} AS ${isPg ? '"approvalResolvedAt"' : 'approvalResolvedAt'}
+                   , ${isPg ? 'NULL::text' : 'NULL'} AS ${isPg ? '"approvalApprovedTrail"' : 'approvalApprovedTrail'}
+                   , ${isPg ? 'NULL::text' : 'NULL'} AS ${isPg ? '"approvalPendingStepName"' : 'approvalPendingStepName'}
+                   , ${isPg ? 'NULL::text' : 'NULL'} AS ${isPg ? '"approvalPendingRoleName"' : 'approvalPendingRoleName'}
+            `,
+            extraJoin: '',
+        };
+    }
+
+    const signerPg = hasUsersTbl
+        ? `COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, ''))), ''), '—')`
+        : `'—'`;
+    const roleSuffixPg = hasRolesTbl
+        ? `CASE WHEN NULLIF(TRIM(r.name), '') IS NOT NULL THEN ' (' || TRIM(r.name) || ')' ELSE '' END`
+        : `''::text`;
+
+    const signerMy = hasUsersTbl
+        ? `COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), ''), '—')`
+        : `'—'`;
+    const roleSuffixMy = hasRolesTbl
+        ? `CASE WHEN NULLIF(TRIM(r.roleName), '') IS NOT NULL THEN CONCAT(' (', TRIM(r.roleName), ')') ELSE '' END`
+        : `''`;
+
+    const fromTrailPg = hasUsersTbl && hasRolesTbl
+        ? `FROM approval_step_instances si
+           LEFT JOIN users u ON u.userid = si.completed_by
+           LEFT JOIN roles r ON r.roleid = si.role_id`
+        : hasUsersTbl
+            ? `FROM approval_step_instances si
+               LEFT JOIN users u ON u.userid = si.completed_by`
+            : hasRolesTbl
+                ? `FROM approval_step_instances si
+                   LEFT JOIN roles r ON r.roleid = si.role_id`
+                : `FROM approval_step_instances si`;
+
+    const fromTrailMy = hasUsersTbl && hasRolesTbl
+        ? `FROM approval_step_instances si
+           LEFT JOIN users u ON u.userId = si.completed_by
+           LEFT JOIN roles r ON r.roleId = si.role_id`
+        : hasUsersTbl
+            ? `FROM approval_step_instances si
+               LEFT JOIN users u ON u.userId = si.completed_by`
+            : hasRolesTbl
+                ? `FROM approval_step_instances si
+                   LEFT JOIN roles r ON r.roleId = si.role_id`
+                : `FROM approval_step_instances si`;
+
+    if (isPg) {
+        const extraJoin = `
+            LEFT JOIN LATERAL (
+                SELECT ar.request_id, ar.status, ar.resolved_at
+                FROM approval_requests ar
+                WHERE ar.entity_type IN ${CERT_APPROVAL_ENTITY_TYPES_SQL}
+                  AND ar.entity_id = c."certificateId"::text
+                ORDER BY ar.request_id DESC
+                LIMIT 1
+            ) lar ON true`;
+        const extraSelect = `
+                   , ${legacyBy}
+                   , ${remarks}
+                   , lar.status AS "approvalWorkflowStatus"
+                   , lar.resolved_at AS "approvalResolvedAt"
+                   , (
+                       SELECT STRING_AGG(
+                           COALESCE(NULLIF(TRIM(si.step_name), ''), 'Step ' || si.step_order::text) || ': ' ||
+                           ${signerPg} || ${roleSuffixPg},
+                           E'\\n' ORDER BY si.step_order
+                       )
+                       ${fromTrailPg}
+                       WHERE si.request_id = lar.request_id AND si.status = 'approved'
+                   ) AS "approvalApprovedTrail"
+                   , (
+                       SELECT COALESCE(NULLIF(TRIM(si.step_name), ''), 'Step ' || si.step_order::text)
+                       FROM approval_step_instances si
+                       WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                       ORDER BY si.step_order ASC
+                       LIMIT 1
+                   ) AS "approvalPendingStepName"
+                   , ${hasRolesTbl ? `(
+                       SELECT NULLIF(TRIM(r.name), '')
+                       FROM approval_step_instances si
+                       LEFT JOIN roles r ON r.roleid = si.role_id
+                       WHERE si.request_id = lar.request_id AND si.status = 'pending'
+                       ORDER BY si.step_order ASC
+                       LIMIT 1
+                   )` : 'NULL::text'} AS "approvalPendingRoleName"
+        `;
+        return { extraSelect, extraJoin };
+    }
+
+    const latestReqMy = `(
+        SELECT ar.request_id FROM approval_requests ar
+        WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+          AND ar.entity_type IN ${CERT_APPROVAL_ENTITY_TYPES_SQL}
+        ORDER BY ar.request_id DESC LIMIT 1
+    )`;
+
+    const extraSelect = `
+                   , ${legacyBy}
+                   , ${remarks}
+                   , (
+                       SELECT ar.status FROM approval_requests ar
+                       WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                         AND ar.entity_type IN ${CERT_APPROVAL_ENTITY_TYPES_SQL}
+                       ORDER BY ar.request_id DESC LIMIT 1
+                     ) AS approvalWorkflowStatus
+                   , (
+                       SELECT ar.resolved_at FROM approval_requests ar
+                       WHERE ar.entity_id = CAST(c.certificateId AS CHAR)
+                         AND ar.entity_type IN ${CERT_APPROVAL_ENTITY_TYPES_SQL}
+                       ORDER BY ar.request_id DESC LIMIT 1
+                     ) AS approvalResolvedAt
+                   , (
+                       SELECT GROUP_CONCAT(
+                           CONCAT(
+                               COALESCE(NULLIF(TRIM(si.step_name), ''), CONCAT('Step ', si.step_order)),
+                               ': ',
+                               ${signerMy},
+                               ${roleSuffixMy}
+                           )
+                           ORDER BY si.step_order SEPARATOR '\\n'
+                       )
+                       ${fromTrailMy}
+                       WHERE si.request_id = ${latestReqMy} AND si.status = 'approved'
+                     ) AS approvalApprovedTrail
+                   , (
+                       SELECT COALESCE(NULLIF(TRIM(si.step_name), ''), CONCAT('Step ', si.step_order))
+                       FROM approval_step_instances si
+                       WHERE si.request_id = ${latestReqMy} AND si.status = 'pending'
+                       ORDER BY si.step_order ASC
+                       LIMIT 1
+                     ) AS approvalPendingStepName
+                   , ${hasRolesTbl ? `(
+                       SELECT NULLIF(TRIM(r.roleName), '')
+                       FROM approval_step_instances si
+                       LEFT JOIN roles r ON r.roleId = si.role_id
+                       WHERE si.request_id = ${latestReqMy} AND si.status = 'pending'
+                       ORDER BY si.step_order ASC
+                       LIMIT 1
+                     )` : 'NULL'} AS approvalPendingRoleName
+    `;
+    return { extraSelect, extraJoin: '' };
+}
+
+router.get('/project-financial-statement/export', async (req, res) => {
+    try {
+        const projectId = Number(req.query.projectId);
+        if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'projectId is required.' });
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const projectSql = isPg
+            ? `
+                SELECT p.project_id AS "projectId",
+                       COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
+                       COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                       COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                       COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0) AS "budgetAmount",
+                       COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0) AS "paidAmount"
+                FROM projects p
+                WHERE p.project_id = $1
+                LIMIT 1
+            `
+            : `
+                SELECT p.id AS projectId,
+                       COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
+                       COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                       COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                       COALESCE(p.costOfProject, 0) AS budgetAmount,
+                       COALESCE(p.paidOut, 0) AS paidAmount
+                FROM projects p
+                LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+                WHERE p.id = ?
+                LIMIT 1
+            `;
+        const projectResult = await pool.query(projectSql, [projectId]);
+        const projectRow = isPg ? (projectResult.rows || [])[0] : (Array.isArray(projectResult) ? (projectResult[0] || [])[0] : null);
+        if (!projectRow) return res.status(404).json({ message: 'Project not found.' });
+
+        const hasFundingEntries = await tableExistsInDb('project_funding_entries').catch(() => false);
+        const hasCertificates = await tableExistsInDb('projectcertificate').catch(() => false);
+        const hasCertNetAmountColumnEx = hasCertificates && await columnExistsInDb('projectcertificate', 'certificateNetAmount').catch(() => false);
+        const hasCertDataColumnEx = hasCertificates && await columnExistsInDb('projectcertificate', 'certificateData').catch(() => false);
+        let fundingRows = [];
+        if (hasFundingEntries) {
+            const fSql = isPg
+                ? `
+                    SELECT fe.entry_id AS "entryId",
+                           fe.amount,
+                           fe.stage,
+                           fe.notes,
+                           fe.created_at AS "createdAt",
+                           COALESCE(pp.partner_name, fs.source_name, 'Unknown Source') AS "fundingSource"
+                    FROM project_funding_entries fe
+                    LEFT JOIN funding_sources fs ON fs.source_id = fe.source_id
+                    LEFT JOIN project_partners pp ON pp.partner_id = COALESCE(fe.partner_id, fs.partner_id)
+                    WHERE fe.project_id = $1 AND COALESCE(fe.voided, false) = false
+                    ORDER BY fe.created_at DESC, fe.entry_id DESC
+                `
+                : `
+                    SELECT fe.entry_id AS entryId,
+                           fe.amount,
+                           fe.stage,
+                           fe.notes,
+                           fe.created_at AS createdAt,
+                           COALESCE(pp.partner_name, fs.source_name, 'Unknown Source') AS fundingSource
+                    FROM project_funding_entries fe
+                    LEFT JOIN funding_sources fs ON fs.source_id = fe.source_id
+                    LEFT JOIN project_partners pp ON pp.partner_id = COALESCE(fe.partner_id, fs.partner_id)
+                    WHERE fe.project_id = ? AND COALESCE(fe.voided, 0) = 0
+                    ORDER BY fe.created_at DESC, fe.entry_id DESC
+                `;
+            const fr = await pool.query(fSql, [projectId]);
+            fundingRows = isPg ? (fr.rows || []) : (Array.isArray(fr) ? (fr[0] || []) : []);
+        }
+        let certRows = [];
+        if (hasCertificates) {
+            const hasApprovedByLegacy = await columnExistsInDb('projectcertificate', 'approvedBy').catch(() => false);
+            const hasApproverRemarksCol = await columnExistsInDb('projectcertificate', 'approverRemarks').catch(() => false);
+            const hasApprovalWf = await tableExistsInDb('approval_requests').catch(() => false)
+                && await tableExistsInDb('approval_step_instances').catch(() => false);
+            const hasUsersTbl = await tableExistsInDb('users').catch(() => false);
+            const hasRolesTbl = await tableExistsInDb('roles').catch(() => false);
+            const { extraSelect, extraJoin } = certificateExportApprovalSql(isPg, {
+                hasApprovalWf,
+                hasUsersTbl,
+                hasRolesTbl,
+                hasApprovedByLegacy,
+                hasApproverRemarks: hasApproverRemarksCol,
+            });
+
+            const partsPgEx = [];
+            const partsMyEx = [];
+            if (hasCertDataColumnEx) {
+                partsPgEx.push(`NULLIF(TRIM(c."certificateData"->>'snapshotComputedNet'),'')::numeric`);
+                partsMyEx.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.snapshotComputedNet')), '') AS DECIMAL(18,2))`);
+            }
+            if (hasCertNetAmountColumnEx) {
+                partsPgEx.push('c."certificateNetAmount"');
+                partsMyEx.push('c.certificateNetAmount');
+            }
+            if (hasCertDataColumnEx) {
+                partsPgEx.push(`NULLIF(TRIM(c."certificateData"->>'certificateNetAmount'),'')::numeric`);
+                partsPgEx.push(`NULLIF(TRIM(c."certificateData"->>'netAmount'),'')::numeric`);
+                partsMyEx.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.certificateNetAmount')), '') AS DECIMAL(18,2))`);
+                partsMyEx.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.netAmount')), '') AS DECIMAL(18,2))`);
+            }
+            const certAmtPg = partsPgEx.length ? `COALESCE(${partsPgEx.join(', ')}, 0)` : '0';
+            const certAmtMy = partsMyEx.length ? `COALESCE(${partsMyEx.join(', ')}, 0)` : '0';
+            const cSql = isPg
+                ? `
+                    SELECT c."certificateId" AS "certificateId",
+                           COALESCE(NULLIF(TRIM(c."certNumber"), ''), '') AS "certificateNo",
+                           COALESCE(c."awardDate", c."requestDate") AS "certificateDate",
+                           ${certAmtPg} AS "certificateNetAmount"
+                           ${extraSelect}
+                    FROM projectcertificate c
+                    ${extraJoin}
+                    WHERE c."projectId" = $1 AND COALESCE(c.voided, false) = false
+                    ORDER BY COALESCE(c."awardDate", c."requestDate") DESC NULLS LAST, c."certificateId" DESC
+                `
+                : `
+                    SELECT c.certificateId AS certificateId,
+                           COALESCE(NULLIF(TRIM(c.certNumber), ''), '') AS certificateNo,
+                           COALESCE(c.awardDate, c.requestDate) AS certificateDate,
+                           ${certAmtMy} AS certificateNetAmount
+                           ${extraSelect}
+                    FROM projectcertificate c
+                    ${extraJoin}
+                    WHERE c.projectId = ? AND COALESCE(c.voided, 0) = 0
+                    ORDER BY COALESCE(c.awardDate, c.requestDate) DESC, c.certificateId DESC
+                `;
+            const cr = await pool.query(cSql, [projectId]);
+            certRows = isPg ? (cr.rows || []) : (Array.isArray(cr) ? (cr[0] || []) : []);
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const summaryWs = workbook.addWorksheet('Project Summary');
+        summaryWs.columns = [{ header: 'Field', key: 'field', width: 32 }, { header: 'Value', key: 'value', width: 52 }];
+        summaryWs.addRows([
+            { field: 'Project ID', value: projectRow.projectId || projectRow.projectid || projectId },
+            { field: 'Project Name', value: projectRow.projectName || projectRow.projectname || '' },
+            { field: 'Department', value: projectRow.department || '' },
+            { field: 'Status', value: projectRow.status || '' },
+            { field: 'Budget Amount', value: Number(projectRow.budgetAmount || projectRow.budgetamount || 0) },
+            { field: 'Paid Amount', value: Number(projectRow.paidAmount || projectRow.paidamount || 0) },
+            { field: 'Total Funding Entries', value: fundingRows.length },
+            { field: 'Total Certificates', value: certRows.length },
+        ]);
+        summaryWs.getRow(1).font = { bold: true };
+
+        const fundingWs = workbook.addWorksheet('Funding Entries');
+        fundingWs.columns = [
+            { header: 'Entry ID', key: 'entryId', width: 12 },
+            { header: 'Funding Source', key: 'fundingSource', width: 30 },
+            { header: 'Amount', key: 'amount', width: 14 },
+            { header: 'Stage', key: 'stage', width: 20 },
+            { header: 'Notes', key: 'notes', width: 40 },
+            { header: 'Created At', key: 'createdAt', width: 24 },
+        ];
+        fundingRows.forEach((r) => fundingWs.addRow({
+            entryId: r.entryId || r.entryid,
+            fundingSource: r.fundingSource || r.fundingsource,
+            amount: Number(r.amount || 0),
+            stage: r.stage || '',
+            notes: r.notes || '',
+            createdAt: r.createdAt || r.createdat || '',
+        }));
+        fundingWs.getRow(1).font = { bold: true };
+
+        const certWs = workbook.addWorksheet('Certificates');
+        certWs.columns = [
+            { header: 'Certificate ID', key: 'certificateId', width: 14 },
+            { header: 'Certificate No', key: 'certificateNo', width: 24 },
+            { header: 'Certificate Date', key: 'certificateDate', width: 22 },
+            { header: 'Net Amount', key: 'certificateNetAmount', width: 16 },
+            { header: 'Legacy approver (recorded on certificate)', key: 'legacyApprovedByText', width: 28 },
+            { header: 'Approver remarks', key: 'approverRemarks', width: 36 },
+            { header: 'Approval workflow status', key: 'approvalWorkflowStatus', width: 22 },
+            { header: 'Workflow resolved at', key: 'approvalResolvedAt', width: 22 },
+            { header: 'Approved steps (approver + role)', key: 'approvalApprovedTrail', width: 52 },
+            { header: 'Pending step', key: 'approvalPendingStepName', width: 28 },
+            { header: 'Pending step role', key: 'approvalPendingRoleName', width: 24 },
+        ];
+        certRows.forEach((r) => {
+            certWs.addRow({
+                certificateId: r.certificateId ?? r.certificateid ?? '',
+                certificateNo: r.certificateNo ?? r.certificateno ?? '',
+                certificateDate: r.certificateDate ?? r.certificatedate ?? '',
+                certificateNetAmount: Number(r.certificateNetAmount ?? r.certificatenetamount ?? 0),
+                legacyApprovedByText: r.legacyApprovedByText ?? r.legacyapprovedbytext ?? '',
+                approverRemarks: r.approverRemarks ?? r.approverremarks ?? '',
+                approvalWorkflowStatus: r.approvalWorkflowStatus ?? r.approvalworkflowstatus ?? '',
+                approvalResolvedAt: r.approvalResolvedAt ?? r.approvalresolvedat ?? '',
+                approvalApprovedTrail: r.approvalApprovedTrail ?? r.approvalapprovedtrail ?? '',
+                approvalPendingStepName: r.approvalPendingStepName ?? r.approvalpendingstepname ?? '',
+                approvalPendingRoleName: r.approvalPendingRoleName ?? r.approvalpendingrolename ?? '',
+            });
+        });
+        for (let ri = 2; ri <= certWs.rowCount; ri++) {
+            const cell = certWs.getRow(ri).getCell('approvalApprovedTrail');
+            cell.alignment = { wrapText: true, vertical: 'top' };
+        }
+        certWs.getRow(1).font = { bold: true };
+
+        const safeName = String(projectRow.projectName || projectRow.projectname || `project-${projectId}`).replace(/[^a-zA-Z0-9_-]/g, '-');
+        const fileName = `project-financial-statement-${safeName}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting project financial statement:', error);
+        return res.status(500).json({ message: 'Error exporting project financial statement', error: error.message });
+    }
+});
+
 module.exports = router;

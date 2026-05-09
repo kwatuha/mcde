@@ -1,4 +1,11 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, {
+    createContext,
+    useState,
+    useEffect,
+    useContext,
+    useCallback,
+    useMemo,
+} from 'react';
 import { jwtDecode } from 'jwt-decode';
 import { Alert, Snackbar } from '@mui/material';
 import apiService from '../api';
@@ -130,6 +137,8 @@ export const AuthProvider = ({ children }) => {
     }, [token, logout]);
 
     // Idle timeout: if no activity is detected for configured period, auto logout.
+    // Throttle activity handling so keydown/mousemove do not clear/reschedule timers on every event
+    // (that caused noticeable input lag across the app).
     useEffect(() => {
         if (!token || !idleTimeoutMinutes || idleTimeoutMinutes < 1) return undefined;
 
@@ -138,7 +147,7 @@ export const AuthProvider = ({ children }) => {
         let timeoutId;
         let warningTimeoutId;
 
-        const resetIdleTimer = () => {
+        const scheduleIdleExpiry = () => {
             if (timeoutId) clearTimeout(timeoutId);
             if (warningTimeoutId) clearTimeout(warningTimeoutId);
             setShowIdleWarning(false);
@@ -156,33 +165,56 @@ export const AuthProvider = ({ children }) => {
             }, idleMs);
         };
 
+        const ACTIVITY_THROTTLE_MS = 750;
+        let lastActivityHandledAt = 0;
+
+        const onUserActivity = () => {
+            const now = Date.now();
+            if (now - lastActivityHandledAt < ACTIVITY_THROTTLE_MS) return;
+            lastActivityHandledAt = now;
+            scheduleIdleExpiry();
+        };
+
         const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
         activityEvents.forEach((eventName) => {
-            window.addEventListener(eventName, resetIdleTimer, { passive: true });
+            window.addEventListener(eventName, onUserActivity, { passive: true });
         });
 
-        resetIdleTimer();
+        scheduleIdleExpiry();
 
         return () => {
             if (timeoutId) clearTimeout(timeoutId);
             if (warningTimeoutId) clearTimeout(warningTimeoutId);
             activityEvents.forEach((eventName) => {
-                window.removeEventListener(eventName, resetIdleTimer);
+                window.removeEventListener(eventName, onUserActivity);
             });
         };
     }, [token, idleTimeoutMinutes, logout]);
 
-    const contextValue = {
-        token,
-        user,
-        mustChangePassword,
-        loading,
-        idleTimeoutMinutes,
-        login,
-        logout,
-        completeForcedPasswordChange,
-        hasPrivilege,
-    };
+    const contextValue = useMemo(
+        () => ({
+            token,
+            user,
+            mustChangePassword,
+            loading,
+            idleTimeoutMinutes,
+            login,
+            logout,
+            completeForcedPasswordChange,
+            hasPrivilege,
+        }),
+        [
+            token,
+            user,
+            mustChangePassword,
+            loading,
+            idleTimeoutMinutes,
+            login,
+            logout,
+            completeForcedPasswordChange,
+            hasPrivilege,
+        ]
+    );
 
     return (
         <AuthContext.Provider value={contextValue}>

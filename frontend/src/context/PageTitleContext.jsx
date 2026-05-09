@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const PageTitleContext = createContext();
 
@@ -14,13 +14,18 @@ export const PageTitleProvider = ({ children }) => {
   const [pageTitle, setPageTitle] = useState('Dashboard');
   const [pageSubtitle, setPageSubtitle] = useState('');
 
-  const updatePageTitle = (title, subtitle = '') => {
+  const updatePageTitle = useCallback((title, subtitle = '') => {
     setPageTitle(title);
     setPageSubtitle(subtitle);
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ pageTitle, pageSubtitle, updatePageTitle }),
+    [pageTitle, pageSubtitle, updatePageTitle]
+  );
 
   return (
-    <PageTitleContext.Provider value={{ pageTitle, pageSubtitle, updatePageTitle }}>
+    <PageTitleContext.Provider value={value}>
       {children}
     </PageTitleContext.Provider>
   );

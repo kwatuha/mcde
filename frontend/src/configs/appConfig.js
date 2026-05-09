@@ -86,6 +86,7 @@ export const ROUTES = {
     REPORT_LIBRARY: '/report-library',
     PENDING_BILLS_REPORT: '/pending-bills-report',
     BUDGET_JUSTIFICATION_REPORT: '/budget-justification-report',
+    PROJECT_FINANCE_OVERVIEW_REPORT: '/project-finance-overview',
     SCHEDULED_REPORTS: '/scheduled-reports',
     /** Inspection / monitoring checklist templates and standalone visits. */
     DATA_COLLECTION_TOOLS: '/data-collection-tools',
