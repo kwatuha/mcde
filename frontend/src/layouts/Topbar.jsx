@@ -100,12 +100,17 @@ const Topbar = () => {
           {pageTitle}
         </Typography>
         {pageSubtitle && (
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              color: 'rgba(255, 255, 255, 0.8)',
+          <Typography
+            component="span"
+            variant="body2"
+            sx={{
+              color: 'rgba(255, 255, 255, 0.94)',
               ml: 0.75,
-              fontSize: '0.75rem'
+              fontSize: '0.8125rem',
+              fontWeight: 500,
+              lineHeight: 1.35,
+              letterSpacing: '0.01em',
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.22)',
             }}
           >
             {pageSubtitle}

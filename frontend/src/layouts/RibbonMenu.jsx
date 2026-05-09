@@ -50,6 +50,7 @@ import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
 import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
+import { sortMenuCategoriesForNav, categoryNavLabel } from '../configs/navigationLayoutConfig.js';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 
 /** First sidebar destination when switching ribbon tab (menuConfig `route` keys). */
@@ -128,7 +129,8 @@ export default function RibbonMenu({ isAdmin = false }) {
   
   // Get filtered menu categories based on user permissions (memoized to prevent unnecessary recalculations)
   const menuCategories = useMemo(() => {
-    return getFilteredMenuCategories(isAdmin, hasPrivilege, user);
+    const cats = getFilteredMenuCategories(isAdmin, hasPrivilege, user);
+    return sortMenuCategoriesForNav(cats);
   }, [isAdmin, hasPrivilege, user]);
   
   // Find the index of the selected category
@@ -297,38 +299,47 @@ export default function RibbonMenu({ isAdmin = false }) {
       }
     }}
     >
-      {/* Segmented ribbon bar */}
-      <Box sx={{
-        display: 'flex',
-        gap: 0,
-        px: 0.75,
-        py: 0.25,
-        height: collapsed ? 22 : 26,
-        transition: 'height 0.2s ease-in-out',
-        overflow: 'hidden',
-      }}>
+      {/* Segmented ribbon bar — minHeight fits two-line labels (e.g. Financial Tracking) */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'stretch',
+          gap: 0,
+          px: 0.75,
+          py: collapsed ? 0.375 : 0.5,
+          minHeight: collapsed ? 40 : 52,
+          transition: 'min-height 0.2s ease-in-out, padding 0.2s ease-in-out',
+          overflow: 'visible',
+        }}
+      >
         {menuCategories.map((category, idx, arr) => {
           const IconComponent = ICON_MAP[category.icon] || DashboardIcon;
           const isActive = category.id === selectedCategoryId;
           return (
             <Button
-            key={category.label}
+            key={category.id}
             onClick={() => {
               manualSelectionRef.current = true; // Mark as manual selection
               setSelectedCategoryId(category.id);
               setCollapsed(false);
             }}
-            startIcon={<IconComponent fontSize="small" />}
+            startIcon={<IconComponent sx={{ fontSize: collapsed ? 18 : 20 }} />}
             disableElevation
             sx={{
               flex: 1,
               textTransform: 'none',
               color: '#fff',
               fontWeight: 600,
-              letterSpacing: 0.25,
-              fontSize: 11,
-              height: collapsed ? 22 : 26,
-              transition: 'height 0.2s ease-in-out, background 0.15s ease-in-out',
+              letterSpacing: 0.2,
+              fontSize: collapsed ? 10.5 : 11,
+              lineHeight: 1.25,
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+              minHeight: collapsed ? 36 : 46,
+              height: 'auto',
+              py: 0.75,
+              px: 0.5,
+              transition: 'min-height 0.2s ease-in-out, background 0.15s ease-in-out, font-size 0.2s ease-in-out',
               borderRadius: 0,
               borderTopLeftRadius: idx === 0 ? 8 : 0,
               borderBottomLeftRadius: idx === 0 ? 8 : 0,
@@ -344,9 +355,16 @@ export default function RibbonMenu({ isAdmin = false }) {
                   : 'linear-gradient(180deg, #22b2ce, #159fba)'
               },
               borderRight: idx !== arr.length - 1 ? '1px solid rgba(255,255,255,0.25)' : 'none',
+              justifyContent: 'center',
+              alignItems: 'center',
+              '& .MuiButton-startIcon': {
+                marginRight: '6px',
+                marginLeft: 0,
+                alignSelf: 'center',
+              },
             }}
           >
-            {category.label}
+            {categoryNavLabel(category)}
           </Button>
           );
         })}

@@ -18,7 +18,7 @@ import { ProfileModalProvider, useProfileModal } from '../context/ProfileModalCo
 import ProfileModal from '../components/ProfileModal.jsx';
 import { MenuCategoryProvider } from '../context/MenuCategoryContext.jsx';
 import { SidebarProvider, useSidebar } from '../context/SidebarContext.jsx';
-import { NavigationLayoutProvider, useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
+import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
@@ -30,6 +30,10 @@ import FloatingChatButton from "../components/chat/FloatingChatButton.jsx";
 import RibbonMenu from "./RibbonMenu.jsx";
 import gprisLogo from '../assets/gpris.png';
 import { treeLayoutDataGridGlobalStyles } from '../utils/dataGridTheme.js';
+import {
+  TREE_NAV_APPBAR_FALLBACK,
+  TREE_NAV_APPBAR_GRAD,
+} from '../configs/treeNavChrome.js';
 
 const expandedSidebarWidthRibbon = 200;
 const expandedSidebarWidthTree = 248;
@@ -68,6 +72,7 @@ function MainLayoutContent() {
   const currentSidebarWidth = isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth;
   /** Full-viewport sidebar + inset AppBar (tree only, sm+); phones keep bar over full width. */
   const treeSidebarFlushTop = isTreeLayout && isDesktopUp;
+  const treeAppBarLightChrome = isTreeLayout && theme.palette.mode === 'light';
 
   // Auto-update page title based on route
   usePageTitleEffect();
@@ -128,8 +133,17 @@ function MainLayoutContent() {
       <CssBaseline />
       <AppBar
         position="fixed"
+        elevation={treeAppBarLightChrome ? 0 : undefined}
         sx={{
           zIndex: 1000,
+          ...(treeAppBarLightChrome
+            ? {
+                backgroundImage: TREE_NAV_APPBAR_GRAD,
+                backgroundColor: TREE_NAV_APPBAR_FALLBACK,
+                color: '#fff',
+                boxShadow: '0 1px 0 rgba(255,255,255,0.08)',
+              }
+            : {}),
           ...(treeSidebarFlushTop
             ? {
                 left: `${currentSidebarWidth}px`,
@@ -286,11 +300,9 @@ function MainLayout() {
     <PageTitleProvider>
       <ProfileModalProvider>
         <MenuCategoryProvider>
-          <NavigationLayoutProvider>
-            <SidebarProvider>
-              <MainLayoutContent />
-            </SidebarProvider>
-          </NavigationLayoutProvider>
+          <SidebarProvider>
+            <MainLayoutContent />
+          </SidebarProvider>
         </MenuCategoryProvider>
       </ProfileModalProvider>
     </PageTitleProvider>

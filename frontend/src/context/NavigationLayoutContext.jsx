@@ -15,7 +15,7 @@ export function NavigationLayoutProvider({ children }) {
 
   const setLayoutMode = useCallback((mode) => {
     const next =
-      mode === NAV_LAYOUT_MODES.TREE || mode === NAV_LAYOUT_MODES.RIBBON ? mode : NAV_LAYOUT_MODES.RIBBON;
+      mode === NAV_LAYOUT_MODES.TREE || mode === NAV_LAYOUT_MODES.RIBBON ? mode : NAV_LAYOUT_MODES.TREE;
     setLayoutModeState(next);
     try {
       localStorage.setItem(NAV_LAYOUT_STORAGE_KEY, next);

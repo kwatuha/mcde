@@ -5,6 +5,7 @@ import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 // Import AuthProvider and ChatProvider
 import { AuthProvider } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
+import { NavigationLayoutProvider } from './context/NavigationLayoutContext.jsx';
 import { useAuth } from './context/AuthContext';
 
 // Import Layout and Page Components
@@ -520,7 +521,9 @@ function App() {
       <CssBaseline />
       <AuthProvider>
         <ChatProvider>
-          <RouterProvider router={router} />
+          <NavigationLayoutProvider>
+            <RouterProvider router={router} />
+          </NavigationLayoutProvider>
         </ChatProvider>
       </AuthProvider>
     </ThemeProvider>

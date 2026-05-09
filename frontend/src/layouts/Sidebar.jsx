@@ -81,7 +81,12 @@ import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 import { useSidebar } from '../context/SidebarContext.jsx';
 import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { ROUTES } from '../configs/appConfig.js';
-import { TREE_MENU_CATEGORY_ORDER } from '../configs/navigationLayoutConfig.js';
+import { sortMenuCategoriesForNav } from '../configs/navigationLayoutConfig.js';
+import {
+  TREE_NAV_PANEL_BG as TREE_PANEL_BG,
+  TREE_NAV_PANEL_GRAD as TREE_PANEL_GRAD,
+  TREE_NAV_BORDER as TREE_BORDER,
+} from '../configs/treeNavChrome.js';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
 import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
 import gprisLogo from '../assets/gpris.png';
@@ -133,6 +138,14 @@ const ICON_MAP = {
   UpdateIcon,
 };
 
+/** Tree sidebar tokens (panel/border from treeNavChrome.js). */
+const TREE_TEXT_MAIN = 'rgba(255,255,255,0.95)';
+const TREE_TEXT_SUB = 'rgba(255,255,255,0.88)';
+const TREE_ICON = 'rgba(255,255,255,0.9)';
+const TREE_HOVER = 'rgba(255,255,255,0.1)';
+const TREE_SEL_NESTED = 'rgba(255,255,255,0.2)';
+const TREE_SEL_PARENT = 'rgba(255,255,255,0.16)';
+
 /** Visible submenu rows for one ribbon category (shared by ribbon sidebar & tree sidebar). */
 function filterCategorySubmenusToNavItems(category, hasPrivilege, user, isAdminLike) {
   if (!category?.submenus) return [];
@@ -182,11 +195,11 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
   const labelColor = treeChrome
     ? nested
       ? isSel
-        ? 'rgba(255,255,255,0.98)'
-        : 'rgba(255,255,255,0.82)'
+        ? '#ffffff'
+        : TREE_TEXT_SUB
       : isSel
-        ? '#fff'
-        : 'rgba(255,255,255,0.95)'
+        ? '#ffffff'
+        : TREE_TEXT_MAIN
     : isSel
       ? theme.palette.primary.main
       : theme.palette.text.primary;
@@ -213,14 +226,16 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
           cursor: 'pointer',
           backgroundColor: treeChrome
             ? isSel
-              ? 'rgba(255,255,255,0.18)'
+              ? nested
+                ? TREE_SEL_NESTED
+                : TREE_SEL_PARENT
               : 'transparent'
             : isSel
               ? theme.palette.action.selected
               : 'transparent',
           color: labelColor,
           '&:hover': {
-            backgroundColor: treeChrome ? 'rgba(255,255,255,0.12)' : theme.palette.action.hover,
+            backgroundColor: treeChrome ? TREE_HOVER : theme.palette.action.hover,
             transform: isCollapsed ? 'scale(1.1)' : 'translateX(2px)',
             transition: 'all 0.2s ease-in-out',
           },
@@ -242,7 +257,7 @@ const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, the
               : nested
                 ? '16px'
                 : '18px',
-          color: treeChrome ? '#0A2D68' : undefined,
+          color: treeChrome ? TREE_ICON : undefined,
         },
       }}>
         {icon}
@@ -271,7 +286,7 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
   /* CIMES-like: one muted strip for the route’s category; inactive rows stay clean (no “always on” tint). */
   const headerBg = treeChrome
     ? isActiveGroup
-      ? 'rgba(73, 89, 109, 0.45)'
+      ? 'rgba(255,255,255,0.14)'
       : 'transparent'
     : isActiveGroup
       ? 'rgba(255,255,255,0.14)'
@@ -279,8 +294,8 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
 
   const headerHoverBg = treeChrome
     ? isActiveGroup
-      ? 'rgba(73, 89, 109, 0.52)'
-      : 'rgba(255,255,255,0.14)'
+      ? 'rgba(255,255,255,0.22)'
+      : TREE_HOVER
     : isActiveGroup
       ? 'rgba(255,255,255,0.18)'
       : 'rgba(255,255,255,0.08)';
@@ -299,12 +314,12 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
             borderRadius: treeChrome ? '5px' : '6px',
             cursor: 'pointer',
             backgroundColor: headerBg,
-            color: treeChrome ? 'rgba(255,255,255,0.96)' : theme.palette.text.primary,
+            color: treeChrome ? TREE_TEXT_MAIN : theme.palette.text.primary,
             '&:hover': {
               backgroundColor: headerHoverBg,
               transition: 'all 0.2s ease-in-out',
             },
-            '& .MuiSvgIcon-root': treeChrome ? { color: '#0A2D68' } : {},
+            '& .MuiSvgIcon-root': treeChrome ? { color: TREE_ICON } : {},
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', width: '100%' }}>
@@ -425,13 +440,8 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   // Get filtered menu categories (tree layout uses CIMES-style category order)
   const menuCategories = useMemo(() => {
     const cats = getFilteredMenuCategories(isAdminLike, hasPrivilege, user);
-    if (!isTreeLayout) return cats;
-    const orderIndex = (id) => {
-      const i = TREE_MENU_CATEGORY_ORDER.indexOf(id);
-      return i === -1 ? 999 : i;
-    };
-    return [...cats].sort((a, b) => orderIndex(a.id) - orderIndex(b.id));
-  }, [hasPrivilege, user, isAdminLike, isTreeLayout]);
+    return sortMenuCategoriesForNav(cats);
+  }, [hasPrivilege, user, isAdminLike]);
 
   const [openTreeGroups, setOpenTreeGroups] = useState(() => new Set());
   const [treeSidebarLogoFailed, setTreeSidebarLogoFailed] = useState(false);
@@ -555,12 +565,15 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
         backgroundColor: theme.palette.mode === 'dark'
           ? colors.primary[600]
           : treeChromeLight
-            ? '#3bace0'
+            ? TREE_PANEL_BG
             : '#f0f9ff',
         borderRight: `none`,
-        boxShadow: theme.palette.mode === 'dark' 
-          ? '6px 0 20px rgba(0, 0, 0, 0.5), inset -3px 0 6px rgba(255, 255, 255, 0.1)'
-          : '6px 0 20px rgba(0, 0, 0, 0.2), inset -3px 0 6px rgba(0, 0, 0, 0.08)',
+        /* Flush vertical edge (no chamfer); quiet seam vs main content */
+        boxShadow: theme.palette.mode === 'dark'
+          ? 'inset -1px 0 0 rgba(255,255,255,0.08), 1px 0 0 rgba(0,0,0,0.12)'
+          : treeChromeLight
+            ? 'inset -1px 0 0 rgba(255,255,255,0.14), 1px 0 0 rgba(0,0,0,0.06)'
+            : 'inset -1px 0 0 rgba(255,255,255,0.45), 1px 0 0 rgba(0,0,0,0.07)',
         position: 'fixed',
         top: sidebarTop,
         left: 0,
@@ -570,50 +583,30 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
         display: 'block',
         visibility: 'visible',
         transition: 'width 0.3s ease-in-out',
-        clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%)',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          width: '12px',
-          height: '12px',
-          background: theme.palette.mode === 'dark'
-            ? colors.primary[600]
-            : treeChromeLight
-              ? '#3bace0'
-              : colors.primary[100],
-          clipPath: 'polygon(100% 0, 0 0, 0 100%)',
-          zIndex: 2,
-        },
-        '&::after': {
-          content: '""',
-          position: 'absolute',
-          bottom: 0,
-          right: 0,
-          width: '12px',
-          height: '12px',
-          background: theme.palette.mode === 'dark'
-            ? colors.primary[600]
-            : treeChromeLight
-              ? '#3bace0'
-              : colors.primary[100],
-          clipPath: 'polygon(100% 0, 100% 100%, 0 100%)',
-          zIndex: 2,
-        },
+        clipPath: 'none',
+        '&::before': { content: 'none' },
+        '&::after': { content: 'none' },
         "& .pro-sidebar-inner": {
           background: theme.palette.mode === 'dark' 
             ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%) !important` 
-            : `linear-gradient(135deg, #e0f2fe 0%, #b3e5fc 100%) !important`,
+            : treeChromeLight
+              ? `${TREE_PANEL_GRAD} !important`
+              : `linear-gradient(135deg, #e0f2fe 0%, #b3e5fc 100%) !important`,
           backgroundColor: theme.palette.mode === 'dark' 
             ? `${colors.primary[400]} !important` 
-            : `#e0f2fe !important`,
+            : treeChromeLight
+              ? `${TREE_PANEL_BG} !important`
+              : `#e0f2fe !important`,
           borderRight: `1px solid ${theme.palette.mode === 'dark' 
             ? 'rgba(255, 255, 255, 0.1)' 
-            : 'rgba(0, 0, 0, 0.08)'} !important`,
-          boxShadow: theme.palette.mode === 'dark' 
+            : treeChromeLight
+              ? TREE_BORDER
+              : 'rgba(0, 0, 0, 0.08)'} !important`,
+          boxShadow: theme.palette.mode === 'dark'
             ? 'inset -1px 0 0 rgba(255, 255, 255, 0.05) !important'
-            : 'inset -1px 0 0 rgba(0, 0, 0, 0.04) !important',
+            : treeChromeLight
+              ? 'inset -1px 0 0 rgba(255, 255, 255, 0.1) !important'
+              : 'inset -1px 0 0 rgba(0, 0, 0, 0.04) !important',
         },
         "& .pro-icon-wrapper": {
           backgroundColor: "transparent !important",
@@ -643,7 +636,9 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
           padding: "6px 10px 6px 6px !important",
           color: theme.palette.mode === 'dark' 
             ? `${colors.grey[100]} !important` 
-            : `#1e3a8a !important`,
+            : treeChromeLight
+              ? `${TREE_TEXT_MAIN} !important`
+              : `#1e3a8a !important`,
           overflow: "visible !important",
           minWidth: "auto !important",
           display: "flex !important",
@@ -664,10 +659,14 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
         "& .pro-inner-item:hover": {
           color: theme.palette.mode === 'dark' 
             ? `${colors.blueAccent[400]} !important` 
-            : `#0284c7 !important`,
+            : treeChromeLight
+              ? `#ffffff !important`
+              : `#0284c7 !important`,
           backgroundColor: theme.palette.mode === 'dark' 
             ? `${colors.primary[500]} !important` 
-            : `#e1f5fe !important`,
+            : treeChromeLight
+              ? `${TREE_HOVER} !important`
+              : `#e1f5fe !important`,
           borderRadius: '6px !important',
           transform: 'translateX(2px) !important',
           transition: 'all 0.2s ease-in-out !important',
@@ -678,11 +677,15 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
             : `#ffffff !important`,
           backgroundColor: theme.palette.mode === 'dark' 
             ? `${colors.primary[500]} !important` 
-            : `#0284c7 !important`,
+            : treeChromeLight
+              ? `${TREE_SEL_NESTED} !important`
+              : `#0284c7 !important`,
           borderRadius: '6px !important',
           boxShadow: theme.palette.mode === 'dark' 
             ? '0 2px 8px rgba(0, 0, 0, 0.3) !important'
-            : '0 2px 8px rgba(2, 132, 199, 0.3) !important',
+            : treeChromeLight
+              ? 'none !important'
+              : '0 2px 8px rgba(2, 132, 199, 0.3) !important',
         },
         // Mobile optimizations
         ...(isMobile && {
@@ -723,12 +726,12 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
           background: theme.palette.mode === 'dark'
             ? colors.primary[600]
             : treeChromeLight
-              ? 'linear-gradient(180deg, #4fb6e8 0%, #3bace0 40%, #2f9acb 100%)'
+              ? TREE_PANEL_GRAD
               : '#81d4fa',
           borderRight: `1px solid ${theme.palette.mode === 'dark'
             ? colors.primary[400]
             : treeChromeLight
-              ? 'rgba(10,45,104,0.25)'
+              ? 'rgba(255,255,255,0.14)'
               : '#4fc3f7'}`,
           transition: 'width 0.3s ease-in-out',
         }}
@@ -741,6 +744,37 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
           py: isTreeLayout ? 0.5 : 1.5,
           px: isTreeLayout ? 0.35 : 0.5,
           position: 'relative',
+          ...(isTreeLayout
+            ? {
+                scrollbarWidth: 'thin',
+                scrollbarColor: `${
+                  theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.22)'
+                    : 'rgba(255,255,255,0.28)'
+                } transparent`,
+                '&::-webkit-scrollbar': {
+                  width: 6,
+                },
+                '&::-webkit-scrollbar-track': {
+                  backgroundColor: 'transparent',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor:
+                    theme.palette.mode === 'dark'
+                      ? 'rgba(255,255,255,0.18)'
+                      : 'rgba(255,255,255,0.22)',
+                  borderRadius: 100,
+                  border: '2px solid transparent',
+                  backgroundClip: 'padding-box',
+                },
+                '&::-webkit-scrollbar-thumb:hover': {
+                  backgroundColor:
+                    theme.palette.mode === 'dark'
+                      ? 'rgba(255,255,255,0.32)'
+                      : 'rgba(255,255,255,0.38)',
+                },
+              }
+            : {}),
         }}>
           {/* Toggle Button */}
           <Box sx={{
@@ -757,17 +791,25 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                 sx={{
                   backgroundColor: theme.palette.mode === 'dark' 
                     ? 'rgba(255,255,255,0.1)' 
-                    : 'rgba(255,255,255,0.8)',
+                    : treeChromeLight
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'rgba(255,255,255,0.8)',
                   color: theme.palette.mode === 'dark' 
                     ? colors.blueAccent[400] 
-                    : '#0284c7',
+                    : treeChromeLight
+                      ? '#ffffff'
+                      : '#0284c7',
                   border: `1px solid ${theme.palette.mode === 'dark' 
                     ? 'rgba(255,255,255,0.2)' 
-                    : 'rgba(0,0,0,0.1)'}`,
+                    : treeChromeLight
+                      ? TREE_BORDER
+                      : 'rgba(0,0,0,0.1)'}`,
                   '&:hover': {
                     backgroundColor: theme.palette.mode === 'dark' 
                       ? 'rgba(255,255,255,0.2)' 
-                      : 'rgba(255,255,255,1)',
+                      : treeChromeLight
+                        ? 'rgba(255,255,255,0.22)'
+                        : 'rgba(255,255,255,1)',
                     transform: 'scale(1.1)',
                   },
                   transition: 'all 0.2s ease-in-out',
@@ -823,7 +865,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                     sx={{
                       fontWeight: 800,
                       fontSize: '1.125rem',
-                      color: treeChromeLight ? '#0A2D68' : theme.palette.common.white,
+                      color: treeChromeLight ? '#ffffff' : theme.palette.common.white,
                       letterSpacing: '-0.02em',
                       lineHeight: 1.15,
                       minWidth: 0,
@@ -864,7 +906,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                 sx={{
                   mx: 1,
                   mb: 0.5,
-                  borderColor: treeChromeLight ? 'rgba(10,45,104,0.22)' : 'rgba(255,255,255,0.12)',
+                  borderColor: treeChromeLight ? TREE_BORDER : 'rgba(255,255,255,0.12)',
                 }}
               />
               {!isCollapsed && (
@@ -891,7 +933,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                   icon={
                     <PaidIcon
                       sx={{
-                        color: treeChromeLight ? '#0A2D68' : undefined,
+                        color: treeChromeLight ? TREE_ICON : undefined,
                         fontSize: treeChromeLight ? 19 : undefined,
                       }}
                     />
@@ -926,7 +968,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                       icon={
                         <IconComp
                           sx={{
-                            color: treeChromeLight ? '#0A2D68' : undefined,
+                            color: treeChromeLight ? TREE_ICON : undefined,
                             fontSize: treeChromeLight ? 19 : undefined,
                           }}
                         />
@@ -984,7 +1026,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {selectedCategory.label}
+                    {selectedCategory.labelTree || selectedCategory.label}
                   </Typography>
                 </Box>
               )}
