@@ -2561,51 +2561,18 @@ router.get('/ministries', async (req, res) => {
         if ((process.env.DB_TYPE || 'postgresql') !== 'postgresql') {
             return res.status(501).json({ message: 'Ministries catalog requires PostgreSQL.' });
         }
-        const r = await pool.query(
-            `SELECT "ministryId", name, alias, voided, "createdAt", "updatedAt", "userId"
-             FROM ministries
-             WHERE voided = false
-             ORDER BY name`
-        );
-        const ministries = r.rows || [];
+        const { fetchMinistryDepartmentTree } = require('../utils/ministryDepartmentTree');
         if (!withDeps) {
-            return res.status(200).json(ministries);
-        }
-        const dr = await pool.query(
-            `SELECT d."departmentId", d.name, d.alias, d."ministryId", d.voided, d."createdAt", d."updatedAt"
-             FROM departments d
-             WHERE (d.voided IS NULL OR d.voided = false)
-             ORDER BY d.name`
-        );
-        const depts = dr.rows || [];
-        let sectionsByDept = new Map();
-        if (withSections) {
-            const sr = await pool.query(
-                `SELECT s."sectionId", s.name, s.alias, s."departmentId", s.voided, s."createdAt", s."updatedAt"
-                 FROM sections s
-                 WHERE (s.voided IS NULL OR s.voided = false)
-                 ORDER BY s.name`
+            const r = await pool.query(
+                `SELECT "ministryId", name, alias, voided, "createdAt", "updatedAt", "userId"
+                 FROM ministries
+                 WHERE COALESCE(voided, false) = false
+                 ORDER BY name`
             );
-            const sections = sr.rows || [];
-            sectionsByDept = sections.reduce((acc, section) => {
-                const depId = section.departmentId;
-                if (depId == null) return acc;
-                if (!acc.has(depId)) acc.set(depId, []);
-                acc.get(depId).push(section);
-                return acc;
-            }, new Map());
+            return res.status(200).json(r.rows || []);
         }
-        const byMin = new Map();
-        ministries.forEach((m) => byMin.set(m.ministryId, { ...m, departments: [] }));
-        depts.forEach((d) => {
-            if (d.ministryId != null && byMin.has(d.ministryId)) {
-                const deptPayload = withSections
-                    ? { ...d, sections: sectionsByDept.get(d.departmentId) || [] }
-                    : d;
-                byMin.get(d.ministryId).departments.push(deptPayload);
-            }
-        });
-        return res.status(200).json(Array.from(byMin.values()));
+        const tree = await fetchMinistryDepartmentTree({ withSections });
+        return res.status(200).json(tree);
     } catch (error) {
         console.error('Error fetching public ministries:', error);
         res.status(500).json({ error: 'Failed to fetch ministries', details: error.message });

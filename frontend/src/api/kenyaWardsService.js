@@ -57,6 +57,38 @@ const kenyaWardsService = {
       throw error;
     }
   },
+
+  /**
+   * Distinct sub-counties for the API county scope (kenya_wards reference).
+   * @returns {Promise<string[]>}
+   */
+  getSubcounties: async () => {
+    try {
+      const response = await axiosInstance.get('/kenya-wards/subcounties');
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching sub-counties:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Wards in scope; pass subcounty to restrict to that sub-county (cascading dropdowns).
+   * @param {string|null|undefined} subcounty - Empty/null = all wards in county scope
+   * @returns {Promise<Array<{ id: number, name: string, pcode: string }>>}
+   */
+  getWardsBySubcounty: async (subcounty) => {
+    try {
+      const params = {};
+      const s = subcounty != null ? String(subcounty).trim() : '';
+      if (s) params.subcounty = s;
+      const response = await axiosInstance.get('/kenya-wards/wards-by-subcounty', { params });
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching wards by sub-county:', error);
+      throw error;
+    }
+  },
 };
 
 export default kenyaWardsService;

@@ -204,20 +204,21 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
 // @desc    Register a new user (requires admin approval)
 // @access  Public
 router.post('/register', async (req, res) => {
-    const { username, email, password, firstName, lastName, roleName, idNumber, employeeNumber, consentGiven, ministry, state_department, agency_id, phoneNumber } = req.body;
+    const {
+        username, email, password, firstName, lastName, roleName, idNumber, employeeNumber, consentGiven,
+        ministry, state_department, directorate, phoneNumber,
+    } = req.body;
 
-    let resolvedAgencyId = null;
-    if (agency_id !== undefined && agency_id !== null && agency_id !== '') {
-        const n = Number(agency_id);
-        if (Number.isNaN(n)) {
-            return res.status(400).json({ error: 'Invalid agency selection.' });
-        }
-        resolvedAgencyId = n;
-    }
+    // Legacy national field; not used for county self-registration (always null).
+    const resolvedAgencyId = null;
 
-    // Validate required fields (agency is optional)
-    if (!username || !email || !password || !firstName || !lastName || !idNumber || !employeeNumber || !ministry || !state_department) {
-        return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, ID number, employee number, ministry, and state department.' });
+    const directorateTrim = directorate !== undefined && directorate !== null ? String(directorate).trim() : '';
+
+    // ministry = parent cabinet / county executive name; state_department = county department; directorate = section name
+    if (!username || !email || !password || !firstName || !lastName || !idNumber || !employeeNumber || !ministry || !state_department || !directorateTrim) {
+        return res.status(400).json({
+            error: 'Please enter all required fields: username, email, password, first name, last name, ID number, employee number, parent organization (ministry), department, and directorate.',
+        });
     }
 
     // Validate email format
@@ -369,14 +370,22 @@ router.post('/register', async (req, res) => {
                 SELECT column_name 
                 FROM information_schema.columns 
                 WHERE table_name = 'users' 
-                AND column_name IN ('ministry', 'state_department', 'agency_id', 'phone_number')
+                AND column_name IN ('ministry', 'state_department', 'agency_id', 'phone_number', 'directorate')
             `);
             const hasMinistry = columnCheck.rows.some(row => row.column_name === 'ministry');
             const hasStateDepartment = columnCheck.rows.some(row => row.column_name === 'state_department');
             const hasAgencyId = columnCheck.rows.some(row => row.column_name === 'agency_id');
             const hasPhoneNumber = columnCheck.rows.some(row => row.column_name === 'phone_number');
+            const hasDirectorate = columnCheck.rows.some(row => row.column_name === 'directorate');
             
-            if (hasMinistry && hasStateDepartment && hasAgencyId && hasPhoneNumber) {
+            if (hasMinistry && hasStateDepartment && hasAgencyId && hasPhoneNumber && hasDirectorate) {
+                insertQuery = `
+                    INSERT INTO users (username, email, phone_number, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, directorate, agency_id, createdat, updatedat, isactive, voided)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false, false)
+                    RETURNING userid
+                `;
+                insertParams = [username, email, phoneNumber || null, passwordHash, firstName, lastName, roleId, idNumber, employeeNumber, ministry, state_department, directorateTrim, resolvedAgencyId];
+            } else if (hasMinistry && hasStateDepartment && hasAgencyId && hasPhoneNumber) {
                 insertQuery = `
                     INSERT INTO users (username, email, phone_number, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false, false)

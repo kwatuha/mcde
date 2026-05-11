@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
+const { isMachakosMetadataScope, sqlMachakosDepartmentPredicate } = require('../../utils/metadataOrgScope');
 
 // --- Sections CRUD ---
 
@@ -17,9 +18,33 @@ router.get('/', async (req, res) => {
         let query;
         
         if (DB_TYPE === 'postgresql') {
-            query = 'SELECT "sectionId", name, alias, "departmentId", "createdAt", "updatedAt", "userId" FROM sections WHERE voided = false';
+            const orgPred = sqlMachakosDepartmentPredicate('d', 'm');
+            query = `
+                SELECT s."sectionId", s.name, s.alias, s."departmentId", s."createdAt", s."updatedAt", s."userId"
+                FROM sections s
+                INNER JOIN departments d ON d."departmentId" = s."departmentId"
+                LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
+                WHERE COALESCE(s.voided, FALSE) = FALSE
+                  AND (${orgPred})
+                ORDER BY d.name, s.name
+            `;
         } else {
-            query = 'SELECT sectionId, name, alias, departmentId, createdAt, updatedAt, userId FROM sections WHERE voided = 0';
+            if (isMachakosMetadataScope()) {
+                query = `
+                    SELECT s.sectionId, s.name, s.alias, s.departmentId, s.createdAt, s.updatedAt, s.userId
+                    FROM sections s
+                    INNER JOIN departments d ON d.departmentId = s.departmentId
+                    LEFT JOIN ministries m ON m.ministryId = d.ministryId
+                    WHERE s.voided = 0
+                      AND (
+                        COALESCE(d.remarks, '') LIKE '%machakos_county%'
+                        OR (m.ministryId IS NOT NULL AND m.name = 'Machakos County Executive')
+                      )
+                    ORDER BY d.name, s.name
+                `;
+            } else {
+                query = 'SELECT sectionId, name, alias, departmentId, createdAt, updatedAt, userId FROM sections WHERE voided = 0 ORDER BY name';
+            }
         }
         
         const result = await pool.query(query);

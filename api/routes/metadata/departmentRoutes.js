@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db'); // Correct path for the new folder structure
+const { isMachakosMetadataScope, sqlMachakosDepartmentPredicate } = require('../../utils/metadataOrgScope');
 
 // --- Departments CRUD ---
 
@@ -23,35 +24,55 @@ router.get('/', async (req, res) => {
 
             let result;
             if (cols.has('department_id')) {
-                // HR module / snake_case departments (see api/migrations/create_hr_module_pg.sql)
-                result = await pool.query(`
-                    SELECT
-                        d.department_id AS "departmentId",
-                        d.name,
-                        ''::text AS alias,
-                        NULL::text AS location,
-                        NULL::integer AS "ministryId",
-                        NULL::text AS "ministryName",
-                        d.created_at AS "createdAt",
-                        d.updated_at AS "updatedAt",
-                        NULL::integer AS "userId"
-                    FROM departments d
-                    WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
-                    ORDER BY d.name
-                `);
+                // HR module / snake_case departments — not used for Machakos county org catalog
+                if (isMachakosMetadataScope()) {
+                    result = { rows: [] };
+                } else {
+                    result = await pool.query(`
+                        SELECT
+                            d.department_id AS "departmentId",
+                            d.name,
+                            ''::text AS alias,
+                            NULL::text AS location,
+                            NULL::integer AS "ministryId",
+                            NULL::text AS "ministryName",
+                            d.created_at AS "createdAt",
+                            d.updated_at AS "updatedAt",
+                            NULL::integer AS "userId"
+                        FROM departments d
+                        WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+                        ORDER BY d.name
+                    `);
+                }
             } else {
+                const orgPred = sqlMachakosDepartmentPredicate('d', 'm');
                 result = await pool.query(`
                     SELECT d."departmentId", d.name, d.alias, d.location, d."ministryId", d."createdAt", d."updatedAt", d."userId",
                         m.name AS "ministryName"
                     FROM departments d
                     LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
                     WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+                      AND (${orgPred})
+                    ORDER BY d.name
                 `);
             }
             return res.status(200).json(result.rows);
         }
 
-        const query = 'SELECT departmentId, name, alias, location, createdAt, updatedAt, userId FROM departments WHERE voided = 0';
+        let query = 'SELECT departmentId, name, alias, location, createdAt, updatedAt, userId FROM departments WHERE voided = 0 ORDER BY name';
+        if (isMachakosMetadataScope()) {
+            query = `
+                SELECT d.departmentId, d.name, d.alias, d.location, d.createdAt, d.updatedAt, d.userId
+                FROM departments d
+                LEFT JOIN ministries m ON m.ministryId = d.ministryId
+                WHERE d.voided = 0
+                  AND (
+                    COALESCE(d.remarks, '') LIKE '%machakos_county%'
+                    OR (m.ministryId IS NOT NULL AND m.name = 'Machakos County Executive')
+                  )
+                ORDER BY d.name
+            `;
+        }
         const result = await pool.query(query);
         const rows = Array.isArray(result) ? result[0] : result;
         res.status(200).json(rows);
@@ -203,10 +224,36 @@ router.get('/:departmentId/sections', async (req, res) => {
         let params;
         
         if (DB_TYPE === 'postgresql') {
-            query = 'SELECT "sectionId", name, alias FROM sections WHERE "departmentId" = $1 AND voided = false';
+            if (isMachakosMetadataScope()) {
+                const orgPred = sqlMachakosDepartmentPredicate('d', 'm');
+                query = `
+                    SELECT s."sectionId", s.name, s.alias
+                    FROM sections s
+                    INNER JOIN departments d ON d."departmentId" = s."departmentId"
+                    LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
+                    WHERE s."departmentId" = $1 AND COALESCE(s.voided, FALSE) = FALSE
+                      AND (${orgPred})
+                `;
+            } else {
+                query = 'SELECT "sectionId", name, alias FROM sections WHERE "departmentId" = $1 AND voided = false';
+            }
             params = [departmentId];
         } else {
-            query = 'SELECT sectionId, name, alias FROM sections WHERE departmentId = ? AND voided = 0';
+            if (isMachakosMetadataScope()) {
+                query = `
+                    SELECT s.sectionId, s.name, s.alias
+                    FROM sections s
+                    INNER JOIN departments d ON d.departmentId = s.departmentId
+                    LEFT JOIN ministries m ON m.ministryId = d.ministryId
+                    WHERE s.departmentId = ? AND s.voided = 0
+                      AND (
+                        COALESCE(d.remarks, '') LIKE '%machakos_county%'
+                        OR (m.ministryId IS NOT NULL AND m.name = 'Machakos County Executive')
+                      )
+                `;
+            } else {
+                query = 'SELECT sectionId, name, alias FROM sections WHERE departmentId = ? AND voided = 0';
+            }
             params = [departmentId];
         }
         

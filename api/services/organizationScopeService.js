@@ -1080,6 +1080,16 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                                             OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', '', 'g')
                                                = regexp_replace(LOWER(TRIM(COALESCE(du.name, ''))), '[^a-z0-9]+', '', 'g')
                                       )
+                                      AND (
+                                          NULLIF(TRIM(COALESCE(u.directorate, '')), '') IS NULL
+                                          OR LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(u.directorate, '')))
+                                          OR EXISTS (
+                                              SELECT 1
+                                              FROM unnest(string_to_array(COALESCE(u.directorate, ''), '|||')) AS udir(tok)
+                                              WHERE NULLIF(TRIM(udir.tok), '') IS NOT NULL
+                                                AND LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(udir.tok))
+                                          )
+                                      )
                                 )
                             )
                         )

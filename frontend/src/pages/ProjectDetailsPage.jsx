@@ -2894,7 +2894,13 @@ function ProjectDetailsPage() {
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.primary.main }}>Constituency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.subcountyNames || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Constituency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.constituencyNames || project?.constituency || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{ 
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.primary.main }}>Sub-county:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.subcountyNames || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],

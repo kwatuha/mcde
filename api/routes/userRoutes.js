@@ -119,6 +119,30 @@ async function enforceTargetUserEditPermission(reqUser, targetUserId, DB_TYPE) {
 }
 
 /**
+ * PostgreSQL `public.users` may omit optional columns until migrations run.
+ * @returns {{ hasPhoneNumber: boolean, hasDirectorate: boolean }}
+ */
+async function pgUsersOptionalColumns(pool) {
+    const out = { hasPhoneNumber: false, hasDirectorate: false };
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') return out;
+    try {
+        const colResult = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'users'
+              AND column_name IN ('phone_number', 'directorate')
+        `);
+        const names = new Set((colResult.rows || []).map((row) => row.column_name));
+        out.hasPhoneNumber = names.has('phone_number');
+        out.hasDirectorate = names.has('directorate');
+    } catch (e) {
+        console.warn('pgUsersOptionalColumns:', e.message);
+    }
+    return out;
+}
+
+/**
  * Active (non-voided) users with role/agency joins; optional org scopes on PostgreSQL.
  * Does not select password or password hash columns.
  */
@@ -128,19 +152,7 @@ async function fetchActiveNonVoidedUsers() {
     let query;
 
     if (DB_TYPE === 'postgresql') {
-        let hasPhoneNumber = false;
-        try {
-            const colResult = await pool.query(`
-                SELECT 1 
-                FROM information_schema.columns 
-                WHERE table_name = 'users' 
-                  AND column_name = 'phone_number'
-                LIMIT 1
-            `);
-            hasPhoneNumber = Array.isArray(colResult.rows) ? colResult.rows.length > 0 : !!colResult.rows;
-        } catch (colErr) {
-            console.warn('Warning: Failed to check for phone_number column on users table:', colErr.message);
-        }
+        const { hasPhoneNumber, hasDirectorate } = await pgUsersOptionalColumns(pool);
 
         query = `
             SELECT 
@@ -158,7 +170,7 @@ async function fetchActiveNonVoidedUsers() {
                 u.roleid AS "roleId", 
                 r.name AS role,
                 u.ministry, 
-                u.state_department AS "stateDepartment", 
+                u.state_department AS "stateDepartment"${hasDirectorate ? ',\n                u.directorate' : ''},
                 u.agency_id AS "agencyId", 
                 a.agency_name AS "agencyName"
             FROM users u
@@ -316,19 +328,7 @@ router.get('/users/:id', async (req, res) => {
         let params;
         
         if (DB_TYPE === 'postgresql') {
-            let hasPhoneNumber = false;
-            try {
-                const colResult = await pool.query(`
-                    SELECT 1
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                      AND column_name = 'phone_number'
-                    LIMIT 1
-                `);
-                hasPhoneNumber = Array.isArray(colResult.rows) ? colResult.rows.length > 0 : !!colResult.rows;
-            } catch (colErr) {
-                console.warn('Warning: Failed to check for phone_number column on users table:', colErr.message);
-            }
+            const { hasPhoneNumber, hasDirectorate } = await pgUsersOptionalColumns(pool);
             query = `
                 SELECT 
                     u.userid AS "userId", 
@@ -345,7 +345,7 @@ router.get('/users/:id', async (req, res) => {
                     u.roleid AS "roleId", 
                     r.name AS role,
                     u.ministry,
-                    u.state_department AS "stateDepartment",
+                    u.state_department AS "stateDepartment"${hasDirectorate ? ',\n                    u.directorate' : ''},
                     u.agency_id AS "agencyId",
                     a.agency_name AS "agencyName"
                 FROM users u
@@ -412,7 +412,7 @@ router.get('/users/:id', async (req, res) => {
 router.post('/users', async (req, res) => {
     const {
         username, email, password, firstName, lastName, roleId, idNumber, employeeNumber,
-        ministry, state_department, agency_id, phoneNumber, phone_number, otpEnabled,
+        ministry, state_department, directorate, agency_id, phoneNumber, phone_number, otpEnabled,
         organizationScopes: organizationScopesBody,
         organization_scopes: organization_scopes_snake,
     } = req.body;
@@ -466,27 +466,55 @@ router.post('/users', async (req, res) => {
         const passwordHash = await bcrypt.hash(password, salt);
 
         let insertedUserId;
+        let pgUserColsForFetch = null;
         if (DB_TYPE === 'postgresql') {
-            const insertResult = await pool.query(
-                `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false, $13)
-                RETURNING userid`,
-                [
-                    username,
-                    email,
-                    passwordHash,
-                    firstName,
-                    lastName,
-                    roleId,
-                    idNumber || null,
-                    employeeNumber || null,
-                    ministry || null,
-                    state_department || null,
-                    agency_id || null,
-                    true,
-                    otpEnabledVal,
-                ]
-            );
+            pgUserColsForFetch = await pgUsersOptionalColumns(pool);
+            const { hasDirectorate } = pgUserColsForFetch;
+            let insertResult;
+            if (hasDirectorate) {
+                insertResult = await pool.query(
+                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, directorate, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $13, false, $14)
+                    RETURNING userid`,
+                    [
+                        username,
+                        email,
+                        passwordHash,
+                        firstName,
+                        lastName,
+                        roleId,
+                        idNumber || null,
+                        employeeNumber || null,
+                        ministry || null,
+                        state_department || null,
+                        directorate || null,
+                        null,
+                        true,
+                        otpEnabledVal,
+                    ]
+                );
+            } else {
+                insertResult = await pool.query(
+                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false, $13)
+                    RETURNING userid`,
+                    [
+                        username,
+                        email,
+                        passwordHash,
+                        firstName,
+                        lastName,
+                        roleId,
+                        idNumber || null,
+                        employeeNumber || null,
+                        ministry || null,
+                        state_department || null,
+                        null,
+                        true,
+                        otpEnabledVal,
+                    ]
+                );
+            }
             insertedUserId = insertResult.rows[0].userid;
             await setMustChangePassword(insertedUserId, true, 'initial_password');
         } else {
@@ -516,6 +544,7 @@ router.post('/users', async (req, res) => {
         let fetchQuery;
         let fetchParams;
         if (DB_TYPE === 'postgresql') {
+                const { hasDirectorate: hasDirFetch } = pgUserColsForFetch || await pgUsersOptionalColumns(pool);
                 fetchQuery = `
                     SELECT 
                         u.userid AS "userId", 
@@ -532,7 +561,7 @@ router.post('/users', async (req, res) => {
                         u.isactive AS "isActive",
                         u.otp_enabled AS "otpEnabled",
                         u.ministry, 
-                        u.state_department AS "stateDepartment", 
+                        u.state_department AS "stateDepartment"${hasDirFetch ? ',\n                        u.directorate' : ''},
                         u.agency_id AS "agencyId", 
                         a.agency_name AS "agencyName"
                     FROM users u
@@ -741,13 +770,13 @@ router.put('/users/:id', async (req, res) => {
         }
     }
     const isSuperAdmin = isSuperAdminRequester(req.user);
-    const orgProfileFields = ['ministry', 'stateDepartment', 'state_department', 'agencyId', 'agency_id'];
+    const orgProfileFields = ['ministry', 'stateDepartment', 'state_department', 'directorate', 'agencyId', 'agency_id'];
     const attemptedOrgProfileEdit = orgProfileFields.some((f) =>
         Object.prototype.hasOwnProperty.call(otherFieldsToUpdate, f)
     );
     if (attemptedOrgProfileEdit && !isSuperAdmin) {
         return res.status(403).json({
-            error: 'Only Super Admin can update a user ministry, state department, or agency.',
+            error: 'Only Super Admin can update a user parent organization, department, directorate, or legacy agency.',
         });
     }
 
@@ -800,7 +829,19 @@ router.put('/users/:id', async (req, res) => {
         }
     }
 
+    let pgColsPut = null;
     try {
+        if (DB_TYPE === 'postgresql') {
+            pgColsPut = await pgUsersOptionalColumns(pool);
+            if (!pgColsPut.hasDirectorate) {
+                delete otherFieldsToUpdate.directorate;
+            }
+            if (!pgColsPut.hasPhoneNumber) {
+                delete otherFieldsToUpdate.phoneNumber;
+                delete otherFieldsToUpdate.phone_number;
+            }
+        }
+
         if (normalizedUsername !== null || normalizedEmail !== null) {
             if (DB_TYPE === 'postgresql') {
                 const checks = [];
@@ -872,6 +913,7 @@ router.put('/users/:id', async (req, res) => {
                 state_department: 'state_department',
                 agencyId: 'agency_id',
                 agency_id: 'agency_id',
+                directorate: 'directorate',
                 phoneNumber: 'phone_number',
                 otpEnabled: 'otp_enabled',
             };
@@ -908,26 +950,14 @@ router.put('/users/:id', async (req, res) => {
             let fetchQuery;
             let fetchParams;
             if (DB_TYPE === 'postgresql') {
-                let hasPhoneNumber = false;
-                try {
-                    const colResult = await pool.query(`
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_name = 'users'
-                          AND column_name = 'phone_number'
-                        LIMIT 1
-                    `);
-                    hasPhoneNumber = Array.isArray(colResult.rows) ? colResult.rows.length > 0 : !!colResult.rows;
-                } catch (colErr) {
-                    console.warn('Warning: Failed to check for phone_number column on users table:', colErr.message);
-                }
+                const { hasPhoneNumber, hasDirectorate } = pgColsPut || (await pgUsersOptionalColumns(pool));
                 fetchQuery = `
                     SELECT 
                         u.userid AS "userId", u.username, u.email${hasPhoneNumber ? ', u.phone_number AS "phoneNumber"' : ''}, u.firstname AS "firstName", u.lastname AS "lastName", 
                         u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                         u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive",
                         u.otp_enabled AS "otpEnabled",
-                        u.ministry, u.state_department AS "stateDepartment", u.agency_id AS "agencyId", a.agency_name AS "agencyName"
+                        u.ministry, u.state_department AS "stateDepartment"${hasDirectorate ? ', u.directorate' : ''}, u.agency_id AS "agencyId", a.agency_name AS "agencyName"
                     FROM users u
                     LEFT JOIN roles r ON u.roleid = r.roleid
                     LEFT JOIN agencies a ON u.agency_id = a.id
@@ -1049,6 +1079,7 @@ router.get('/users/voided/list', async (req, res) => {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
         let query;
         if (DB_TYPE === 'postgresql') {
+            const { hasDirectorate } = await pgUsersOptionalColumns(pool);
             query = `
                 SELECT 
                     u.userid AS "userId",
@@ -1064,7 +1095,7 @@ router.get('/users/voided/list', async (req, res) => {
                     u.roleid AS "roleId",
                     r.name AS role,
                     u.ministry,
-                    u.state_department AS "stateDepartment",
+                    u.state_department AS "stateDepartment"${hasDirectorate ? ',\n                    u.directorate' : ''},
                     u.agency_id AS "agencyId",
                     a.agency_name AS "agencyName"
                 FROM users u
@@ -2394,6 +2425,7 @@ router.get('/pending', async (req, res) => {
         let query;
         
         if (DB_TYPE === 'postgresql') {
+            const { hasDirectorate } = await pgUsersOptionalColumns(pool);
             query = `
                 SELECT 
                     u.userid AS "userId", 
@@ -2409,7 +2441,7 @@ router.get('/pending', async (req, res) => {
                     u.roleid AS "roleId", 
                     r.name AS role,
                     u.ministry, 
-                    u.state_department AS "stateDepartment", 
+                    u.state_department AS "stateDepartment"${hasDirectorate ? ',\n                    u.directorate' : ''},
                     u.agency_id AS "agencyId", 
                     a.agency_name AS "agencyName"
                 FROM users u

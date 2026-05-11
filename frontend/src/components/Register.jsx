@@ -21,7 +21,6 @@ import {
     InputAdornment,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
-import apiService from '../api';
 import AppFooter from './AppFooter.jsx';
 import gprisLogo from '../assets/gpris.png';
 
@@ -53,8 +52,9 @@ const Register = () => {
         lastName: '',
         idNumber: '',
         employeeNumber: '',
-        ministry: '',
-        stateDepartment: '',
+        /** County department row from catalog (object with name, ministryId, sections, …) */
+        selectedDepartment: null,
+        directorate: '',
     });
     const [consentGiven, setConsentGiven] = useState(false);
     const [emailError, setEmailError] = useState('');
@@ -65,7 +65,6 @@ const Register = () => {
     /** Full GET /public/ministries?withDepartments=1&withSections=1 payload */
     const [ministriesHierarchy, setMinistriesHierarchy] = useState([]);
     const [departmentOptions, setDepartmentOptions] = useState([]);
-    const [filteredStateDepartments, setFilteredStateDepartments] = useState([]);
     const [formErrors, setFormErrors] = useState({});
     const [showPassword, setShowPassword] = useState(false);
     const [logoFailed, setLogoFailed] = useState(false);
@@ -81,13 +80,15 @@ const Register = () => {
                     params: { withDepartments: '1', withSections: '1' },
                 });
                 const list = Array.isArray(response.data) ? response.data : [];
-                setMinistriesHierarchy(list);
-                const flattenedDepartments = list
+                const withDepts = list.filter((m) => Array.isArray(m.departments) && m.departments.length > 0);
+                const hierarchy = withDepts.length > 0 ? withDepts : list;
+                setMinistriesHierarchy(hierarchy);
+                const flattenedDepartments = hierarchy
                     .flatMap((m) => (Array.isArray(m.departments) ? m.departments : []))
                     .filter((d) => d && d.name)
                     .map((d) => ({
                         ...d,
-                        ministryName: list.find((m) => m.ministryId === d.ministryId)?.name || '',
+                        parentMinistryName: hierarchy.find((m) => m.ministryId === d.ministryId)?.name || '',
                     }))
                     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
                 setDepartmentOptions(flattenedDepartments);
@@ -112,22 +113,6 @@ const Register = () => {
         };
         fetchOrg();
     }, []);
-
-    useEffect(() => {
-        if (!formData.ministry) {
-            setFilteredStateDepartments([]);
-            return;
-        }
-
-        // formData.ministry stores selected Department value for backward compatibility with backend payload.
-        const selectedDepartment = departmentOptions.find((d) => d.name === formData.ministry);
-        let directorates = (selectedDepartment?.sections || []).map((s) => s.name).filter(Boolean);
-        directorates = [...new Set(directorates)].sort((a, b) => a.localeCompare(b));
-        if (formData.stateDepartment && !directorates.includes(formData.stateDepartment)) {
-            directorates = [...directorates, formData.stateDepartment].sort((a, b) => a.localeCompare(b));
-        }
-        setFilteredStateDepartments(directorates);
-    }, [formData.ministry, formData.stateDepartment, departmentOptions]);
 
     // Email validation function
     const validateEmail = (email) => {
@@ -168,12 +153,11 @@ const Register = () => {
             return;
         }
 
-        // Validate department and directorate (agency is optional)
-        if (!formData.ministry) {
-            errors.ministry = 'Department is required';
+        if (!formData.selectedDepartment) {
+            errors.department = 'Department is required';
         }
-        if (!formData.stateDepartment) {
-            errors.stateDepartment = 'Directorate is required';
+        if (!formData.directorate || !String(formData.directorate).trim()) {
+            errors.directorate = 'Directorate is required';
         }
         if (formData.phoneNumber && !phoneRegex.test(formData.phoneNumber.trim())) {
             errors.phoneNumber = 'Use 07XXXXXXXX or +2547XXXXXXXX';
@@ -209,6 +193,10 @@ const Register = () => {
 
         try {
             // Call the register API endpoint using axiosInstance
+            const parentMinistry =
+                formData.selectedDepartment?.parentMinistryName?.trim() ||
+                ministriesHierarchy.find((m) => m.ministryId === formData.selectedDepartment?.ministryId)?.name ||
+                '';
             const response = await axiosInstance.post('/auth/register', {
                 username: formData.username,
                 email: formData.email,
@@ -218,10 +206,10 @@ const Register = () => {
                 lastName: formData.lastName,
                 idNumber: formData.idNumber,
                 employeeNumber: formData.employeeNumber,
-                ministry: formData.ministry,
+                ministry: parentMinistry,
+                state_department: formData.selectedDepartment?.name || '',
+                directorate: String(formData.directorate).trim(),
                 consentGiven: consentGiven,
-                agency_id: null,
-                state_department: formData.stateDepartment,
             });
             const data = response.data;
             
@@ -237,8 +225,8 @@ const Register = () => {
                 lastName: '',
                 idNumber: '',
                 employeeNumber: '',
-                ministry: '',
-                stateDepartment: '',
+                selectedDepartment: null,
+                directorate: '',
             });
             setConsentGiven(false);
             setFormErrors({});
@@ -664,15 +652,17 @@ const Register = () => {
 
                         <Autocomplete
                             fullWidth
-                            options={departmentOptions.map((d) => d.name)}
-                            value={formData.ministry || null}
+                            options={departmentOptions}
+                            getOptionLabel={(option) => (typeof option === 'string' ? option : option?.name || '')}
+                            isOptionEqualToValue={(a, b) => a?.departmentId === b?.departmentId}
+                            value={formData.selectedDepartment}
                             onChange={(event, newValue) => {
-                                setFormData(prev => ({ 
-                                    ...prev, 
-                                    ministry: newValue || '',
-                                    stateDepartment: '',
+                                setFormData((prev) => ({
+                                    ...prev,
+                                    selectedDepartment: newValue || null,
+                                    directorate: '',
                                 }));
-                                setFormErrors(prev => ({ ...prev, ministry: '', stateDepartment: '' }));
+                                setFormErrors((prev) => ({ ...prev, department: '', directorate: '' }));
                             }}
                             loading={loadingOrg}
                             disabled={loading}
@@ -681,8 +671,8 @@ const Register = () => {
                                     {...params}
                                     label="Department"
                                     required
-                                    error={!!formErrors.ministry}
-                                    helperText={formErrors.ministry || 'Select your department'}
+                                    error={!!formErrors.department}
+                                    helperText={formErrors.department || 'Select your county department'}
                                     sx={{ 
                                         mb: 2,
                                         '& .MuiOutlinedInput-root': {
@@ -711,28 +701,30 @@ const Register = () => {
 
                         <Autocomplete
                             fullWidth
-                            options={filteredStateDepartments}
-                            value={formData.stateDepartment || null}
+                            options={(formData.selectedDepartment?.sections || [])
+                                .map((s) => s.name)
+                                .filter(Boolean)}
+                            value={formData.directorate || null}
                             onChange={(event, newValue) => {
-                                setFormData(prev => ({ 
-                                    ...prev, 
-                                    stateDepartment: newValue || '',
+                                setFormData((prev) => ({
+                                    ...prev,
+                                    directorate: newValue || '',
                                 }));
-                                setFormErrors(prev => ({ ...prev, stateDepartment: '' }));
+                                setFormErrors((prev) => ({ ...prev, directorate: '' }));
                             }}
                             loading={loadingOrg}
-                            disabled={loading || !formData.ministry}
+                            disabled={loading || !formData.selectedDepartment}
                             renderInput={(params) => (
                                 <TextField
                                     {...params}
                                     label="Directorate"
                                     required
-                                    error={!!formErrors.stateDepartment}
+                                    error={!!formErrors.directorate}
                                     helperText={
-                                        formErrors.stateDepartment ||
-                                        (formData.ministry
-                                            ? (filteredStateDepartments.length > 0
-                                                ? 'Select your directorate'
+                                        formErrors.directorate ||
+                                        (formData.selectedDepartment
+                                            ? ((formData.selectedDepartment.sections || []).length > 0
+                                                ? 'Select your directorate (section)'
                                                 : 'No directorates found for selected department')
                                             : 'Please select a department first')
                                     }

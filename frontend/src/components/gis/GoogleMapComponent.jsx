@@ -13,8 +13,22 @@ const MACHAKOS_SEARCH_BOUNDS = {
   west: 36.75,
 };
 
+function MapsConfigMissingAlert() {
+  return (
+    <Alert severity="warning" sx={{ m: 1 }}>
+      Google Maps is not configured. Add{' '}
+      <code style={{ userSelect: 'all' }}>VITE_MAPS_API_KEY</code> to{' '}
+      <code style={{ userSelect: 'all' }}>frontend/.env.development</code> (or your deploy env), restart Vite,
+      and ensure the key has <strong>Maps JavaScript API</strong> and <strong>Places API</strong> enabled with billing
+      on. For local dev, add <code>http://localhost:*</code> (or your dev origin) under API key HTTP referrer
+      restrictions.
+    </Alert>
+  );
+}
+
 /** Search box: `overlay` (default, centered on map) or `above` (toolbar row, map stays unobstructed). */
-function GoogleMapComponent({
+function GoogleMapComponentWithApiKey({
+  apiKey,
   children,
   center,
   zoom,
@@ -28,8 +42,6 @@ function GoogleMapComponent({
   const mapRef = useRef(null);
   const searchBoxRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  
-  const apiKey = import.meta.env.VITE_MAPS_API_KEY;
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: apiKey,
@@ -102,7 +114,12 @@ function GoogleMapComponent({
 
 
   if (loadError) {
-    return <Alert severity="error">Error loading Google Maps: {loadError.message}</Alert>;
+    return (
+      <Alert severity="error" sx={{ m: 1 }}>
+        Error loading Google Maps: {loadError.message}. Check the key, billing, and that this site&apos;s origin is
+        allowed under key restrictions in Google Cloud Console for this web origin.
+      </Alert>
+    );
   }
 
   if (!isLoaded) {
@@ -226,6 +243,15 @@ function GoogleMapComponent({
       </GoogleMap>
     </Box>
   );
+}
+
+/** Map + optional Places search. Requires `VITE_MAPS_API_KEY`. */
+function GoogleMapComponent(props) {
+  const apiKey = String(import.meta.env.VITE_MAPS_API_KEY || '').trim();
+  if (!apiKey) {
+    return <MapsConfigMissingAlert />;
+  }
+  return <GoogleMapComponentWithApiKey apiKey={apiKey} {...props} />;
 }
 
 export default GoogleMapComponent;

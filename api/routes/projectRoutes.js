@@ -186,6 +186,23 @@ const recordProjectImportLog = async ({
     }
 };
 
+/**
+ * PostgreSQL: join kenya_wards on ward name (+ optional county) to resolve sub-county for list/detail.
+ * Uses subcounty column when set, else division (IEBC FIRST_DIVI).
+ */
+const PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL = `
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(NULLIF(TRIM(kw.subcounty), ''), NULLIF(TRIM(kw.division), '')) AS sub_from_kw
+                FROM kenya_wards kw
+                WHERE kw.voided = false
+                  AND NULLIF(TRIM(p.location->>'ward'), '') IS NOT NULL
+                  AND LOWER(TRIM(kw.iebc_ward_name)) = LOWER(TRIM(p.location->>'ward'))
+                  AND (
+                      NULLIF(TRIM(p.location->>'county'), '') IS NULL
+                      OR LOWER(TRIM(kw.county)) LIKE '%' || LOWER(TRIM(p.location->>'county')) || '%'
+                  )
+                LIMIT 1
+            ) kw_geo ON true`;
 
 // Base SQL query for project details with all left joins
 const BASE_PROJECT_SELECT_JOINS = `
@@ -348,9 +365,11 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 (p.timeline->>'financial_year') AS "financialYear",
                 p.implementing_agency AS "implementingAgency",
                 p.location->>'county' AS "countyNames",
-                p.location->>'constituency' AS "subcountyNames",
+                p.location->>'constituency' AS "constituencyNames",
+                COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                 p.location->>'ward' AS "wardNames"
             FROM projects p
+            ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
             WHERE p.project_id = $1 AND p.voided = false
         `;
     } else {
@@ -4307,6 +4326,7 @@ router.get('/', async (req, res) => {
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
                 p.location->>'ward' AS "wardNames",
+                COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                 COALESCE(site_counts.site_count, 0) AS "coverageCount",
                 COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
         ` : `
@@ -4373,6 +4393,7 @@ router.get('/', async (req, res) => {
         let fromAndJoinClauses = DB_TYPE === 'postgresql' ? `
             FROM
                 projects p
+            ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
             LEFT JOIN (
                 SELECT project_id, COUNT(*) AS site_count
                 FROM project_sites

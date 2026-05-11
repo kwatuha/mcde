@@ -55,6 +55,7 @@ function KenyaWardsPage() {
     division: '',
     county: '',
     constituency: '',
+    subcounty: '',
     pcode: '',
     status: '',
     no: '',
@@ -345,6 +346,7 @@ function KenyaWardsPage() {
       division: ward.division || '',
       county: ward.county || '',
       constituency: ward.constituency || '',
+      subcounty: ward.subcounty || '',
       pcode: ward.pcode || '',
       status: ward.status || '',
       no: ward.no?.toString() || '',
@@ -365,6 +367,7 @@ function KenyaWardsPage() {
       division: '',
       county: '',
       constituency: '',
+      subcounty: '',
       pcode: '',
       status: '',
       no: '',
@@ -568,6 +571,12 @@ function KenyaWardsPage() {
       headerName: 'Ward Name',
       flex: 1,
       minWidth: 200,
+    },
+    {
+      field: 'subcounty',
+      headerName: 'Sub-county',
+      flex: 1,
+      minWidth: 160,
     },
     {
       field: 'province',
@@ -911,6 +920,18 @@ function KenyaWardsPage() {
                   onChange={(e) => handleInputChange('iebc_ward_name', e.target.value)}
                   error={!!formErrors.iebc_ward_name}
                   helperText={formErrors.iebc_ward_name}
+                  sx={{ mb: 2 }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  margin="dense"
+                  label="Sub-county"
+                  fullWidth
+                  variant="outlined"
+                  value={formData.subcounty}
+                  onChange={(e) => handleInputChange('subcounty', e.target.value)}
+                  helperText="Leave blank to auto-fill from division and ward (Machakos rules apply when county matches)."
                   sx={{ mb: 2 }}
                 />
               </Grid>

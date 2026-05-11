@@ -10,7 +10,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     objective: '', expectedOutput: '', expectedOutcome: '',
     status: 'Not started',
     overallProgress: '', // Progress JSONB: percentage_complete (0-100)
-    ministry: '', stateDepartment: '', sector: '', // New fields replacing departmentId, sectionId, categoryId
+    ministry: '', stateDepartment: '', // sector / state org lines removed from UI; not collected here
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
     county: '', constituency: '', ward: '', // Free text fields for location
@@ -80,7 +80,6 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             overallProgress: currentProject.overallProgress !== undefined && currentProject.overallProgress !== null ? String(currentProject.overallProgress) : '',
             ministry: currentProject.ministry || '',
             stateDepartment: currentProject.stateDepartment || '',
-            sector: currentProject.sector || '',
             categoryId: currentProject.categoryId ? String(currentProject.categoryId) : '',
             // Junction IDs are unused in this flow; leave arrays empty and rely on sites.
             countyIds: [],
@@ -142,7 +141,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         objective: '', expectedOutput: '', expectedOutcome: '',
         status: 'Not started',
         overallProgress: '',
-        ministry: '', stateDepartment: '', sector: '',
+        ministry: '', stateDepartment: '',
         categoryId: '',
         countyIds: defaultCountyIds, // Default to configured default county (Kisumu)
         subcountyIds: [], wardIds: [],
@@ -226,14 +225,6 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
       errors.projectName = 'Project Name is required.';
     }
     // Implementing Agency (directorate) is optional
-    // State Department is required
-    if (!formData.stateDepartment || !formData.stateDepartment.trim()) {
-      errors.stateDepartment = 'State Department is required.';
-    }
-    // Sector is required
-    if (!formData.sector || !formData.sector.trim()) {
-      errors.sector = 'Sector is required.';
-    }
     // Project category is optional
     // Sites are no longer required during project creation - they will be added later on project details page
     // Validate date range only if both dates are provided
@@ -330,11 +321,12 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     // Sites are no longer handled during project creation - they will be managed on project details page
     delete dataToSubmit.countyIds; delete dataToSubmit.subcountyIds; delete dataToSubmit.wardIds; delete dataToSubmit.sites;
 
-    // Debug logging for sector, ministry, stateDepartment
+    // County-focused form: do not send national sector registry or state-department / agency line
+    dataToSubmit.sector = null;
+    dataToSubmit.stateDepartment = null;
+
     console.log('=== FORM SUBMISSION DEBUG ===');
-    console.log('Sector value in formData:', formData.sector, 'in dataToSubmit:', dataToSubmit.sector);
     console.log('Ministry value in formData:', formData.ministry, 'in dataToSubmit:', dataToSubmit.ministry);
-    console.log('StateDepartment value in formData:', formData.stateDepartment, 'in dataToSubmit:', dataToSubmit.stateDepartment);
     console.log('Full dataToSubmit keys:', Object.keys(dataToSubmit));
     console.log('Full dataToSubmit:', JSON.stringify(dataToSubmit, null, 2));
 

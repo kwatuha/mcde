@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const { resolveKenyaWardSubcounty, deriveKenyaWardSubcounty } = require('../utils/deriveKenyaWardSubcounty');
 const multer = require('multer');
 let csv;
 try {
@@ -20,6 +21,39 @@ const path = require('path');
 const WARDS_COUNTY_SCOPE = process.env.WARDS_COUNTY_SCOPE !== undefined
     ? String(process.env.WARDS_COUNTY_SCOPE).trim()
     : 'Machakos';
+
+/** Cached: whether public.kenya_wards has subcounty column (migration applied). */
+let kenyaWardsSubcountyColumnExists = null;
+
+async function getKenyaWardsSubcountyColumnExists() {
+    if (kenyaWardsSubcountyColumnExists !== null) {
+        return kenyaWardsSubcountyColumnExists;
+    }
+    const r = await pool.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'kenya_wards'
+          AND column_name = 'subcounty'
+        LIMIT 1
+    `);
+    kenyaWardsSubcountyColumnExists = r.rows.length > 0;
+    return kenyaWardsSubcountyColumnExists;
+}
+
+function rowWithSubcounty(row, hasDbColumn) {
+    const derived = deriveKenyaWardSubcounty({
+        iebcWardName: row.iebc_ward_name,
+        division: row.division,
+        county: row.county,
+    });
+    if (hasDbColumn) {
+        const existing = row.subcounty != null && String(row.subcounty).trim() !== '';
+        if (existing) return row;
+        return { ...row, subcounty: derived };
+    }
+    return { ...row, subcounty: derived };
+}
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -71,23 +105,13 @@ router.get('/', async (req, res) => {
         const offset = (page - 1) * limit;
         const search = req.query.search || '';
 
+        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        const wardSelectList = hasSubcountyCol
+            ? `id, iebc_ward_name, count, province, district, division, county, constituency, subcounty, pcode, status, no, shape_type, status_1, created_at, updated_at`
+            : `id, iebc_ward_name, count, province, district, division, county, constituency, pcode, status, no, shape_type, status_1, created_at, updated_at`;
+
         let query = `
-            SELECT 
-                id,
-                iebc_ward_name,
-                count,
-                province,
-                district,
-                division,
-                county,
-                constituency,
-                pcode,
-                status,
-                no,
-                shape_type,
-                status_1,
-                created_at,
-                updated_at
+            SELECT ${wardSelectList}
             FROM kenya_wards
             WHERE voided = false
         `;
@@ -99,19 +123,26 @@ router.get('/', async (req, res) => {
         }
 
         if (search) {
+            const subcountySearch = hasSubcountyCol
+                ? ` OR
+                subcounty ILIKE $${params.length + 1}`
+                : '';
             query += ` AND (
                 iebc_ward_name ILIKE $${params.length + 1} OR
                 province ILIKE $${params.length + 1} OR
                 district ILIKE $${params.length + 1} OR
                 division ILIKE $${params.length + 1} OR
                 county ILIKE $${params.length + 1} OR
-                constituency ILIKE $${params.length + 1} OR
+                constituency ILIKE $${params.length + 1}${subcountySearch} OR
                 pcode ILIKE $${params.length + 1}
             )`;
             params.push(`%${search}%`);
         }
 
-        query += ` ORDER BY province, district, division, iebc_ward_name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        const orderByGeo = hasSubcountyCol
+            ? `province, district, subcounty, division, iebc_ward_name`
+            : `province, district, division, iebc_ward_name`;
+        query += ` ORDER BY ${orderByGeo} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(limit, offset);
 
         // Get total count for pagination
@@ -122,13 +153,17 @@ router.get('/', async (req, res) => {
             countParams.push(`%${WARDS_COUNTY_SCOPE}%`);
         }
         if (search) {
+            const subcountyCountSearch = hasSubcountyCol
+                ? ` OR
+                subcounty ILIKE $${countParams.length + 1}`
+                : '';
             countQuery += ` AND (
                 iebc_ward_name ILIKE $${countParams.length + 1} OR
                 province ILIKE $${countParams.length + 1} OR
                 district ILIKE $${countParams.length + 1} OR
                 division ILIKE $${countParams.length + 1} OR
                 county ILIKE $${countParams.length + 1} OR
-                constituency ILIKE $${countParams.length + 1} OR
+                constituency ILIKE $${countParams.length + 1}${subcountyCountSearch} OR
                 pcode ILIKE $${countParams.length + 1}
             )`;
             countParams.push(`%${search}%`);
@@ -142,8 +177,10 @@ router.get('/', async (req, res) => {
         const total = parseInt(countResult.rows[0]?.total || 0);
         const totalPages = Math.ceil(total / limit);
 
+        const data = result.rows.map((row) => rowWithSubcounty(row, hasSubcountyCol));
+
         res.status(200).json({
-            data: result.rows,
+            data,
             pagination: {
                 page,
                 limit,
@@ -270,6 +307,92 @@ router.get('/wards', async (req, res) => {
 });
 
 /**
+ * @route GET /api/kenya-wards/subcounties
+ * @description Distinct sub-county labels for the configured county scope (from subcounty column, or division if column missing)
+ */
+router.get('/subcounties', async (req, res) => {
+    try {
+        const hasSub = await getKenyaWardsSubcountyColumnExists();
+        const params = [];
+        let countyClause = '';
+        if (WARDS_COUNTY_SCOPE) {
+            countyClause = ` AND county ILIKE $${params.length + 1}`;
+            params.push(`%${WARDS_COUNTY_SCOPE}%`);
+        }
+
+        const col = hasSub ? 'subcounty' : 'division';
+        const result = await pool.query(
+            `SELECT DISTINCT TRIM(${col}) AS sc
+            FROM kenya_wards
+            WHERE voided = false
+              AND ${col} IS NOT NULL
+              AND TRIM(${col}) <> ''
+            ${countyClause}
+            ORDER BY sc ASC`,
+            params
+        );
+
+        const names = result.rows.map((row) => row.sc).filter(Boolean);
+        res.status(200).json({ data: names });
+    } catch (error) {
+        console.error('Error fetching sub-counties:', error);
+        res.status(500).json({ message: 'Error fetching sub-counties', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/kenya-wards/wards-by-subcounty
+ * @description Wards in county scope, optionally filtered by sub-county (cascading from subcounty pickers)
+ * @query {string} subcounty - When set, only wards in that sub-county; when omitted or empty, all wards in scope
+ */
+router.get('/wards-by-subcounty', async (req, res) => {
+    try {
+        const subcounty = req.query.subcounty != null ? String(req.query.subcounty).trim() : '';
+        const hasSub = await getKenyaWardsSubcountyColumnExists();
+
+        const params = [];
+        let countyClause = '';
+        if (WARDS_COUNTY_SCOPE) {
+            params.push(`%${WARDS_COUNTY_SCOPE}%`);
+            countyClause = ` AND county ILIKE $${params.length}`;
+        }
+
+        let subClause = '';
+        if (subcounty) {
+            params.push(subcounty);
+            const p = params.length;
+            if (hasSub) {
+                subClause = ` AND LOWER(TRIM(subcounty)) = LOWER(TRIM($${p}))`;
+            } else {
+                subClause = ` AND LOWER(TRIM(division)) = LOWER(TRIM($${p}))`;
+            }
+        }
+
+        const result = await pool.query(
+            `SELECT DISTINCT id, iebc_ward_name, pcode
+            FROM kenya_wards
+            WHERE voided = false
+              AND iebc_ward_name IS NOT NULL
+              AND TRIM(iebc_ward_name) <> ''
+            ${countyClause}
+            ${subClause}
+            ORDER BY iebc_ward_name ASC`,
+            params
+        );
+
+        const wards = result.rows.map((row) => ({
+            id: row.id,
+            name: row.iebc_ward_name,
+            pcode: row.pcode,
+        }));
+        res.status(200).json({ data: wards });
+    } catch (error) {
+        console.error('Error fetching wards by sub-county:', error);
+        res.status(500).json({ message: 'Error fetching wards by sub-county', error: error.message });
+    }
+});
+
+/**
  * @route GET /api/kenya-wards/:id
  * @description Get a single ward by ID
  */
@@ -282,23 +405,12 @@ router.get('/:id', async (req, res) => {
             countyClause = ' AND county ILIKE $2';
             idParams.push(`%${WARDS_COUNTY_SCOPE}%`);
         }
+        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        const wardSelectList = hasSubcountyCol
+            ? `id, iebc_ward_name, count, province, district, division, county, constituency, subcounty, pcode, status, no, shape_type, status_1, created_at, updated_at`
+            : `id, iebc_ward_name, count, province, district, division, county, constituency, pcode, status, no, shape_type, status_1, created_at, updated_at`;
         const result = await pool.query(
-            `SELECT 
-                id,
-                iebc_ward_name,
-                count,
-                province,
-                district,
-                division,
-                county,
-                constituency,
-                pcode,
-                status,
-                no,
-                shape_type,
-                status_1,
-                created_at,
-                updated_at
+            `SELECT ${wardSelectList}
             FROM kenya_wards
             WHERE id = $1 AND voided = false${countyClause}`,
             idParams
@@ -308,7 +420,7 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ message: 'Ward not found' });
         }
 
-        res.status(200).json(result.rows[0]);
+        res.status(200).json(rowWithSubcounty(result.rows[0], hasSubcountyCol));
     } catch (error) {
         console.error('Error fetching ward:', error);
         res.status(500).json({ message: 'Error fetching ward', error: error.message });
@@ -329,6 +441,7 @@ router.post('/', async (req, res) => {
             division,
             county,
             constituency,
+            subcounty,
             pcode,
             status,
             no,
@@ -339,6 +452,14 @@ router.post('/', async (req, res) => {
         if (!iebc_ward_name) {
             return res.status(400).json({ message: 'IEBC ward name is required' });
         }
+
+        const resolvedSubcounty = resolveKenyaWardSubcounty({
+            iebcWardName: iebc_ward_name,
+            division,
+            county,
+            district,
+            subcounty,
+        });
 
         // Check if pcode already exists (if provided)
         if (pcode) {
@@ -351,21 +472,37 @@ router.post('/', async (req, res) => {
             }
         }
 
-        const result = await pool.query(
-            `INSERT INTO kenya_wards (
-                iebc_ward_name, count, province, district, division, county, constituency,
-                pcode, status, no, shape_type, status_1
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
-                      pcode, status, no, shape_type, status_1, created_at, updated_at`,
-            [iebc_ward_name, count || null, province || null, district || null, division || null,
-             county || null, constituency || null, pcode || null, status || null, no || null, 
-             shape_type || null, status_1 || null]
-        );
+        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        let result;
+        if (hasSubcountyCol) {
+            result = await pool.query(
+                `INSERT INTO kenya_wards (
+                    iebc_ward_name, count, province, district, division, county, constituency, subcounty,
+                    pcode, status, no, shape_type, status_1
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
+                          subcounty, pcode, status, no, shape_type, status_1, created_at, updated_at`,
+                [iebc_ward_name, count || null, province || null, district || null, division || null,
+                    county || null, constituency || null, resolvedSubcounty, pcode || null, status || null, no || null,
+                    shape_type || null, status_1 || null]
+            );
+        } else {
+            result = await pool.query(
+                `INSERT INTO kenya_wards (
+                    iebc_ward_name, count, province, district, division, county, constituency,
+                    pcode, status, no, shape_type, status_1
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
+                          pcode, status, no, shape_type, status_1, created_at, updated_at`,
+                [iebc_ward_name, count || null, province || null, district || null, division || null,
+                    county || null, constituency || null, pcode || null, status || null, no || null,
+                    shape_type || null, status_1 || null]
+            );
+        }
 
         res.status(201).json({
             message: 'Ward created successfully',
-            data: result.rows[0]
+            data: rowWithSubcounty(result.rows[0], hasSubcountyCol)
         });
     } catch (error) {
         console.error('Error creating ward:', error);
@@ -388,12 +525,21 @@ router.put('/:id', async (req, res) => {
             division,
             county,
             constituency,
+            subcounty,
             pcode,
             status,
             no,
             shape_type,
             status_1
         } = req.body;
+
+        const resolvedSubcounty = resolveKenyaWardSubcounty({
+            iebcWardName: iebc_ward_name,
+            division,
+            county,
+            district,
+            subcounty,
+        });
 
         const existingParams = [id];
         let existingCounty = '';
@@ -421,34 +567,68 @@ router.put('/:id', async (req, res) => {
             }
         }
 
-        const updateParams = [iebc_ward_name, count || null, province || null, district || null, division || null,
-            county || null, constituency || null, pcode || null, status || null, no || null,
-            shape_type || null, status_1 || null, id];
-        let updateCounty = '';
-        if (WARDS_COUNTY_SCOPE) {
-            updateCounty = ' AND county ILIKE $14';
-            updateParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        let result;
+        if (hasSubcountyCol) {
+            const updateParams = [iebc_ward_name, count || null, province || null, district || null, division || null,
+                county || null, constituency || null, pcode || null, status || null, no || null,
+                shape_type || null, status_1 || null, resolvedSubcounty, id];
+            let updateCounty = '';
+            if (WARDS_COUNTY_SCOPE) {
+                updateCounty = ' AND county ILIKE $15';
+                updateParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+            }
+            result = await pool.query(
+                `UPDATE kenya_wards SET
+                    iebc_ward_name = COALESCE($1, iebc_ward_name),
+                    count = $2,
+                    province = $3,
+                    district = $4,
+                    division = $5,
+                    county = $6,
+                    constituency = $7,
+                    pcode = $8,
+                    status = $9,
+                    no = $10,
+                    shape_type = $11,
+                    status_1 = $12,
+                    subcounty = $13,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $14 AND voided = false${updateCounty}
+                RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
+                          subcounty, pcode, status, no, shape_type, status_1, created_at, updated_at`,
+                updateParams
+            );
+        } else {
+            const updateParams = [iebc_ward_name, count || null, province || null, district || null, division || null,
+                county || null, constituency || null, pcode || null, status || null, no || null,
+                shape_type || null, status_1 || null, id];
+            let updateCounty = '';
+            if (WARDS_COUNTY_SCOPE) {
+                updateCounty = ' AND county ILIKE $14';
+                updateParams.push(`%${WARDS_COUNTY_SCOPE}%`);
+            }
+            result = await pool.query(
+                `UPDATE kenya_wards SET
+                    iebc_ward_name = COALESCE($1, iebc_ward_name),
+                    count = $2,
+                    province = $3,
+                    district = $4,
+                    division = $5,
+                    county = $6,
+                    constituency = $7,
+                    pcode = $8,
+                    status = $9,
+                    no = $10,
+                    shape_type = $11,
+                    status_1 = $12,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $13 AND voided = false${updateCounty}
+                RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
+                          pcode, status, no, shape_type, status_1, created_at, updated_at`,
+                updateParams
+            );
         }
-        const result = await pool.query(
-            `UPDATE kenya_wards SET
-                iebc_ward_name = COALESCE($1, iebc_ward_name),
-                count = $2,
-                province = $3,
-                district = $4,
-                division = $5,
-                county = $6,
-                constituency = $7,
-                pcode = $8,
-                status = $9,
-                no = $10,
-                shape_type = $11,
-                status_1 = $12,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $13 AND voided = false${updateCounty}
-            RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
-                      pcode, status, no, shape_type, status_1, created_at, updated_at`,
-            updateParams
-        );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Ward not found' });
@@ -456,7 +636,7 @@ router.put('/:id', async (req, res) => {
 
         res.status(200).json({
             message: 'Ward updated successfully',
-            data: result.rows[0]
+            data: rowWithSubcounty(result.rows[0], hasSubcountyCol)
         });
     } catch (error) {
         console.error('Error updating ward:', error);
@@ -542,6 +722,13 @@ router.post('/import', upload.single('file'), async (req, res) => {
                     };
 
                     if (ward.iebc_ward_name) {
+                        ward.subcounty = resolveKenyaWardSubcounty({
+                            iebcWardName: ward.iebc_ward_name,
+                            division: ward.division,
+                            county: ward.county,
+                            district: ward.district,
+                            subcounty: null,
+                        });
                         wards.push(ward);
                     }
                 })
@@ -554,6 +741,8 @@ router.post('/import', upload.single('file'), async (req, res) => {
             fs.unlinkSync(filePath);
             return res.status(400).json({ message: 'No valid wards found in CSV file' });
         }
+
+        const hasSubcountyColImport = await getKenyaWardsSubcountyColumnExists();
 
         // Import wards in batches
         const batchSize = 100;
@@ -575,17 +764,32 @@ router.post('/import', upload.single('file'), async (req, res) => {
                     }
 
                     // Insert ward
-                    await pool.query(
-                        `INSERT INTO kenya_wards (
-                            iebc_ward_name, count, province, district, division, 
-                            pcode, status, no, shape_type, status_1
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                        ON CONFLICT (pcode) DO NOTHING`,
-                        [
-                            ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
-                            ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1
-                        ]
-                    );
+                    if (hasSubcountyColImport) {
+                        await pool.query(
+                            `INSERT INTO kenya_wards (
+                                iebc_ward_name, count, province, district, division, 
+                                pcode, status, no, shape_type, status_1, subcounty
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            ON CONFLICT (pcode) DO NOTHING`,
+                            [
+                                ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
+                                ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1,
+                                ward.subcounty,
+                            ]
+                        );
+                    } else {
+                        await pool.query(
+                            `INSERT INTO kenya_wards (
+                                iebc_ward_name, count, province, district, division, 
+                                pcode, status, no, shape_type, status_1
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (pcode) DO NOTHING`,
+                            [
+                                ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
+                                ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1,
+                            ]
+                        );
+                    }
                     successCount++;
                 } catch (error) {
                     errors.push({
@@ -671,6 +875,13 @@ router.post('/import-from-path', async (req, res) => {
                     };
 
                     if (ward.iebc_ward_name) {
+                        ward.subcounty = resolveKenyaWardSubcounty({
+                            iebcWardName: ward.iebc_ward_name,
+                            division: ward.division,
+                            county: ward.county,
+                            district: ward.district,
+                            subcounty: null,
+                        });
                         wards.push(ward);
                     }
                 })
@@ -681,6 +892,8 @@ router.post('/import-from-path', async (req, res) => {
         if (wards.length === 0) {
             return res.status(400).json({ message: 'No valid wards found in CSV file' });
         }
+
+        const hasSubcountyColPathImport = await getKenyaWardsSubcountyColumnExists();
 
         // Import wards in batches
         const batchSize = 100;
@@ -700,17 +913,32 @@ router.post('/import-from-path', async (req, res) => {
                         }
                     }
 
-                    await pool.query(
-                        `INSERT INTO kenya_wards (
-                            iebc_ward_name, count, province, district, division, 
-                            pcode, status, no, shape_type, status_1
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                        ON CONFLICT (pcode) DO NOTHING`,
-                        [
-                            ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
-                            ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1
-                        ]
-                    );
+                    if (hasSubcountyColPathImport) {
+                        await pool.query(
+                            `INSERT INTO kenya_wards (
+                                iebc_ward_name, count, province, district, division, 
+                                pcode, status, no, shape_type, status_1, subcounty
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            ON CONFLICT (pcode) DO NOTHING`,
+                            [
+                                ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
+                                ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1,
+                                ward.subcounty,
+                            ]
+                        );
+                    } else {
+                        await pool.query(
+                            `INSERT INTO kenya_wards (
+                                iebc_ward_name, count, province, district, division, 
+                                pcode, status, no, shape_type, status_1
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (pcode) DO NOTHING`,
+                            [
+                                ward.iebc_ward_name, ward.count, ward.province, ward.district, ward.division,
+                                ward.pcode, ward.status, ward.no, ward.shape_type, ward.status_1,
+                            ]
+                        );
+                    }
                     successCount++;
                 } catch (error) {
                     errors.push({

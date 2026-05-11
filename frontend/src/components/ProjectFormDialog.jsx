@@ -46,15 +46,9 @@ const ProjectFormDialog = ({
   const [loadingConstituencies, setLoadingConstituencies] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
 
-  /** GET /ministries?withDepartments=1 — cabinet + state departments */
-  const [ministriesHierarchy, setMinistriesHierarchy] = useState([]);
+  /** GET /ministries — cabinet / parent org names for projects */
   const [ministryNameOptions, setMinistryNameOptions] = useState([]);
-  const [projectStateDeptOptions, setProjectStateDeptOptions] = useState([]);
   const [loadingMinistries, setLoadingMinistries] = useState(false);
-
-  // State for sectors dropdown
-  const [sectors, setSectors] = useState([]);
-  const [loadingSectors, setLoadingSectors] = useState(false);
 
   // Fallback: fetch project categories when dialog opens if not in allMetadata (same source as /project-types)
   const [projectCategoriesFallback, setProjectCategoriesFallback] = useState([]);
@@ -113,16 +107,14 @@ const ProjectFormDialog = ({
     const load = async () => {
       setLoadingMinistries(true);
       try {
-        const { data } = await axiosInstance.get('/ministries', { params: { withDepartments: '1' } });
+        const { data } = await axiosInstance.get('/ministries', { params: { withDepartments: '0' } });
         const list = Array.isArray(data) ? data : [];
         if (!cancelled) {
-          setMinistriesHierarchy(list);
           setMinistryNameOptions(list.map((m) => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)));
         }
       } catch (e) {
         console.error('ProjectFormDialog: ministries fetch failed', e);
         if (!cancelled) {
-          setMinistriesHierarchy([]);
           setMinistryNameOptions([]);
         }
       } finally {
@@ -133,38 +125,6 @@ const ProjectFormDialog = ({
     return () => {
       cancelled = true;
     };
-  }, [open]);
-
-  useEffect(() => {
-    if (!formData.ministry) {
-      setProjectStateDeptOptions([]);
-      return;
-    }
-    const row = ministriesHierarchy.find((m) => m.name === formData.ministry);
-    let depts = (row?.departments || []).map((d) => d.name).filter(Boolean);
-    depts = [...new Set(depts)].sort((a, b) => a.localeCompare(b));
-    if (formData.stateDepartment && !depts.includes(formData.stateDepartment)) {
-      depts = [...depts, formData.stateDepartment].sort((a, b) => a.localeCompare(b));
-    }
-    setProjectStateDeptOptions(depts);
-  }, [formData.ministry, formData.stateDepartment, ministriesHierarchy]);
-
-  // Fetch sectors on mount - only if dialog is open
-  useEffect(() => {
-    if (!open) return;
-    
-    const fetchSectors = async () => {
-      setLoadingSectors(true);
-      try {
-        const data = await apiService.sectors.getAllSectors();
-        setSectors(data);
-      } catch (error) {
-        console.error('Error fetching sectors:', error);
-      } finally {
-        setLoadingSectors(false);
-      }
-    };
-    fetchSectors();
   }, [open]);
 
   // Fetch constituencies when county changes
@@ -300,72 +260,6 @@ const ProjectFormDialog = ({
             Project Details
           </Typography>
           <Grid container spacing={1.5}>
-            {/* Sector Field */}
-            <Grid item xs={12} sm={6}>
-              <Autocomplete
-                options={sectors}
-                getOptionLabel={(option) => typeof option === 'string' ? option : (option.sectorName || option.name || '')}
-                value={sectors.find(s => (s.sectorName || s.name) === formData.sector) || null}
-                onChange={(event, newValue) => {
-                  if (newValue) {
-                    handleChange({ target: { name: 'sector', value: newValue.sectorName || newValue.name } });
-                  } else {
-                    handleChange({ target: { name: 'sector', value: '' } });
-                  }
-                }}
-                loading={loadingSectors}
-                sx={{ minWidth: 200 }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    name="sector"
-                    label="Sector"
-                    variant="outlined"
-                    size="small"
-                    required
-                    placeholder="Select sector from registry"
-                    helperText={formErrors.sector || "Choose a sector from Sectors Management (charts use this field only)"}
-                    error={!!formErrors.sector}
-                    sx={{
-                      minWidth: 200,
-                      '& .MuiOutlinedInput-root': {
-                        '& fieldset': {
-                          borderColor: formErrors.sector 
-                            ? (colorMode === 'dark' ? colors.redAccent[500] : colors.redAccent[400])
-                            : (colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400]),
-                          borderWidth: '2px',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: formErrors.sector 
-                            ? (colorMode === 'dark' ? colors.redAccent[600] : colors.redAccent[500])
-                            : (colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300]),
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: formErrors.sector 
-                            ? (colorMode === 'dark' ? colors.redAccent[500] : colors.redAccent[400])
-                            : (colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400]),
-                          borderWidth: '2px',
-                        },
-                      },
-                      '& .MuiInputLabel-root': {
-                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                        fontWeight: 'bold',
-                      },
-                      '& .MuiInputBase-input': {
-                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                      },
-                    }}
-                  />
-                )}
-                filterOptions={(options, params) => {
-                  const filtered = options.filter((option) => {
-                    const sectorName = typeof option === 'string' ? option : (option.sectorName || option.name || '');
-                    return sectorName.toLowerCase().includes(params.inputValue.toLowerCase());
-                  });
-                  return filtered;
-                }}
-              />
-            </Grid>
             <Grid item xs={12} sm={6}>
               <TextField 
                 autoFocus 
@@ -706,13 +600,12 @@ const ProjectFormDialog = ({
             Organizational Details
           </Typography>
           <Grid container spacing={1.5}>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={8}>
               <Autocomplete
                 options={ministryNameOptions}
                 value={formData.ministry || null}
                 onChange={(event, newValue) => {
                   handleChange({ target: { name: 'ministry', value: newValue || '' } });
-                  handleChange({ target: { name: 'stateDepartment', value: '' } });
                 }}
                 loading={loadingMinistries}
                 disabled={loadingMinistries && ministryNameOptions.length === 0}
@@ -736,54 +629,6 @@ const ProjectFormDialog = ({
                         },
                         '&.Mui-focused fieldset': {
                           borderColor: formErrors.ministry ? colors.redAccent[500] : colors.greenAccent[500],
-                          borderWidth: '2px',
-                        },
-                      },
-                      '& .MuiInputLabel-root': {
-                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                        fontWeight: 'bold',
-                      },
-                      '& .MuiInputBase-input': {
-                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                      },
-                    }}
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Autocomplete
-                options={projectStateDeptOptions}
-                value={formData.stateDepartment || null}
-                onChange={(event, newValue) => {
-                  handleChange({ target: { name: 'stateDepartment', value: newValue || '' } });
-                }}
-                loading={loadingMinistries}
-                disabled={!formData.ministry}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    name="stateDepartment"
-                    label="State Department"
-                    variant="outlined"
-                    size="small"
-                    required
-                    error={!!formErrors.stateDepartment}
-                    helperText={
-                      formErrors.stateDepartment ||
-                      (formData.ministry ? 'Select state department' : 'Select a ministry first')
-                    }
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        '& fieldset': {
-                          borderColor: formErrors.stateDepartment ? colors.redAccent[500] : colors.blueAccent[600],
-                          borderWidth: '2px',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: formErrors.stateDepartment ? colors.redAccent[600] : colors.blueAccent[500],
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: formErrors.stateDepartment ? colors.redAccent[500] : colors.greenAccent[500],
                           borderWidth: '2px',
                         },
                       },

@@ -5,44 +5,33 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const { fetchMinistryDepartmentTree } = require('../utils/ministryDepartmentTree');
 
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
 
 /**
  * GET /api/ministries
- * Optional ?withDepartments=1 — include state departments per ministry
+ * Optional ?withDepartments=1 — include departments per ministry (county-filtered when METADATA_ORG_SCOPE=machakos)
+ * Optional ?withSections=1 — include directorates (sections) under each department
  */
 router.get('/', async (req, res) => {
   const withDeps = req.query.withDepartments === '1' || req.query.withDepartments === 'true';
+  const withSections = req.query.withSections === '1' || req.query.withSections === 'true';
   try {
     if (DB_TYPE !== 'postgresql') {
       return res.status(501).json({ message: 'Ministries API requires PostgreSQL' });
     }
-    const r = await pool.query(
-      `SELECT "ministryId", name, alias, voided, "createdAt", "updatedAt", "userId"
-       FROM ministries
-       WHERE voided = false
-       ORDER BY name`
-    );
-    const ministries = r.rows || [];
     if (!withDeps) {
-      return res.json(ministries);
+      const r = await pool.query(
+        `SELECT "ministryId", name, alias, voided, "createdAt", "updatedAt", "userId"
+         FROM ministries
+         WHERE COALESCE(voided, false) = false
+         ORDER BY name`
+      );
+      return res.json(r.rows || []);
     }
-    const dr = await pool.query(
-      `SELECT d."departmentId", d.name, d.alias, d."ministryId", d.voided, d."createdAt", d."updatedAt"
-       FROM departments d
-       WHERE (d.voided IS NULL OR d.voided = false)
-       ORDER BY d.name`
-    );
-    const depts = dr.rows || [];
-    const byMin = new Map();
-    ministries.forEach((m) => byMin.set(m.ministryId, { ...m, departments: [] }));
-    depts.forEach((d) => {
-      if (d.ministryId != null && byMin.has(d.ministryId)) {
-        byMin.get(d.ministryId).departments.push(d);
-      }
-    });
-    return res.json(Array.from(byMin.values()));
+    const tree = await fetchMinistryDepartmentTree({ withSections: withSections && withDeps });
+    return res.json(tree);
   } catch (e) {
     console.error('GET /ministries', e);
     res.status(500).json({ message: 'Failed to list ministries', error: e.message });

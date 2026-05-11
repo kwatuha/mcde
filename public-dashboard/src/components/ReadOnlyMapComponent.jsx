@@ -56,12 +56,10 @@ const calculateMapBounds = (geoJson) => {
     return { center, bounds };
 };
 
-function ReadOnlyMapComponent({ geoJson, projectName, style = { height: '400px', width: '100%' } }) {
+function ReadOnlyMapComponentWithApiKey({ apiKey, geoJson, projectName, style = { height: '400px', width: '100%' } }) {
     const mapRef = useRef(null);
     const [mapLoaded, setMapLoaded] = useState(false);
     const [mapType, setMapType] = useState('roadmap'); // 'roadmap' or 'terrain'
-    
-    const apiKey = import.meta.env.VITE_MAPS_API_KEY;
 
     // Debug: Log the geoJson prop to see what we're receiving
     useEffect(() => {
@@ -149,7 +147,12 @@ function ReadOnlyMapComponent({ geoJson, projectName, style = { height: '400px',
     }, [geoJson, mapLoaded]);
 
     if (loadError) {
-        return <Alert severity="error">Error loading Google Maps: {loadError.message}</Alert>;
+        return (
+            <Alert severity="error" sx={{ m: 1 }}>
+                Error loading Google Maps: {loadError.message}. Check the key, billing, and HTTP referrer restrictions
+                for this origin.
+            </Alert>
+        );
     }
 
     if (!isLoaded) {
@@ -498,6 +501,20 @@ function ReadOnlyMapComponent({ geoJson, projectName, style = { height: '400px',
             </Paper>
         </Box>
     );
+}
+
+function ReadOnlyMapComponent(props) {
+    const apiKey = String(import.meta.env.VITE_MAPS_API_KEY || '').trim();
+    if (!apiKey) {
+        return (
+            <Alert severity="warning" sx={{ m: 1 }}>
+                Google Maps is not configured. Set <code style={{ userSelect: 'all' }}>VITE_MAPS_API_KEY</code> in{' '}
+                <code style={{ userSelect: 'all' }}>public-dashboard/.env.development</code> (or your deploy env),
+                restart Vite, and allow this web origin on the API key.
+            </Alert>
+        );
+    }
+    return <ReadOnlyMapComponentWithApiKey apiKey={apiKey} {...props} />;
 }
 
 export default ReadOnlyMapComponent;

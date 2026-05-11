@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const { sqlMachakosDepartmentPredicate } = require('../utils/metadataOrgScope');
 
 // Import sub-routers from the new /metadata folder
 const departmentRouter = require('./metadata/departmentRoutes');
@@ -36,22 +37,25 @@ router.get('/import-cache', async (req, res) => {
     try {
         const startTime = Date.now();
         
-        // Fetch all metadata in parallel (optimized queries - only names)
-        const [departments] = await pool.query(
-            'SELECT name, alias FROM departments WHERE (voided IS NULL OR voided = 0)'
-        );
-        const [wards] = await pool.query(
-            'SELECT name FROM wards WHERE (voided IS NULL OR voided = 0)'
-        );
-        const [subcounties] = await pool.query(
-            'SELECT name FROM subcounties WHERE (voided IS NULL OR voided = 0)'
-        );
-        const [financialYears] = await pool.query(
-            'SELECT finYearName FROM financialyears WHERE (voided IS NULL OR voided = 0)'
-        );
-        const [budgets] = await pool.query(
-            'SELECT budgetName FROM budgets WHERE voided = 0'
-        );
+        const orgPred = sqlMachakosDepartmentPredicate('d', 'm');
+        const [deptRes, wardsRes, subRes, fyRes, budgetRes] = await Promise.all([
+            pool.query(`
+                SELECT d.name, d.alias
+                FROM departments d
+                LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
+                WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+                  AND (${orgPred})
+            `),
+            pool.query('SELECT name FROM wards WHERE COALESCE(voided, false) = false'),
+            pool.query('SELECT name FROM subcounties WHERE COALESCE(voided, false) = false'),
+            pool.query('SELECT "finYearName" AS "finYearName" FROM financialyears WHERE COALESCE(voided, false) = false'),
+            pool.query('SELECT "budgetName" AS "budgetName" FROM budgets WHERE COALESCE(voided, false) = false'),
+        ]);
+        const departments = deptRes.rows;
+        const wards = wardsRes.rows;
+        const subcounties = subRes.rows;
+        const financialYears = fyRes.rows;
+        const budgets = budgetRes.rows;
         
         const queryTime = Date.now() - startTime;
         console.log(`Metadata cache query took ${queryTime}ms`);

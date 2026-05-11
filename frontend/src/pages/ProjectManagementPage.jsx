@@ -4,6 +4,7 @@ import {
   Menu, MenuItem, ListItemIcon, Checkbox, ListItemText, Box, Typography, Button, CircularProgress, IconButton,
   Snackbar, Alert, Stack, useTheme, Tooltip, Grid, Card, CardContent, TextField, InputAdornment, Chip, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, ToggleButton, ToggleButtonGroup, Collapse,
+  FormControl, InputLabel, Select,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
 import { getThemedDataGridSx, TREE_LAYOUT_GRID } from '../utils/dataGridTheme';
@@ -52,6 +53,38 @@ import useTableScrollShadows from '../hooks/useTableScrollShadows';
 import AssignContractorModal from '../components/AssignContractorModal.jsx';
 import ProjectSitesModal from '../components/ProjectSitesModal';
 import ProjectJobsModal from '../components/ProjectJobsModal';
+
+const EMPTY_REGISTRY_FILTERS = {
+  departmentName: '',
+  financialYearName: '',
+  subcountyNames: '',
+  wardNames: '',
+};
+
+/** Split comma/semicolon-separated location labels for registry filters. */
+function splitLocationTokens(value) {
+  return String(value || '')
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** True if `csv` contains the exact token (case-insensitive), e.g. county or ward lists from API. */
+function locationFieldMatchesToken(projectField, token) {
+  if (!token) return true;
+  const t = String(token).trim().toLowerCase();
+  if (!t) return true;
+  const parts = splitLocationTokens(projectField).map((p) => p.toLowerCase());
+  return parts.includes(t);
+}
+
+/** True if department matches selected name or alias. */
+function departmentMatches(project, selected) {
+  if (!selected) return true;
+  const d = String(project.departmentName || '').trim();
+  const a = String(project.departmentAlias || '').trim();
+  return d === selected || a === selected;
+}
 
 /** Raw status string from list API rows (handles mixed casing and JSONB progress). */
 function rawProjectStatus(p) {
@@ -333,11 +366,121 @@ function ProjectManagementPage() {
     };
   }, []);
 
-  // State for toggling between progress and status view
-  const [distributionView, setDistributionView] = useState('status'); // 'progress' or 'status'
+  // State for toggling between progress, status, and registry field filters in the overview strip
+  const [distributionView, setDistributionView] = useState('status'); // 'progress' | 'status' | 'registry'
 
   // State for Status Overview collapse
   const [statusOverviewExpanded, setStatusOverviewExpanded] = useState(false);
+
+  /** Department / FY / geo filters (AND). Applied in dataGridFilteredProjects after search & ward. */
+  const [registryFilters, setRegistryFilters] = useState(() => ({ ...EMPTY_REGISTRY_FILTERS }));
+
+  const hasActiveRegistryFilters = useMemo(
+    () => Object.values(registryFilters).some((v) => String(v || '').trim() !== ''),
+    [registryFilters]
+  );
+
+  const registryFilterSelectOptions = useMemo(() => {
+    const src = Array.isArray(filteredProjects) ? filteredProjects : [];
+    const dept = new Set();
+    const fy = new Set();
+    const subcounty = new Set();
+    const ward = new Set();
+    src.forEach((p) => {
+      const d = String(p.departmentName || '').trim();
+      const a = String(p.departmentAlias || '').trim();
+      if (d) dept.add(d);
+      if (a) dept.add(a);
+      const f = String(p.financialYearName || '').trim();
+      if (f) fy.add(f);
+      splitLocationTokens(p.subcountyNames).forEach((x) => subcounty.add(x));
+      splitLocationTokens(p.wardNames).forEach((x) => ward.add(x));
+    });
+    const sort = (s) => [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return {
+      departments: sort(dept),
+      financialYears: sort(fy),
+      subcounties: sort(subcounty),
+      wards: sort(ward),
+    };
+  }, [filteredProjects]);
+
+  /** kenya_wards reference lists for Fields tab (sub-county → wards cascade) */
+  const [registryKenyaSubcounties, setRegistryKenyaSubcounties] = useState([]);
+  const [registryKenyaWards, setRegistryKenyaWards] = useState([]);
+  const [registryKenyaGeoLoading, setRegistryKenyaGeoLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await apiService.kenyaWards.getSubcounties();
+        if (!cancelled) setRegistryKenyaSubcounties(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setRegistryKenyaSubcounties([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setRegistryKenyaGeoLoading(true);
+      try {
+        const sub = String(registryFilters.subcountyNames || '').trim();
+        const wards = await apiService.kenyaWards.getWardsBySubcounty(sub || null);
+        if (!cancelled) setRegistryKenyaWards(Array.isArray(wards) ? wards : []);
+      } catch {
+        if (!cancelled) setRegistryKenyaWards([]);
+      } finally {
+        if (!cancelled) setRegistryKenyaGeoLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [registryFilters.subcountyNames]);
+
+  const registrySubcountyFilterOptions = useMemo(() => {
+    if (registryKenyaSubcounties.length > 0) return registryKenyaSubcounties;
+    return registryFilterSelectOptions.subcounties;
+  }, [registryKenyaSubcounties, registryFilterSelectOptions.subcounties]);
+
+  const registryWardFilterOptions = useMemo(() => {
+    const fromApi = (registryKenyaWards || [])
+      .map((w) => (typeof w === 'string' ? w : w.name || ''))
+      .filter(Boolean);
+    const uniq = [...new Set(fromApi)].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+    if (uniq.length > 0) return uniq;
+    const sub = String(registryFilters.subcountyNames || '').trim();
+    if (!sub) return registryFilterSelectOptions.wards;
+    const src = Array.isArray(filteredProjects) ? filteredProjects : [];
+    const next = new Set();
+    src.forEach((p) => {
+      if (!locationFieldMatchesToken(p.subcountyNames, sub)) return;
+      splitLocationTokens(p.wardNames).forEach((x) => next.add(x));
+    });
+    return [...next].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [
+    registryKenyaWards,
+    registryFilterSelectOptions.wards,
+    registryFilters.subcountyNames,
+    filteredProjects,
+  ]);
+
+  useEffect(() => {
+    if (registryKenyaGeoLoading) return;
+    const w = String(registryFilters.wardNames || '').trim();
+    if (!w) return;
+    if (!registryWardFilterOptions.length) return;
+    if (registryWardFilterOptions.includes(w)) return;
+    setRegistryFilters((prev) => ({ ...prev, wardNames: '' }));
+  }, [registryKenyaGeoLoading, registryWardFilterOptions, registryFilters.wardNames]);
 
   // State for action menu
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
@@ -671,9 +814,28 @@ function ProjectManagementPage() {
             return bk === sectorRegistryClientFilter;
           });
 
-    // If no column filters are applied, return sectorFilteredBase as-is
+    const registryFilteredBase = sectorFilteredBase.filter((project) => {
+      if (registryFilters.departmentName && !departmentMatches(project, registryFilters.departmentName)) {
+        return false;
+      }
+      if (registryFilters.financialYearName) {
+        if (String(project.financialYearName || '').trim() !== registryFilters.financialYearName) return false;
+      }
+      if (
+        registryFilters.subcountyNames &&
+        !locationFieldMatchesToken(project.subcountyNames, registryFilters.subcountyNames)
+      ) {
+        return false;
+      }
+      if (registryFilters.wardNames && !locationFieldMatchesToken(project.wardNames, registryFilters.wardNames)) {
+        return false;
+      }
+      return true;
+    });
+
+    // If no column filters are applied, return registry slice as-is
     if (!filterModel.items || filterModel.items.length === 0) {
-      return sectorFilteredBase;
+      return registryFilteredBase;
     }
 
     // Helper function to check if a filter matches
@@ -780,8 +942,8 @@ function ProjectManagementPage() {
       }
     };
 
-    // Apply column filters
-    const filtered = sectorFilteredBase.filter(project => {
+    // Apply column filters (status / progress KPI filters)
+    const filtered = registryFilteredBase.filter(project => {
       // Group filters by field to handle OR logic for status filters
       const filtersByField = {};
       filterModel.items.forEach(filterItem => {
@@ -812,17 +974,8 @@ function ProjectManagementPage() {
     });
     
     // Debug logging
-    if (filterModel.items?.some(item => item.field === 'overallProgress')) {
-      console.log('Filtered results:', {
-        totalProjects: sectorFilteredBase.length,
-        filteredCount: filtered.length,
-        filterModel: filterModel.items,
-        sampleProject: filtered[0]
-      });
-    }
-    
     return filtered;
-  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup]);
+  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup, registryFilters]);
 
   // Calculate summary statistics from filtered projects (respects search and column filters)
   const summaryStats = useMemo(() => {
@@ -1195,7 +1348,12 @@ function ProjectManagementPage() {
       
       // Generate filename with current date
       const dateStr = new Date().toISOString().split('T')[0];
-      const hasFilters = searchQuery || (filterModel.items && filterModel.items.length > 0);
+      const hasFilters =
+        searchQuery ||
+        (filterModel.items && filterModel.items.length > 0) ||
+        sectorRegistryClientFilter ||
+        wardGisFilterKey ||
+        hasActiveRegistryFilters;
       const filename = hasFilters 
         ? `projects_export_filtered_${dateStr}.xlsx`
         : `projects_export_${dateStr}.xlsx`;
@@ -1298,7 +1456,12 @@ function ProjectManagementPage() {
       
       // Generate filename with current date
       const dateStr = new Date().toISOString().split('T')[0];
-      const hasFilters = searchQuery || (filterModel.items && filterModel.items.length > 0);
+      const hasFilters =
+        searchQuery ||
+        (filterModel.items && filterModel.items.length > 0) ||
+        sectorRegistryClientFilter ||
+        wardGisFilterKey ||
+        hasActiveRegistryFilters;
       const filename = hasFilters 
         ? `projects_export_filtered_${dateStr}.pdf`
         : `projects_export_${dateStr}.pdf`;
@@ -2041,7 +2204,11 @@ function ProjectManagementPage() {
               },
             }}
           />
-          {(searchQuery || (filterModel.items && filterModel.items.length > 0) || sectorRegistryClientFilter || wardGisFilterKey) && (
+          {(searchQuery ||
+            (filterModel.items && filterModel.items.length > 0) ||
+            sectorRegistryClientFilter ||
+            wardGisFilterKey ||
+            hasActiveRegistryFilters) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
               <Chip
                 label={`${dataGridFilteredProjects.length} project${dataGridFilteredProjects.length !== 1 ? 's' : ''} found`}
@@ -2090,6 +2257,14 @@ function ProjectManagementPage() {
                     setWardGisFilterLabel('');
                     appliedWardFromQueryRef.current = '';
                   }}
+                  size="small"
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              )}
+              {hasActiveRegistryFilters && (
+                <Chip
+                  label="Field filters"
+                  onDelete={() => setRegistryFilters({ ...EMPTY_REGISTRY_FILTERS })}
                   size="small"
                   sx={{ fontSize: '0.7rem' }}
                 />
@@ -2154,8 +2329,13 @@ function ProjectManagementPage() {
                     exclusive
                     onChange={(e, newView) => {
                       if (newView !== null) {
+                        if (
+                          (newView === 'progress' || newView === 'status') &&
+                          (distributionView === 'progress' || distributionView === 'status')
+                        ) {
+                          setFilterModel({ items: [] });
+                        }
                         setDistributionView(newView);
-                        setFilterModel({ items: [] });
                       }
                     }}
                     size="small"
@@ -2187,6 +2367,7 @@ function ProjectManagementPage() {
                   >
                     <ToggleButton value="progress">Progress</ToggleButton>
                     <ToggleButton value="status">Status</ToggleButton>
+                    <ToggleButton value="registry">Fields</ToggleButton>
                   </ToggleButtonGroup>
                 )}
                 {statusOverviewExpanded ? (
@@ -2197,34 +2378,146 @@ function ProjectManagementPage() {
               </Box>
             </Box>
             <Collapse in={statusOverviewExpanded}>
-              {/* Distribution Cards - Enhanced Scrollable Container */}
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 0.75, 
-            overflowX: 'auto', 
-            pb: 1,
-            px: 0.5,
-            '&::-webkit-scrollbar': { 
-              height: '8px',
-            }, 
-            '&::-webkit-scrollbar-track': { 
-              background: isLight ? colors.grey[100] : colors.primary[600], 
-              borderRadius: '4px',
-              margin: '0 8px',
-            }, 
-            '&::-webkit-scrollbar-thumb': { 
-              background: isLight ? colors.grey[400] : colors.grey[600], 
-              borderRadius: '4px',
-              '&:hover': { 
-                background: isLight ? colors.grey[500] : colors.grey[500] 
-              } 
-            } 
-          }}>
-            <Grid container spacing={0.5} sx={{ display: 'flex', flexWrap: 'nowrap', flex: 1 }}>
-
-          {/* Progress View */}
-          {distributionView === 'progress' && (
+              {distributionView === 'registry' ? (
+                <Box sx={{ px: 1.5, py: 1.25, width: '100%', boxSizing: 'border-box' }}>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-department">Department</InputLabel>
+                        <Select
+                          labelId="rf-department"
+                          label="Department"
+                          value={registryFilters.departmentName}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, departmentName: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registryFilterSelectOptions.departments.map((name) => (
+                            <MenuItem key={`dept-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-fy">Financial year</InputLabel>
+                        <Select
+                          labelId="rf-fy"
+                          label="Financial year"
+                          value={registryFilters.financialYearName}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, financialYearName: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registryFilterSelectOptions.financialYears.map((name) => (
+                            <MenuItem key={`fy-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-sub">Sub-county</InputLabel>
+                        <Select
+                          labelId="rf-sub"
+                          label="Sub-county"
+                          value={registryFilters.subcountyNames}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setRegistryFilters((prev) => ({
+                              ...prev,
+                              subcountyNames: v,
+                              wardNames: '',
+                            }));
+                          }}
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registrySubcountyFilterOptions.map((name) => (
+                            <MenuItem key={`sub-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-ward">Ward</InputLabel>
+                        <Select
+                          labelId="rf-ward"
+                          label="Ward"
+                          value={registryFilters.wardNames}
+                          disabled={registryKenyaGeoLoading}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, wardNames: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>{registryKenyaGeoLoading ? 'Loading…' : 'Any'}</em>
+                          </MenuItem>
+                          {registryWardFilterOptions.map((name) => (
+                            <MenuItem key={`ward-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={!hasActiveRegistryFilters}
+                        onClick={() => setRegistryFilters({ ...EMPTY_REGISTRY_FILTERS })}
+                      >
+                        Clear field filters
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </Box>
+              ) : (
+                <>
+                  {/* Distribution Cards - Enhanced Scrollable Container */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                      overflowX: 'auto',
+                      pb: 1,
+                      px: 0.5,
+                      '&::-webkit-scrollbar': {
+                        height: '8px',
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        background: isLight ? colors.grey[100] : colors.primary[600],
+                        borderRadius: '4px',
+                        margin: '0 8px',
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        background: isLight ? colors.grey[400] : colors.grey[600],
+                        borderRadius: '4px',
+                        '&:hover': {
+                          background: isLight ? colors.grey[500] : colors.grey[500],
+                        },
+                      },
+                    }}
+                  >
+                    <Grid container spacing={0.5} sx={{ display: 'flex', flexWrap: 'nowrap', flex: 1 }}>
+                      {/* Progress View */}
+                      {distributionView === 'progress' && (
             <>
               <Grid item sx={{ minWidth: { xs: '125px', sm: '145px', md: '165px' }, flex: '0 0 auto' }}>
             <Card 
@@ -2738,8 +3031,10 @@ function ProjectManagementPage() {
               </Grid>
             </>
           )}
-            </Grid>
-          </Box>
+                    </Grid>
+                  </Box>
+                </>
+              )}
             </Collapse>
           </Box>
         </Box>
@@ -2757,9 +3052,18 @@ function ProjectManagementPage() {
           No projects match your search query "{searchQuery}". Try different keywords or clear the search.
         </Alert>
       )}
-      {!loading && !error && projects.length > 0 && (filterModel.items?.length > 0 || sectorRegistryClientFilter || wardGisFilterKey) && dataGridFilteredProjects?.length === 0 && (
+      {!loading &&
+        !error &&
+        projects.length > 0 &&
+        (filterModel.items?.length > 0 ||
+          sectorRegistryClientFilter ||
+          wardGisFilterKey ||
+          hasActiveRegistryFilters) &&
+        dataGridFilteredProjects?.length === 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
-          No projects match the current filter. Try adjusting your filters, clear the sector or ward filter chip, or use &quot;Load all projects&quot; if the rows you need are not in the first page of results.
+          No projects match the current filter. Try adjusting your filters, clear the sector or ward filter chip,
+          clear field filters in Status Overview → Fields, or use &quot;Load all projects&quot; if the rows you need
+          are not in the first page of results.
         </Alert>
       )}
 

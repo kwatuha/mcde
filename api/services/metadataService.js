@@ -5,6 +5,7 @@
  */
 
 const pool = require('../config/db');
+const { sqlMachakosDepartmentPredicate } = require('../utils/metadataOrgScope');
 
 // Normalize string for matching (same as in budgetContainerRoutes)
 const normalizeStr = (v) => {
@@ -34,25 +35,34 @@ async function loadMetadataMappings() {
     
     try {
         // Fetch all metadata in parallel
-        const [departments] = await pool.query(
-            `SELECT departmentId, name, alias FROM departments WHERE (voided IS NULL OR voided = 0)`
-        );
-        
-        const [wards] = await pool.query(
-            `SELECT wardId, name, subcountyId FROM wards WHERE (voided IS NULL OR voided = 0)`
-        );
-        
-        const [subcounties] = await pool.query(
-            `SELECT subcountyId, name FROM subcounties WHERE (voided IS NULL OR voided = 0)`
-        );
-        
-        const [financialYears] = await pool.query(
-            `SELECT finYearId, finYearName FROM financialyears WHERE (voided IS NULL OR voided = 0)`
-        );
-        
-        const [budgets] = await pool.query(
-            `SELECT budgetId, budgetName, finYearId, departmentId FROM budgets WHERE voided = 0`
-        );
+        const orgPred = sqlMachakosDepartmentPredicate('d', 'm');
+        const deptResult = await pool.query(`
+            SELECT d."departmentId", d.name, d.alias
+            FROM departments d
+            LEFT JOIN ministries m ON m."ministryId" = d."ministryId"
+            WHERE COALESCE(d.voided::text, '0') IN ('0', 'false', 'f')
+              AND (${orgPred})
+        `);
+        const departments = deptResult.rows;
+
+        const [wardsRes, subRes, fyRes, budgetRes] = await Promise.all([
+            pool.query(
+                `SELECT "wardId", name, "subcountyId" FROM wards WHERE COALESCE(voided, false) = false`
+            ),
+            pool.query(
+                `SELECT "subcountyId", name FROM subcounties WHERE COALESCE(voided, false) = false`
+            ),
+            pool.query(
+                `SELECT "finYearId", "finYearName" FROM financialyears WHERE COALESCE(voided, false) = false`
+            ),
+            pool.query(
+                `SELECT "budgetId", "budgetName", "finYearId", "departmentId" FROM budgets WHERE COALESCE(voided, false) = false`
+            ),
+        ]);
+        const wards = wardsRes.rows;
+        const subcounties = subRes.rows;
+        const financialYears = fyRes.rows;
+        const budgets = budgetRes.rows;
         
         // Build name-to-ID maps with normalized keys
         const departmentMap = new Map(); // normalized name -> { departmentId, name }
