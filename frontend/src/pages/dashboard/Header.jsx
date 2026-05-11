@@ -4,6 +4,8 @@ import { tokens } from "./theme";
 const Header = ({ title, subtitle }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  /** Align subtitle with app primary (nav / actions); reserve green for success states in grids. */
+  const subtitleColor = theme.palette.primary.main;
   return (
     <Box display="flex" alignItems="baseline" gap={1} flexWrap="wrap">
       <Typography
@@ -19,10 +21,10 @@ const Header = ({ title, subtitle }) => {
           <Typography 
             component="span" 
             sx={{ 
-              color: colors.greenAccent[400], 
+              color: subtitleColor,
               fontSize: { xs: '0.7rem', sm: '0.8rem', md: '0.85rem' },
               fontWeight: 500,
-              opacity: 0.8
+              opacity: 0.75
             }}
           >
             •
@@ -30,11 +32,12 @@ const Header = ({ title, subtitle }) => {
           <Typography 
             component="span" 
             variant="h5" 
-            color={colors.greenAccent[400]} 
             sx={{ 
+              color: subtitleColor,
               fontSize: { xs: '0.7rem', sm: '0.8rem', md: '0.85rem' },
               fontWeight: 500,
-              lineHeight: 1.2
+              lineHeight: 1.2,
+              opacity: 0.92,
             }}
           >
             {subtitle}

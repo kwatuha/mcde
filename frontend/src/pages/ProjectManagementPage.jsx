@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Menu, MenuItem, ListItemIcon, Checkbox, ListItemText, Box, Typography, Button, CircularProgress, IconButton,
-  Snackbar, Alert, Stack, useTheme, Tooltip, Grid, Card, CardContent, TextField, InputAdornment, Chip,
+  Snackbar, Alert, Stack, useTheme, Tooltip, Grid, Card, CardContent, TextField, InputAdornment, Chip, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, ToggleButton, ToggleButtonGroup, Collapse,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
@@ -15,7 +15,7 @@ import {
   HourglassEmpty as HourglassIcon, AccountBalance as ContractedIcon, Payment as PaidIcon,
   Search as SearchIcon, Clear as ClearIcon, PlayArrow as PlayArrowIcon, Pause as PauseIcon,
   Warning as WarningIcon, Cancel as CancelIcon, Schedule as ScheduleIcon, CheckCircleOutline as CheckCircleOutlineIcon,
-  MoreVert as MoreVertIcon, LocationOn as LocationOnIcon, Refresh as RefreshIcon, Download as DownloadIcon,
+  MoreVert as MoreVertIcon, LocationOn as LocationOnIcon, Download as DownloadIcon,
   ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
@@ -133,12 +133,6 @@ function ProjectManagementPage() {
     } finally {
       setLoadingAll(false);
     }
-  };
-
-  // Handler to refresh projects
-  const handleRefresh = async () => {
-    setAllProjectsLoaded(false);
-    await fetchProjects(false); // Reload with limit
   };
 
   // Ensure column visibility model respects config defaults
@@ -1382,40 +1376,33 @@ function ProjectManagementPage() {
       case 'projectName':
         dataGridColumn.renderCell = (params) => {
           if (!params || !params.value) return 'N/A';
+          const text = String(params.value);
           return (
-            <Box
+            <Typography
+              component="div"
+              variant="body2"
+              title={text}
               sx={{
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                lineHeight: 1.4,
+                fontSize: '0.8125rem',
                 width: '100%',
-                minHeight: '36px',
-                display: 'flex',
-                alignItems: 'flex-start',
+                maxWidth: '100%',
+                minHeight: 36,
+                boxSizing: 'border-box',
                 py: 0.75,
                 px: 0.75,
-                maxWidth: '100%',
-                boxSizing: 'border-box',
                 overflow: 'visible',
+                textOverflow: 'clip',
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                cursor: 'text',
               }}
             >
-              <Typography
-                variant="body2"
-                sx={{
-                  whiteSpace: 'normal',
-                  wordWrap: 'break-word',
-                  overflowWrap: 'break-word',
-                  wordBreak: 'break-word',
-                  hyphens: 'auto',
-                  lineHeight: 1.4,
-                  fontSize: '0.8125rem', // Compact font size (13px)
-                  width: '100%',
-                  maxWidth: '100%',
-                  overflow: 'visible',
-                  textOverflow: 'clip',
-                  display: 'block',
-                }}
-              >
-                {params.value}
-              </Typography>
-            </Box>
+              {text}
+            </Typography>
           );
         };
         dataGridColumn.cellClassName = 'project-name-cell';
@@ -1899,28 +1886,6 @@ function ProjectManagementPage() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           {/* Action Buttons */}
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-            <Tooltip title="Refresh projects" arrow>
-              <IconButton 
-                size="small"
-                onClick={handleRefresh}
-                disabled={loading}
-                sx={{ 
-                  color: isLight ? colors.blueAccent[700] : colors.blueAccent[300],
-                  border: `1px solid ${isLight ? colors.blueAccent[300] : colors.blueAccent[600]}`,
-                  '&:hover': { 
-                    backgroundColor: isLight ? colors.blueAccent[50] : colors.blueAccent[700],
-                  },
-                  '&:disabled': {
-                    borderColor: isLight ? theme.palette.action.disabled : colors.grey[700],
-                    color: isLight ? theme.palette.action.disabled : colors.grey[500]
-                  },
-                  width: 32,
-                  height: 32,
-                }}
-              >
-                {loading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon sx={{ fontSize: 18 }} />}
-              </IconButton>
-            </Tooltip>
             {!allProjectsLoaded && projects.length >= 100 && (
               <Tooltip title="Load all projects" arrow>
                 <Button
@@ -1946,12 +1911,21 @@ function ProjectManagementPage() {
               </Tooltip>
             )}
             {checkUserPrivilege(user, 'project.create') && (
-              <Button 
-                variant="contained" 
-                size="small" 
-                startIcon={<AddIcon sx={{ fontSize: 16 }} />} 
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                startIcon={<AddIcon sx={{ fontSize: 16 }} />}
                 onClick={() => handleOpenFormDialog()}
-                sx={{ backgroundColor: isLight ? theme.palette.success.main : colors.greenAccent[600], '&:hover': { backgroundColor: isLight ? theme.palette.success.dark : colors.greenAccent[700] }, color: '#fff', fontSize: '0.75rem', py: 0.4, px: 1.25 }}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  py: 0.5,
+                  px: 1.5,
+                  boxShadow: 1,
+                  '&:hover': { boxShadow: 2 },
+                }}
               >
                 Add New Project
               </Button>
@@ -1961,14 +1935,15 @@ function ProjectManagementPage() {
                 <Tooltip title={exportingExcel ? 'Exporting...' : 'Export to Excel'} arrow>
                   <IconButton 
                     size="small"
+                    aria-label={exportingExcel ? 'Exporting to Excel' : 'Export to Excel'}
                     onClick={handleExportToExcel}
                     disabled={exportingExcel || exportingPdf || loading}
                     sx={{ 
-                      color: isLight ? '#276E4B' : colors.greenAccent[500], 
-                      border: `1px solid ${isLight ? '#276E4B' : colors.greenAccent[500]}`,
+                      color: isLight ? colors.blueAccent[700] : colors.blueAccent[300],
+                      border: `1px solid ${isLight ? colors.blueAccent[300] : colors.blueAccent[600]}`,
                       '&:hover': { 
-                        backgroundColor: isLight ? '#E8F5E9' : colors.greenAccent[600], 
-                        borderColor: isLight ? '#276E4B' : colors.greenAccent[400] 
+                        backgroundColor: isLight ? colors.blueAccent[50] : colors.blueAccent[700],
+                        borderColor: isLight ? colors.blueAccent[500] : colors.blueAccent[400],
                       },
                       '&:disabled': {
                         borderColor: isLight ? theme.palette.action.disabled : colors.grey[700],
@@ -1984,6 +1959,7 @@ function ProjectManagementPage() {
                 <Tooltip title={exportingPdf ? 'Generating PDF...' : 'Export to PDF'} arrow>
                   <IconButton 
                     size="small"
+                    aria-label={exportingPdf ? 'Generating PDF' : 'Export to PDF'}
                     onClick={handleExportToPDF}
                     disabled={exportingExcel || exportingPdf || loading}
                     sx={{ 
@@ -2007,6 +1983,16 @@ function ProjectManagementPage() {
               </>
             )}
           </Stack>
+          <Divider
+            orientation="vertical"
+            flexItem
+            sx={{
+              mx: 0.5,
+              alignSelf: 'stretch',
+              borderColor: isLight ? 'rgba(33, 150, 243, 0.2)' : colors.blueAccent[700],
+              display: { xs: 'none', sm: 'block' },
+            }}
+          />
           {/* Global Search Bar */}
           <TextField
             placeholder="Search projects..."
@@ -2034,7 +2020,8 @@ function ProjectManagementPage() {
               ),
             }}
             sx={{
-              width: { xs: '100%', sm: '200px', md: '250px' },
+              width: { xs: '100%', sm: '220px', md: '280px' },
+              minWidth: { sm: 180 },
               '& .MuiOutlinedInput-root': {
                 backgroundColor: isLight ? theme.palette.background.paper : colors.primary[500],
                 borderRadius: '6px',
@@ -2867,16 +2854,8 @@ function ProjectManagementPage() {
               const start = String(row?.startDate || row?.createdAt || '');
               return `noid-${name}-${start}`;
             }}
-            getRowHeight={(params) => {
-              // Calculate row height based on project name length (compact)
-              const projectName = params.row?.projectName || '';
-              const lineHeight = 18; // Compact line height in pixels
-              const padding = 12; // Reduced top and bottom padding
-              const minHeight = 36; // Compact minimum height
-              const estimatedLines = Math.ceil(projectName.length / 50); // Rough estimate: ~50 chars per line
-              const calculatedHeight = Math.max(minHeight, (estimatedLines * lineHeight) + padding);
-              return calculatedHeight;
-            }}
+            /* Measured row height so wrapped project names do not overlap the next row (fixes partial text selection). */
+            getRowHeight={() => 'auto'}
             columnVisibilityModel={{
               ...columnVisibilityModel,
               actions: true, // Always show actions column
@@ -2922,6 +2901,8 @@ function ProjectManagementPage() {
                 boxSizing: 'border-box !important',
                 position: 'relative !important',
                 zIndex: 'auto !important',
+                userSelect: 'text !important',
+                WebkitUserSelect: 'text !important',
                 '& .MuiDataGrid-cellContent': {
                   overflow: 'visible !important',
                   textOverflow: 'clip !important',
@@ -2930,6 +2911,8 @@ function ProjectManagementPage() {
                   wordBreak: 'break-word !important',
                   position: 'relative !important',
                   zIndex: 'auto !important',
+                  userSelect: 'text !important',
+                  WebkitUserSelect: 'text !important',
                 },
                 '&:hover': {
                   overflow: 'visible !important',
