@@ -4,7 +4,15 @@
  */
 
 const ADMIN_ROLE_IDS = new Set([1]);
-const ADMIN_ROLE_NAMES = new Set(['admin', 'mda_ict_admin', 'super_admin', 'administrator', 'ict_admin']);
+const ADMIN_ROLE_NAMES = new Set([
+  'admin',
+  'mda_ict_admin',
+  'super_admin',
+  'super_administrator',
+  'superadmin',
+  'administrator',
+  'ict_admin',
+]);
 const PROJECT_BY_SECTOR_ALLOWED_ROLES = new Set(['mda_ict_admin', 'super_admin']);
 
 export const normalizeRoleName = (roleName) =>

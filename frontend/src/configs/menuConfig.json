@@ -348,9 +348,13 @@
     {
       "id": "reports",
       "label": "Reports",
-      "labelTree": "Evaluation",
       "icon": "AssessmentIcon",
       "submenus": [
+        {
+          "title": "Reports hub",
+          "icon": "HubIcon",
+          "route": "REPORTS_HUB"
+        },
         {
           "title": "Report Library",
           "icon": "MenuBookIcon",

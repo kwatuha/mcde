@@ -45,7 +45,15 @@ export function findCategoryIdForPath(pathname, menuCategories) {
   return matchingCategoryIds[0];
 }
 
-const ADMIN_ROLE_NAMES = new Set(['admin', 'mda_ict_admin', 'super_admin', 'administrator', 'ict_admin']);
+const ADMIN_ROLE_NAMES = new Set([
+  'admin',
+  'mda_ict_admin',
+  'super_admin',
+  'super_administrator',
+  'superadmin',
+  'administrator',
+  'ict_admin',
+]);
 const EXECUTIVE_VIEWER_ROLE_NAMES = new Set(['executive_viewer', 'project_lead']);
 
 export const hasConfiguredRole = (user, roles) => {
@@ -101,6 +109,7 @@ export const ICON_MAP = {
   FactCheckIcon: () => import('@mui/icons-material/FactCheck').then(m => m.default),
   SpeedIcon: () => import('@mui/icons-material/Speed').then(m => m.default),
   ArticleIcon: () => import('@mui/icons-material/Article').then(m => m.default),
+  HubIcon: () => import('@mui/icons-material/Hub').then(m => m.default),
 };
 
 // Get icon component by name
@@ -179,6 +188,8 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
       if (category.id === 'finance') {
         return hasPrivilege && hasPrivilege('document.read_all');
       }
+      // Reports: same permission-filtered submenus as other roles (hub, library, etc.).
+      if (category.id === 'reports') return true;
       return false;
     })
     .map((category) => {
@@ -200,6 +211,10 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
             (!submenu.permission || (hasPrivilege && hasPrivilege(submenu.permission)))
         );
         return { ...category, submenus: filteredSubmenus };
+      }
+
+      if (category.id === 'reports') {
+        return { ...category, submenus: category.submenus || [] };
       }
 
       const filteredSubmenus = (category.submenus || [])

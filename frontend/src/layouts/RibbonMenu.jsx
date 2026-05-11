@@ -45,6 +45,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
 import SpeedIcon from '@mui/icons-material/Speed';
 import ArticleIcon from '@mui/icons-material/Article';
+import HubIcon from '@mui/icons-material/Hub';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -61,7 +62,7 @@ const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   management: 'BUDGET_MANAGEMENT',
   procurement: 'PROCUREMENT',
   monitoring: 'PROJECT_DOCUMENTS_BY_PROJECT',
-  reports: 'REPORT_LIBRARY',
+  reports: 'REPORTS_HUB',
   hr: 'HR_EMPLOYEES',
   public: 'PUBLIC_APPROVAL',
   admin: 'USER_MANAGEMENT',
@@ -114,6 +115,7 @@ const ICON_MAP = {
   ChecklistIcon,
   SpeedIcon,
   ArticleIcon,
+  HubIcon,
 };
 
 // Simple ribbon-like top menu with grouped actions - Click-based only, no hover switching

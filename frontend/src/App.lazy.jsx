@@ -24,6 +24,7 @@ const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
 const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
 const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage'));
+const ReportsHubPage = lazy(() => import('./pages/ReportsHubPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const ReportLibraryPage = lazy(() => import('./pages/ReportLibraryPage'));
 const PendingBillsReportPage = lazy(() => import('./pages/PendingBillsReportPage'));
@@ -203,6 +204,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/:projectId/photos',
         element: <LazyRoute component={ProjectPhotoManager} />,
+      },
+      {
+        path: 'reports-hub',
+        element: <LazyRoute component={ReportsHubPage} />,
       },
       {
         path: 'reports',

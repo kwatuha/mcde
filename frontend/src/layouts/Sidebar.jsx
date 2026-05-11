@@ -31,6 +31,8 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
+import HubIcon from '@mui/icons-material/Hub';
 import MapIcon from '@mui/icons-material/Map';
 import GroupIcon from '@mui/icons-material/Group';
 import AssignmentIcon from '@mui/icons-material/Assignment';
@@ -136,6 +138,7 @@ const ICON_MAP = {
   SpeedIcon,
   ArticleIcon,
   UpdateIcon,
+  HubIcon,
 };
 
 /** Tree sidebar tokens (panel/border from treeNavChrome.js). */
@@ -506,7 +509,8 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   ];
 
   const reportingItems = [
-    { title: "Reports", to: ROUTES.REPORTS, icon: <AssessmentIcon /> },
+    { title: "Reports hub", to: ROUTES.REPORTS_HUB, icon: <HubOutlinedIcon /> },
+    { title: "Project charts", to: ROUTES.REPORTS, icon: <AssessmentIcon /> },
     // { title: "Project Dashboards", to: ROUTES.REPORTING_OVERVIEW, icon: <AssessmentIcon /> }, // Hidden
     { title: "Regional Rpts", to: ROUTES.REGIONAL_DASHBOARD, icon: <AssessmentIcon /> },
     { title: "Regional Dashboards", to: ROUTES.REGIONAL_REPORTING, icon: <AssessmentIcon /> },

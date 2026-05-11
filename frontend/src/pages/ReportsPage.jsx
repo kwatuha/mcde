@@ -123,7 +123,7 @@ function ReportsPage() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" component="h1" gutterBottom sx={{ color: '#0A2342', fontWeight: 'bold' }}>
-        Project Reports
+        Project status charts
       </Typography>
 
       <Grid container spacing={3}>

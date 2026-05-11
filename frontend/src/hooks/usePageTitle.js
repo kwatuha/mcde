@@ -35,7 +35,8 @@ const routeTitles = {
   '/finance/payment-certificates': { title: 'Payment Certificates', subtitle: 'All projects' },
 
   // Reporting routes
-  '/reports': { title: 'Reports', subtitle: 'Analytics & Insights' },
+  '/reports-hub': { title: 'Reports hub', subtitle: 'Find reports & analytics' },
+  '/reports': { title: 'Project status charts', subtitle: 'Status & directorate distribution' },
   '/pending-bills-report': { title: 'Pending Bills Report', subtitle: 'Filter and download outstanding project bill balances' },
   '/budget-justification-report': { title: 'Budget Justification', subtitle: 'Filter projects and download justification template' },
   '/project-finance-overview': { title: 'Project Finance Overview', subtitle: 'Comprehensive financing and partner contribution analysis' },

@@ -86,6 +86,8 @@ export const ROUTES = {
     PROJECT_FEEDBACK_BY_PROJECT: '/projects/feedback-by-project',
     /** Public certificate verification (no login); same path when opened from the Projects menu while signed in. */
     VERIFY_CERTIFICATE: '/verify-certificate',
+    /** Curated index linking to existing report and analytics screens. */
+    REPORTS_HUB: '/reports-hub',
     REPORTS: '/reports',
     REPORT_LIBRARY: '/report-library',
     PENDING_BILLS_REPORT: '/pending-bills-report',

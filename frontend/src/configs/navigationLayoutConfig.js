@@ -27,18 +27,22 @@ export function readStoredNavigationLayoutMode() {
   return null;
 }
 
-/** Sidebar group order when using {@link NAV_LAYOUT_MODES.TREE} (CIMES-style: dashboard → planning → projects → finance → monitoring → evaluation …). */
+/**
+ * Sidebar / ribbon tab order. Reports sits near the end (before Admin): it is a hub of links to
+ * existing screens, not a primary daily workflow lane—same placement logic executives see when
+ * their menu is subset-filtered.
+ */
 export const TREE_MENU_CATEGORY_ORDER = [
   'dashboard',
   'management',
   'reporting',
   'finance',
   'monitoring',
-  'reports',
   'procurement',
   'data',
   'hr',
   'public',
+  'reports',
   'admin',
 ];
 

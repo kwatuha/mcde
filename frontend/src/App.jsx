@@ -25,6 +25,7 @@ import VerifyCertificatePage from './pages/VerifyCertificatePage';
 import ProjectDetailsPage from './pages/ProjectDetailsPage';
 import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
+import ReportsHubPage from './pages/ReportsHubPage';
 import ReportLibraryPage from './pages/ReportLibraryPage';
 import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
@@ -297,6 +298,10 @@ const router = createBrowserRouter([
       {
         path: 'projects/:projectId/photos',
         element: <ProjectPhotoManager />,
+      },
+      {
+        path: 'reports-hub',
+        element: <ReportsHubPage />,
       },
       {
         path: 'reports',
