@@ -43,6 +43,7 @@ import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
 import { ROUTES } from '../configs/appConfig';
 import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 // Import our new, compact components and hooks
 import Header from "./dashboard/Header"; // Import Header component
@@ -189,6 +190,21 @@ function ProjectManagementPage() {
       currentModel['actions'] = true;
       needsUpdate = true;
     }
+
+    // One-time migration for the newly added registry field. It was initially
+    // hidden, so existing browser preferences may otherwise keep it invisible.
+    if (localStorage.getItem('projectTableTenderContractNoVisibilityMigrated') !== 'true') {
+      currentModel['tenderContractNo'] = true;
+      localStorage.setItem('projectTableTenderContractNoVisibilityMigrated', 'true');
+      needsUpdate = true;
+    }
+
+    // Align existing saved preferences with the county reporting model.
+    if (localStorage.getItem('projectTableSubcountyVisibilityMigrated') !== 'true') {
+      currentModel['subcountyNames'] = true;
+      localStorage.setItem('projectTableSubcountyVisibilityMigrated', 'true');
+      needsUpdate = true;
+    }
     
     if (needsUpdate) {
       setColumnVisibilityModel(currentModel);
@@ -199,7 +215,10 @@ function ProjectManagementPage() {
   // State for global search (must be declared before filteredProjects)
   const [searchQuery, setSearchQuery] = useState('');
 
+  const appliedEditProjectFromQueryRef = useRef('');
+  const appliedSubcountyFromQueryRef = useRef('');
   const appliedWardFromQueryRef = useRef('');
+  const registryFieldsLoadedAllRef = useRef(false);
   const [wardGisFilterKey, setWardGisFilterKey] = useState(null);
   const [wardGisFilterLabel, setWardGisFilterLabel] = useState('');
 
@@ -223,6 +242,7 @@ function ProjectManagementPage() {
           project.constituencyNames || '',
           project.subcountyNames || '',
           project.wardNames || '',
+          project.tenderContractNo || '',
           project.directorate || '',
           project.sectionName || '',
           project.principalInvestigator || '',
@@ -258,10 +278,12 @@ function ProjectManagementPage() {
 
   // States for column visibility and menu
   const [columnVisibilityModel, setColumnVisibilityModel] = useState(() => {
-    // Default columns: Project Name, Status, Budget, Progress, Sites, Jobs, Actions (fits without horizontal scroll)
+    // Default columns: Project Name, Tender/Contract No, Status, Sub-county, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
+      'tenderContractNo',
       'status',
+      'subcountyNames',
       'costOfProject', // Budget
       'overallProgress', // Progress
       'coverageCount', // Sites
@@ -380,6 +402,65 @@ function ProjectManagementPage() {
     [registryFilters]
   );
 
+  useEffect(() => {
+    if (!statusOverviewExpanded || distributionView !== 'registry') return;
+    if (allProjectsLoaded || loadingAll || loading || authLoading) return;
+    if (registryFieldsLoadedAllRef.current) return;
+
+    registryFieldsLoadedAllRef.current = true;
+    setLoadingAll(true);
+    fetchProjects(true)
+      .then(() => {
+        setAllProjectsLoaded(true);
+      })
+      .catch((err) => {
+        registryFieldsLoadedAllRef.current = false;
+        console.error('Failed to load all projects for registry field filters:', err);
+      })
+      .finally(() => {
+        setLoadingAll(false);
+      });
+  }, [statusOverviewExpanded, distributionView, allProjectsLoaded, loadingAll, loading, authLoading, fetchProjects]);
+
+  useEffect(() => {
+    const raw = searchParams.get('subcounty');
+    const param = raw == null ? '' : String(raw).trim();
+    if (!param) {
+      appliedSubcountyFromQueryRef.current = '';
+      return;
+    }
+    if (loading || authLoading) return;
+
+    let decoded = param;
+    try {
+      decoded = decodeURIComponent(param);
+    } catch {
+      decoded = param;
+    }
+    const subcounty = decoded.trim();
+    if (!subcounty || appliedSubcountyFromQueryRef.current === subcounty) return;
+    appliedSubcountyFromQueryRef.current = subcounty;
+
+    setRegistryFilters((prev) => ({
+      ...prev,
+      subcountyNames: subcounty,
+      wardNames: '',
+    }));
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('subcounty');
+    setSearchParams(nextParams, { replace: true });
+
+    setLoadingAll(true);
+    fetchProjects(true)
+      .then(() => {
+        setAllProjectsLoaded(true);
+      })
+      .finally(() => {
+        setLoadingAll(false);
+      });
+  }, [searchParams, setSearchParams, loading, authLoading, fetchProjects]);
+
   const registryFilterSelectOptions = useMemo(() => {
     const src = Array.isArray(filteredProjects) ? filteredProjects : [];
     const dept = new Set();
@@ -387,11 +468,13 @@ function ProjectManagementPage() {
     const subcounty = new Set();
     const ward = new Set();
     src.forEach((p) => {
-      const d = String(p.departmentName || '').trim();
-      const a = String(p.departmentAlias || '').trim();
+      const d = String(p.departmentName || p.departmentname || p.ministry || '').trim();
+      const a = String(p.departmentAlias || p.departmentalias || '').trim();
       if (d) dept.add(d);
       if (a) dept.add(a);
-      const f = String(p.financialYearName || '').trim();
+      const f = String(
+        p.financialYearName || p.financialyearname || p.financialYear || p.finYearName || ''
+      ).trim();
       if (f) fy.add(f);
       splitLocationTokens(p.subcountyNames).forEach((x) => subcounty.add(x));
       splitLocationTokens(p.wardNames).forEach((x) => ward.add(x));
@@ -819,7 +902,14 @@ function ProjectManagementPage() {
         return false;
       }
       if (registryFilters.financialYearName) {
-        if (String(project.financialYearName || '').trim() !== registryFilters.financialYearName) return false;
+        const projectFinancialYear = String(
+          project.financialYearName ||
+            project.financialyearname ||
+            project.financialYear ||
+            project.finYearName ||
+            ''
+        ).trim();
+        if (projectFinancialYear !== registryFilters.financialYearName) return false;
       }
       if (
         registryFilters.subcountyNames &&
@@ -1132,6 +1222,44 @@ function ProjectManagementPage() {
     setCurrentProject(null);
   };
 
+  useEffect(() => {
+    const raw = searchParams.get('editProject');
+    const projectId = raw == null ? '' : String(raw).trim();
+    if (!projectId) {
+      appliedEditProjectFromQueryRef.current = '';
+      return;
+    }
+    if (loading || authLoading) return;
+    if (appliedEditProjectFromQueryRef.current === projectId) return;
+    appliedEditProjectFromQueryRef.current = projectId;
+
+    if (!checkUserPrivilege(user, 'project.update')) {
+      setSnackbar({ open: true, message: 'You do not have permission to edit projects.', severity: 'error' });
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const fullProjectData = await apiService.projects.getProjectById(projectId);
+        if (cancelled) return;
+        setCurrentProject(fullProjectData);
+        setOpenFormDialog(true);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('editProject');
+        setSearchParams(nextParams, { replace: true });
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Error opening project edit dialog from URL:', error);
+        setSnackbar({ open: true, message: 'Failed to load project for editing.', severity: 'error' });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, setSearchParams, loading, authLoading, user]);
+
   /* SCOPE_DOWN: Assign Contractor - contractors table removed. Re-enable when restoring. */
   const handleOpenAssignModal = (project) => {
     const pid = Number(project?.id ?? project?.projectId ?? project?.project_id);
@@ -1373,7 +1501,7 @@ function ProjectManagementPage() {
     }
   };
 
-  const handleExportToPDF = () => {
+  const handleExportToPDF = async () => {
     setExportingPdf(true);
     try {
       // Get visible columns (excluding actions)
@@ -1431,14 +1559,37 @@ function ProjectManagementPage() {
         });
       });
       
-      // Create PDF - use the same pattern as other report components
       const doc = new jsPDF('landscape', 'pt', 'a4');
-      
+      const logoDataUrl = await getCountyLogoDataUrl();
+      let startY = drawCountyOfficialHeader(doc, {
+        unit: 'pt',
+        margin: 40,
+        logoDataUrl,
+        title: 'Project Registry Export',
+      });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(80, 80, 80);
+      const exportedAt = new Date().toLocaleString();
+      const filterNotes = [];
+      if (searchQuery) filterNotes.push(`Search: ${searchQuery}`);
+      if (sectorRegistryClientFilter) filterNotes.push(`Sector: ${sectorRegistryClientFilter}`);
+      if (wardGisFilterKey) filterNotes.push(`Ward: ${wardGisFilterKey}`);
+      if (hasActiveRegistryFilters) filterNotes.push('Registry filters applied');
+      if (filterModel.items && filterModel.items.length > 0) filterNotes.push('Column filters applied');
+      doc.text(`Generated: ${exportedAt}`, 40, startY);
+      doc.text(`Records: ${projectsToExport.length}`, 40, startY + 12);
+      const filterText = filterNotes.length ? filterNotes.join(' | ') : 'All visible project records';
+      const splitFilterText = doc.splitTextToSize(`Filters: ${filterText}`, doc.internal.pageSize.getWidth() - 80);
+      doc.text(splitFilterText, 40, startY + 24);
+      startY += 24 + (splitFilterText.length * 10) + 8;
+
       // Use autoTable directly (jspdf-autotable v5+ requires passing doc as first parameter)
       autoTable(doc, {
         head: [headers],
         body: dataRows,
-        startY: 20,
+        startY,
         styles: { 
           fontSize: 8, 
           cellPadding: 2,
@@ -1446,12 +1597,22 @@ function ProjectManagementPage() {
           halign: 'left'
         },
         headStyles: { 
-          fillColor: [41, 128, 185], 
+          fillColor: [25, 118, 210], 
           textColor: 255, 
           fontStyle: 'bold' 
         },
         alternateRowStyles: { fillColor: [245, 245, 245] },
-        margin: { top: 20, left: 40, right: 40 },
+        margin: { top: 40, left: 40, right: 40 },
+        didDrawPage: (data) => {
+          doc.setFontSize(8);
+          doc.setTextColor(100, 100, 100);
+          doc.text(
+            `Page ${data.pageNumber}`,
+            doc.internal.pageSize.getWidth() - 40,
+            doc.internal.pageSize.getHeight() - 18,
+            { align: 'right' }
+          );
+        },
       });
       
       // Generate filename with current date
@@ -1482,10 +1643,11 @@ function ProjectManagementPage() {
   };
 
   const handleResetColumns = () => {
-    // Default columns: Project Name, Status, Budget, Progress, Sites, Jobs, Actions
+    // Default columns: Project Name, Status, Sub-county, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
       'status',
+      'subcountyNames',
       'costOfProject', // Budget
       'overallProgress', // Progress
       'coverageCount', // Sites
@@ -1769,6 +1931,28 @@ function ProjectManagementPage() {
         dataGridColumn.renderCell = (params) => {
           if (!params) return 'N/A';
           return !isNaN(parseFloat(params.value)) ? currencyFormatter.format(parseFloat(params.value)) : 'N/A';
+        };
+        break;
+      case 'tenderContractNo':
+        dataGridColumn.valueGetter = (value, row) => {
+          const sourceRow = row || value?.row || {};
+          return (
+            sourceRow.tenderContractNo ||
+            sourceRow.dataSources?.tender_contract_no ||
+            sourceRow.data_sources?.tender_contract_no ||
+            value?.value ||
+            value ||
+            ''
+          );
+        };
+        dataGridColumn.renderCell = (params) => {
+          const value =
+            params?.row?.tenderContractNo ||
+            params?.row?.dataSources?.tender_contract_no ||
+            params?.row?.data_sources?.tender_contract_no ||
+            params?.value ||
+            '';
+          return value ? String(value) : 'N/A';
         };
         break;
       case 'startDate':
@@ -3184,6 +3368,11 @@ function ProjectManagementPage() {
             }}
             pageSizeOptions={[10, 15, 25, 50, 100]}
             disableRowSelectionOnClick
+            onRowDoubleClick={(params, event) => {
+              if (event?.target?.closest?.('[data-field="actions"]')) return;
+              const projectId = params?.row?.id ?? params?.row?.project_id ?? params?.row?.projectId ?? params?.id;
+              handleViewDetails(projectId);
+            }}
             checkboxSelection={false}
             disableColumnSelector={false}
             disableDensitySelector={false}

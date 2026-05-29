@@ -1,13 +1,14 @@
 import { jsPDF } from 'jspdf';
-
-const countyName = () => import.meta.env.VITE_CERT_COUNTY_NAME || 'County Government';
+import {
+  drawCountyOfficialHeader,
+  getCountyLogoDataUrl,
+  getCountyOfficialName,
+} from './countyOfficialPdfHeader';
 
 const COL = {
   ink: [33, 37, 41],
   muted: [90, 98, 104],
   rule: [222, 226, 230],
-  banner: [241, 243, 245],
-  bannerBorder: [200, 206, 212],
 };
 
 /**
@@ -30,7 +31,7 @@ function drawFooterGeneratedDate(doc, margin, pageWidth, formatDate) {
  * @param {import('jspdf').jsPDF} doc
  * @param {object} feedback
  * @param {(s: string) => string} formatDate
- * @param {{ slimHeader?: boolean; reportTitle?: string; recordIndex?: number; recordTotal?: number }} [opts]
+ * @param {{ slimHeader?: boolean; reportTitle?: string; recordIndex?: number; recordTotal?: number; logoDataUrl?: string | null }} [opts]
  */
 function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
   const margin = 18;
@@ -42,7 +43,7 @@ function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
   const sectionGap = 8;
   const labelSize = 8.5;
   const valueSize = 10.5;
-  const { slimHeader = false, reportTitle, recordIndex, recordTotal } = opts;
+  const { slimHeader = false, reportTitle, recordIndex, recordTotal, logoDataUrl = null } = opts;
 
   const ensureSpace = (needed) => {
     if (y + needed > pageHeight - 22) {
@@ -61,38 +62,25 @@ function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
   };
 
   const writeBanner = () => {
-    const h = slimHeader ? 26 : 34;
-    ensureSpace(h + 6);
-    doc.setFillColor(...COL.banner);
-    doc.setDrawColor(...COL.bannerBorder);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(margin, y, maxWidth, h, 1.5, 1.5, 'FD');
-    let ty = y + (slimHeader ? 8 : 10);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(slimHeader ? 12 : 14);
-    doc.setTextColor(...COL.ink);
-    if (slimHeader) {
-      const idx =
-        recordIndex != null && recordTotal != null ? ` (${recordIndex + 1} of ${recordTotal})` : '';
-      doc.text(`Citizen feedback — Reference #${feedback.id}${idx}`, margin + 4, ty);
-      ty += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+    const idx =
+      slimHeader && recordIndex != null && recordTotal != null ? ` (${recordIndex + 1} of ${recordTotal})` : '';
+    y = drawCountyOfficialHeader(doc, {
+      unit: 'mm',
+      startY: y,
+      margin,
+      logoDataUrl,
+      title: slimHeader
+        ? `Citizen Feedback - Reference #${feedback.id}${idx}`
+        : 'Official County Feedback Record',
+    });
+    if (slimHeader && reportTitle) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.5);
       doc.setTextColor(...COL.muted);
-      if (reportTitle) {
-        doc.text(String(reportTitle), margin + 4, ty);
-      }
-    } else {
-      doc.text('Official county feedback record', margin + 4, ty);
-      ty += 7;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(...COL.muted);
-      doc.text(countyName(), margin + 4, ty);
+      doc.text(String(reportTitle), margin, y);
+      y += 6;
+      doc.setTextColor(...COL.ink);
     }
-    doc.setTextColor(...COL.ink);
-    y += h + 10;
-    hr();
   };
 
   const writeField = (label, value) => {
@@ -119,7 +107,7 @@ function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
 
   writeBanner();
 
-  writeField('Issuing office', countyName());
+  writeField('Issuing office', getCountyOfficialName());
   writeField('Feedback ID', `#${feedback.id}`);
   writeField('Submitted', formatDate(feedback.created_at));
   if (feedback.project_name) {
@@ -147,26 +135,24 @@ function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
   drawFooterGeneratedDate(doc, margin, pageWidth, formatDate);
 }
 
-function drawExportCover(doc, reportTitle, itemCount, formatDate) {
+function drawExportCover(doc, reportTitle, itemCount, formatDate, logoDataUrl) {
   const margin = 22;
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  let y = 40;
-  doc.setFillColor(...COL.banner);
-  doc.setDrawColor(...COL.bannerBorder);
-  doc.roundedRect(margin, y - 8, pageWidth - margin * 2, 52, 2, 2, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(...COL.ink);
-  doc.text('Citizen feedback export', margin + 6, y + 10);
+  let y = drawCountyOfficialHeader(doc, {
+    unit: 'mm',
+    startY: 12,
+    margin,
+    logoDataUrl,
+    title: 'Citizen Feedback Export',
+  });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.setTextColor(...COL.muted);
-  doc.text(countyName(), margin + 6, y + 22);
   doc.setFontSize(10);
-  doc.text(`Report: ${reportTitle || 'Export'}`, margin + 6, y + 32);
-  doc.text(`Items included: ${itemCount}`, margin + 6, y + 40);
-  y += 58;
+  doc.setTextColor(...COL.ink);
+  doc.text(`Report: ${reportTitle || 'Export'}`, margin, y);
+  y += 7;
+  doc.text(`Items included: ${itemCount}`, margin, y);
+  y += 7;
   doc.setTextColor(...COL.ink);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
@@ -177,19 +163,21 @@ function drawExportCover(doc, reportTitle, itemCount, formatDate) {
 /**
  * Single feedback — one file.
  */
-export function downloadFeedbackOfficialResponsePdf(feedback, formatDate) {
+export async function downloadFeedbackOfficialResponsePdf(feedback, formatDate) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  appendFeedbackOfficialContent(doc, feedback, formatDate, { slimHeader: false });
+  const logoDataUrl = await getCountyLogoDataUrl();
+  appendFeedbackOfficialContent(doc, feedback, formatDate, { slimHeader: false, logoDataUrl });
   doc.save(`feedback-official-response-${feedback.id}.pdf`);
 }
 
 /**
  * All items currently shown in a modal — cover + one page per feedback.
  */
-export function downloadFeedbackListOfficialPdf(items, formatDate, reportTitle) {
+export async function downloadFeedbackListOfficialPdf(items, formatDate, reportTitle) {
   if (!items?.length) return;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  drawExportCover(doc, reportTitle, items.length, formatDate);
+  const logoDataUrl = await getCountyLogoDataUrl();
+  drawExportCover(doc, reportTitle, items.length, formatDate, logoDataUrl);
   items.forEach((feedback, index) => {
     doc.addPage();
     appendFeedbackOfficialContent(doc, feedback, formatDate, {
@@ -197,6 +185,7 @@ export function downloadFeedbackListOfficialPdf(items, formatDate, reportTitle) 
       reportTitle: reportTitle || 'Export',
       recordIndex: index,
       recordTotal: items.length,
+      logoDataUrl,
     });
   });
   const slug = String(reportTitle || 'export')

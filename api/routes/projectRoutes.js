@@ -315,6 +315,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.progress->>'status_reason' AS "statusReason",
                 p.progress->>'latest_update_summary' AS "progressSummary",
                 p.data_sources->>'project_ref_num' AS "ProjectRefNum",
+                p.data_sources->>'tender_contract_no' AS "tenderContractNo",
                 (p.budget->>'contracted')::boolean AS "Contracted",
                 p.created_at AS "createdAt",
                 p.updated_at AS "updatedAt",
@@ -331,7 +332,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.state_department AS "sectionName",
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
-                NULL AS "financialYearName",
+                p.timeline->>'financial_year' AS "financialYearName",
                 (p.notes->>'program_id')::integer AS "programId",
                 NULL AS "programName",
                 (p.notes->>'subprogram_id')::integer AS "subProgramId",
@@ -354,6 +355,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 (p.progress->>'percentage_complete')::numeric AS "overallProgress",
                 (p.budget->>'budget_id')::integer AS "budgetId",
                 p.location->>'county' AS "county",
+                p.location->>'subcounty' AS "subcounty",
                 p.location->>'constituency' AS "constituency",
                 p.location->>'ward' AS "ward",
                 (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
@@ -490,6 +492,7 @@ const projectHeaderMap = {
     'sub-county': ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county'],
     ward: ['ward', 'wardname', 'wardid', 'ward name'],
     Contracted: ['contracted', 'contractamount', 'contractedamount', 'contractsum', 'contract value', 'contract value (kes)'],
+    TenderContractNo: ['tendercontractno', 'tendercontractnumber', 'tenderno', 'tendernumber', 'contractno', 'contractnumber', 'tender contract no', 'tender/contract no', 'tender / contract no'],
     StartDate: ['startdate', 'projectstartdate', 'commencementdate', 'start', 'start date', 'start date yyyymmdd', 'startdateyyyymmdd'],
     EndDate: ['enddate', 'projectenddate', 'completiondate', 'end', 'end date', 'expected completion date yyyymmdd', 'expectedcompletiondate', 'expectedcompletiondateyyyymmdd'],
     // New columns from projects_upload_template.xlsx - include exact header names
@@ -2156,9 +2159,14 @@ router.post('/confirm-import-data', async (req, res) => {
             const existing = existingDataSourcesResult.rows[0].data_sources;
             if (existing.created_by_user_id) dataSourcesObj.created_by_user_id = existing.created_by_user_id;
             if (existing.project_ref_num) dataSourcesObj.project_ref_num = existing.project_ref_num;
+            if (existing.tender_contract_no) dataSourcesObj.tender_contract_no = existing.tender_contract_no;
             if (existing.sources && Array.isArray(existing.sources)) {
                 dataSourcesObj.sources = existing.sources;
             }
+        }
+        if (projectPayload.tenderContractNo !== undefined) {
+            const tenderContractNo = String(projectPayload.tenderContractNo || '').trim();
+            dataSourcesObj.tender_contract_no = tenderContractNo || null;
         }
         // Add new data sources if provided
         if (projectPayload.dataSources && Array.isArray(projectPayload.dataSources) && projectPayload.dataSources.length > 0) {
@@ -2506,6 +2514,7 @@ router.post('/confirm-import-data', async (req, res) => {
                     sectionId: (sectionId != null && !isNaN(sectionId)) ? sectionId : null, // Store sectionId when directorate is resolved
                     departmentId: (departmentId != null && !isNaN(departmentId)) ? departmentId : null,
                     Contracted: toMoney(row.Contracted),
+                    tenderContractNo: normalizeStr(row.TenderContractNo || row.tenderContractNo) || null,
                     // New fields from projects_upload_template.xlsx
                     budgetSource: normalizeStr(row.BudgetSource || row.budgetSource) || null,
                     percentageComplete: toNumber(row.PercentageComplete || row.percentageComplete),
@@ -2655,7 +2664,8 @@ router.post('/confirm-import-data', async (req, res) => {
                         // Build data_sources JSONB - include imported data sources if provided
                         const dataSourcesObj = {
                             created_by_user_id: 1, // TODO: Get from authenticated user
-                            project_ref_num: null
+                            project_ref_num: null,
+                            tender_contract_no: projectPayload.tenderContractNo || null
                         };
                         // If dataSources array is provided, add it to the object
                         if (projectPayload.dataSources && Array.isArray(projectPayload.dataSources) && projectPayload.dataSources.length > 0) {
@@ -4270,6 +4280,7 @@ router.get('/', async (req, res) => {
                 p.progress->>'status_reason' AS "statusReason",
                 p.progress->>'latest_update_summary' AS "progressSummary",
                 p.data_sources->>'project_ref_num' AS "ProjectRefNum",
+                p.data_sources->>'tender_contract_no' AS "tenderContractNo",
                 (p.budget->>'contracted')::boolean AS "Contracted",
                 p.created_at AS "createdAt",
                 p.updated_at AS "updatedAt",
@@ -4279,14 +4290,14 @@ router.get('/', async (req, res) => {
                 NULL AS piLastName,
                 NULL AS piEmail,
                 NULL AS "departmentId",
-                p.ministry AS departmentName,
+                p.ministry AS "departmentName",
                 p.ministry AS "ministry",
-                NULL AS departmentAlias,
+                NULL AS "departmentAlias",
                 NULL AS "sectionId",
-                p.state_department AS sectionName,
+                p.state_department AS "sectionName",
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
-                NULL AS financialYearName,
+                p.timeline->>'financial_year' AS "financialYearName",
                 (p.notes->>'program_id')::integer AS "programId",
                 NULL AS programName,
                 (p.notes->>'subprogram_id')::integer AS "subProgramId",
@@ -5873,9 +5884,11 @@ router.post('/', validateProject, async (req, res) => {
                     subProgramId,
                     overallProgress,
                     county,
+                    subcounty,
                     constituency,
                     ward,
                     budgetSource,
+                    tenderContractNo,
                     progressSummary,
                     latitude,
                     longitude,
@@ -5914,8 +5927,13 @@ router.post('/', validateProject, async (req, res) => {
                     subprogram_id: subProgramId || null
                 });
 
+                const normalizedTenderContractNo = tenderContractNo && String(tenderContractNo).trim() !== ''
+                    ? String(tenderContractNo).trim()
+                    : null;
+
                 const dataSources = JSON.stringify({
                     project_ref_num: ProjectRefNum || null,
+                    tender_contract_no: normalizedTenderContractNo,
                     created_by_user_id: userId
                 });
 
@@ -5934,6 +5952,7 @@ router.post('/', validateProject, async (req, res) => {
 
                 const location = JSON.stringify({
                     county: county && county.trim() !== '' ? county.trim() : null,
+                    subcounty: subcounty && subcounty.trim() !== '' ? subcounty.trim() : null,
                     constituency: constituency && constituency.trim() !== '' ? constituency.trim() : null,
                     ward: ward && ward.trim() !== '' ? ward.trim() : null,
                     geocoordinates: {
@@ -6178,9 +6197,11 @@ router.put('/:id', validateProject, async (req, res) => {
                 subProgramId,
                 overallProgress,
                 county,
+                subcounty,
                 constituency,
                 ward,
                 budgetSource,
+                tenderContractNo,
                 progressSummary,
                 latitude,
                 longitude,
@@ -6227,6 +6248,9 @@ router.put('/:id', validateProject, async (req, res) => {
                 const trimmed = text.trim();
                 return trimmed === '' ? null : trimmed;
             };
+            const normalizedTenderContractNo = tenderContractNo !== undefined
+                ? normalizeOptionalText(tenderContractNo)
+                : (existingDataSources.tender_contract_no || null);
 
             // Convert empty strings to null for dates
             const normalizedStartDate = startDate !== undefined 
@@ -6271,6 +6295,7 @@ router.put('/:id', validateProject, async (req, res) => {
 
             const dataSources = JSON.stringify({
                 project_ref_num: ProjectRefNum !== undefined ? ProjectRefNum : (existingDataSources.project_ref_num || null),
+                tender_contract_no: normalizedTenderContractNo,
                 created_by_user_id: existingDataSources.created_by_user_id || 1
             });
 
@@ -6296,9 +6321,10 @@ router.put('/:id', validateProject, async (req, res) => {
                     : (existingPublicEngagement.common_feedback ?? null)
             });
 
-            // Build location JSONB object with county, constituency, ward, and geocoordinates
+            // Build location JSONB object with county, sub-county, ward, and geocoordinates
             const location = JSON.stringify({
                 county: county !== undefined ? normalizeOptionalText(county) : (existingLocation.county || null),
+                subcounty: subcounty !== undefined ? normalizeOptionalText(subcounty) : (existingLocation.subcounty || null),
                 constituency: constituency !== undefined ? normalizeOptionalText(constituency) : (existingLocation.constituency || null),
                 ward: ward !== undefined ? normalizeOptionalText(ward) : (existingLocation.ward || null),
                 geocoordinates: {

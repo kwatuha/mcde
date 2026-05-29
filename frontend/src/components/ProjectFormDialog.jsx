@@ -40,10 +40,10 @@ const ProjectFormDialog = ({
 
   // State for Kenya wards dropdowns
   const [counties, setCounties] = useState([]);
-  const [constituencies, setConstituencies] = useState([]);
+  const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
   const [loadingCounties, setLoadingCounties] = useState(false);
-  const [loadingConstituencies, setLoadingConstituencies] = useState(false);
+  const [loadingSubcounties, setLoadingSubcounties] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
 
   /** GET /ministries — cabinet / parent org names for projects */
@@ -127,64 +127,64 @@ const ProjectFormDialog = ({
     };
   }, [open]);
 
-  // Fetch constituencies when county changes
+  // Fetch sub-counties when county changes
   useEffect(() => {
     if (!open) return;
     
-    const fetchConstituencies = async () => {
+    const fetchSubcounties = async () => {
       if (!formData.county) {
-        setConstituencies([]);
+        setSubcounties([]);
         setWards([]);
-        // Clear constituency and ward when county is cleared
-        if (formData.constituency || formData.ward) {
+        // Clear sub-county and ward when county is cleared
+        if (formData.subcounty || formData.ward) {
           // Use a ref to avoid infinite loops - update formData directly via setFormData if available
           // For now, just clear the local state
         }
         return;
       }
-      setLoadingConstituencies(true);
+      setLoadingSubcounties(true);
       try {
-        const data = await apiService.kenyaWards.getConstituenciesByCounty(formData.county);
-        setConstituencies(data);
-        // Clear constituency and ward when county changes - use a flag to prevent re-triggering
-        const hadConstituency = formData.constituency;
+        const data = await apiService.kenyaWards.getSubcounties(formData.county);
+        setSubcounties(data);
+        // Clear sub-county and ward when county changes - use a flag to prevent re-triggering
+        const hadSubcounty = formData.subcounty;
         const hadWard = formData.ward;
-        if (hadConstituency || hadWard) {
+        if (hadSubcounty || hadWard) {
           // Update formData directly to avoid triggering handleChange which might cause loops
           // We'll let the parent handle this through the formData prop
         }
       } catch (error) {
-        console.error('Error fetching constituencies:', error);
+        console.error('Error fetching sub-counties:', error);
         // Only show error if dialog is open and user is interacting
         if (open) {
           setSnackbar({ 
             open: true, 
-            message: 'Failed to load constituencies. Please try again.', 
+            message: 'Failed to load sub-counties. Please try again.', 
             severity: 'error' 
           });
         }
       } finally {
-        setLoadingConstituencies(false);
+        setLoadingSubcounties(false);
       }
     };
-    fetchConstituencies();
+    fetchSubcounties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.county, open]);
 
-  // Fetch wards when constituency changes
+  // Fetch wards when sub-county changes
   useEffect(() => {
     if (!open) return;
     
     const fetchWards = async () => {
-      if (!formData.constituency) {
+      if (!formData.subcounty) {
         setWards([]);
         return;
       }
       setLoadingWards(true);
       try {
-        const data = await apiService.kenyaWards.getWardsByConstituency(formData.constituency);
+        const data = await apiService.kenyaWards.getWardsBySubcounty(formData.subcounty);
         setWards(data);
-        // Don't clear ward here - let user keep their selection if they change constituency back
+        // Don't clear ward here - let user keep their selection if they change sub-county back
       } catch (error) {
         console.error('Error fetching wards:', error);
         // Only show error if dialog is open
@@ -201,7 +201,7 @@ const ProjectFormDialog = ({
     };
     fetchWards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.constituency, open]);
+  }, [formData.subcounty, open]);
 
   // Format currency
   const formatCurrency = (amount) => {
@@ -662,7 +662,7 @@ const ProjectFormDialog = ({
             Geographical Coverage
           </Typography>
           <Grid container spacing={1.5}>
-            {/* Searchable dropdowns for County, Constituency, Ward */}
+            {/* Searchable dropdowns for County, Sub-county, Ward */}
             <Grid item xs={12} sm={4}>
               <Autocomplete
                 options={counties}
@@ -670,10 +670,10 @@ const ProjectFormDialog = ({
                 onChange={(event, newValue) => {
                   const newCounty = newValue || '';
                   handleChange({ target: { name: 'county', value: newCounty } });
-                  // Clear constituency and ward if county changes
+                  // Clear sub-county and ward if county changes
                   if (newCounty !== formData.county) {
-                    if (formData.constituency) {
-                      handleChange({ target: { name: 'constituency', value: '' } });
+                    if (formData.subcounty) {
+                      handleChange({ target: { name: 'subcounty', value: '' } });
                     }
                     if (formData.ward) {
                       handleChange({ target: { name: 'ward', value: '' } });
@@ -719,28 +719,28 @@ const ProjectFormDialog = ({
             </Grid>
             <Grid item xs={12} sm={4}>
               <Autocomplete
-                options={constituencies}
-                value={formData.constituency || null}
+                options={subcounties}
+                value={formData.subcounty || null}
                 onChange={(event, newValue) => {
-                  const newConstituency = newValue || '';
-                  handleChange({ target: { name: 'constituency', value: newConstituency } });
-                  // Clear ward if constituency changes
-                  if (newConstituency !== formData.constituency && formData.ward) {
+                  const newSubcounty = newValue || '';
+                  handleChange({ target: { name: 'subcounty', value: newSubcounty } });
+                  // Clear ward if sub-county changes
+                  if (newSubcounty !== formData.subcounty && formData.ward) {
                     handleChange({ target: { name: 'ward', value: '' } });
                   }
                 }}
-                loading={loadingConstituencies}
+                loading={loadingSubcounties}
                 disabled={!formData.county}
                 freeSolo
                 sx={{ minWidth: 200 }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    name="constituency"
-                    label="Constituency"
+                    name="subcounty"
+                    label="Sub-county"
                     variant="outlined"
                     size="small"
-                    placeholder={formData.county ? "Search or select constituency" : "Select county first"}
+                    placeholder={formData.county ? "Search or select sub-county" : "Select county first"}
                     sx={{
                       minWidth: 200,
                       '& .MuiOutlinedInput-root': {
@@ -787,7 +787,7 @@ const ProjectFormDialog = ({
                   handleChange({ target: { name: 'ward', value } });
                 }}
                 loading={loadingWards}
-                disabled={!formData.constituency}
+                disabled={!formData.subcounty}
                 freeSolo
                 sx={{ minWidth: 200 }}
                 renderInput={(params) => (
@@ -797,7 +797,7 @@ const ProjectFormDialog = ({
                     label="Ward"
                     variant="outlined"
                     size="small"
-                    placeholder={formData.constituency ? "Search or select ward" : "Select constituency first"}
+                    placeholder={formData.subcounty ? "Search or select ward" : "Select sub-county first"}
                     sx={{
                       minWidth: 200,
                       '& .MuiOutlinedInput-root': {
@@ -939,6 +939,44 @@ const ProjectFormDialog = ({
                 onChange={handleChange}
                 placeholder="e.g., Government of Kenya, Private Sector Investment"
                 helperText="Source of project funding"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': {
+                      borderColor: colors.blueAccent[600],
+                      borderWidth: '2px',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: colors.blueAccent[500],
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: colors.greenAccent[500],
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                    fontWeight: 'bold',
+                  },
+                  '& .MuiInputBase-input': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                  },
+                }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <TextField
+                name="tenderContractNo"
+                label="Tender/Contract No"
+                type="text"
+                fullWidth
+                variant="outlined"
+                size="small"
+                value={formData.tenderContractNo || ''}
+                onChange={handleChange}
+                placeholder="e.g., KSM/FIN/ONT/001/2026"
+                helperText="Tender or contract reference number"
+                inputProps={{ maxLength: 120 }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     '& fieldset': {

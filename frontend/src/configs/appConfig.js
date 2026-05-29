@@ -157,6 +157,7 @@ export const ROUTES = {
     JOBS_DASHBOARD: '/jobs-dashboard', // ✨ NEW: Jobs & Impact Dashboard route
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
     FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
+    FINANCE_FUNDING_SOURCES_REPORT: '/finance/funding-sources-report',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',
     PROJECTS_UPLOAD_LOG: '/data-upload-log',

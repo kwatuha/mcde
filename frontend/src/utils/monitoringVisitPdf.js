@@ -1,14 +1,11 @@
 import { jsPDF } from 'jspdf';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from './countyOfficialPdfHeader';
 
 const COL = {
   ink: [33, 37, 41],
   muted: [90, 98, 104],
   rule: [222, 226, 230],
-  banner: [241, 243, 245],
-  bannerBorder: [200, 206, 212],
 };
-
-const countyName = () => import.meta.env.VITE_CERT_COUNTY_NAME || 'County Government';
 
 function normalizeAnswer(item, value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -21,13 +18,19 @@ function normalizeAnswer(item, value) {
   return String(value);
 }
 
-export function downloadMonitoringVisitPdf({ submission, template, projectName }) {
+export async function downloadMonitoringVisitPdf({ submission, template, projectName }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const margin = 16;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const maxWidth = pageWidth - margin * 2;
-  let y = margin;
+  let y = drawCountyOfficialHeader(doc, {
+    unit: 'mm',
+    startY: 12,
+    margin,
+    logoDataUrl: await getCountyLogoDataUrl(),
+    title: 'Standalone Monitoring Visit',
+  });
 
   const ensureSpace = (needed) => {
     if (y + needed > pageHeight - 15) {
@@ -65,19 +68,6 @@ export function downloadMonitoringVisitPdf({ submission, template, projectName }
     doc.line(margin, y, pageWidth - margin, y);
     y += 6;
   };
-
-  doc.setFillColor(...COL.banner);
-  doc.setDrawColor(...COL.bannerBorder);
-  doc.roundedRect(margin, y, maxWidth, 24, 1.5, 1.5, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(...COL.ink);
-  doc.text('Standalone Monitoring Visit', margin + 4, y + 8);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(...COL.muted);
-  doc.text(countyName(), margin + 4, y + 14);
-  y += 30;
 
   writeLabelValue('Project', projectName || (submission?.projectId != null ? `Project #${submission.projectId}` : '—'));
   writeLabelValue('Visit date', submission?.visitDate ? String(submission.visitDate).slice(0, 10) : '—');

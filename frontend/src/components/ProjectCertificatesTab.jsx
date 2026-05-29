@@ -1,4 +1,4 @@
-import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   Alert,
@@ -38,10 +38,9 @@ import projectService from '../api/projectService';
 import { useAuth } from '../context/AuthContext.jsx';
 import ApprovalWorkflowPanel from './approval/ApprovalWorkflowPanel.jsx';
 import { workflowChipProps, workflowDetailLine } from '../utils/certificateWorkflowDisplay.js';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-/** Same emblem as the login page (county / GPRIS branding). */
-import countyLogoUrl from '../assets/gpris.png';
 
 const CERTIFICATE_TYPES = [
   'Interim Payment Certificate',
@@ -154,8 +153,6 @@ const CERTIFICATE_APPROVAL_ENTITY = 'project_certificate';
 
 const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const { user } = useAuth();
-  /** Data URL for jsPDF `addImage` (preloaded from bundled asset). */
-  const countyLogoDataUrlRef = useRef(null);
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -218,29 +215,6 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   useEffect(() => {
     loadCertificates();
   }, [loadCertificates]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(countyLogoUrl);
-        if (!res.ok || cancelled) return;
-        const blob = await res.blob();
-        const dataUrl = await new Promise((resolve, reject) => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(fr.result);
-          fr.onerror = reject;
-          fr.readAsDataURL(blob);
-        });
-        if (!cancelled) countyLogoDataUrlRef.current = dataUrl;
-      } catch {
-        /* PDF works without logo */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const loadBqItems = async () => {
@@ -486,35 +460,15 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const ccRecipients = String(d.ccRecipients || '').trim();
     const clientMinistry = String(d.clientMinistry || '').trim();
 
-    let y = 32;
-    const logoData = countyLogoDataUrlRef.current;
-    if (logoData) {
-      const lw = 68;
-      const lh = 68;
-      const lx = (pageWidth - lw) / 2;
-      try {
-        doc.addImage(logoData, 'PNG', lx, y, lw, lh);
-        y += lh + 12;
-      } catch {
-        y = 40;
-      }
-    } else {
-      y = 40;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('REPUBLIC OF KENYA', pageWidth / 2, y, { align: 'center' });
-    y += 18;
-    doc.text(d.countyName || CERT_DEFAULTS.countyName || 'COUNTY GOVERNMENT', pageWidth / 2, y, { align: 'center' });
-    y += 18;
-    doc.text(
-      (d.issuingMinistry || 'MINISTRY / DEPARTMENT').toUpperCase(),
-      pageWidth / 2,
-      y,
-      { align: 'center' }
-    );
-    y += 16;
+    let y = drawCountyOfficialHeader(doc, {
+      unit: 'pt',
+      startY: 32,
+      margin: 0,
+      countyName: d.countyName || CERT_DEFAULTS.countyName,
+      departmentName: d.issuingMinistry,
+      fallbackDepartmentName: 'MINISTRY / DEPARTMENT',
+      logoDataUrl: await getCountyLogoDataUrl(),
+    });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);

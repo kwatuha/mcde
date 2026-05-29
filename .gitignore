@@ -20,7 +20,8 @@ deploy/.env.deploy
 deploy/.env.deploy.db
 scripts/deploy-procurement-workflow.sh
 scripts/export-procurement-and-rbac-pg.sh
-
+docs/
+newDocs/
 
 
 

@@ -11,6 +11,7 @@ const projectTableColumns = [
   { id: 'costOfProject', label: 'Budget', minWidth: 110, width: 120, show: true, sortable: true },
   { id: 'Contracted', label: 'Contracted', minWidth: 110, show: false, sortable: true },
   { id: 'paidOut', label: 'Disbursed', minWidth: 100, show: false, sortable: true },
+  { id: 'tenderContractNo', label: 'Tender No', minWidth: 130, show: true, sortable: true },
   { id: 'overallProgress', label: 'Progress', minWidth: 120, width: 130, show: true, sortable: true },
   { id: 'coverageCount', label: 'Sites', minWidth: 70, width: 80, show: true, sortable: true },
   { id: 'jobsCount', label: 'Jobs', minWidth: 70, width: 80, show: true, sortable: true },
@@ -21,7 +22,7 @@ const projectTableColumns = [
   { id: 'financialYearName', label: 'Fin. Year', minWidth: 125, show: false, sortable: true },
   { id: 'programName', label: 'Program', minWidth: 150, show: false, sortable: true },
   { id: 'subProgramName', label: 'Sub-Program', minWidth: 150, show: false, sortable: true },
-  { id: 'subcountyNames', label: 'Sub-County', minWidth: 160, show: false, sortable: false },
+  { id: 'subcountyNames', label: 'Sub-County', minWidth: 160, show: true, sortable: false },
   { id: 'principalInvestigator', label: 'Project Manager', minWidth: 150, show: false, sortable: true },
   { id: 'actions', label: 'Actions', minWidth: 72, width: 80, show: true, sticky: 'right', sortable: false },
 ];

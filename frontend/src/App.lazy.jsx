@@ -30,6 +30,7 @@ const ReportLibraryPage = lazy(() => import('./pages/ReportLibraryPage'));
 const PendingBillsReportPage = lazy(() => import('./pages/PendingBillsReportPage'));
 const BudgetJustificationReportPage = lazy(() => import('./pages/BudgetJustificationReportPage'));
 const ProjectFinanceOverviewPage = lazy(() => import('./pages/ProjectFinanceOverviewPage'));
+const FundingSourcesReportPage = lazy(() => import('./pages/FundingSourcesReportPage'));
 const ScheduledReportsPage = lazy(() => import('./pages/ScheduledReportsPage'));
 const DataCollectionToolsPage = lazy(() => import('./pages/DataCollectionToolsPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
@@ -136,6 +137,10 @@ const router = createBrowserRouter([
       {
         path: 'finance/payment-certificates',
         element: <LazyRoute component={PaymentCertificatesPage} />,
+      },
+      {
+        path: 'finance/funding-sources-report',
+        element: <LazyRoute component={FundingSourcesReportPage} />,
       },
       {
         path: 'projects',

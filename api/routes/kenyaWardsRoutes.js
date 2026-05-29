@@ -312,27 +312,36 @@ router.get('/wards', async (req, res) => {
  */
 router.get('/subcounties', async (req, res) => {
     try {
+        const county = req.query.county != null ? String(req.query.county).trim() : '';
         const hasSub = await getKenyaWardsSubcountyColumnExists();
         const params = [];
         let countyClause = '';
         if (WARDS_COUNTY_SCOPE) {
             countyClause = ` AND county ILIKE $${params.length + 1}`;
             params.push(`%${WARDS_COUNTY_SCOPE}%`);
+        } else if (county) {
+            countyClause = ` AND county ILIKE $${params.length + 1}`;
+            params.push(`%${county}%`);
         }
 
-        const col = hasSub ? 'subcounty' : 'division';
+        const selectList = hasSub
+            ? 'iebc_ward_name, division, county, subcounty'
+            : 'iebc_ward_name, division, county';
         const result = await pool.query(
-            `SELECT DISTINCT TRIM(${col}) AS sc
+            `SELECT ${selectList}
             FROM kenya_wards
             WHERE voided = false
-              AND ${col} IS NOT NULL
-              AND TRIM(${col}) <> ''
             ${countyClause}
-            ORDER BY sc ASC`,
+            ORDER BY county ASC, division ASC, iebc_ward_name ASC`,
             params
         );
 
-        const names = result.rows.map((row) => row.sc).filter(Boolean);
+        const names = [...new Set(
+            result.rows
+                .map((row) => rowWithSubcounty(row, hasSub).subcounty)
+                .map((name) => (name ? String(name).trim() : ''))
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
         res.status(200).json({ data: names });
     } catch (error) {
         console.error('Error fetching sub-counties:', error);
@@ -348,6 +357,7 @@ router.get('/subcounties', async (req, res) => {
 router.get('/wards-by-subcounty', async (req, res) => {
     try {
         const subcounty = req.query.subcounty != null ? String(req.query.subcounty).trim() : '';
+        const county = req.query.county != null ? String(req.query.county).trim() : '';
         const hasSub = await getKenyaWardsSubcountyColumnExists();
 
         const params = [];
@@ -355,36 +365,45 @@ router.get('/wards-by-subcounty', async (req, res) => {
         if (WARDS_COUNTY_SCOPE) {
             params.push(`%${WARDS_COUNTY_SCOPE}%`);
             countyClause = ` AND county ILIKE $${params.length}`;
+        } else if (county) {
+            params.push(`%${county}%`);
+            countyClause = ` AND county ILIKE $${params.length}`;
         }
 
-        let subClause = '';
-        if (subcounty) {
-            params.push(subcounty);
-            const p = params.length;
-            if (hasSub) {
-                subClause = ` AND LOWER(TRIM(subcounty)) = LOWER(TRIM($${p}))`;
-            } else {
-                subClause = ` AND LOWER(TRIM(division)) = LOWER(TRIM($${p}))`;
-            }
-        }
-
+        const selectList = hasSub
+            ? 'id, iebc_ward_name, division, county, subcounty, pcode'
+            : 'id, iebc_ward_name, division, county, pcode';
         const result = await pool.query(
-            `SELECT DISTINCT id, iebc_ward_name, pcode
+            `SELECT ${selectList}
             FROM kenya_wards
             WHERE voided = false
               AND iebc_ward_name IS NOT NULL
               AND TRIM(iebc_ward_name) <> ''
             ${countyClause}
-            ${subClause}
             ORDER BY iebc_ward_name ASC`,
             params
         );
 
-        const wards = result.rows.map((row) => ({
-            id: row.id,
-            name: row.iebc_ward_name,
-            pcode: row.pcode,
-        }));
+        const seen = new Set();
+        const wards = [];
+        result.rows
+            .map((row) => rowWithSubcounty(row, hasSub))
+            .filter((row) => {
+                if (!subcounty) return true;
+                return String(row.subcounty || '').trim().toLowerCase() === subcounty.toLowerCase();
+            })
+            .forEach((row) => {
+                const name = String(row.iebc_ward_name || '').trim();
+                if (!name) return;
+                const key = `${name.toLowerCase()}__${row.pcode || ''}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                wards.push({
+                    id: row.id,
+                    name,
+                    pcode: row.pcode,
+                });
+            });
         res.status(200).json({ data: wards });
     } catch (error) {
         console.error('Error fetching wards by sub-county:', error);
@@ -453,10 +472,11 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ message: 'IEBC ward name is required' });
         }
 
+        const scopedCounty = county || WARDS_COUNTY_SCOPE || null;
         const resolvedSubcounty = resolveKenyaWardSubcounty({
             iebcWardName: iebc_ward_name,
             division,
-            county,
+            county: scopedCounty,
             district,
             subcounty,
         });
@@ -483,7 +503,7 @@ router.post('/', async (req, res) => {
                 RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
                           subcounty, pcode, status, no, shape_type, status_1, created_at, updated_at`,
                 [iebc_ward_name, count || null, province || null, district || null, division || null,
-                    county || null, constituency || null, resolvedSubcounty, pcode || null, status || null, no || null,
+                    scopedCounty, constituency || null, resolvedSubcounty, pcode || null, status || null, no || null,
                     shape_type || null, status_1 || null]
             );
         } else {
@@ -495,7 +515,7 @@ router.post('/', async (req, res) => {
                 RETURNING id, iebc_ward_name, count, province, district, division, county, constituency,
                           pcode, status, no, shape_type, status_1, created_at, updated_at`,
                 [iebc_ward_name, count || null, province || null, district || null, division || null,
-                    county || null, constituency || null, pcode || null, status || null, no || null,
+                    scopedCounty, constituency || null, pcode || null, status || null, no || null,
                     shape_type || null, status_1 || null]
             );
         }

@@ -30,6 +30,7 @@ import ReportLibraryPage from './pages/ReportLibraryPage';
 import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
 import ProjectFinanceOverviewPage from './pages/ProjectFinanceOverviewPage';
+import FundingSourcesReportPage from './pages/FundingSourcesReportPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -210,6 +211,10 @@ const router = createBrowserRouter([
       {
         path: 'finance/payment-certificates',
         element: <PaymentCertificatesPage />,
+      },
+      {
+        path: 'finance/funding-sources-report',
+        element: <FundingSourcesReportPage />,
       },
       {
         path: 'dashboard-config',

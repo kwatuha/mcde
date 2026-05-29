@@ -60,11 +60,15 @@ const kenyaWardsService = {
 
   /**
    * Distinct sub-counties for the API county scope (kenya_wards reference).
+   * @param {string|null|undefined} county - Optional county name when county scope is disabled.
    * @returns {Promise<string[]>}
    */
-  getSubcounties: async () => {
+  getSubcounties: async (county) => {
     try {
-      const response = await axiosInstance.get('/kenya-wards/subcounties');
+      const params = {};
+      const c = county != null ? String(county).trim() : '';
+      if (c) params.county = c;
+      const response = await axiosInstance.get('/kenya-wards/subcounties', { params });
       return response.data.data || [];
     } catch (error) {
       console.error('Error fetching sub-counties:', error);

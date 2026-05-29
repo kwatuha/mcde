@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import {
     Box, Typography, Button, Grid, Card, CardMedia, CardContent, CardActions,
@@ -23,6 +23,7 @@ import {
     Lock as LockIcon,
     OutlinedFlag as OutlinedFlagIcon,
     Flag as FlagIcon,
+    OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { useTheme, alpha } from '@mui/material/styles';
 import { tokens } from '../pages/dashboard/theme';
@@ -93,19 +94,21 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
     const { user, hasPrivilege } = useAuth();
-    const serverUrl = import.meta.env.VITE_API_BASE_URL || '';
 
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [uploading, setUploading] = useState(false);
     const [activeTab, setActiveTab] = useState(0); // 0: All, 1: Documents, 2: Photos, 3: Public Approved
     const [openUploadModal, setOpenUploadModal] = useState(false);
     const [openPreview, setOpenPreview] = useState(false);
     const [previewDocument, setPreviewDocument] = useState(null);
+    const [previewFileUrl, setPreviewFileUrl] = useState('');
+    const [previewMimeType, setPreviewMimeType] = useState('');
+    const [previewLoading, setPreviewLoading] = useState(false);
     const [openApprovalDialog, setOpenApprovalDialog] = useState(false);
     const [approvalDocument, setApprovalDocument] = useState(null);
     const [approvalNotes, setApprovalNotes] = useState('');
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const previewObjectUrlRef = useRef('');
 
     const fetchDocuments = useCallback(async () => {
         if (!projectId) return;
@@ -234,6 +237,15 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
         fetchDocuments();
     }, [fetchDocuments]);
 
+    useEffect(() => {
+        return () => {
+            if (previewObjectUrlRef.current) {
+                window.URL.revokeObjectURL(previewObjectUrlRef.current);
+                previewObjectUrlRef.current = '';
+            }
+        };
+    }, []);
+
 
     const handleToggleFlag = async (doc) => {
         if (doc.isPhoto || isExternalAttachment(doc) || !doc.id) return;
@@ -298,9 +310,88 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
         }
     };
 
-    const handlePreview = (document) => {
+    const getFileExtension = (doc) => {
+        const value = String(doc?.originalFileName || doc?.fileName || doc?.documentPath || doc?.filePath || '').toLowerCase();
+        const match = value.match(/\.([a-z0-9]+)(?:\?|#|$)/i);
+        return match?.[1] || '';
+    };
+
+    const inferMimeType = (doc) => {
+        const mime = doc?.mimeType || doc?.mime_type || doc?.mimetype;
+        if (mime) return String(mime);
+        const ext = getFileExtension(doc);
+        if (['jpg', 'jpeg'].includes(ext)) return 'image/jpeg';
+        if (ext === 'png') return 'image/png';
+        if (ext === 'gif') return 'image/gif';
+        if (ext === 'webp') return 'image/webp';
+        if (ext === 'pdf') return 'application/pdf';
+        if (['txt', 'csv', 'log'].includes(ext)) return 'text/plain';
+        if (['htm', 'html'].includes(ext)) return 'text/html';
+        if (['mp4', 'webm', 'ogg'].includes(ext)) return `video/${ext === 'ogg' ? 'ogg' : ext}`;
+        if (['mp3', 'wav', 'm4a'].includes(ext)) return `audio/${ext === 'm4a' ? 'mp4' : ext}`;
+        return '';
+    };
+
+    const canPreviewInline = (doc) => {
+        const mime = inferMimeType(doc).toLowerCase();
+        const ext = getFileExtension(doc);
+        return (
+            mime.startsWith('image/') ||
+            mime === 'application/pdf' ||
+            mime.startsWith('text/') ||
+            mime.startsWith('video/') ||
+            mime.startsWith('audio/') ||
+            ['pdf', 'txt', 'csv', 'log', 'html', 'htm', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'm4a'].includes(ext)
+        );
+    };
+
+    const cleanupPreviewObjectUrl = () => {
+        if (previewObjectUrlRef.current) {
+            window.URL.revokeObjectURL(previewObjectUrlRef.current);
+            previewObjectUrlRef.current = '';
+        }
+    };
+
+    const handlePreview = async (document) => {
+        cleanupPreviewObjectUrl();
         setPreviewDocument(document);
+        setPreviewFileUrl('');
+        setPreviewMimeType(inferMimeType(document));
         setOpenPreview(true);
+        setPreviewLoading(true);
+
+        try {
+            if (document.sourceKind === 'certificate' && document.certificateId != null) {
+                const downloadedBlob = await apiService.certificates.download(document.certificateId);
+                const typedBlob = downloadedBlob.type
+                    ? downloadedBlob
+                    : new Blob([downloadedBlob], { type: inferMimeType(document) || 'application/octet-stream' });
+                const objectUrl = window.URL.createObjectURL(typedBlob);
+                previewObjectUrlRef.current = objectUrl;
+                setPreviewMimeType(typedBlob.type || inferMimeType(document));
+                setPreviewFileUrl(objectUrl);
+            } else {
+                setPreviewFileUrl(getFileUrl(document.documentPath || document.filePath));
+            }
+        } catch (error) {
+            console.error('Error preparing preview:', error);
+            setSnackbar({
+                open: true,
+                message: error.response?.data?.message || error.message || 'Failed to prepare document preview.',
+                severity: 'error',
+            });
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
+    const handleClosePreview = () => {
+        setOpenPreview(false);
+        setPreviewDocument(null);
+        setPreviewFileUrl('');
+        setPreviewMimeType('');
+        setPreviewLoading(false);
+        cleanupPreviewObjectUrl();
     };
 
     const handleDownload = async (doc) => {
@@ -383,7 +474,7 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     if (errorText) {
                         errorMessage += ` - ${errorText}`;
                     }
-                } catch (e) {
+                } catch {
                     // Ignore if we can't read error text
                 }
                 throw new Error(errorMessage);
@@ -953,34 +1044,71 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
             {/* Preview Dialog */}
             <Dialog 
                 open={openPreview} 
-                onClose={() => setOpenPreview(false)} 
+                onClose={handleClosePreview} 
                 maxWidth="lg" 
                 fullWidth
+                PaperProps={{ sx: { height: { xs: '92vh', md: '90vh' } } }}
             >
                 <DialogTitle>
                     {previewDocument?.originalFileName || previewDocument?.description || 'Preview'}
                     <IconButton
                         aria-label="close"
-                        onClick={() => setOpenPreview(false)}
+                        onClick={handleClosePreview}
                         sx={{ position: 'absolute', right: 8, top: 8 }}
                     >
                         <CancelIcon />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent>
+                <DialogContent dividers sx={{ p: 0 }}>
                     {previewDocument && (
-                        <Box>
-                            {isImageFile(previewDocument.documentPath || previewDocument.filePath) ? (
+                        <Box sx={{ height: '100%', minHeight: { xs: 420, md: 620 }, display: 'flex', flexDirection: 'column' }}>
+                            {previewLoading ? (
+                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                                    <Stack spacing={2} alignItems="center">
+                                        <CircularProgress />
+                                        <Typography color="text.secondary">Preparing preview...</Typography>
+                                    </Stack>
+                                </Box>
+                            ) : isImageFile(previewDocument.documentPath || previewDocument.filePath) ? (
                                 <img 
-                                    src={getFileUrl(previewDocument.documentPath || previewDocument.filePath)} 
+                                    src={previewFileUrl || getFileUrl(previewDocument.documentPath || previewDocument.filePath)} 
                                     alt={previewDocument.description}
-                                    style={{ width: '100%', height: 'auto', maxHeight: '70vh', objectFit: 'contain' }}
+                                    style={{ width: '100%', height: '100%', minHeight: 420, objectFit: 'contain', background: '#111' }}
                                 />
+                            ) : canPreviewInline(previewDocument) && previewFileUrl ? (
+                                previewMimeType.startsWith('video/') ? (
+                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', bgcolor: '#111' }}>
+                                        <video controls src={previewFileUrl} style={{ width: '100%', maxHeight: '75vh' }}>
+                                            <track kind="captions" />
+                                        </video>
+                                    </Box>
+                                ) : previewMimeType.startsWith('audio/') ? (
+                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                                        <audio controls src={previewFileUrl} style={{ width: '100%' }} />
+                                    </Box>
+                                ) : (
+                                    <Box
+                                        component="iframe"
+                                        src={previewFileUrl}
+                                        title={previewDocument.originalFileName || previewDocument.description || 'Document preview'}
+                                        sx={{
+                                            width: '100%',
+                                            flex: 1,
+                                            minHeight: { xs: 420, md: 620 },
+                                            border: 0,
+                                            bgcolor: 'background.paper',
+                                        }}
+                                    />
+                                )
                             ) : (
-                                <Box sx={{ textAlign: 'center', p: 4 }}>
+                                <Box sx={{ textAlign: 'center', p: 4, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Box>
                                     <FileIcon sx={{ fontSize: 64, color: colors.grey[400], mb: 2 }} />
                                     <Typography variant="h6" gutterBottom>
                                         {previewDocument.originalFileName || 'Document'}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 560, mx: 'auto', mb: 2 }}>
+                                        This file type cannot be rendered directly by the browser. PDF, image, text, video, and audio files can be previewed inline.
                                     </Typography>
                                     <Button
                                         variant="contained"
@@ -990,10 +1118,11 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                                     >
                                         Download Document
                                     </Button>
+                                  </Box>
                                 </Box>
                             )}
                             {previewDocument.description && (
-                                <Box sx={{ mt: 2 }}>
+                                <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
                                     <Typography variant="subtitle2" gutterBottom>Description:</Typography>
                                     <Typography variant="body2">{previewDocument.description}</Typography>
                                 </Box>
@@ -1002,7 +1131,21 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenPreview(false)}>Close</Button>
+                    {previewFileUrl && (
+                        <Button
+                            startIcon={<OpenInNewIcon />}
+                            onClick={() => window.open(previewFileUrl, '_blank', 'noopener,noreferrer')}
+                        >
+                            Open in browser
+                        </Button>
+                    )}
+                    <Button
+                        startIcon={<DownloadIcon />}
+                        onClick={() => previewDocument && handleDownload(previewDocument)}
+                    >
+                        Download
+                    </Button>
+                    <Button onClick={handleClosePreview}>Close</Button>
                 </DialogActions>
             </Dialog>
 

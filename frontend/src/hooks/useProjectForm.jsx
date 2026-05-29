@@ -13,10 +13,11 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     ministry: '', stateDepartment: '', // sector / state org lines removed from UI; not collected here
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
-    county: '', constituency: '', ward: '', // Free text fields for location
+    county: '', subcounty: '', constituency: '', ward: '', // Free text fields for location
     sites: [], // Array of project sites for multilocation support - REQUIRED (at least one)
     // Additional JSONB fields from original database structure
     budgetSource: '', // Budget JSONB: source
+    tenderContractNo: '', // Data Sources JSONB: tender_contract_no
     progressSummary: '', // Progress JSONB: latest_update_summary
     latitude: '', // Location JSONB: geocoordinates.lat
     longitude: '', // Location JSONB: geocoordinates.lng
@@ -88,10 +89,12 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             sites,
             // Location fields from location JSONB
             county: currentProject.county || '',
+            subcounty: currentProject.subcounty || currentProject.subcountyNames || '',
             constituency: currentProject.constituency || '',
             ward: currentProject.ward || '',
             // Additional JSONB fields
             budgetSource: currentProject.budgetSource || '',
+            tenderContractNo: currentProject.tenderContractNo || '',
             progressSummary: currentProject.progressSummary || '',
             latitude: currentProject.latitude || '',
             longitude: currentProject.longitude || '',
@@ -145,9 +148,14 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         categoryId: '',
         countyIds: defaultCountyIds, // Default to configured default county (Kisumu)
         subcountyIds: [], wardIds: [],
+        county: '',
+        subcounty: '',
+        constituency: '',
+        ward: '',
         sites: [],
         // Additional JSONB fields (keep defaults stable for controlled inputs)
         budgetSource: '',
+        tenderContractNo: '',
         progressSummary: '',
         latitude: '',
         longitude: '',
@@ -163,7 +171,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
   useEffect(() => {
     const fetchFormDropdowns = async () => {
         // Subcounty/ward dropdowns are no longer loaded from metadata in this flow.
-        // Location is captured via project_sites (free-text county/constituency/ward on sites).
+        // Location is captured via free-text county/sub-county/ward fields and project sites.
         setFormSubcounties([]);
         setFormWards([]);
     };

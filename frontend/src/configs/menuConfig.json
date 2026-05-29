@@ -85,6 +85,12 @@
           "permission": "document.read_all"
         },
         {
+          "title": "Funding Sources Report",
+          "icon": "AttachMoneyIcon",
+          "route": "FINANCE_FUNDING_SOURCES_REPORT",
+          "permissionsAny": ["project.read_all", "document.read_all"]
+        },
+        {
           "title": "Verify Certificate",
           "icon": "VerifiedUserIcon",
           "route": "VERIFY_CERTIFICATE"

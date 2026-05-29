@@ -22,12 +22,10 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import axiosInstance from '../api/axiosInstance';
-import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "./dashboard/theme";
 import Header from "./dashboard/Header";
 
 function KenyaWardsPage() {
-  const { user, hasPrivilege } = useAuth();
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const isLight = theme.palette.mode === 'light';
@@ -49,18 +47,8 @@ function KenyaWardsPage() {
   const [currentWard, setCurrentWard] = useState(null);
   const [formData, setFormData] = useState({
     iebc_ward_name: '',
-    count: '',
-    province: '',
-    district: '',
-    division: '',
-    county: '',
     constituency: '',
     subcounty: '',
-    pcode: '',
-    status: '',
-    no: '',
-    shape_type: '',
-    status_1: '',
   });
   const [formErrors, setFormErrors] = useState({});
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -179,10 +167,14 @@ function KenyaWardsPage() {
 
     try {
       const payload = {
-        ...formData,
-        count: formData.count ? parseInt(formData.count) : null,
-        no: formData.no ? parseInt(formData.no) : null,
+        ...(currentWard ? { ...currentWard } : {}),
+        iebc_ward_name: formData.iebc_ward_name,
+        subcounty: formData.subcounty,
+        constituency: formData.constituency,
       };
+      delete payload.id;
+      delete payload.created_at;
+      delete payload.updated_at;
 
       if (currentWard) {
         // Update
@@ -340,18 +332,8 @@ function KenyaWardsPage() {
     setCurrentWard(ward);
     setFormData({
       iebc_ward_name: ward.iebc_ward_name || '',
-      count: ward.count?.toString() || '',
-      province: ward.province || '',
-      district: ward.district || '',
-      division: ward.division || '',
-      county: ward.county || '',
       constituency: ward.constituency || '',
       subcounty: ward.subcounty || '',
-      pcode: ward.pcode || '',
-      status: ward.status || '',
-      no: ward.no?.toString() || '',
-      shape_type: ward.shape_type || '',
-      status_1: ward.status_1 || '',
     });
     setFormErrors({});
     setOpenDialog(true);
@@ -361,18 +343,8 @@ function KenyaWardsPage() {
   const resetForm = () => {
     setFormData({
       iebc_ward_name: '',
-      count: '',
-      province: '',
-      district: '',
-      division: '',
-      county: '',
       constituency: '',
       subcounty: '',
-      pcode: '',
-      status: '',
-      no: '',
-      shape_type: '',
-      status_1: '',
     });
     setFormErrors({});
     setCurrentWard(null);
@@ -579,45 +551,10 @@ function KenyaWardsPage() {
       minWidth: 160,
     },
     {
-      field: 'province',
-      headerName: 'Province',
-      flex: 1,
-      minWidth: 150,
-    },
-    {
-      field: 'district',
-      headerName: 'District',
-      flex: 1,
-      minWidth: 150,
-    },
-    {
-      field: 'division',
-      headerName: 'Division',
-      flex: 1,
-      minWidth: 150,
-    },
-    {
-      field: 'county',
-      headerName: 'County',
-      flex: 1,
-      minWidth: 150,
-    },
-    {
       field: 'constituency',
       headerName: 'Constituency',
       flex: 1,
       minWidth: 150,
-    },
-    {
-      field: 'pcode',
-      headerName: 'PCODE',
-      width: 120,
-    },
-    {
-      field: 'count',
-      headerName: 'Count',
-      width: 100,
-      type: 'number',
     },
     {
       field: 'actions',
@@ -901,7 +838,7 @@ function KenyaWardsPage() {
       </Paper>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={openDialog} onClose={() => { setOpenDialog(false); resetForm(); }} maxWidth="md" fullWidth>
+      <Dialog open={openDialog} onClose={() => { setOpenDialog(false); resetForm(); }} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white' }}>
           {currentWard ? 'Edit ward' : 'Add ward'}
         </DialogTitle>
@@ -931,51 +868,6 @@ function KenyaWardsPage() {
                   variant="outlined"
                   value={formData.subcounty}
                   onChange={(e) => handleInputChange('subcounty', e.target.value)}
-                  helperText="Leave blank to auto-fill from division and ward (Machakos rules apply when county matches)."
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="Province"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.province}
-                  onChange={(e) => handleInputChange('province', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="District"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.district}
-                  onChange={(e) => handleInputChange('district', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="Division"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.division}
-                  onChange={(e) => handleInputChange('division', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="County"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.county}
-                  onChange={(e) => handleInputChange('county', e.target.value)}
                   sx={{ mb: 2 }}
                 />
               </Grid>
@@ -987,74 +879,6 @@ function KenyaWardsPage() {
                   variant="outlined"
                   value={formData.constituency}
                   onChange={(e) => handleInputChange('constituency', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="PCODE"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.pcode}
-                  onChange={(e) => handleInputChange('pcode', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  margin="dense"
-                  label="Count"
-                  fullWidth
-                  type="number"
-                  variant="outlined"
-                  value={formData.count}
-                  onChange={(e) => handleInputChange('count', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  margin="dense"
-                  label="Status"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.status}
-                  onChange={(e) => handleInputChange('status', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  margin="dense"
-                  label="NO"
-                  fullWidth
-                  type="number"
-                  variant="outlined"
-                  value={formData.no}
-                  onChange={(e) => handleInputChange('no', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="Shape Type"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.shape_type}
-                  onChange={(e) => handleInputChange('shape_type', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="Status 1"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.status_1}
-                  onChange={(e) => handleInputChange('status_1', e.target.value)}
                   sx={{ mb: 2 }}
                 />
               </Grid>

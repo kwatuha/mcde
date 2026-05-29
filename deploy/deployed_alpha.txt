@@ -1,0 +1,1000 @@
+  938  ./Cursor-2.3.35-x86_64.AppImage 
+  939  cd /home/dev/dev/imes_working/v5/imes
+  940  cd deploy
+  941  ls
+  942  git status
+  943  docker ps
+  944  docker compose up
+  945  cd dev/cursorDev/
+  946  ./Cursor-2.3.35-x86_64.AppImage 
+  947  cd 
+  948  cd dev/cursorDev/
+  949  ./Cursor-2.3.35-x86_64.AppImage 
+  950  cd ../
+  951  cd imes_working/government_projects/
+  952  git add .
+  953  git commit -m "Profile details"
+  954  git push origin main
+  955  ls -al
+  956  ./deploy-gprs-server.sh
+  957  cd dev/cursorDev/
+  958  ./Cursor-2.3.35-x86_64.AppImage 
+  959  cd dev/cursorDev/
+  960  ./Cursor-2.3.35-x86_64.AppImage 
+  961  ls
+  962  cd clean-cursor/
+  963  ./cursor-cleaner.sh 
+  964  cd /home/dev/dev/imes_working/government_projects && grep -r "102.210.149.119" . --include="*.js" --include="*.jsx" --include="*.json" --include="*.env*" 2>/dev/null | head -20
+  965  ssh -i ~/.ssh/id_gprs_server -o ConnectTimeout=10 fortress@102.210.149.119 "echo 'SSH connection successful' && pwd && whoami"
+  966  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose ps"
+  967  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=50 api | grep -i 'error\|login\|auth' | tail -30"
+  968  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && ls -la api/routes/authRoutes.js 2>/dev/null && echo '---' && head -30 api/routes/authRoutes.js | tail -10"
+  969  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=100 api | tail -50"
+  970  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs postgres_db | tail -20"
+  971  cd /home/dev/dev/imes_working/government_projects && rsync -avz --progress -e "ssh -i ~/.ssh/id_gprs_server" api/routes/authRoutes.js fortress@102.210.149.119:/home/fortress/gprs/api/routes/authRoutes.js
+  972  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose ps postgres_db"
+  973  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose config | grep -A 20 'postgres_db:'"
+  974  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose up -d postgres_db && sleep 5 && docker-compose ps postgres_db"
+  975  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose rm -f postgres_db && docker-compose up -d postgres_db"
+  976  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && sleep 10 && docker-compose ps postgres_db && docker-compose logs --tail=20 postgres_db"
+  977  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose restart api && sleep 5 && docker-compose ps api"
+  978  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && sleep 5 && docker-compose logs --tail=30 api | grep -E 'listening|PostgreSQL|connection|error|Error'"
+  979  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T api node -e \"const pool = require('./config/db'); pool.query('SELECT NOW()').then(() => console.log('DB connection OK')).catch(e => console.error('DB error:', e.message)).finally(() => process.exit());\""
+  980  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=50 api"
+  981  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT userid, username, email, isactive, voided FROM users LIMIT 5;\""
+  982  curl -X POST http://102.210.149.119:8081/api/auth/login -H "Content-Type: application/json" -d '{"username":"test","password":"test"}' -v 2>&1 | head -30
+  983  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=10 api | grep -i 'login\|auth\|error'"
+  984  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"\\d contractor_users\""
+  985  cd /home/dev/dev/imes_working/government_projects && rsync -avz --progress -e "ssh -i ~/.ssh/id_gprs_server" api/routes/authRoutes.js fortress@102.210.149.119:/home/fortress/gprs/api/routes/authRoutes.js
+  986  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose restart api && sleep 3 && docker-compose logs --tail=10 api"
+  987  curl -X POST http://102.210.149.119:8081/api/auth/login -H "Content-Type: application/json" -d '{"username":"testuser","password":"test"}' 2>&1
+  988  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT userid, username, passwordhash IS NOT NULL as has_password FROM users WHERE username = 'testuser';\""
+  989  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=20 api | grep -i 'login\|error\|testuser'"
+  990  curl -X POST http://102.210.149.119:8081/api/auth/login -H "Content-Type: application/json" -d '{"username":"testuser","password":"test"}' --max-time 10 -w "\nHTTP Status: %{http_code}\n" 2>&1
+  991  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=30 api"
+  992  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose ps"
+  993  curl -X POST http://102.210.149.119:8081/api/auth/login -H "Content-Type: application/json" -d '{"username":"akwatuha","password":"reset123"}' -w "\nHTTP Status: %{http_code}\n" 2>&1
+  994  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose logs --tail=20 api | grep -i 'akwatuha\|login\|error'"
+  995  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT userid, username, email, isactive, voided, passwordhash IS NOT NULL as has_password FROM users WHERE username = 'akwatuha';\""
+  996  cd /home/dev/dev/imes_working/government_projects && docker-compose ps postgres_db 2>/dev/null || docker ps | grep postgres
+  997  cd /home/dev/dev/imes_working/government_projects && docker-compose exec -T postgres_db pg_dump -U postgres -d government_projects --clean --if-exists -F c -f /tmp/local_db_backup.dump 2>&1 || docker exec $(docker ps | grep postgres | awk '{print $1}') pg_dump -U postgres -d government_projects --clean --if-exists -F c > /tmp/local_db_backup.dump 2>&1
+  998  docker exec gov_postgres pg_dump -U postgres -d government_projects --clean --if-exists -F c -f /tmp/local_db_backup.dump && docker cp gov_postgres:/tmp/local_db_backup.dump /tmp/local_db_backup.dump && ls -lh /tmp/local_db_backup.dump
+  999  scp -i ~/.ssh/id_gprs_server /tmp/local_db_backup.dump fortress@102.210.149.119:/tmp/local_db_backup.dump
+ 1000  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d postgres -c 'DROP DATABASE IF EXISTS government_projects;' && docker-compose exec -T postgres_db psql -U postgres -d postgres -c 'CREATE DATABASE government_projects;'"
+ 1001  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "docker cp /tmp/local_db_backup.dump gov_postgres:/tmp/local_db_backup.dump && docker exec -i gov_postgres pg_restore -U postgres -d government_projects --clean --if-exists /tmp/local_db_backup.dump 2>&1 | tail -20"
+ 1002  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = 'public';\""
+ 1003  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT userid, username, email FROM users LIMIT 10;\""
+ 1004  docker exec gov_postgres psql -U postgres -d government_projects -c "SELECT userid, username, email FROM users LIMIT 10;"
+ 1005  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose restart api && sleep 3 && docker-compose logs --tail=10 api | grep -i 'PostgreSQL\|connection\|listening'"
+ 1006  curl -X POST http://102.210.149.119:8081/api/auth/login -H "Content-Type: application/json" -d '{"username":"akwatuha","password":"reset123"}' -w "\nHTTP Status: %{http_code}\n" 2>&1 | head -5
+ 1007  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "cd /home/fortress/gprs && docker-compose exec -T postgres_db psql -U postgres -d government_projects -c \"SELECT COUNT(*) as total_users FROM users; SELECT COUNT(*) as total_projects FROM projects; SELECT COUNT(*) as total_roles FROM roles;\""
+ 1008  rm -f /tmp/local_db_backup.dump && ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "rm -f /tmp/local_db_backup.dump && echo 'Cleanup complete'"
+ 1009  . "/tmp/.mount_CursorZlt5sG/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1010  cd dev/cursorDev/
+ 1011  ./Cursor-2.3.35-x86_64.AppImage 
+ 1012  cd clean-cursor/
+ 1013  ./cursor-cleaner.sh 
+ 1014  cd ../
+ 1015  cd imes_working/
+ 1016  cd government_projects/
+ 1017  ./deploy-gprs-server.sh 
+ 1018  . "/tmp/.mount_Cursor0ITTvE/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1019  ssh fortress@102.210.149.119
+ 1020  . "/tmp/.mount_CursorwOFMsZ/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1021  . "/tmp/.mount_CursorJsy5Bl/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1022  cd ../
+ 1023  cd imes_working/
+ 1024  cd government_projects/
+ 1025  git status
+ 1026  git add .
+ 1027  git commit -m "adding password reset every 2 minutes"
+ 1028  git push origin main
+ 1029  docker exec -it gov_postgres psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+ 1030  docker compose down
+ 1031  docker compose up
+ 1032  cd dev/cursorDev/
+ 1033  ./Cursor-2.3.35-x86_64.AppImage 
+ 1034  cd
+ 1035  cd dev/imes_working/
+ 1036  cd government_projects/
+ 1037  ./reset-remote-db-password.sh
+ 1038  cd /home/dev/dev/imes_working/government_projects
+ 1039  ./reset-remote-db-password.sh
+ 1040  ssh fortress@102.210.149.119
+ 1041  ssh fortress@102.210.149.119
+ 1042  cd ../
+ 1043  cd imes_working/government_projects/
+ 1044  ./reset-remote-db-password.sh
+ 1045  cd /home/dev/dev/imes_working/government_projects
+ 1046  ./reset-remote-db-password.sh
+ 1047  cd 
+ 1048  cd dev/imes_working/
+ 1049  cd government_projects/
+ 1050  cd /home/dev/dev/imes_working/government_projects
+ 1051  bash deploy-gprs-server.sh
+ 1052  ssh r fortress@102.210.149.119
+ 1053  ssh fortress@102.210.149.119
+ 1054  cd
+ 1055  cd dev/cursorDev/
+ 1056  ./Cursor-2.3.35-x86_64.AppImage 
+ 1057  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119 "ls -lh /home/fortress/gprs/logs/postgres-password-reset.log 2>/dev/null && tail -n 5 /home/fortress/gprs/logs/postgres-password-reset.log || echo 'Log file not found - cron may not have run yet'"
+ 1058  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1059  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1060  cd 
+ 1061  cd dev/cursorDev/
+ 1062  ./Cursor-2.3.35-x86_64.AppImage 
+ 1063  docker ps
+ 1064  cd
+ 1065  cd dev/cursorDev/
+ 1066  ./Cursor-2.3.35-x86_64.AppImage 
+ 1067  cd
+ 1068  cd dev/imes_working/government_projects/
+ 1069  git add .
+ 1070  git commit -m "Adding the project sites and created jobs"
+ 1071  git push origin main
+ 1072  sudo systemctl restart docker
+ 1073  docker system df
+ 1074  echo "Stopping all containers..."
+ 1075  docker stop $(docker ps -aq) 2>/dev/null
+ 1076  echo "Removing stopped containers..."
+ 1077  docker container prune -f
+ 1078  du 
+ 1079  cd 
+ 1080  cd dev/imes_working/government_projects/
+ 1081  docker compose up
+ 1082  docker compose down
+ 1083  docker compose up
+ 1084  cd ../../
+ 1085  cd imes_working/
+ 1086  cd government_projects/
+ 1087  cd 
+ 1088  cd dev/cursorDev/
+ 1089  ./Cursor-2.3.35-x86_64.AppImage 
+ 1090  . "/tmp/.mount_Cursorw4yFz8/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1091  # Run deployment
+ 1092  ./deploy_to_latest_vm_test.sh
+ 1093  # Preview what would be synced (dry run)
+ 1094  ./deploy_to_latest_vm_test.sh --dry-run
+ 1095  # Show help
+ 1096  ./deploy_to_latest_vm_test.sh --help
+ 1097  ./deploy_to_latest_vm_test.sh
+ 1098  ssh root@66.179.80.249
+ 1099  ssh root@66.179.80.249
+ 1100  cd
+ 1101  cd dev/imes_working/government_projects/
+ 1102  git status
+ 1103  git add .
+ 1104  git commit -m "improve project form metata"
+ 1105  git push origin main
+ 1106  ssh
+ 1107  ssh  root@66.179.80.249
+ 1108  root@66.179.80.249
+ 1109  ssh root@66.179.80.249
+ 1110  ssh-copy-id root@66.179.80.249
+ 1111  git status
+ 1112  git add .
+ 1113  git commit -m "enhance data imports"
+ 1114  git push origin main
+ 1115  git status
+ 1116  sudo +x deploy-test_server_vm_-server.sh
+ 1117  chmod +x deploy-test_server_vm_-server.sh
+ 1118  ./deploy-test_server_vm_-server.sh 
+ 1119  chmod +x install-docker-test_vm-server.sh
+ 1120  ./install-docker-test_vm-server.sh
+ 1121  root@66.179.80.249
+ 1122  ssh root@66.179.80.249
+ 1123  ssh root@66.179.80.249
+ 1124  . "/tmp/.mount_Cursor66Okc1/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1125  cd dev/cursorDev/
+ 1126  ./Cursor-2.3.35-x86_64.AppImage 
+ 1127  . "/tmp/.mount_CursorSiIy8d/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1128  cd
+ 1129  ssh -i ~/.ssh/id_gprs_server root@66.179.80.249
+ 1130  ssh root@66.179.80.249
+ 1131  cd dev/cursorDev/
+ 1132  cd
+ 1133  cd dev/cursorDev/
+ 1134  ./Cursor-2.3.35-x86_64.AppImage 
+ 1135  ssh -i ~/.ssh/id_gprs_server root@66.179.80.249
+ 1136  cd //
+ 1137  cd
+ 1138  cd dev/imes_working/government_projects/
+ 1139  git status
+ 1140  git add .
+ 1141  git commit -m " fix navigation menus"
+ 1142  git push origin main
+ 1143  git status
+ 1144  cd dev/cursorDev/
+ 1145  ./Cursor-2.3.35-x86_64.AppImage 
+ 1146  cd dev/imes_working/government_projects/
+ 1147  ssh fortress@102.210.149.119
+ 1148  ssh  fortress@102.210.149.119
+ 1149  cd 
+ 1150  cd dev/imes_working/
+ 1151  ls
+ 1152  scp fortress@102.210.149.119:/home/fortress/gprs/.env .env
+ 1153  ls
+ 1154  ls -al
+ 1155  scp .env fortress@102.210.149.119:/home/fortress/gprs/.env
+ 1156  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1157  ./deploy-gprs-server.sh 
+ 1158  cd dev/imes_working/government_projects/
+ 1159  git status
+ 1160  ollama pull qwen2.5-coder:1.5b
+ 1161  cd dev/cursorDev/
+ 1162  ./Cursor-2.3.35-x86_64.AppImage 
+ 1163  cd
+ 1164  cd dev/imes_working/
+ 1165  cd government_projects/
+ 1166  git status
+ 1167  docker compose down
+ 1168  docker compose up
+ 1169  cd dev/imes_working/
+ 1170  docker compose down
+ 1171  cd government_projects/
+ 1172  docker compose
+ 1173  docker compose up
+ 1174  cd
+ 1175  cd dev/cursorDev/
+ 1176  ./Cursor-2.3.35-x86_64.AppImage 
+ 1177  cd clean-cursor/
+ 1178  ./cursor-cleaner.sh 
+ 1179  /home/dev/dev/database_migrations:/
+ 1180  cd /home/dev/dev/database_migrations
+ 1181  cd
+ 1182  cd /home/dev/dev/database_migrations:/
+ 1183  cd
+ 1184  cd dev/imes_working/v5/imes
+ 1185  cd
+ 1186  cd dev/
+ 1187  ls
+ 1188  cd database_migrations
+ 1189  cd database_migrations\:/
+ 1190  ls
+ 1191  cd dev
+ 1192  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1193  cd
+ 1194  cd dev/imes_working/v5/imes
+ 1195  cd dev/imes_working/v5/imes
+ 1196  git status
+ 1197  cd dev/cursorDev/
+ 1198  ./Cursor-2.3.35-x86_64.AppImage 
+ 1199  cd
+ 1200  cd dev/imes_working/
+ 1201  cd v5/imes
+ 1202  ls
+ 1203  git status
+ 1204  . "/tmp/.mount_Cursor1oBt05/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1205  ./Cursor-2.3.35-x86_64.AppImage 
+ 1206  cd clean-cursor/
+ 1207  ./cursor-cleaner.sh 
+ 1208  cd 
+ 1209  cd dev/imes_working/government_projects/
+ 1210  docker compose down
+ 1211  docker compose up
+ 1212  cd dev/cursorDev/
+ 1213  ./Cursor-2.3.35-x86_64.AppImage 
+ 1214  cd api/
+ 1215  ls
+ 1216  sudo gedit .env
+ 1217  cd
+ 1218  cd dev/imes_working/government_projects/
+ 1219  nvm use 20
+ 1220  docker compose down
+ 1221  docker compose up
+ 1222  cd /media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f/devEx/ugapi.countyerp_worked/
+ 1223  nvm use 10
+ 1224  pm2 start api.json
+ 1225  nvm ls
+ 1226  cd dev/imes_working/government_projects/
+ 1227  git status
+ 1228  cd
+ 1229  cd dev/kiplombehmis/
+ 1230  git status
+ 1231  docker compose up
+ 1232  docker compose down
+ 1233  docker compose up -d
+ 1234  cd /home/dev/dev/kiplombehmis
+ 1235  npm run dev:precompiled
+ 1236  npm run build
+ 1237  cd /home/dev/dev/kiplombehmissudo chown -R "$USER":"$USER" .next
+ 1238  sudo chown -R "$USER":"$USER" .next
+ 1239  npm run build
+ 1240  cd /home/dev/dev/kiplombehmis
+ 1241  docker compose down
+ 1242  docker compose -f docker-compose.prod.yml up -d frontend api mysql_db
+ 1243  docker ps
+ 1244  cd ../imes_working/v5/
+ 1245  cd imes
+ 1246  docker compose down
+ 1247  docker ps
+ 1248  docker stop gov_postgres
+ 1249  docker ps
+ 1250  cd 
+ 1251  cd dev/kiplombehmis/
+ 1252  docker compose -f docker-compose.prod.yml up -d frontend api mysql_db
+ 1253  docker ps
+ 1254  docker compose -f docker-compose.prod.yml up -d frontend api mysql_db
+ 1255  docker ps
+ 1256  docker compose -f docker-compose.prod.yml up -d
+ 1257  docker ps
+ 1258  docker compose down
+ 1259  docker ps
+ 1260  docker stop kiplombe_nginx_prod
+ 1261  docker ps
+ 1262  docker compose up -d
+ 1263  docker ps
+ 1264  docker compose down
+ 1265  docker compose up -d
+ 1266  docker ps
+ 1267  docker compose down
+ 1268  docker ps
+ 1269  docker compose -f docker-compose.prod.yml up -d frontend api mysql_db
+ 1270  # Watch the frontend logs
+ 1271  docker compose -f docker-compose.prod.yml logs -f frontend
+ 1272  # Or check if it's responding
+ 1273  curl http://localhost:8080
+ 1274  git status
+ 1275  docker compose down
+ 1276  docker ps
+ 1277  docker compose up -d
+ 1278  docker ps
+ 1279  clear
+ 1280  docker ps
+ 1281  git status
+ 1282  git restore .
+ 1283  git status
+ 1284  docker compose down
+ 1285  docker compose up -d
+ 1286  docker ps
+ 1287  docker logs kiplombe_frontend
+ 1288  docker compose down
+ 1289  npm run dev
+ 1290  docker compose up -d
+ 1291  docker ps
+ 1292  clear
+ 1293  docker ps
+ 1294  docker compose up -d
+ 1295  docker ps
+ 1296  git status
+ 1297  cd android/
+ 1298  ./gradlew assembleRelease
+ 1299  LS
+ 1300  ld
+ 1301  ls
+ 1302  git status
+ 1303  cd
+ 1304  cd dev/imes_working/v5/imes
+ 1305  cd
+ 1306  cd dev/kiplombehmis/
+ 1307  docker ps
+ 1308  npm install
+ 1309  npm start
+ 1310  cd ../
+ 1311  cd cursorDev/
+ 1312  ./Cursor-2.3.35-x86_64.AppImage 
+ 1313  . "/tmp/.mount_CursorrWYK25/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1314  adb devices
+ 1315  adb kill-server
+ 1316  adb start-server
+ 1317  adb devices
+ 1318  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -no-snapshot-load
+ 1319  adb devices
+ 1320  adb kill-server
+ 1321  adb start-server
+ 1322  adb devices
+ 1323  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -no-snapshot-load
+ 1324  adb kill-server
+ 1325  adb start-server
+ 1326  adb devices
+ 1327  adb kill-server
+ 1328  adb start-server
+ 1329  adb devices
+ 1330  adb start-server
+ 1331  adb devices
+ 1332  mkdir -p ~/.gradle/wrapper/dists/gradle-8.3-all/6en3ugtfdg5xnpx44z4qbwgas
+ 1333  mv /home/dev/Android/gradle-8.3-all.zip ~/.gradle/wrapper/dists/gradle-8.3-all/6en3ugtfdg5xnpx44z4qbwgas/
+ 1334  cd ~/dev/mobile
+ 1335  npm run android
+ 1336  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1
+ 1337  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -gpu swiftshader_indirect
+ 1338  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -no-snapshot-load
+ 1339  adb devices
+ 1340  cd dev/cursorDev/
+ 1341  ./Cursor-2.3.35-x86_64.AppImage
+ 1342  adb kill-server
+ 1343  adb start-server
+ 1344  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -no-snapshot-load
+ 1345  adb devices
+ 1346  adb kill-server
+ 1347  adb start-server
+ 1348  adb devices
+ 1349  adb -s emulator-5554 reconnect
+ 1350  adb devices
+ 1351  adb disconnect emulator-5554
+ 1352  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -wipe-data -no-snapshot-load
+ 1353  adb devices
+ 1354  # Check if your user is in the group
+ 1355  groups | grep kvm
+ 1356  sudo usermod -aG kvm $USER
+ 1357  groups | grep kvm
+ 1358  ~/Android/Sdk/emulator/emulator @Stable_Phone_API_34 -gpu host -no-snapshot-load
+ 1359  ~/Android/Sdk/emulator/emulator -list-avds
+ 1360  ~/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -gpu host -no-snapshot-load
+ 1361  adb devices
+ 1362  # Create the specific one you wanted
+ 1363  ~/Android/Sdk/cmdline-tools/latest/bin/avdmanager create avd     -n Stable_Phone_API_34     -k "system-images;android-34;google_apis;x86_64"     --force
+ 1364  # Create the specific one you wanted
+ 1365  ~/Android/Sdk/cmdline-tools/latest/bin/avdmanager create avd     -n Stable_Phone_API_34     -k "system-images;android-34;google_apis;x86_64"     --force
+ 1366  bash: /home/dev/Android/Sdk/cmdline-tools/latest/bin/avdmanager: No such file or directory
+ 1367  find ~/Android/Sdk/cmdline-tools -name "avdmanager"
+ 1368  ls ~/Android/Sdk
+ 1369  cd ~/android-studio/bin
+ 1370  ./studio.sh
+ 1371  cd android-studio-panda/
+ 1372  ls
+ 1373  cd bin/
+ 1374  ./studio.sh 
+ 1375  adb devices
+ 1376  adb devices
+ 1377  which adb
+ 1378  ~/Android/Sdk/platform-tools/adb version
+ 1379  killall -9 adb
+ 1380  killall -9 qemu-system-x86_64
+ 1381  sudo rm /tmp/5037 2> /dev/null
+ 1382  ~/Android/Sdk/platform-tools/adb start-server
+ 1383  /home/dev/Android/Sdk/emulator/emulator @Medium_Phone_API_36.1 -no-snapshot-load -no-boot-anim -writable-system
+ 1384  sudo dpkg --configure -a
+ 1385  sudo dpkg --add-architecture i386
+ 1386  sudo apt-get update
+ 1387  sudo apt-get install -y libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386
+ 1388  apt --fix-broken install
+ 1389  sudo apt --fix-broken install
+ 1390  cd ../mobile/
+ 1391  ./run-android.sh
+ 1392  ./build-apk.sh
+ 1393  cd ~/dev/mobile
+ 1394  source ~/.bashrc   # or: . ./env.sh
+ 1395  npm run android
+ 1396  cd ~/dev/mobile
+ 1397  source ~/.bashrc
+ 1398  npm run android
+ 1399  cd
+ 1400  cd android-studio-panda/bin/
+ 1401  ls
+ 1402  ls -al
+ 1403  ./studio.sh 
+ 1404  sudo apt-get install -y libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386
+ 1405  sudo dpkg --add-architecture i386
+ 1406  sudo apt-get update
+ 1407  sudo apt-get install -y libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386
+ 1408  cd dev/cursorDev/
+ 1409  ./Cursor-2.3.35-x86_64.AppImage
+ 1410  adb devices
+ 1411  cd dev/mobile/
+ 1412  npm run android
+ 1413  cd ../
+ 1414  cd dev
+ 1415  cd cursorDev/
+ 1416  ./Cursor-2.3.35-x86_64.AppImage
+ 1417  adb devices
+ 1418  cd
+ 1419  ./android-studio-panda/bin/studio.sh
+ 1420  git add .
+ 1421  git commit -m "Initial commit: Kiplombe HMIS mobile (ward rounds + asset verification)"
+ 1422  git push origin main
+ 1423  git status
+ 1424  adb reverse tcp:8081 tcp:8081
+ 1425  adb devices
+ 1426  cd dev/imes_working/government_projects/
+ 1427  git status
+ 1428  cd ../imes
+ 1429  cd ../
+ 1430  cd imes_working/
+ 1431  cd imes\'4'
+ 1432  cd v5/imes
+ 1433  docker ps
+ 1434  docker compose down
+ 1435  cd ../../
+ 1436  cd ../kiplombehmis/
+ 1437  git status
+ 1438  docker compose down
+ 1439  docker ps
+ 1440  docker stop gov_postgres
+ 1441  docker ps
+ 1442  cd ../imes_working/government_projects/
+ 1443  docker compose up -d
+ 1444  cd 
+ 1445  cd dev/imes_working/government_projects/
+ 1446  git status
+ 1447  git add .
+ 1448  git commit -m "implemente project sites upload and definitiaon"
+ 1449  git push origin main
+ 1450  git status
+ 1451  ./deploy-gprs-server.sh 
+ 1452  git staus
+ 1453  git status
+ 1454  git add .
+ 1455  git commit -m "Project details enhancements"
+ 1456  git push origin main
+ 1457  ./deploy-gprs-server.sh 
+ 1458  cd dev/cursorDev/
+ 1459  ./Cursor-2.3.35-x86_64.AppImage
+ 1460  cd dev/imes_working/v5/imes
+ 1461  docker compose down
+ 1462  docker ps
+ 1463  docker stop gov_postgres 
+ 1464  docker ps
+ 1465  cd 
+ 1466  cd dev/imes_working/v5/imes
+ 1467  docker compose down
+ 1468  cd 
+ 1469  cd dev/kiplombehmis/
+ 1470  docker ps
+ 1471  ./deploy/remote-deploy.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1472  cd dev/cursorDev/
+ 1473  ./Cursor-2.3.35-x86_64.AppImage
+ 1474  cd /home/dev/dev/llm/
+ 1475  ls
+ 1476  python /home/dev/Downloads/requirements.txt
+ 1477  python3 /home/dev/Downloads/requirements.txt
+ 1478  python3 run /home/dev/Downloads/requirements.txt
+ 1479  python3 run requirements_test.py
+ 1480  ls
+ 1481  python3 run requirements_test.py
+ 1482  python requirements.txt
+ 1483  python3 run requirements.txt
+ 1484  python3 streamlt run app.py
+ 1485  ls -al
+ 1486  python3 streamlit run app.py
+ 1487  gedit requirements.txt
+ 1488  python3 app.py
+ 1489  python3 run /home/dev/dev/llm/requirements.txt
+ 1490  python3 /home/dev/dev/llm/requirements.txt
+ 1491  pip install -r requirements.txt
+ 1492  python3 streamlit run app.py
+ 1493  python3 app.py
+ 1494  pip install sentence_transformers
+ 1495  pip install --default-timeout=100 -r requirements.txt
+ 1496  pip install sentence_transformers
+ 1497  pip install --no-cache-dir --default-timeout=100 -r requirements.txt
+ 1498  pip cache purge
+ 1499  pip install --no-cache-dir --default-timeout=100 nvidia-cusparse-cu12==12.5.8.93
+ 1500  pip install --no-cache-dir --default-timeout=100 -r requirements.txt
+ 1501  python3 app.py
+ 1502  pip install sentence_transformers
+ 1503  cd dev/cursorDev/
+ 1504  ./Cursor-2.3.35-x86_64.AppImage
+ 1505  cd 
+ 1506  cd dev/imes_working/v5/imes
+ 1507  docker compose down
+ 1508  cd 
+ 1509  cd dev/kiplombehmis/
+ 1510  git status
+ 1511  docker exec -i db mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/40_telemedicine_sessions_schema.sql
+ 1512  	docker exec -i db mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/41_telemedicine_zoom_manual.sql
+ 1513  	docker exec -i db mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/42_user_telemedicine_defaults.sql
+ 1514  docker ps
+ 1515  docker exec -i kiplombe_mysql mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/40_telemedicine_sessions_schema.sql
+ 1516  	docker exec -i kiplombe_mysql mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/41_telemedicine_zoom_manual.sql
+ 1517  	
+ 1518  	docker exec -i kiplombe_mysql mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/42_user_telemedicine_defaults.sql
+ 1519  docker compose up
+ 1520  . "/tmp/.mount_Cursorppi5Qz/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1521  ./deploy/remote-deploy.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1522  cd ../
+ 1523  cd kiplombehmis/
+ 1524  ./deploy/remote-deploy.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1525  ssh -i ~/.ssh/id_asusme fhir@41.89.173.8
+ 1526  git status
+ 1527  git push origin master
+ 1528  cd ../kiplombehmis/
+ 1529  git status
+ 1530  git add .
+ 1531  git commit -m "adding vitals charts"
+ 1532  git push origin master
+ 1533  ./deploy/remote-deploy.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1534  . "/tmp/.mount_Cursorbo3cgK/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1535  . "/tmp/.mount_CursorSgPRAF/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1536  cd dev/cursorDev/
+ 1537  ./Cursor-2.3.35-x86_64.AppImage
+ 1538  cd 
+ 1539  cd dev/kiplombehmis/
+ 1540  gits status
+ 1541  git status
+ 1542  ./deploy/remote-deploy-fast.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1543  git status
+ 1544  docker exec -i kiplombe_mysql mysql -uroot -proot_password kiplombe_hmis < api/database/migrations/43_telemedicine_queue_origin.sql
+ 1545  	
+ 1546  git add .
+ 1547  git commit -m "Telemedicine enhancements"
+ 1548  git push origin master
+ 1549  ./deploy/remote-deploy-fast.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1550  git status
+ 1551  ./deploy/run-43-queue-origin-remote.sh
+ 1552  ifconfig
+ 1553  cd ../kiplombehmis/
+ 1554  git status
+ 1555  ./deploy/remote-deploy-fast.sh 41.89.173.8 ~/.ssh/id_asusme
+ 1556  cd dev/kiplombehmis/
+ 1557  git status
+ 1558  git add .
+ 1559  git commit -m "Completion of Zoom integration"
+ 1560  git push origin master
+ 1561  . "/tmp/.mount_CursorNKtaGl/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1562  . "/tmp/.mount_Cursorl1yhob/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1563  cd dev/cursorDev/
+ 1564  ./Cursor-2.3.35-x86_64.AppImage
+ 1565  curl -k -I https://41.89.173.8/
+ 1566  ssh  fhir@41.89.173.8
+ 1567  cd dev/cursorDev/
+ 1568  ./Cursor-2.3.35-x86_64.AppImage
+ 1569  cd dev/cursorDev/clean-cursor/
+ 1570  ls
+ 1571  ./cursor-cleaner.sh 
+ 1572  lshw'
+ 1573  lshw
+ 1574  git status
+ 1575  npm run build
+ 1576  cd ../cursorDev/clean-cursor/
+ 1577  ./cursor-cleaner.sh 
+ 1578  cd ../cursorDev/
+ 1579  ./Cursor-2.3.35-x86_64.AppImage
+ 1580  cd dev/cursorDev/clean-cursor/
+ 1581  ./cursor-cleaner.sh 
+ 1582  cd dev/imes_working/government_projects/
+ 1583  git status
+ 1584  . "/tmp/.mount_Cursor3xpvvU/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1585  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1586  cd dev/cursorDev/
+ 1587  ./Cursor-2.3.35-x86_64.AppImage
+ 1588  cd ../
+ 1589  cd
+ 1590  cd dev/
+ 1591  cd imes_working/government_projects/
+ 1592  docker compose up
+ 1593  docker ps
+ 1594  docker exec -it kiplombe_mysql bash
+ 1595  cd 
+ 1596  cd dev/intellinex/
+ 1597  DEPLOY_RUN_TELEMEDICINE_MIGRATIONS=1   ./deploy/deploy-api-shared-mysql.sh 165.22.227.234 ~/.ssh/id_asusme
+ 1598  DEPLOY_RUN_TELEMEDICINE_MIGRATIONS=1   ./deploy/deploy-api-shared-mysql.sh 165.22.227.234 ~/.ssh/id_asusme
+ 1599  LOCAL_ENV_FILE=./deploy/.env.api-server DEPLOY_RUN_TELEMEDICINE_MIGRATIONS=1   ./deploy/deploy-api-shared-mysql.sh 165.22.227.234 ~/.ssh/id_asusme
+ 1600  [200~   ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234~
+ 1601  ssh fhir@41.89.173.8
+ 1602  cd dev/cursorDev/
+ 1603  ./Cursor-2.3.35-x86_64.AppImage
+ 1604  npm run build
+ 1605  git status
+ 1606  cd intellinex/
+ 1607  ./deploy/import-local-db-to-remote-db.sh
+ 1608  DEPLOY_RUN_TELEMEDICINE_MIGRATIONS=1   ./deploy/deploy-api-shared-mysql.sh 165.22.227.234 ~/.ssh/id_asusme
+ 1609  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1610  DEPLOY_RUN_TELEMEDICINE_MIGRATIONS=1   ./deploy/deploy-api-shared-mysql.sh 165.22.227.234 ~/.ssh/id_asusme
+ 1611  curl -sS http://165.22.227.234:3001/
+ 1612  ssh -i ~/.ssh/id_gprs_server fortress@102.210.149.119
+ 1613  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1614  curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3102/hmis/
+ 1615  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1616  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1617  npm run dev
+ 1618  cd ../intellinex/
+ 1619  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1620  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1621  cd ../cursorDev/
+ 1622  ./Cursor-2.3.35-x86_64.AppImage
+ 1623  curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3102/hmis/
+ 1624  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1625  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/YOUR_KEY ./deploy/deploy-full-shared-mysql.sh
+ 1626  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1627  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1628  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1629  INTERVAL_SEC=0 SERVER_IP=165.22.227.234 ./deploy/monitor-hmis-endpoints.sh
+ 1630  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1631  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1632  $ ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1633  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1634  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1635  l
+ 1636  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1637  docker compose up
+ 1638  SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme ./deploy/deploy-full-shared-mysql.sh
+ 1639  DEPLOY_USE_DOCKER_CACHE=1 SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme   ./deploy/deploy-full-shared-mysql.sh
+ 1640  DEPLOY_USE_DOCKER_CACHE=1 SERVER_IP=165.22.227.234 SSH_USER=kunye SSH_KEY_PATH=~/.ssh/id_asusme   ./deploy/deploy-full-shared-mysql.sh
+ 1641  cd dev/cursorDev/
+ 1642  ./Cursor-2.3.35-x86_64.AppImage
+ 1643  . "/tmp/.mount_CursorGvnkSb/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1644  docker ps
+ 1645  cd ../imes_working/v5/imes
+ 1646  docker compose down
+ 1647  docker ps
+ 1648  clear
+ 1649  docker ps
+ 1650  exit
+ 1651  cd ..
+ 1652  cd intellinex/
+ 1653  git status
+ 1654  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1655  . "/tmp/.mount_CursorLDeqMc/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1656  cd 
+ 1657  cd dev/imes_working/government_projects/
+ 1658  scp -i "$HOME/.ssh/id_gprs_server" -o ConnectTimeout=15   /home/dev/dev/imes_working/government_projects/api/migrations/create_ministries_and_link_departments.sql   fortress@102.210.149.119:/tmp/
+ 1659  ssh  fortress@102.210.149.119
+ 1660  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1661  . "/tmp/.mount_Cursor7CEhyf/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1662  scp -i ~/.ssh/id_asusme  kunye@165.22.227.234:/tmp/updates_production_apri_26_backup.sql .
+ 1663  ls
+ 1664  cd ../
+ 1665  ls
+ 1666  cd dbs/
+ 1667  ls
+ 1668  docker exec db mysqldump -u root -proot_password imbesdb> updates_local_apri_26_backup.sql
+ 1669  scp -i ~/.ssh/id_asusme updates_local_apri_26_backup.sql
+ 1670  scp -i ~/.ssh/id_asusme updates_local_apri_26_backup.sql kunye@165.22.227.234:/tmp
+ 1671  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1672  . "/tmp/.mount_CursorOM4pgl/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1673  . "/tmp/.mount_CursorBonSD5/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1674  . "/tmp/.mount_CursorGS6L6B/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1675  . "/tmp/.mount_Cursorguve7P/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1676  dig +short pmis.kisumu.go.ke CNAME
+ 1677  sudo apt install bind9-dnsutils
+ 1678  dig +short pmis.kisumu.go.ke CNAME
+ 1679  dig +short intellinex.intellibizafrica.co.ke CNAME
+ 1680  dig +short pmis.kisumu.go.ke A | wc -l
+ 1681  dig YOUR-EXACT-SUBDOMAIN.example A +noall +answer
+ 1682  dig ig +short pmis.kisumu.go.ke  A +noall +answer
+ 1683  clear
+ 1684  dig ig +short pmis.kisumu.go.ke  A +noall +answer
+ 1685  dig ig +short  intellinex.intellibizafrica.co.ke  A +noall +answer
+ 1686  cd
+ 1687  grep -rnw . -e "intellinex.intellibizafrica.co.ke"
+ 1688  ssh kunye@165.22.227.234
+ 1689  ssh kunye@165.22.227.234
+ 1690  cd dev/imes_working/v5/imes
+ 1691  pwd
+ 1692  cd /home/dev/dev/imes_working/v5/imes
+ 1693  export VPS_USER=kunye
+ 1694  export VPS_HOST=165.22.227.234
+ 1695  ./deploy/sync-nginx-pmis-with-vps.sh pull
+ 1696  git status
+ 1697  VPS_PUSH_SCP_ONLY=1 ./deploy/sync-nginx-pmis-with-vps.sh push
+ 1698  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1699  cd dev/imes_working/
+ 1700  cd v5/imes
+ 1701  git status
+ 1702  git add .
+ 1703  git commit -m "set up subdomain"
+ 1704  git log -1 --stat    # sanity check
+ 1705  cp .env.example .env
+ 1706  # edit .env with real passwords; file stays untracked
+ 1707  docker compose -f docker-compose.prod.yml up -d
+ 1708  ls -al
+ 1709  ssh kunye@165.22.227.234
+ 1710  ping pims.kisumu.go.ke
+ 1711  ping pmis.kisumu.go.ke
+ 1712  ping ecimes.kisumu.go.ke
+ 1713  . "/tmp/.mount_Cursord2CDZC/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1714  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1715  . "/tmp/.mount_CursorS1CQJ8/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1716  . "/tmp/.mount_CursorNwqJ6B/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1717  . "/tmp/.mount_Cursorck2w92/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1718  cd 
+ 1719  cd dev/cursorDev/
+ 1720  ./Cursor-2.3.35-x86_64.AppImage
+ 1721  cd ../
+ 1722  cd imes_working/government_projects/
+ 1723  ./deploy-gprs-server.sh 
+ 1724  cd dev/cursorDev/
+ 1725  ./Cursor-2.3.35-x86_64.AppImage
+ 1726  cd
+ 1727  cd dev/cursorDev/
+ 1728  ./Cursor-2.3.35-x86_64.AppImage
+ 1729  cd dev/cursorDev/
+ 1730  ./Cursor-2.3.35-x86_64.AppImage
+ 1731  git status
+ 1732  ./deploy-gprs-server.sh 
+ 1733  ssh  fortress@102.210.149.119
+ 1734  ./deploy-gprs-server.sh 
+ 1735  ssh  fortress@102.210.149.119
+ 1736  cd dev/cursorDev/
+ 1737  ./Cursor-2.3.35-x86_64.AppImage
+ 1738  cd
+ 1739  cd dev/machakos/
+ 1740  git status
+ 1741  git add .
+ 1742  git commit -m "deployment enhancement"
+ 1743  git push origin main
+ 1744  ./deploy/deploy-to-server.sh 
+ 1745  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1746  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1747  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1748  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1749  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1750  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1751  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1752  ./deploy/deploy-to-server.sh 
+ 1753  git status
+ 1754  ./deploy/deploy-to-server.sh 
+ 1755  ./deploy/sync-local-db-to-server.sh
+ 1756  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1757  cd /home/dev/dev/machakos
+ 1758  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes DEPLOY_RESTORE_SUDO_POSTGRES=yes ./deploy/deploy-to-server.sh
+ 1759  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1760  docker compose -f docker-compose.server.yml exec api node scripts/sendSmtpTest.js kwatuha@gmail.com
+ 1761  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1762  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1763  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1764  ./deploy/deploy-to-server.sh 
+ 1765  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1766  cd 
+ 1767  cd /home/dev/dev/machakos
+ 1768  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1769  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes DEPLOY_STRIP_VECTOR_EXTENSION_DDL=yes ./deploy/deploy-to-server.sh
+ 1770  [200~cd /home/dev/dev/machakos/api && node -e "const b=require('bcryptjs'); console.log(b.hashSync('reset1234',10));"~
+ 1771  cd /home/dev/dev/machakos/api && node -e "const b=require('bcryptjs'); console.log(b.hashSync('reset1234',10));"
+ 1772  cd ../
+ 1773  cd /home/dev/dev/machakos/api && node -e 'const b=require("bcryptjs"); console.log(b.hashSync("SameTempPass1!", 10));'
+ 1774  cd /home/dev/dev/machakos/api && node -e 'const b=require("bcryptjs"); console.log(b.hashSync("reset1234", 10));'
+ 1775  psql -h localhost -U gov_local_user -d revised_gov_from_remote
+ 1776  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1777  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1778  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1779  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1780  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1781  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1782  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1783  cd /home/dev/dev/machakos
+ 1784  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes DEPLOY_STRIP_VECTOR_EXTENSION_DDL=yes ./deploy/deploy-to-server.sh
+ 1785  psql … -c "SELECT COUNT(*) FROM users WHERE voided = false;"
+ 1786  sudo -u postgres psql -p 5433 -d revised_gov_from_remote -c "
+ 1787  SELECT COUNT(*) AS users FROM users WHERE voided = false;
+ 1788  SELECT COUNT(*) AS roles FROM roles;
+ 1789  "
+ 1790  sudo -u postgres psql -p 5432 -d revised_gov_from_remote -c "
+ 1791  SELECT COUNT(*) AS users FROM users WHERE voided = false;
+ 1792  SELECT COUNT(*) AS roles FROM roles;
+ 1793  "
+ 1794  cd /home/dev/dev/machakos/api && node scripts/sendSmtpTest.js alfayo.g7kenya@gmail.com
+ 1795  cd ..
+ 1796  git add .
+ 1797  git commit -m "OTP"
+ 1798  git push origin main
+ 1799  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1800  ./deploy/sync-local-db-to-server.sh --dry-run
+ 1801  DEPLOY_SYNC_DB=1 ./deploy/deploy-to-server.sh
+ 1802  cd /home/dev/dev/machakos
+ 1803  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1804  ssh -i ~/.ssh/id_asusme  kunye@165.22.227.234
+ 1805  cd ../
+ 1806  ./deploy/deploy-to-server.sh 
+ 1807  git add .
+ 1808  ./deploy/deploy-to-server.sh 
+ 1809  git status
+ 1810  git add .
+ 1811  git commit -m "certificate QR codes"
+ 1812  git push origin main
+ 1813  git status
+ 1814  git add .
+ 1815  git commit -m "add link to project registry from gis dashboard"
+ 1816  git push origin main
+ 1817  ./deploy/deploy-to-server.sh 
+ 1818  node /home/dev/dev/machakos/api/migrations/create_audit_trail_pg.sql
+ 1819  psql "host=127.0.0.1 port=5432 user=gov_local_user dbname=revised_gov_from_remote password=Admin2020@#" -f /home/dev/dev/machakos/api/migrations/create_audit_trail_pg.sql
+ 1820  git status
+ 1821  git add .
+ 1822  git commit -m "audit trail"
+ 1823  git push origin main
+ 1824  ./deploy/deploy-to-server.sh 
+ 1825  git status
+ 1826  git log
+ 1827  git status
+ 1828  psql "host=127.0.0.1 port=5432 user=gov_local_user dbname=revised_gov_from_remote password=Admin2020@#" -f /home/dev/dev/machakos/api/migrations/create_hr_module_pg.sql
+ 1829  psql "host=127.0.0.1 port=5432 user=gov_local_user dbname=revised_gov_from_remote password=Admin2020@#"
+ 1830  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1831  ./deploy/sync-local-db-to-server.sh 
+ 1832  DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/deploy-to-server.sh
+ 1833  DEPLOY_SYNC_DB_CONFIRM=yes ./deploy/sync-local-db-to-server.sh
+ 1834  docker compose down
+ 1835  docker compose up -d
+ 1836  cd /home/dev/dev/machakos/api && PORT=3002 npm run dev
+ 1837  cd dev/cursorDev/
+ 1838  ./Cursor-2.3.35-x86_64.AppImage
+ 1839  . "/tmp/.mount_CursorXd5B1r/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1840  cd dev/cursorDev/
+ 1841  ./Cursor-2.3.35-x86_64.AppImage
+ 1842  cd dev/cursorDev/
+ 1843  ./Cursor-2.3.35-x86_64.AppImage
+ 1844  cd dev/cursorDev/
+ 1845  ./Cursor-2.3.35-x86_64.AppImage
+ 1846  . "/tmp/.mount_Cursornp9INH/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1847  ls
+ 1848  cd clean-cursor/
+ 1849  ./cursor-cleaner.sh 
+ 1850  cd dev/cursorDev/clean-cursor/
+ 1851  ./cursor-cleaner.sh 
+ 1852  sudo chmod +x dev/cursorDev/Cursor-3.3.27-x86_64.AppImage
+ 1853  ./dev/cursorDev/Cursor-3.3.27-x86_64.AppImage
+ 1854  cd dev/cursorDev/
+ 1855  ./Cursor-2.3.35-x86_64.AppImage 
+ 1856  cd clean-cursor/
+ 1857  ./cursor-cleaner.sh 
+ 1858  . "/tmp/.mount_Cursor8rrfQW/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1859  cd dev/cursorDev/
+ 1860  ./Cursor-2.3.35-x86_64.AppImage 
+ 1861  . "/tmp/.mount_CursorDsu2tC/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1862  cd 
+ 1863  cd dev/machakos/
+ 1864  cd ../cursorDev/
+ 1865  ./Cursor-2.3.35-x86_64.AppImage 
+ 1866  cd dev/kemri/
+ 1867  docker compose up -d
+ 1868  docker restart kemri_node_api
+ 1869  cd dev/cursorDev/
+ 1870  ./Cursor-2.3.35-x86_64.AppImage 
+ 1871  echo "wifi.powersave = 2" | sudo tee /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf
+ 1872  sudo systemctl restart NetworkManager
+ 1873  cd dev/cursorDev/
+ 1874  sudo restart networkManager
+ 1875  sudo systemctrl restart networkManager
+ 1876  sudo systemctl restart NetworkManager
+ 1877  journalctl -xeu NetworkManager.service
+ 1878  sudo service network-manager force-reload
+ 1879  sudo systemctl enable NetworkManager.service
+ 1880  sudo systemctl start NetworkManager.service
+ 1881  systemctl status NetworkManager.service
+ 1882  sudo /usr/sbin/NetworkManager --no-daemon
+ 1883  echo -e "[connection]\nwifi.powersave=2" | sudo tee /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf
+ 1884  sudo systemctl reset-failed NetworkManager.service
+ 1885  sudo systemctl start NetworkManager.service
+ 1886  cd dev/cursorDev/
+ 1887  ./Cursor-2.3.35-x86_64.AppImage 
+ 1888  cd /media/dev/0f890e54-6086-4dec-b0bc-b6880dbd313f8/newDev/board/
+ 1889  docker compose up
+ 1890  docker compose down
+ 1891  cd dev/cursorDev/
+ 1892  ./Cursor-2.3.35-x86_64.AppImage 
+ 1893  cd dev/cursorDev/
+ 1894  ./Cursor-2.3.35-x86_64.AppImage 
+ 1895  cd dev/cursorDev/
+ 1896  ./Cursor-2.3.35-x86_64.AppImage 
+ 1897  cd dev/cursorDev/
+ 1898  ./Cursor-2.3.35-x86_64.AppImage 
+ 1899  . "/tmp/.mount_Cursor8atuHX/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1900  cd dev/cursorDev/
+ 1901  ./Cursor-2.3.35-x86_64.AppImage 
+ 1902  cd dev/cursorDev/
+ 1903  ./Cursor-2.3.35-x86_64.AppImage 
+ 1904  . "/tmp/.mount_CursorLFwJ2w/usr/share/cursor/resources/app/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh"
+ 1905  sudo systemctl restart NetworkManager
+ 1906  sudo mkdir -p /etc/NetworkManager/conf.d
+ 1907  sudo nano /etc/NetworkManager/conf.d/wifi-powersave.conf
+ 1908  sudo systemctl restart NetworkManager
+ 1909  sudo reboot
+ 1910  cd dev/cursorDev/
+ 1911  ./Cursor-2.3.35-x86_64.AppImage 
+ 1912  sudo apt update
+ 1913  sudo apt upgrade
+ 1914  sudo apt install linux-firmware
+ 1915  sudo reboot
+ 1916  history > today_alpha.txt
+ 1917  cd dev/cursorDev/
+ 1918  ./Cursor-2.3.35-x86_64.AppImage 
+ 1919  cd dev/cursorDev/
+ 1920  ./Cursor-2.3.35-x86_64.AppImage 
+ 1921  lspci | grep -i -E "network|wireless|wifi"
+ 1922  sudo mkdir -p /etc/NetworkManager/conf.d
+ 1923  sudo nano /etc/NetworkManager/conf.d/wifi-powersave.conf
+ 1924  sudo systemctl restart NetworkManager
+ 1925  sudo nano /etc/modprobe.d/iwlwifi.conf
+ 1926  sudo reboot
+ 1927  cd dev/cursorDev/
+ 1928  ./Cursor-2.3.35-x86_64.AppImage 
+ 1929  cd dev/cursorDev/
+ 1930  ./Cursor-2.3.35-x86_64.AppImage 
+ 1931  sudo nano /etc/modprobe.d/iwlwifi.conf
+ 1932  sudo reboot
+ 1933  psql -h localhost -U postgres_user -d revised_gov_from_remote -p Admin2010@#
+ 1934  psql -h localhost -U postgres_user -d revised_gov_from_remote -P Admin2010@#
+ 1935  cd deploy/
+ 1936  ls
+ 1937  history > deployed_alpha.txt

@@ -125,6 +125,7 @@ const TEMPLATE_HEADERS = {
     'Constituency',
     'ward',
     'Contracted',
+    'TenderContractNo',
     'StartDate',
     'EndDate',
     'sector',
@@ -160,6 +161,7 @@ const TEMPLATE_HEADER_VARIANTS = {
     Constituency: ['Constituency', 'Constituency Name'],
     ward: ['Ward', 'Ward Name'],
     Contracted: ['Is Contracted', 'Contracted?', 'Contract Status'],
+    TenderContractNo: ['Tender/Contract No', 'Tender No', 'Contract No', 'Tender Number', 'Contract Number'],
     StartDate: ['Start Date', 'Project Start Date', 'Commencement Date'],
     EndDate: ['End Date', 'Project End Date', 'Completion Date']
     ,

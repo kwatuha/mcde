@@ -61,6 +61,7 @@ import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../u
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 import { axiosInstance } from '../api';
 import projectService from '../api/projectService';
 import SiteUpdatesDialog from '../components/SiteUpdatesDialog';
@@ -230,6 +231,8 @@ function ProjectDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const [deleteProjectConfirmOpen, setDeleteProjectConfirmOpen] = useState(false);
+    const [deletingProject, setDeletingProject] = useState(false);
 
     const [openMilestoneDialog, setOpenMilestoneDialog] = useState(false);
     const [currentMilestone, setCurrentMilestone] = useState(null);
@@ -744,15 +747,17 @@ function ProjectDetailsPage() {
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
             const margin = 42;
-            let y = 44;
 
             const inspectionDate = String(inspection?.inspectionDate || '').slice(0, 10) || 'N/A';
             const projectTitle = project?.projectName || project?.name || `Project #${projectId}`;
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(15);
-            doc.text('Project Inspection Report', pageWidth / 2, y, { align: 'center' });
-            y += 20;
+            let y = drawCountyOfficialHeader(doc, {
+                unit: 'pt',
+                startY: 32,
+                margin,
+                departmentName: project?.departmentName || project?.ministry || project?.directorate || '',
+                logoDataUrl: await getCountyLogoDataUrl(),
+                title: 'Project Inspection Report',
+            });
 
             doc.setFontSize(10);
             doc.setFont('helvetica', 'normal');
@@ -2168,6 +2173,37 @@ function ProjectDetailsPage() {
         setSnackbar({ ...snackbar, open: false });
     };
 
+    const handleOpenDeleteProjectDialog = () => {
+        if (!checkUserPrivilege(user, 'project.delete')) {
+            setSnackbar({ open: true, message: 'You do not have permission to delete projects.', severity: 'error' });
+            return;
+        }
+        setDeleteProjectConfirmOpen(true);
+    };
+
+    const handleDeleteCurrentProject = async () => {
+        if (!checkUserPrivilege(user, 'project.delete')) {
+            setSnackbar({ open: true, message: 'You do not have permission to delete projects.', severity: 'error' });
+            setDeleteProjectConfirmOpen(false);
+            return;
+        }
+
+        setDeletingProject(true);
+        try {
+            await apiService.projects.deleteProject(projectId);
+            setDeleteProjectConfirmOpen(false);
+            navigate('/projects', { replace: true });
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: err?.response?.data?.message || err?.message || 'Failed to delete project.',
+                severity: 'error',
+            });
+        } finally {
+            setDeletingProject(false);
+        }
+    };
+
     const handleManagePhotos = () => {
         navigate(`/projects/${projectId}/photos`);
     };
@@ -2506,6 +2542,31 @@ function ProjectDetailsPage() {
                         )}
                     </Stack>
                     <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                        {checkUserPrivilege(user, 'project.update') && (
+                            <Tooltip title="Edit project details">
+                                <Button
+                                    size="small"
+                                    variant="contained"
+                                    startIcon={<EditIcon sx={{ fontSize: 16 }} />}
+                                    onClick={() => navigate(`/projects?editProject=${encodeURIComponent(projectId)}`)}
+                                    sx={{ minHeight: 28, py: 0.25 }}
+                                >
+                                    Edit Project
+                                </Button>
+                            </Tooltip>
+                        )}
+                        {checkUserPrivilege(user, 'project.delete') && (
+                            <Tooltip title="Delete project">
+                                <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={handleOpenDeleteProjectDialog}
+                                    sx={{ p: 0.5 }}
+                                >
+                                    <DeleteIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                            </Tooltip>
+                        )}
                         <Tooltip title="View Project Monitoring">
                             <IconButton size="small" color="info" onClick={handleOpenMonitoringModal} sx={{ p: 0.5 }}>
                                 <VisibilityIcon sx={{ fontSize: 18 }} />
@@ -3182,6 +3243,7 @@ function ProjectDetailsPage() {
                                             <Typography variant="body2"><strong>Start Date:</strong> {formatDate(project?.startDate)}</Typography>
                                             <Typography variant="body2"><strong>End Date:</strong> {formatDate(project?.endDate)}</Typography>
                                             <Typography variant="body2"><strong>Budget Source:</strong> {project?.budgetSource || 'N/A'}</Typography>
+                                            <Typography variant="body2"><strong>Tender/Contract No:</strong> {project?.tenderContractNo || 'N/A'}</Typography>
                                         </Stack>
                                     </Paper>
                                 </Grid>
@@ -6043,6 +6105,37 @@ function ProjectDetailsPage() {
                         startIcon={importingSites ? <CircularProgress size={16} /> : <UploadIcon />}
                     >
                         {importingSites ? 'Importing...' : 'Import Sites'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Project Confirmation Dialog */}
+            <Dialog open={deleteProjectConfirmOpen} onClose={() => !deletingProject && setDeleteProjectConfirmOpen(false)}>
+                <DialogTitle sx={{ backgroundColor: 'error.main', color: 'white' }}>
+                    Confirm Deletion
+                </DialogTitle>
+                <DialogContent dividers sx={{ pt: 2 }}>
+                    <Typography>
+                        Are you sure you want to delete "{project?.projectName || project?.name || 'this project'}"? This action cannot be undone.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setDeleteProjectConfirmOpen(false)}
+                        color="primary"
+                        variant="outlined"
+                        disabled={deletingProject}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleDeleteCurrentProject}
+                        color="error"
+                        variant="contained"
+                        disabled={deletingProject}
+                        startIcon={deletingProject ? <CircularProgress size={16} color="inherit" /> : null}
+                    >
+                        {deletingProject ? 'Deleting...' : 'Delete'}
                     </Button>
                 </DialogActions>
             </Dialog>

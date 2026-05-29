@@ -33,6 +33,7 @@ const routeTitles = {
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },
   '/project-by-sector-dashboard': { title: 'Project By Sector', subtitle: 'Sector spread & registry alignment' },
   '/finance/payment-certificates': { title: 'Payment Certificates', subtitle: 'All projects' },
+  '/finance/funding-sources-report': { title: 'Funding Sources Report', subtitle: 'Projects grouped by funding source' },
 
   // Reporting routes
   '/reports-hub': { title: 'Reports hub', subtitle: 'Find reports & analytics' },

@@ -3498,6 +3498,211 @@ router.get('/partner-contributions', async (_req, res) => {
     }
 });
 
+router.get('/projects-by-funding-source', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const hasFundingEntries = await tableExistsInDb('project_funding_entries').catch(() => false);
+        const hasFundingSources = await tableExistsInDb('funding_sources').catch(() => false);
+        const hasPartners = await tableExistsInDb('project_partners').catch(() => false);
+        if (!hasFundingEntries) {
+            return res.status(200).json({
+                groups: [],
+                summary: { groupCount: 0, projectCount: 0, entryCount: 0, totalFunding: 0 },
+            });
+        }
+
+        const projectsHasName = await columnExistsInDb('projects', 'name').catch(() => false);
+        const projectsHasProjectName = await columnExistsInDb('projects', 'projectName').catch(() => false);
+        const pgProjectNameSelect = isPg
+            ? (projectsHasName && projectsHasProjectName
+                ? `COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(p."projectName"), ''), CONCAT('Project #', p.project_id))`
+                : projectsHasProjectName
+                    ? `COALESCE(NULLIF(TRIM(p."projectName"), ''), CONCAT('Project #', p.project_id))`
+                    : projectsHasName
+                        ? `COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id))`
+                        : `CONCAT('Project #', p.project_id)`)
+            : '';
+        const myProjectNameSelect = !isPg
+            ? (projectsHasName && projectsHasProjectName
+                ? `COALESCE(NULLIF(TRIM(p.projectName), ''), NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.id))`
+                : projectsHasName
+                    ? `COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.id))`
+                    : `COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id))`)
+            : '';
+
+        const params = [];
+        const where = [isPg ? 'COALESCE(fe.voided,false)=false' : 'COALESCE(fe.voided,0)=0'];
+        where.push(isPg ? 'COALESCE(p.voided,false)=false' : 'COALESCE(p.voided,0)=0');
+
+        const projectName = String(req.query.projectName || '').trim();
+        const department = String(req.query.department || '').trim();
+        const source = String(req.query.source || '').trim();
+
+        if (projectName) {
+            params.push(`%${projectName.toLowerCase()}%`);
+            if (isPg) {
+                const titleExpr = `LOWER(TRIM(${pgProjectNameSelect}))`;
+                where.push(`${titleExpr} LIKE $${params.length}`);
+            } else {
+                const titleExpr = `LOWER(TRIM(${myProjectNameSelect}))`;
+                where.push(`${titleExpr} LIKE ?`);
+            }
+        }
+        if (department) {
+            params.push(department);
+            where.push(isPg ? `COALESCE(p.ministry,'') = $${params.length}` : `COALESCE(d.name,'') = ?`);
+        }
+
+        const fsJoin = hasFundingSources
+            ? 'LEFT JOIN funding_sources fs ON fs.source_id = fe.source_id'
+            : (isPg ? 'LEFT JOIN (SELECT NULL::integer AS source_id, NULL::integer AS partner_id, NULL::text AS source_name) fs ON false' : 'LEFT JOIN (SELECT NULL AS source_id, NULL AS partner_id, NULL AS source_name) fs ON 1=0');
+        const ppJoin = hasPartners
+            ? 'LEFT JOIN project_partners pp ON pp.partner_id = COALESCE(fe.partner_id, fs.partner_id) AND ' + (isPg ? 'COALESCE(pp.voided,false)=false' : 'COALESCE(pp.voided,0)=0')
+            : (isPg ? 'LEFT JOIN (SELECT NULL::integer AS partner_id, NULL::text AS partner_name) pp ON false' : 'LEFT JOIN (SELECT NULL AS partner_id, NULL AS partner_name) pp ON 1=0');
+
+        const sourceNameExpr = `COALESCE(NULLIF(TRIM(pp.partner_name), ''), NULLIF(TRIM(fs.source_name), ''), 'Unknown Source')`;
+        if (source) {
+            params.push(`%${source.toLowerCase()}%`);
+            where.push(isPg ? `LOWER(${sourceNameExpr}) LIKE $${params.length}` : `LOWER(${sourceNameExpr}) LIKE ?`);
+        }
+
+        const limit = Number(req.query.limit || 5000);
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(10000, limit)) : 5000;
+        const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric,0)` : `COALESCE(p.costOfProject,0)`;
+        const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric,0)` : `COALESCE(p.paidOut,0)`;
+
+        const sql = isPg
+            ? `
+                SELECT
+                    p.project_id AS "projectId",
+                    ${pgProjectNameSelect} AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                    ${budgetExpr} AS "budgetAmount",
+                    ${paidExpr} AS "paidAmount",
+                    fe.entry_id AS "entryId",
+                    fe.amount AS "fundingAmount",
+                    fe.stage,
+                    fe.source_id AS "sourceId",
+                    fe.partner_id AS "entryPartnerId",
+                    fs.partner_id AS "sourcePartnerId",
+                    COALESCE(pp.partner_id, fe.partner_id, fs.partner_id) AS "partnerId",
+                    ${sourceNameExpr} AS "fundingSourceName"
+                FROM project_funding_entries fe
+                JOIN projects p ON p.project_id = fe.project_id
+                ${fsJoin}
+                ${ppJoin}
+                WHERE ${where.join(' AND ')}
+                ORDER BY "fundingSourceName" ASC, "fundingAmount" DESC, p.project_id DESC
+                LIMIT ${safeLimit}
+            `
+            : `
+                SELECT
+                    p.id AS projectId,
+                    ${myProjectNameSelect} AS projectName,
+                    COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                    ${budgetExpr} AS budgetAmount,
+                    ${paidExpr} AS paidAmount,
+                    fe.entry_id AS entryId,
+                    fe.amount AS fundingAmount,
+                    fe.stage,
+                    fe.source_id AS sourceId,
+                    fe.partner_id AS entryPartnerId,
+                    fs.partner_id AS sourcePartnerId,
+                    COALESCE(pp.partner_id, fe.partner_id, fs.partner_id) AS partnerId,
+                    ${sourceNameExpr} AS fundingSourceName
+                FROM project_funding_entries fe
+                JOIN projects p ON p.id = fe.project_id
+                LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+                ${fsJoin}
+                ${ppJoin}
+                WHERE ${where.join(' AND ')}
+                ORDER BY fundingSourceName ASC, fundingAmount DESC, p.id DESC
+                LIMIT ${safeLimit}
+            `;
+
+        const result = await pool.query(sql, params);
+        const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+        const groupMap = new Map();
+
+        rows.forEach((r) => {
+            const partnerId = r.partnerId ?? r.partnerid ?? null;
+            const sourceId = r.sourceId ?? r.sourceid ?? null;
+            const sourceName = r.fundingSourceName ?? r.fundingsourcename ?? 'Unknown Source';
+            const groupKey = partnerId != null ? `partner:${partnerId}` : sourceId != null ? `source:${sourceId}` : `name:${sourceName}`;
+            const amount = Number(r.fundingAmount ?? r.fundingamount ?? 0);
+            const projectId = r.projectId ?? r.projectid;
+
+            if (!groupMap.has(groupKey)) {
+                groupMap.set(groupKey, {
+                    fundingSourceKey: groupKey,
+                    fundingSourceName: sourceName,
+                    sourceId,
+                    partnerId,
+                    projectCount: 0,
+                    entryCount: 0,
+                    totalAmount: 0,
+                    projects: [],
+                    _projectTotals: new Map(),
+                });
+            }
+
+            const group = groupMap.get(groupKey);
+            group.entryCount += 1;
+            group.totalAmount += amount;
+            if (!group._projectTotals.has(projectId)) {
+                group._projectTotals.set(projectId, {
+                    projectId,
+                    projectName: r.projectName ?? r.projectname ?? `Project #${projectId}`,
+                    department: r.department || 'Unassigned',
+                    status: r.status || 'Unknown',
+                    budgetAmount: Number(r.budgetAmount ?? r.budgetamount ?? 0),
+                    paidAmount: Number(r.paidAmount ?? r.paidamount ?? 0),
+                    fundingAmount: 0,
+                    entryCount: 0,
+                    stages: new Set(),
+                });
+            }
+            const project = group._projectTotals.get(projectId);
+            project.fundingAmount += amount;
+            project.entryCount += 1;
+            if (r.stage) project.stages.add(String(r.stage));
+        });
+
+        const groups = [...groupMap.values()].map((group) => {
+            const projects = [...group._projectTotals.values()]
+                .map((project) => ({
+                    ...project,
+                    stages: [...project.stages].join(', '),
+                }))
+                .sort((a, b) => b.fundingAmount - a.fundingAmount || String(a.projectName).localeCompare(String(b.projectName)));
+            delete group._projectTotals;
+            return {
+                ...group,
+                projectCount: projects.length,
+                totalAmount: Number(group.totalAmount || 0),
+                projects,
+            };
+        }).sort((a, b) => b.totalAmount - a.totalAmount || String(a.fundingSourceName).localeCompare(String(b.fundingSourceName)));
+
+        const projectIds = new Set();
+        groups.forEach((group) => group.projects.forEach((project) => projectIds.add(project.projectId)));
+        const summary = {
+            groupCount: groups.length,
+            projectCount: projectIds.size,
+            entryCount: rows.length,
+            totalFunding: groups.reduce((sum, group) => sum + Number(group.totalAmount || 0), 0),
+        };
+
+        return res.status(200).json({ groups, summary });
+    } catch (error) {
+        console.error('Error building projects by funding source report:', error);
+        return res.status(500).json({ message: 'Error building projects by funding source report', error: error.message });
+    }
+});
+
 /** Same entity_id mapping as project certificates + approval workflow engine. */
 const CERT_APPROVAL_ENTITY_TYPES_SQL = `('project_certificate','payment_certificate','certificate')`;
 

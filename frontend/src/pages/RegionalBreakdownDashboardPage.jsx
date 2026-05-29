@@ -28,6 +28,13 @@ const currency = (v) =>
     maximumFractionDigits: 2,
   })}`;
 
+const shortCurrency = (v) => {
+  const n = Number(v || 0);
+  if (Math.abs(n) >= 1000000) return `KES ${(n / 1000000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1000) return `KES ${(n / 1000).toFixed(0)}K`;
+  return `KES ${n.toLocaleString('en-KE')}`;
+};
+
 const RegionalBreakdownDashboardPage = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
@@ -56,13 +63,15 @@ const RegionalBreakdownDashboardPage = () => {
   const normalized = useMemo(
     () =>
       rows.map((p) => ({
-        constituency:
+        subcounty:
           String(
-            p?.constituency ||
-              p?.Constituency ||
-              p?.constituencyName ||
-              p?.constituency_name ||
-              p?.constituencyNames ||
+            p?.subcountyNames ||
+              p?.subcounty ||
+              p?.subCounty ||
+              p?.sub_county ||
+              p?.SubCounty ||
+              p?.Subcounty ||
+              p?.division ||
               ''
           ).trim() || 'Unspecified',
         ward: getProjectWardKey(p) || 'Unspecified',
@@ -72,14 +81,14 @@ const RegionalBreakdownDashboardPage = () => {
     [rows]
   );
 
-  const constituencyRows = useMemo(() => {
+  const subcountyRows = useMemo(() => {
     const m = new Map();
     for (const r of normalized) {
-      const current = m.get(r.constituency) || { constituency: r.constituency, projectCount: 0, totalBudget: 0, totalPaid: 0 };
+      const current = m.get(r.subcounty) || { subcounty: r.subcounty, projectCount: 0, totalBudget: 0, totalPaid: 0 };
       current.projectCount += 1;
       current.totalBudget += r.budget;
       current.totalPaid += r.paid;
-      m.set(r.constituency, current);
+      m.set(r.subcounty, current);
     }
     return [...m.values()].sort((a, b) => b.projectCount - a.projectCount);
   }, [normalized]);
@@ -87,9 +96,9 @@ const RegionalBreakdownDashboardPage = () => {
   const wardRows = useMemo(() => {
     const m = new Map();
     for (const r of normalized) {
-      const key = `${r.constituency}__${r.ward}`;
+      const key = `${r.subcounty}__${r.ward}`;
       const current = m.get(key) || {
-        constituency: r.constituency,
+        subcounty: r.subcounty,
         ward: r.ward,
         projectCount: 0,
         totalBudget: 0,
@@ -108,17 +117,31 @@ const RegionalBreakdownDashboardPage = () => {
     const totalBudget = normalized.reduce((sum, r) => sum + r.budget, 0);
     const totalPaid = normalized.reduce((sum, r) => sum + r.paid, 0);
     return {
-      constituencies: constituencyRows.length,
+      subcounties: subcountyRows.length,
       wards: wardRows.length,
       totalProjects,
       totalBudget,
       totalPaid,
     };
-  }, [normalized, constituencyRows.length, wardRows.length]);
+  }, [normalized, subcountyRows.length, wardRows.length]);
+
+  const chartRows = useMemo(() => {
+    const scopeRows = activeTab === 1 ? wardRows : subcountyRows;
+    return scopeRows
+      .map((r) => ({
+        name: activeTab === 1 ? r.ward : r.subcounty,
+        projectCount: r.projectCount,
+        totalBudget: r.totalBudget,
+        totalPaid: r.totalPaid,
+        absorptionRate: r.totalBudget > 0 ? (r.totalPaid / r.totalBudget) * 100 : 0,
+      }))
+      .sort((a, b) => b.projectCount - a.projectCount)
+      .slice(0, activeTab === 1 ? 12 : 10);
+  }, [activeTab, subcountyRows, wardRows]);
 
   const distributionInsights = useMemo(() => {
     const useWardScope = activeTab === 1;
-    const scopeRows = useWardScope ? wardRows : constituencyRows;
+    const scopeRows = useWardScope ? wardRows : subcountyRows;
     const scopeCount = Math.max(scopeRows.length, 1);
     const idealProjectsPerScope = totals.totalProjects / scopeCount;
     const idealBudgetPerScope = totals.totalBudget / scopeCount;
@@ -130,7 +153,7 @@ const RegionalBreakdownDashboardPage = () => {
         Math.max(projectGap, 0) * 0.6 +
         (idealBudgetPerScope > 0 ? (Math.max(budgetGap, 0) / idealBudgetPerScope) * 100 * 0.4 : 0);
       const equityScore = Math.max(0, 100 - Math.abs(projectGap) * 12);
-      const scopeLabel = useWardScope ? c.ward : c.constituency;
+      const scopeLabel = useWardScope ? c.ward : c.subcounty;
       return {
         ...c,
         scopeLabel,
@@ -151,8 +174,8 @@ const RegionalBreakdownDashboardPage = () => {
       .slice(0, 5);
 
     return {
-      scopeLabel: useWardScope ? 'ward' : 'constituency',
-      scopeLabelPlural: useWardScope ? 'wards' : 'constituencies',
+      scopeLabel: useWardScope ? 'ward' : 'sub-county',
+      scopeLabelPlural: useWardScope ? 'wards' : 'sub-counties',
       idealProjectsPerScope,
       idealBudgetPerScope,
       averageEquityScore:
@@ -160,13 +183,13 @@ const RegionalBreakdownDashboardPage = () => {
       rows,
       underServed,
     };
-  }, [activeTab, constituencyRows, wardRows, totals.totalProjects, totals.totalBudget]);
+  }, [activeTab, subcountyRows, wardRows, totals.totalProjects, totals.totalBudget]);
 
   const openRegistry = (row) => {
     if (!row) return;
     const params = new URLSearchParams();
-    if (row.constituency && row.constituency !== 'Unspecified') {
-      params.set('constituency', row.constituency);
+    if (row.subcounty && row.subcounty !== 'Unspecified') {
+      params.set('subcounty', row.subcounty);
     }
     if (row.ward && row.ward !== 'Unspecified') {
       params.set('ward', row.ward);
@@ -175,8 +198,172 @@ const RegionalBreakdownDashboardPage = () => {
     navigate(q ? `/projects?${q}` : '/projects');
   };
 
+  const chartCardSx = {
+    p: { xs: 1.5, md: 2.25 },
+    borderRadius: 2.5,
+    height: '100%',
+    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
+    background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)',
+  };
+
+  const chartLabel = activeTab === 1 ? 'Ward' : 'Sub-county';
+  const maxProjectCount = Math.max(1, ...chartRows.map((row) => row.projectCount || 0));
+  const maxBudget = Math.max(1, ...chartRows.map((row) => row.totalBudget || 0));
+
+  const renderCharts = () => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', lg: 'row' },
+        gap: 2,
+        mb: 2.5,
+        width: '100%',
+        alignItems: 'stretch',
+      }}
+    >
+        <Box sx={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Paper variant="outlined" sx={chartCardSx}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 1.25 }}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={850}>
+                  Budget vs Paid by {chartLabel}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Allocation and expenditure
+                </Typography>
+              </Box>
+              <Chip size="small" color="primary" variant="outlined" label={`Top ${chartRows.length}`} />
+            </Box>
+            <Box sx={{ display: 'grid', gap: 1.15 }}>
+              {chartRows.map((row) => {
+                const budgetPercent = Math.max(2, ((row.totalBudget || 0) / maxBudget) * 100);
+                const paidPercent = Math.max(2, ((row.totalPaid || 0) / maxBudget) * 100);
+                return (
+                  <Box key={`budget-${row.name}`}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 0.35 }}>
+                      <Typography
+                        variant="body2"
+                        title={row.name}
+                        sx={{ fontWeight: 650, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {row.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 800, color: '#1976d2', flexShrink: 0 }}>
+                        {shortCurrency(row.totalBudget)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'grid', gap: 0.45 }}>
+                      <Box sx={{ height: 9, borderRadius: 999, bgcolor: 'rgba(25, 118, 210, 0.10)', overflow: 'hidden' }}>
+                        <Box sx={{ height: '100%', width: `${budgetPercent}%`, borderRadius: 999, bgcolor: '#1976d2' }} />
+                      </Box>
+                      <Box sx={{ height: 9, borderRadius: 999, bgcolor: 'rgba(46, 125, 50, 0.12)', overflow: 'hidden' }}>
+                        <Box sx={{ height: '100%', width: `${paidPercent}%`, borderRadius: 999, bgcolor: '#2e7d32' }} />
+                      </Box>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
+              <Chip size="small" label="Budget" sx={{ bgcolor: 'rgba(25, 118, 210, 0.10)', color: '#1976d2', fontWeight: 700 }} />
+              <Chip size="small" label="Paid" sx={{ bgcolor: 'rgba(46, 125, 50, 0.12)', color: '#2e7d32', fontWeight: 700 }} />
+            </Box>
+          </Paper>
+        </Box>
+
+        <Box sx={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Paper variant="outlined" sx={chartCardSx}>
+            <Typography variant="subtitle1" fontWeight={850}>
+              Projects by {chartLabel}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Project volume distribution
+            </Typography>
+            <Box sx={{ display: 'grid', gap: 1.35, mt: 2 }}>
+              {chartRows.map((row) => {
+                const value = row.projectCount || 0;
+                const percent = Math.max(2, (value / maxProjectCount) * 100);
+                return (
+                  <Box key={`projects-${row.name}`}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 0.45 }}>
+                      <Typography
+                        variant="body2"
+                        title={row.name}
+                        sx={{ fontWeight: 650, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {row.name}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 800, color: '#1976d2', flexShrink: 0 }}>
+                        {value}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ height: 14, borderRadius: 999, bgcolor: 'rgba(25, 118, 210, 0.10)', overflow: 'hidden' }}>
+                      <Box
+                        sx={{
+                          height: '100%',
+                          width: `${percent}%`,
+                          borderRadius: 999,
+                          bgcolor: '#1976d2',
+                          boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.12)',
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Paper>
+        </Box>
+
+        <Box sx={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Paper variant="outlined" sx={chartCardSx}>
+            <Typography variant="subtitle1" fontWeight={850}>
+              Absorption Rate by {chartLabel}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Budget utilization percentage
+            </Typography>
+            <Box sx={{ display: 'grid', gap: 1.35, mt: 2 }}>
+              {chartRows.map((row) => {
+                const value = Math.max(0, Math.min(100, Number(row.absorptionRate || 0)));
+                return (
+                  <Box key={`absorption-${row.name}`}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 0.45 }}>
+                      <Typography
+                        variant="body2"
+                        title={row.name}
+                        sx={{ fontWeight: 650, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {row.name}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 800, color: '#f57c00', flexShrink: 0 }}>
+                        {value.toFixed(1)}%
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={value}
+                      sx={{
+                        height: 14,
+                        borderRadius: 999,
+                        bgcolor: 'rgba(245, 124, 0, 0.12)',
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 999,
+                          bgcolor: '#f57c00',
+                        },
+                      }}
+                    />
+                  </Box>
+                );
+              })}
+            </Box>
+          </Paper>
+        </Box>
+    </Box>
+  );
+
   return (
-    <Box sx={{ p: { xs: 1, sm: 1.5 } }}>
+    <Box sx={{ p: { xs: 1, sm: 1.5 }, width: '100%' }}>
       <Paper
         elevation={0}
         sx={{
@@ -195,10 +382,10 @@ const RegionalBreakdownDashboardPage = () => {
           Regional Breakdown Dashboard
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Constituency and ward performance from project records
+          Sub-county and ward performance from project records
         </Typography>
         <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          <Chip size="small" label={`Constituencies: ${totals.constituencies}`} color="primary" variant="outlined" />
+          <Chip size="small" label={`Sub-counties: ${totals.subcounties}`} color="primary" variant="outlined" />
           <Chip size="small" label={`Wards: ${totals.wards}`} color="primary" variant="outlined" />
           <Chip size="small" label={`Projects: ${totals.totalProjects}`} color="primary" variant="outlined" />
         </Box>
@@ -220,11 +407,11 @@ const RegionalBreakdownDashboardPage = () => {
             },
           }}
         >
-          <Tab icon={<LocationOn sx={{ fontSize: 18 }} />} iconPosition="start" label="Constituency" />
+          <Tab icon={<LocationOn sx={{ fontSize: 18 }} />} iconPosition="start" label="Sub-county" />
           <Tab icon={<MapIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Ward" />
         </Tabs>
 
-        <Box sx={{ p: 1.5, backgroundColor: 'background.default' }}>
+        <Box sx={{ p: { xs: 1.5, md: 2 }, backgroundColor: 'background.default' }}>
           <Grid container spacing={1} sx={{ mb: 1.25 }}>
             <Grid item xs={12} md={6}>
               <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5 }}>
@@ -250,63 +437,69 @@ const RegionalBreakdownDashboardPage = () => {
           ) : error ? (
             <Alert severity="error">{error}</Alert>
           ) : activeTab === 0 ? (
-            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.5 }}>
-              <Table size="small">
-                <TableHead sx={{ '& .MuiTableCell-root': { bgcolor: 'action.hover', fontWeight: 700 } }}>
-                  <TableRow>
-                    <TableCell>Constituency</TableCell>
-                    <TableCell align="right">Projects</TableCell>
-                    <TableCell align="right">Total Budget</TableCell>
-                    <TableCell align="right">Total Paid</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {constituencyRows.map((r) => (
-                    <TableRow
-                      key={r.constituency}
-                      hover
-                      onClick={() => openRegistry(r)}
-                      sx={{ cursor: 'pointer' }}
-                    >
-                      <TableCell>{r.constituency}</TableCell>
-                      <TableCell align="right">{r.projectCount}</TableCell>
-                      <TableCell align="right">{currency(r.totalBudget)}</TableCell>
-                      <TableCell align="right">{currency(r.totalPaid)}</TableCell>
+            <>
+              {renderCharts()}
+              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.5 }}>
+                <Table size="small">
+                  <TableHead sx={{ '& .MuiTableCell-root': { bgcolor: 'action.hover', fontWeight: 700 } }}>
+                    <TableRow>
+                      <TableCell>Sub-county</TableCell>
+                      <TableCell align="right">Projects</TableCell>
+                      <TableCell align="right">Total Budget</TableCell>
+                      <TableCell align="right">Total Paid</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {subcountyRows.map((r) => (
+                      <TableRow
+                        key={r.subcounty}
+                        hover
+                        onClick={() => openRegistry(r)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell>{r.subcounty}</TableCell>
+                        <TableCell align="right">{r.projectCount}</TableCell>
+                        <TableCell align="right">{currency(r.totalBudget)}</TableCell>
+                        <TableCell align="right">{currency(r.totalPaid)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
           ) : (
-            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.5 }}>
-              <Table size="small">
-                <TableHead sx={{ '& .MuiTableCell-root': { bgcolor: 'action.hover', fontWeight: 700 } }}>
-                  <TableRow>
-                    <TableCell>Ward</TableCell>
-                    <TableCell>Constituency</TableCell>
-                    <TableCell align="right">Projects</TableCell>
-                    <TableCell align="right">Total Budget</TableCell>
-                    <TableCell align="right">Total Paid</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {wardRows.map((r) => (
-                    <TableRow
-                      key={`${r.constituency}-${r.ward}`}
-                      hover
-                      onClick={() => openRegistry(r)}
-                      sx={{ cursor: 'pointer' }}
-                    >
-                      <TableCell>{r.ward}</TableCell>
-                      <TableCell>{r.constituency}</TableCell>
-                      <TableCell align="right">{r.projectCount}</TableCell>
-                      <TableCell align="right">{currency(r.totalBudget)}</TableCell>
-                      <TableCell align="right">{currency(r.totalPaid)}</TableCell>
+            <>
+              {renderCharts()}
+              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.5 }}>
+                <Table size="small">
+                  <TableHead sx={{ '& .MuiTableCell-root': { bgcolor: 'action.hover', fontWeight: 700 } }}>
+                    <TableRow>
+                      <TableCell>Ward</TableCell>
+                      <TableCell>Sub-county</TableCell>
+                      <TableCell align="right">Projects</TableCell>
+                      <TableCell align="right">Total Budget</TableCell>
+                      <TableCell align="right">Total Paid</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {wardRows.map((r) => (
+                      <TableRow
+                        key={`${r.subcounty}-${r.ward}`}
+                        hover
+                        onClick={() => openRegistry(r)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell>{r.ward}</TableCell>
+                        <TableCell>{r.subcounty}</TableCell>
+                        <TableCell align="right">{r.projectCount}</TableCell>
+                        <TableCell align="right">{currency(r.totalBudget)}</TableCell>
+                        <TableCell align="right">{currency(r.totalPaid)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
           )}
         </Box>
       </Paper>
@@ -378,7 +571,7 @@ const RegionalBreakdownDashboardPage = () => {
             <TableBody>
               {distributionInsights.underServed.map((r) => (
                 <TableRow
-                  key={`priority-${r.scopeLabel}-${r.constituency || 'na'}`}
+                  key={`priority-${r.scopeLabel}-${r.subcounty || 'na'}`}
                   hover
                   onClick={() => openRegistry(r)}
                   sx={{ cursor: 'pointer' }}
