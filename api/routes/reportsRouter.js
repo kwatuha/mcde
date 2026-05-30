@@ -3,7 +3,9 @@ const router = express.Router();
 const pool = require('../config/db'); // Adjust the path as needed
 const { addStatusFilter } = require('../utils/statusFilterHelper');
 const path = require('path');
+const fs = require('fs');
 const ExcelJS = require('exceljs');
+const PDFDocument = require('pdfkit');
 
 // Helper function to get DB type
 const getDBType = () => process.env.DB_TYPE || 'mysql';
@@ -3165,6 +3167,9 @@ async function buildBudgetJustificationRows(query = {}) {
                 ${budgetExpr} AS "budgetAmount",
                 ${paidExpr} AS "paidAmount",
                 ${pendingExpr} AS "pendingAmount",
+                NULLIF(TRIM(p.timeline->>'financial_year'), '') AS "financialYear",
+                NULLIF(TRIM(p.timeline->>'start_date'), '') AS "startDate",
+                NULLIF(TRIM(p.timeline->>'expected_completion_date'), '') AS "endDate",
                 CASE
                     WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
                     WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
@@ -3185,6 +3190,9 @@ async function buildBudgetJustificationRows(query = {}) {
                 ${budgetExpr} AS budgetAmount,
                 ${paidExpr} AS paidAmount,
                 ${pendingExpr} AS pendingAmount,
+                COALESCE(NULLIF(TRIM(p.financialYear), ''), '') AS financialYear,
+                p.startDate AS startDate,
+                p.endDate AS endDate,
                 CASE
                     WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
                     WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
@@ -3221,18 +3229,244 @@ router.get('/budget-justification', async (req, res) => {
     }
 });
 
+function bjMoney(value) {
+    return `KES ${Number(value || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function bjDate(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function bjTimeFrame(row) {
+    const start = bjDate(row.startDate || row.startdate);
+    const end = bjDate(row.endDate || row.enddate);
+    if (start && end) return `${start} to ${end}`;
+    return start || end || 'Current financial year';
+}
+
+function bjDrawCell(doc, text, x, y, width, height, options = {}) {
+    doc.rect(x, y, width, height).strokeColor('#D0D7DE').lineWidth(0.5).stroke();
+    const padding = options.padding ?? 3;
+    doc
+        .fillColor(options.color || '#1F2937')
+        .font(options.bold ? 'Helvetica-Bold' : 'Helvetica')
+        .fontSize(options.fontSize || 7)
+        .text(String(text ?? ''), x + padding, y + padding, {
+            width: Math.max(1, width - (padding * 2)),
+            height: Math.max(1, height - (padding * 2)),
+            align: options.align || 'left',
+            ellipsis: true,
+        });
+}
+
+function bjWrappedHeight(doc, text, width, options = {}) {
+    const padding = options.padding ?? 3;
+    doc.font(options.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(options.fontSize || 7);
+    return doc.heightOfString(String(text ?? ''), {
+        width: Math.max(1, width - (padding * 2)),
+        align: options.align || 'left',
+    }) + (padding * 2);
+}
+
+function bjCountyLogoCandidates() {
+    const explicit = process.env.COUNTY_LOGO_PATH || process.env.CERT_LOGO_PATH || process.env.VITE_CERT_LOGO_PATH;
+    const roots = [
+        path.resolve(__dirname, '..', '..'),
+        path.resolve(process.cwd()),
+        path.resolve(__dirname, '..'),
+    ];
+    const candidates = [
+        explicit,
+        ...roots.flatMap((root) => [
+            path.join(root, 'api', 'assets', 'gpris.png'),
+            path.join(root, 'api', 'assets', 'logo.png'),
+            path.join(root, 'assets', 'gpris.png'),
+            path.join(root, 'assets', 'logo.png'),
+            path.join(root, 'frontend', 'src', 'assets', 'gpris.png'),
+            path.join(root, 'frontend', 'src', 'assets', 'logo.png'),
+            path.join(root, 'src', 'assets', 'gpris.png'),
+            path.join(root, 'public', 'gpris.png'),
+        ]),
+    ].filter(Boolean);
+
+    for (const root of roots) {
+        const distAssets = path.join(root, 'frontend', 'dist', 'assets');
+        if (!fs.existsSync(distAssets)) continue;
+        try {
+            const files = fs.readdirSync(distAssets)
+                .filter((file) => /^gpris.*\.png$/i.test(file) || /^logo.*\.png$/i.test(file));
+            for (const file of files) candidates.push(path.join(distAssets, file));
+        } catch {
+            // Ignore unreadable deployment asset folders; the static candidates above still apply.
+        }
+    }
+
+    return [...new Set(candidates)];
+}
+
+function bjResolveCountyLogoPath() {
+    return bjCountyLogoCandidates().find((candidate) => {
+        try {
+            return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+        } catch {
+            return false;
+        }
+    }) || '';
+}
+
+function bjDrawOfficialHeader(doc, { title, subtitle, logoPath }) {
+    const pageWidth = doc.page.width;
+    const margin = doc.page.margins.left;
+    let y = 24;
+    const resolvedLogoPath = logoPath || bjResolveCountyLogoPath();
+    if (resolvedLogoPath) {
+        try {
+            const logoBuffer = fs.readFileSync(resolvedLogoPath);
+            doc.image(logoBuffer, (pageWidth - 58) / 2, y, { width: 58 });
+            y += 62;
+        } catch {
+            y += 4;
+        }
+    }
+    const countyName = process.env.VITE_CERT_COUNTY_NAME || process.env.CERT_COUNTY_NAME || 'COUNTY GOVERNMENT OF MACHAKOS';
+    doc.fillColor('#111827').font('Helvetica-Bold').fontSize(10).text('REPUBLIC OF KENYA', margin, y, { align: 'center', width: pageWidth - (margin * 2) });
+    y += 14;
+    doc.fontSize(11).text(String(countyName).toUpperCase(), margin, y, { align: 'center', width: pageWidth - (margin * 2) });
+    y += 14;
+    doc.fontSize(10).text(title.toUpperCase(), margin, y, { align: 'center', width: pageWidth - (margin * 2) });
+    y += 14;
+    if (subtitle) {
+        doc.font('Helvetica').fontSize(8).fillColor('#4B5563').text(subtitle, margin, y, { align: 'center', width: pageWidth - (margin * 2) });
+        y += 12;
+    }
+    doc.moveTo(margin, y).lineTo(pageWidth - margin, y).strokeColor('#CBD5E1').lineWidth(0.7).stroke();
+    return y + 10;
+}
+
+function bjDrawTableHeader(doc, columns, y) {
+    const headerHeight = 28;
+    doc.rect(doc.page.margins.left, y, doc.page.width - doc.page.margins.left - doc.page.margins.right, headerHeight)
+        .fillColor('#E8F1FB')
+        .fill();
+    columns.forEach((col) => {
+        bjDrawCell(doc, col.label, col.x, y, col.width, headerHeight, {
+            bold: true,
+            fontSize: 6.4,
+            align: col.align || 'left',
+            color: '#0F172A',
+        });
+    });
+    return y + headerHeight;
+}
+
 router.get('/budget-justification/download', async (req, res) => {
     try {
-        const templatePath = path.resolve(__dirname, '..', 'templates', '003_budget_justification.pdf');
+        const { rows, summary } = await buildBudgetJustificationRows(req.query || {});
         const dept = String(req.query.department || 'all').replace(/[^a-zA-Z0-9_-]/g, '-');
         const st = String(req.query.status || 'all').replace(/[^a-zA-Z0-9_-]/g, '-');
         const suffix = new Date().toISOString().slice(0, 10);
         const fileName = `budget-justification-${dept}-${st}-${suffix}.pdf`;
+        const countyLogoPath = bjResolveCountyLogoPath();
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
         res.setHeader('X-Report-Filters', JSON.stringify(req.query || {}));
-        return res.download(templatePath, fileName);
+        res.setHeader('X-County-Logo', countyLogoPath ? 'loaded' : 'missing');
+
+        const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, bufferPages: true });
+        doc.pipe(res);
+
+        const department = String(req.query.department || '').trim();
+        const financialYear = rows.find((r) => r.financialYear || r.financialyear)?.financialYear ||
+            rows.find((r) => r.financialYear || r.financialyear)?.financialyear ||
+            'Current Financial Year';
+        let y = bjDrawOfficialHeader(doc, {
+            title: `Budget Estimates Justification Within Ceilings for ${financialYear}`,
+            subtitle: department ? `Unit / Section: ${department}` : 'All Departments',
+            logoPath: countyLogoPath,
+        });
+
+        doc.font('Helvetica').fontSize(7).fillColor('#374151');
+        const meta = [
+            `Generated: ${new Date().toLocaleString('en-KE')}`,
+            `Projects: ${summary.count}`,
+            `Total Budget: ${bjMoney(summary.totalBudget)}`,
+            `Total Paid: ${bjMoney(summary.totalPaid)}`,
+            `Pending / Variance: ${bjMoney(summary.totalPending)}`,
+        ].join('   |   ');
+        doc.text(meta, doc.page.margins.left, y, { width: doc.page.width - doc.page.margins.left - doc.page.margins.right });
+        y += 18;
+
+        const left = doc.page.margins.left;
+        const columns = [
+            { label: 'S/No.', x: left, width: 28, align: 'center' },
+            { label: 'Programme / Project', x: left + 28, width: 108 },
+            { label: 'Goal / Objective', x: left + 136, width: 92 },
+            { label: 'Performance Target', x: left + 228, width: 76 },
+            { label: 'Performance Indicator', x: left + 304, width: 74 },
+            { label: 'Action / Resources Required', x: left + 378, width: 98 },
+            { label: 'Officer In-Charge', x: left + 476, width: 72 },
+            { label: 'Time Frame', x: left + 548, width: 70 },
+            { label: 'Expected Output / Deliverables', x: left + 618, width: 88 },
+            { label: 'Budgetary Allocation', x: left + 706, width: 87, align: 'right' },
+        ];
+        y = bjDrawTableHeader(doc, columns, y);
+
+        rows.forEach((row, idx) => {
+            const budget = Number(row.budgetAmount || row.budgetamount || 0);
+            const paid = Number(row.paidAmount || row.paidamount || 0);
+            const pending = Number(row.pendingAmount || row.pendingamount || 0);
+            const utilization = budget > 0 ? `${((paid / budget) * 100).toFixed(1)}% paid; ${((pending / budget) * 100).toFixed(1)}% variance` : 'Budget not captured';
+            const cells = [
+                String(idx + 1),
+                row.projectName || row.projectname || `Project #${row.projectId || row.projectid || idx + 1}`,
+                row.justificationHint || row.justificationhint || 'Budget justification required',
+                row.status || 'Implementation target as planned',
+                utilization,
+                `Resources required: ${bjMoney(budget)}. Amount paid: ${bjMoney(paid)}. Pending/variance: ${bjMoney(pending)}.`,
+                row.department || 'Accounting Officer',
+                bjTimeFrame(row),
+                pending > 0 ? 'Approved funding and timely settlement of pending obligations' : 'Continued project implementation and service delivery',
+                bjMoney(budget),
+            ];
+            const rowHeight = Math.max(
+                28,
+                ...cells.map((cell, i) => bjWrappedHeight(doc, cell, columns[i].width, { fontSize: 6.2, align: columns[i].align || 'left' }))
+            );
+            if (y + rowHeight > doc.page.height - doc.page.margins.bottom - 24) {
+                doc.addPage();
+                y = bjDrawOfficialHeader(doc, {
+                    title: `Budget Estimates Justification Within Ceilings for ${financialYear}`,
+                    subtitle: department ? `Unit / Section: ${department}` : 'All Departments',
+                    logoPath: countyLogoPath,
+                });
+                y = bjDrawTableHeader(doc, columns, y);
+            }
+            columns.forEach((col, i) => {
+                bjDrawCell(doc, cells[i], col.x, y, col.width, rowHeight, {
+                    fontSize: 6.2,
+                    align: col.align || 'left',
+                });
+            });
+            y += rowHeight;
+        });
+
+        if (!rows.length) {
+            doc.font('Helvetica').fontSize(10).fillColor('#6B7280').text('No projects match the selected filters.', left, y + 20);
+        }
+
+        const pages = doc.bufferedPageRange();
+        for (let i = pages.start; i < pages.start + pages.count; i += 1) {
+            doc.switchToPage(i);
+            doc.font('Helvetica').fontSize(7).fillColor('#6B7280')
+                .text(`Page ${i + 1} of ${pages.count}`, doc.page.width - 90, doc.page.height - 18, { width: 66, align: 'right' });
+        }
+        doc.end();
     } catch (error) {
-        console.error('Error downloading budget justification template:', error);
-        return res.status(500).json({ message: 'Error downloading budget justification template', error: error.message });
+        console.error('Error downloading budget justification report:', error);
+        return res.status(500).json({ message: 'Error downloading budget justification report', error: error.message });
     }
 });
 

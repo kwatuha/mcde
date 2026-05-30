@@ -350,7 +350,7 @@ const reportsService = {
       throw error;
     }
   },
-  downloadBudgetJustificationTemplate: async (filters = {}) => {
+  downloadBudgetJustificationReport: async (filters = {}) => {
     const response = await axiosInstance.get('/reports/budget-justification/download', {
       params: filters,
       responseType: 'blob',
@@ -363,6 +363,7 @@ const reportsService = {
     }
     return { blob: response.data, fileName };
   },
+  downloadBudgetJustificationTemplate: async (filters = {}) => reportsService.downloadBudgetJustificationReport(filters),
   getProjectFinanceOverview: async (filters = {}) => {
     const response = await axiosInstance.get('/reports/project-finance-overview', { params: filters });
     return response.data;

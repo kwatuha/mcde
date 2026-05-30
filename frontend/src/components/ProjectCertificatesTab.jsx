@@ -125,7 +125,7 @@ function resolveBqItemsForCertificate(allBqItems, draftSnapshot, assignedContrac
 
   const cid = draftSnapshot?.contractorId;
   if (cid != null && cid !== '') {
-    const contractor = assignedContractors.find((x) => Number(x.contractorId) === Number(cid));
+    const contractor = assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(cid));
     if (contractor && Array.isArray(contractor.bqItemIds) && contractor.bqItemIds.length > 0) {
       const set = new Set(contractor.bqItemIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
       return allBqItems.filter((it) => set.has(Number(it.itemId)));
@@ -150,6 +150,40 @@ function formFieldsFromCertificateRow(cert) {
 }
 
 const CERTIFICATE_APPROVAL_ENTITY = 'project_certificate';
+
+function resolveProjectTenderNo(project) {
+  return String(
+    project?.tenderContractNo ||
+      project?.tendercontractno ||
+      project?.dataSources?.tender_contract_no ||
+      project?.data_sources?.tender_contract_no ||
+      project?.dataSources?.tenderContractNo ||
+      project?.data_sources?.tenderContractNo ||
+      ''
+  ).trim();
+}
+
+function contractorIdOf(contractor) {
+  return contractor?.contractorId ?? contractor?.contractorid ?? contractor?.id ?? null;
+}
+
+function contractorNameOf(contractor) {
+  return String(
+    contractor?.companyName ||
+      contractor?.companyname ||
+      contractor?.company_name ||
+      contractor?.name ||
+      ''
+  ).trim();
+}
+
+function contractorEmailOf(contractor) {
+  return String(contractor?.email || contractor?.contactEmail || contractor?.contactemail || '').trim();
+}
+
+function contractorPhoneOf(contractor) {
+  return String(contractor?.phone || contractor?.contactPhone || contractor?.contactphone || '').trim();
+}
 
 const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   const { user } = useAuth();
@@ -222,7 +256,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       try {
         const items = await projectService.bq.getItems(projectId);
         setBqItems(Array.isArray(items) ? items : []);
-      } catch (err) {
+      } catch {
         // Non-blocking for certificate flow; BQ section will simply be empty.
         setBqItems([]);
       }
@@ -267,7 +301,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       try {
         const rates = await projectService.taxRates.getActive(form.requestDate);
         setTaxRates(Array.isArray(rates) ? rates : []);
-      } catch (err) {
+      } catch {
         setTaxRates([]);
       }
     };
@@ -280,7 +314,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       try {
         const data = await projectService.projects.getProjectById(projectId);
         setProjectDetails(data || null);
-      } catch (err) {
+      } catch {
         setProjectDetails(null);
       }
     };
@@ -294,6 +328,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const fallbackProjectTitle = projectDetails.projectName || projectDetails.name || '';
     const fallbackRef = projectDetails.ProjectRefNum || projectDetails.projectRefNum || projectDetails.referenceNo || '';
     const fallbackContractSum = projectDetails.costOfProject || projectDetails.budget || '';
+    const fallbackTenderNo = resolveProjectTenderNo(projectDetails);
 
     setDraft((prev) => ({
       ...prev,
@@ -302,6 +337,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       recipientOffice: prev.recipientOffice || fallbackDepartment,
       projectTitle: prev.projectTitle || fallbackProjectTitle,
       referenceNo: prev.referenceNo || fallbackRef,
+      tenderNo: prev.tenderNo || fallbackTenderNo,
       contractSum: prev.contractSum || String(fallbackContractSum || ''),
       clientMinistry: prev.clientMinistry || fallbackDepartment,
     }));
@@ -317,20 +353,20 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     [bqItems, bqItemsAsOf, draft, assignedContractors]
   );
 
-  /** When only one contractor is assigned, default the payment certificate to them. */
+  /** Default new certificates to the first assigned contractor so contractor details are not omitted. */
   useEffect(() => {
-    if (!openDialog || assignedContractors.length !== 1) return;
+    if (!openDialog || assignedContractors.length === 0) return;
     const c = assignedContractors[0];
-    const cid = c?.contractorId;
+    const cid = contractorIdOf(c);
     if (cid == null || cid === '') return;
     setDraft((p) => {
       if (p.contractorId != null && p.contractorId !== '') return p;
       return {
         ...p,
         contractorId: Number(cid),
-        contractorName: c.companyName || p.contractorName || '',
-        contractorEmail: c.email || p.contractorEmail || '',
-        contractorPhone: c.phone || p.contractorPhone || '',
+        contractorName: contractorNameOf(c) || p.contractorName || '',
+        contractorEmail: contractorEmailOf(c) || p.contractorEmail || '',
+        contractorPhone: contractorPhoneOf(c) || p.contractorPhone || '',
       };
     });
   }, [openDialog, assignedContractors]);
@@ -406,8 +442,6 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       computedWithholdingAmount,
       computedRetentionAmount,
       vatDeduction,
-      advanceRecovery,
-      previousCumulative,
       computedInclusive,
       computedGross,
       computedNet,
@@ -433,6 +467,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const seqNow = Number(d.projectCertificateSequence || 0) || suggestedSequence;
     const totalAtGen = Number(d.projectTotalCertificatesAtGeneration || 0) || seqNow;
     const title = d.projectTitle || `Project #${projectId}`;
+    const tenderNo = String(d.tenderNo || resolveProjectTenderNo(projectDetails) || '').trim();
     const {
       normalizedBq,
       totalBqAmount,
@@ -441,8 +476,6 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       computedWithholdingAmount,
       computedRetentionAmount,
       vatDeduction,
-      advanceRecovery,
-      previousCumulative,
       computedInclusive,
       computedGross,
       computedNet,
@@ -454,9 +487,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const contractSumValue = Number(String(d.contractSum || '').replace(/,/g, '')) || 0;
     const contractSumFormatted = contractSumValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const contractor = String(d.contractorName || '').trim();
-    const contractorEmail = String(d.contractorEmail || '').trim();
-    const contractorPhone = String(d.contractorPhone || '').trim();
+    const selectedContractor = d.contractorId != null && d.contractorId !== ''
+      ? assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(d.contractorId))
+      : null;
+    const fallbackContractor = selectedContractor || assignedContractors[0] || null;
+    const contractor = String(d.contractorName || contractorNameOf(fallbackContractor) || '').trim();
+    const contractorEmail = String(d.contractorEmail || contractorEmailOf(fallbackContractor) || '').trim();
+    const contractorPhone = String(d.contractorPhone || contractorPhoneOf(fallbackContractor) || '').trim();
     const ccRecipients = String(d.ccRecipients || '').trim();
     const clientMinistry = String(d.clientMinistry || '').trim();
 
@@ -515,7 +552,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     doc.setFont('helvetica', 'bold');
     doc.text(`RE: ${title.toUpperCase()}`, margin, y);
     y += 16;
-    doc.text(`TENDER NO: ${d.tenderNo || '-'}`, margin, y);
+    doc.text(`TENDER NO: ${tenderNo || '-'}`, margin, y);
     y += 16;
     doc.text(`${(f.certType || 'PAYMENT CERTIFICATE').toUpperCase()} NO. ${certNo}`, margin, y);
     y += 18;
@@ -841,9 +878,14 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       ]);
       let stored = { ...draft, ...parseStoredCertificateData(cert) };
       if (!String(stored.contractorName || '').trim() && stored.contractorId != null && stored.contractorId !== '') {
-        const match = assignedContractors.find((x) => Number(x.contractorId) === Number(stored.contractorId));
-        if (match?.companyName) {
-          stored = { ...stored, contractorName: match.companyName };
+        const match = assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(stored.contractorId));
+        if (contractorNameOf(match)) {
+          stored = {
+            ...stored,
+            contractorName: contractorNameOf(match),
+            contractorEmail: stored.contractorEmail || contractorEmailOf(match),
+            contractorPhone: stored.contractorPhone || contractorPhoneOf(match),
+          };
         }
       }
       const f = fRow;
@@ -874,8 +916,10 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     setMessage('');
     setFile(null);
     setGeneratedPdfFile(null);
+    const fallbackTenderNo = resolveProjectTenderNo(projectDetails);
     setDraft((prev) => ({
       ...prev,
+      tenderNo: prev.tenderNo || fallbackTenderNo,
       contractorId: null,
       contractorName: '',
       contractorEmail: '',
@@ -919,6 +963,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       );
       const patchDraftBase = {
         ...draft,
+        tenderNo: draft.tenderNo || resolveProjectTenderNo(projectDetails),
         projectCertificateSequence: suggestedSequence,
         projectTotalCertificatesAtGeneration: suggestedSequence,
         certificateBqItemIds: idsForCert.length > 0 ? idsForCert : null,
@@ -1275,13 +1320,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                     return;
                   }
                   const idNum = Number(raw);
-                  const c = assignedContractors.find((x) => Number(x.contractorId) === idNum);
+                  const c = assignedContractors.find((x) => Number(contractorIdOf(x)) === idNum);
                   setDraft((p) => ({
                     ...p,
                     contractorId: Number.isFinite(idNum) ? idNum : null,
-                    contractorName: c?.companyName ?? p.contractorName,
-                    contractorEmail: c?.email ?? p.contractorEmail,
-                    contractorPhone: c?.phone ?? p.contractorPhone,
+                    contractorName: contractorNameOf(c) || p.contractorName,
+                    contractorEmail: contractorEmailOf(c) || p.contractorEmail,
+                    contractorPhone: contractorPhoneOf(c) || p.contractorPhone,
                     certificateBqItemIds: null,
                   }));
                 }}
@@ -1295,11 +1340,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                   <em>None — all BQ lines (enter contractor name manually)</em>
                 </MenuItem>
                 {assignedContractors.map((c) => {
-                  const id = c.contractorId;
+                  const id = contractorIdOf(c);
                   const n = Array.isArray(c.bqItemIds) ? c.bqItemIds.length : 0;
                   return (
                     <MenuItem key={String(id)} value={String(id)}>
-                      {(c.companyName || `Contractor #${id}`) + (n > 0 ? ` (${n} BQ line${n === 1 ? '' : 's'})` : '')}
+                      {(contractorNameOf(c) || `Contractor #${id}`) + (n > 0 ? ` (${n} BQ line${n === 1 ? '' : 's'})` : '')}
                     </MenuItem>
                   );
                 })}

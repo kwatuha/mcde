@@ -39,7 +39,7 @@ const routeTitles = {
   '/reports-hub': { title: 'Reports hub', subtitle: 'Find reports & analytics' },
   '/reports': { title: 'Project status charts', subtitle: 'Status & directorate distribution' },
   '/pending-bills-report': { title: 'Pending Bills Report', subtitle: 'Filter and download outstanding project bill balances' },
-  '/budget-justification-report': { title: 'Budget Justification', subtitle: 'Filter projects and download justification template' },
+  '/budget-justification-report': { title: 'Budget Justification', subtitle: 'Filter projects and download justification report' },
   '/project-finance-overview': { title: 'Project Finance Overview', subtitle: 'Comprehensive financing and partner contribution analysis' },
   '/view-reports': { title: 'Project Dashboards', subtitle: 'Project Analytics' },
   '/reporting-overview': { title: 'Project Dashboards', subtitle: 'Project Analytics' },

@@ -87,7 +87,7 @@ export default function BudgetJustificationReportPage() {
   const handleDownloadTemplate = async () => {
     setDownloading(true);
     try {
-      const { blob, fileName } = await reportsService.downloadBudgetJustificationTemplate(filters);
+      const { blob, fileName } = await reportsService.downloadBudgetJustificationReport(filters);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -97,7 +97,7 @@ export default function BudgetJustificationReportPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to download budget justification template.');
+      setError(e?.response?.data?.message || e?.message || 'Failed to download budget justification report.');
     } finally {
       setDownloading(false);
     }
@@ -110,7 +110,7 @@ export default function BudgetJustificationReportPage() {
           Budget Justification
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Filter projects that need budget variance explanation and download the official justification template PDF.
+          Filter projects that need budget variance explanation and download a database-backed official justification PDF.
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -157,7 +157,7 @@ export default function BudgetJustificationReportPage() {
                 {loading ? 'Loading...' : 'Apply filters'}
               </Button>
               <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate} disabled={downloading}>
-                {downloading ? 'Preparing...' : 'Download Justification Template (PDF)'}
+                {downloading ? 'Preparing...' : 'Download Justification Report (PDF)'}
               </Button>
             </Stack>
           </Grid>
