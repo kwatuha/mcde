@@ -6,14 +6,14 @@ import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar) => {
   const [formData, setFormData] = useState({
     projectName: '', projectDescription: '', startDate: '', endDate: '',
-    directorate: '', costOfProject: '', paidOut: '',
+    directorate: '', costOfProject: '', Contracted: '', paidOut: '',
     objective: '', expectedOutput: '', expectedOutcome: '',
     status: 'Not started',
     overallProgress: '', // Progress JSONB: percentage_complete (0-100)
     ministry: '', stateDepartment: '', // sector / state org lines removed from UI; not collected here
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
-    county: '', subcounty: '', constituency: '', ward: '', // Free text fields for location
+    county: '', subcounty: '', ward: '', // Free text fields for location
     sites: [], // Array of project sites for multilocation support - REQUIRED (at least one)
     // Additional JSONB fields from original database structure
     budgetSource: '', // Budget JSONB: source
@@ -73,6 +73,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             endDate: currentProject.endDate ? new Date(currentProject.endDate).toISOString().split('T')[0] : '',
             directorate: currentProject.directorate || '',
             costOfProject: currentProject.costOfProject || '',
+            Contracted: currentProject.Contracted || '',
             paidOut: currentProject.paidOut || '',
             objective: currentProject.objective || '',
             expectedOutput: currentProject.expectedOutput || '',
@@ -90,7 +91,6 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             // Location fields from location JSONB
             county: currentProject.county || '',
             subcounty: currentProject.subcounty || currentProject.subcountyNames || '',
-            constituency: currentProject.constituency || '',
             ward: currentProject.ward || '',
             // Additional JSONB fields
             budgetSource: currentProject.budgetSource || '',
@@ -140,7 +140,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
       
       setFormData({
         projectName: '', projectDescription: '', startDate: '', endDate: '',
-        directorate: '', costOfProject: '', paidOut: '',
+        directorate: '', costOfProject: '', Contracted: '', paidOut: '',
         objective: '', expectedOutput: '', expectedOutcome: '',
         status: 'Not started',
         overallProgress: '',
@@ -150,7 +150,6 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         subcountyIds: [], wardIds: [],
         county: '',
         subcounty: '',
-        constituency: '',
         ward: '',
         sites: [],
         // Additional JSONB fields (keep defaults stable for controlled inputs)
@@ -232,6 +231,9 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     if (!formData.projectName || !formData.projectName.trim()) {
       errors.projectName = 'Project Name is required.';
     }
+    if (!currentProject && (!formData.tenderContractNo || !String(formData.tenderContractNo).trim())) {
+      errors.tenderContractNo = 'Tender/Contract No is required.';
+    }
     // Implementing Agency (directorate) is optional
     // Project category is optional
     // Sites are no longer required during project creation - they will be added later on project details page
@@ -285,7 +287,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     // Note: Budget values are entered manually during project creation
     // Sites will be added later on the project details page
     // Note: Geographical coverage (counties) is optional and will default to Kisumu if not provided
-    for (const key of ['costOfProject', 'paidOut']) {
+    for (const key of ['costOfProject', 'Contracted', 'paidOut']) {
       if (dataToSubmit[key] === '' || dataToSubmit[key] === null) { dataToSubmit[key] = null; } else if (typeof dataToSubmit[key] === 'string') { const parsed = parseFloat(dataToSubmit[key]); dataToSubmit[key] = isNaN(parsed) ? null : parsed; }
     }
     

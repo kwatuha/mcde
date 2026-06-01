@@ -186,7 +186,7 @@ const ProjectByStatusDashboardPage = () => {
           ).trim(),
           financialYear: p.financialYear || p.financialYearName || '',
           budget: Number(p.budget ?? p.costOfProject ?? p.allocatedBudget ?? 0),
-          Disbursed: Number(p.Disbursed ?? p.paidOut ?? p.disbursedBudget ?? 0),
+          Paid: Number(p.Paid ?? p.paidOut ?? p.disbursedBudget ?? 0),
         }));
         setAllProjects(normalized);
       } catch (error) {
@@ -308,7 +308,7 @@ const ProjectByStatusDashboardPage = () => {
       const current = statusMap.get(normalizedStatus) || { name: normalizedStatus, count: 0, budget: 0, disbursed: 0, projects: [] };
       current.count += 1;
       current.budget += p.budget || 0;
-      current.disbursed += p.Disbursed || 0;
+      current.disbursed += p.Paid || 0;
       current.projects.push(p);
       statusMap.set(normalizedStatus, current);
     });
@@ -361,8 +361,8 @@ const ProjectByStatusDashboardPage = () => {
 
   const totalProjects = filteredProjects.length;
   const totalBudget = filteredProjects.reduce((sum, p) => sum + (p.budget || 0), 0);
-  const totalDisbursed = filteredProjects.reduce((sum, p) => sum + (p.Disbursed || 0), 0);
-  const overallAbsorption = totalBudget > 0 ? ((totalDisbursed / totalBudget) * 100).toFixed(1) : 0;
+  const totalPaid = filteredProjects.reduce((sum, p) => sum + (p.Paid || 0), 0);
+  const overallAbsorption = totalBudget > 0 ? ((totalPaid / totalBudget) * 100).toFixed(1) : 0;
 
   const isLight = theme.palette.mode === 'light';
   const ui = {
@@ -1312,8 +1312,8 @@ const ProjectByStatusDashboardPage = () => {
                       <TableCell align="right">Projects</TableCell>
                       <TableCell align="right">Percentage</TableCell>
                       <TableCell align="right">Budget</TableCell>
-                      <TableCell align="right">Disbursed</TableCell>
-                      <TableCell align="right">Disbursement</TableCell>
+                      <TableCell align="right">Paid</TableCell>
+                      <TableCell align="right">Absorption</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

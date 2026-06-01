@@ -236,7 +236,7 @@ function GISDashboardPage() {
             >
               <MenuItem value="count">Project count</MenuItem>
               <MenuItem value="budget">Budget</MenuItem>
-              <MenuItem value="disbursed">Disbursed</MenuItem>
+              <MenuItem value="disbursed">Paid</MenuItem>
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 140 }}>

@@ -850,7 +850,7 @@ const ProjectFormDialog = ({
           </Typography>
           <Grid container spacing={1.5}>
             {/* Budget Details */}
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={4}>
               <TextField
                 name="costOfProject"
                 label="Allocated Budget (KES)"
@@ -888,10 +888,48 @@ const ProjectFormDialog = ({
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                name="Contracted"
+                label="Contracted Amount (KES)"
+                type="number"
+                fullWidth
+                variant="outlined"
+                size="small"
+                value={formData.Contracted ?? ''}
+                onChange={handleChange}
+                placeholder="e.g., 65000000"
+                helperText="Maps to budget.contracted"
+                inputProps={{ min: 0, step: 'any' }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': {
+                      borderColor: colors.blueAccent[600],
+                      borderWidth: '2px',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: colors.blueAccent[500],
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: colors.greenAccent[500],
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                    fontWeight: 'bold',
+                  },
+                  '& .MuiInputBase-input': {
+                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                  },
+                }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={4}>
               <TextField
                 name="paidOut"
-                label="Disbursed Amount (KES)"
+                label="Paid Amount (KES)"
                 type="number"
                 fullWidth
                 variant="outlined"
@@ -899,7 +937,7 @@ const ProjectFormDialog = ({
                 value={formData.paidOut ?? ''}
                 onChange={handleChange}
                 placeholder="e.g., 30000000"
-                helperText="Maps to budget.disbursed_amount_kes"
+                helperText="Amount paid against the project budget"
                 inputProps={{ min: 0, step: 'any' }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -972,10 +1010,12 @@ const ProjectFormDialog = ({
                 fullWidth
                 variant="outlined"
                 size="small"
+                required={!currentProject}
                 value={formData.tenderContractNo || ''}
                 onChange={handleChange}
+                error={Boolean(formErrors.tenderContractNo)}
                 placeholder="e.g., KSM/FIN/ONT/001/2026"
-                helperText="Tender or contract reference number"
+                helperText={formErrors.tenderContractNo || (currentProject ? 'Tender or contract reference number' : 'Required for new projects')}
                 inputProps={{ maxLength: 120 }}
                 sx={{
                   '& .MuiOutlinedInput-root': {

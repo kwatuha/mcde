@@ -71,6 +71,7 @@ const ProjectDashboardPage = lazy(() => import('./pages/ProjectDashboardPage'));
 const ReportingView = lazy(() => import('./pages/ReportingView'));
 const RegionalDashboard = lazy(() => import('./pages/RegionalDashboard'));
 const RegionalBreakdownDashboardPage = lazy(() => import('./pages/RegionalBreakdownDashboardPage'));
+const DepartmentalReportsPage = lazy(() => import('./pages/DepartmentalReportsPage'));
 const ProcurementPage = lazy(() => import('./pages/ProcurementPage'));
 const ProcurementProcuredProjectsPage = lazy(() => import('./pages/ProcurementProcuredProjectsPage'));
 const ProcurementStagesPage = lazy(() => import('./pages/ProcurementStagesPage'));
@@ -88,9 +89,9 @@ const LoadingFallback = () => (
 );
 
 // Wrapper component to add Suspense to lazy-loaded routes
-const LazyRoute = ({ component: Component }) => (
+const LazyRoute = ({ component }) => (
   <Suspense fallback={<LoadingFallback />}>
-    <Component />
+    {React.createElement(component)}
   </Suspense>
 );
 
@@ -253,6 +254,10 @@ const router = createBrowserRouter([
       {
         path: 'regional-reports',
         element: <LazyRoute component={RegionalBreakdownDashboardPage} />,
+      },
+      {
+        path: 'departmental-reports',
+        element: <LazyRoute component={DepartmentalReportsPage} />,
       },
       {
         path: 'maps',

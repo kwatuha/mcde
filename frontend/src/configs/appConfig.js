@@ -100,6 +100,7 @@ export const ROUTES = {
     GIS_DASHBOARD: '/gis-dashboard',
     REPORTING_OVERVIEW: '/view-reports',
     REGIONAL_REPORTING: '/regional-reports',
+    DEPARTMENTAL_REPORTING: '/departmental-reports',
     REGIONAL_DASHBOARD: '/regional-dashboard',
     USER_MANAGEMENT: '/user-management',
     /** Admin-only security and operations event log (sidebar under Admin). */

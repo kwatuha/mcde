@@ -316,7 +316,11 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.progress->>'latest_update_summary' AS "progressSummary",
                 p.data_sources->>'project_ref_num' AS "ProjectRefNum",
                 p.data_sources->>'tender_contract_no' AS "tenderContractNo",
-                (p.budget->>'contracted')::boolean AS "Contracted",
+                CASE
+                    WHEN (p.budget->>'contracted') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                    THEN (p.budget->>'contracted')::numeric
+                    ELSE NULL
+                END AS "Contracted",
                 p.created_at AS "createdAt",
                 p.updated_at AS "updatedAt",
                 p.voided,
@@ -385,7 +389,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
 
 // --- Validation Middleware ---
 const validateProject = (req, res, next) => {
-    const { projectName, name } = req.body;
+    const { projectName, name, tenderContractNo } = req.body;
     // Accept either projectName (frontend) or name (API)
     const projectNameValue = projectName || name;
     // Only enforce required project name on CREATE.
@@ -393,6 +397,9 @@ const validateProject = (req, res, next) => {
     if (req.method === 'POST') {
         if (!projectNameValue || !projectNameValue.trim()) {
             return res.status(400).json({ message: 'Missing required field: projectName or name' });
+        }
+        if (!tenderContractNo || !String(tenderContractNo).trim()) {
+            return res.status(400).json({ message: 'Missing required field: tenderContractNo' });
         }
         // Normalize to projectName for consistency
         if (name && !projectName) {
@@ -478,8 +485,8 @@ const projectHeaderMap = {
     ProjectDescription: ['projectdescription', 'description', 'details', 'projectdesc'],
     Status: ['status', 'projectstatus', 'currentstatus', 'status ongoing complete stalled dropped', 'statusongoingcompletestalleddropped'],
     budget: ['budget', 'estimatedcost', 'budgetkes', 'projectcost', 'costofproject', 'allocated amount kes', 'allocatedamountkes', 'allocated amount', 'allocated amount kes'],
-    amountPaid: ['amountpaid', 'disbursed', 'expenditure', 'paidout', 'amount paid'],
-    Disbursed: ['disbursed', 'amountdisbursed', 'disbursedamount', 'amountpaid', 'paidout', 'amount paid', 'expenditure', 'disbursed amount kes', 'disbursedamountkes', 'disbursed amount', 'disbursed amount kes'],
+    amountPaid: ['amountpaid', 'paidamount', 'paid', 'expenditure', 'paidout', 'amount paid', 'disbursed'],
+    Disbursed: ['amountpaid', 'paidamount', 'paid', 'paidout', 'amount paid', 'paid amount', 'expenditure', 'disbursed', 'amountdisbursed', 'disbursedamount', 'disbursed amount kes', 'disbursedamountkes', 'disbursed amount'],
     financialYear: ['financialyear', 'financial-year', 'financial year', 'fy', 'adp', 'year'],
     department: ['department', 'implementingdepartment'],
     directorate: ['directorate'],
@@ -488,7 +495,7 @@ const projectHeaderMap = {
     ministry: ['ministry', 'ministryname', 'ministry name'],
     state_department: ['statedepartment', 'state department', 'state_department', 'state department name', 'statedepartmentname'],
     County: ['county', 'countyname', 'county name'],
-    Constituency: ['constituency', 'constituencyname', 'constituency name'],
+    Constituency: ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county', 'constituency', 'constituencyname', 'constituency name'],
     'sub-county': ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county'],
     ward: ['ward', 'wardname', 'wardid', 'ward name'],
     Contracted: ['contracted', 'contractamount', 'contractedamount', 'contractsum', 'contract value', 'contract value (kes)'],
@@ -1408,7 +1415,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
                 unmatched.push(`County: ${county}`);
             }
             if (constituency && mappingSummary.constituencies.unmatched.includes(constituency)) {
-                unmatched.push(`Constituency: ${constituency}`);
+                unmatched.push(`Sub-county: ${constituency}`);
             }
             if (kenyaWard && mappingSummary.kenyaWards.unmatched.includes(kenyaWard)) {
                 unmatched.push(`Ward: ${kenyaWard}`);
@@ -1911,7 +1918,7 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
                 unmatched.push(`County: ${county}`);
             }
             if (constituency && mappingSummary.constituencies.unmatched.includes(constituency)) {
-                unmatched.push(`Constituency: ${constituency}`);
+                unmatched.push(`Sub-county: ${constituency}`);
             }
             if (kenyaWard && mappingSummary.kenyaWards.unmatched.includes(kenyaWard)) {
                 unmatched.push(`Ward: ${kenyaWard}`);
@@ -2503,7 +2510,7 @@ router.post('/confirm-import-data', async (req, res) => {
                     projectDescription: normalizeStr(row.ProjectDescription || row.Description) || null,
                     status: normalizeStr(row.Status) || null,
                     costOfProject: toMoney(row.budget),
-                    paidOut: toMoney(row.Disbursed || row.amountPaid), // Support both Disbursed and amountPaid
+                    paidOut: toMoney(row.amountPaid || row.Disbursed), // Prefer paid amount; keep legacy Disbursed imports working.
                     startDate: normalizeDate(row.StartDate, 'StartDate').date,
                     endDate: normalizeDate(row.EndDate, 'EndDate').date,
                     directorate: normalizeStr(row.directorate || row.Directorate) || null,
@@ -2571,13 +2578,13 @@ router.post('/confirm-import-data', async (req, res) => {
                     projectPayload.sector = null;
                 }
 
-                // Extract location data from row (county, constituency, ward, latitude, longitude) for updates
+                // Extract location data from row (county, sub-county, ward, latitude, longitude) for updates
                 const countyName = normalizeStr(row.County || row.county || row['County Name']);
-                const constituencyName = normalizeStr(row.Constituency || row.constituency || row['Constituency Name']);
+                const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                 const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
                 const locationData = {
                     county: countyName,
-                    constituency: constituencyName,
+                    subcounty: subcountyName,
                     ward: wardName,
                     geocoordinates: {
                         lat: projectPayload.latitude,
@@ -2629,9 +2636,9 @@ router.post('/confirm-import-data', async (req, res) => {
                         console.log(`Row ${i + 2}: Inserting new project with payload:`, JSON.stringify(projectPayload, null, 2));
                     }
                     try {
-                        // Extract location data from row (county, constituency, ward)
+                        // Extract location data from row (county, sub-county, ward)
                         const countyName = normalizeStr(row.County || row.county || row['County Name']);
-                        const constituencyName = normalizeStr(row.Constituency || row.constituency || row['Constituency Name']);
+                        const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                         const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
 
                         // Build JSONB objects for PostgreSQL projects table
@@ -2679,10 +2686,10 @@ router.post('/confirm-import-data', async (req, res) => {
                             common_feedback: projectPayload.commonFeedback || null
                         });
 
-                        // Store location data in location JSONB field (county, constituency, ward, geocoordinates)
+                        // Store location data in location JSONB field (county, sub-county, ward, geocoordinates)
                         const locationObj = {
                             county: countyName && countyName.trim() !== '' ? countyName.trim() : null,
-                            constituency: constituencyName && constituencyName.trim() !== '' ? constituencyName.trim() : null,
+                            subcounty: subcountyName && subcountyName.trim() !== '' ? subcountyName.trim() : null,
                             ward: wardName && wardName.trim() !== '' ? wardName.trim() : null
                         };
                         // Add geocoordinates if latitude and longitude are provided
@@ -3578,6 +3585,9 @@ router.get('/organization-projects', async (req, res) => {
                     COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry,
                     COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "stateDepartment",
                     COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS agency,
+                    COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
+                    p.location->>'ward' AS "wardNames",
+                    p.location->>'county' AS "countyNames",
                     CASE
                         WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
                         THEN (p.budget->>'allocated_amount_kes')::numeric
@@ -3590,6 +3600,7 @@ router.get('/organization-projects', async (req, res) => {
                     END AS "disbursedBudget",
                     p.updated_at AS "updatedAt"
                 FROM projects p
+                ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
                 WHERE ${whereConditions.join(' AND ')}
                 ORDER BY p.updated_at DESC, p.project_id DESC
                 LIMIT ${limit}
@@ -3603,6 +3614,9 @@ router.get('/organization-projects', async (req, res) => {
                     COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry,
                     COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS stateDepartment,
                     COALESCE(NULLIF(TRIM(p.directorate), ''), 'Unassigned') AS agency,
+                    COALESCE(p.subcountyNames, p.subcounty, p.constituencyNames, p.constituency) AS subcountyNames,
+                    COALESCE(p.wardNames, p.ward) AS wardNames,
+                    COALESCE(p.countyNames, p.county) AS countyNames,
                     COALESCE(p.costOfProject, 0) AS allocatedBudget,
                     COALESCE(p.paidOut, 0) AS disbursedBudget,
                     p.updatedAt
@@ -4281,7 +4295,11 @@ router.get('/', async (req, res) => {
                 p.progress->>'latest_update_summary' AS "progressSummary",
                 p.data_sources->>'project_ref_num' AS "ProjectRefNum",
                 p.data_sources->>'tender_contract_no' AS "tenderContractNo",
-                (p.budget->>'contracted')::boolean AS "Contracted",
+                CASE
+                    WHEN (p.budget->>'contracted') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                    THEN (p.budget->>'contracted')::numeric
+                    ELSE NULL
+                END AS "Contracted",
                 p.created_at AS "createdAt",
                 p.updated_at AS "updatedAt",
                 p.voided,
@@ -5907,7 +5925,7 @@ router.post('/', validateProject, async (req, res) => {
                 const budget = JSON.stringify({
                     allocated_amount_kes: costOfProject || 0,
                     disbursed_amount_kes: paidOut || 0,
-                    contracted: Contracted || false,
+                    contracted: Contracted || null,
                     budget_id: null,
                     source: budgetSource && budgetSource.trim() !== '' ? budgetSource.trim() : null
                 });
@@ -6269,7 +6287,7 @@ router.put('/:id', validateProject, async (req, res) => {
             const budget = JSON.stringify({
                 allocated_amount_kes: costOfProject !== undefined ? (costOfProject || 0) : (existingBudget.allocated_amount_kes || 0),
                 disbursed_amount_kes: paidOut !== undefined ? (paidOut || 0) : (existingBudget.disbursed_amount_kes || 0),
-                contracted: Contracted !== undefined ? Contracted : (existingBudget.contracted || false),
+                contracted: Contracted !== undefined ? (Contracted || null) : (existingBudget.contracted || null),
                 budget_id: existingBudget.budget_id || null,
                 source: budgetSource !== undefined 
                     ? normalizeOptionalText(budgetSource)

@@ -36,6 +36,11 @@
           "route": "REGIONAL_REPORTING"
         },
         {
+          "title": "Departmental Reports",
+          "icon": "BusinessIcon",
+          "route": "DEPARTMENTAL_REPORTING"
+        },
+        {
           "title": "GIS Dashboard",
           "icon": "MapIcon",
           "route": "GIS_DASHBOARD"

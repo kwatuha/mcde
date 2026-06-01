@@ -239,7 +239,6 @@ function ProjectManagementPage() {
           project.programName || '',
           project.subProgramName || '',
           project.countyNames || '',
-          project.constituencyNames || '',
           project.subcountyNames || '',
           project.wardNames || '',
           project.tenderContractNo || '',
@@ -2105,10 +2104,10 @@ function ProjectManagementPage() {
         break;
       case 'constituencyNames':
         dataGridColumn.valueGetter = (params) => {
-          return params?.row?.constituencyNames || '';
+          return params?.row?.subcountyNames || params?.row?.subcounty || '';
         };
         dataGridColumn.renderCell = (params) => {
-          const value = params?.row?.constituencyNames;
+          const value = params?.row?.subcountyNames || params?.row?.subcounty;
           return value || 'N/A';
         };
         break;

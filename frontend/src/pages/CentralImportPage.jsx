@@ -118,11 +118,11 @@ const TEMPLATE_HEADERS = {
     'ProjectDescription',
     'Status',
     'budget',
-    'Disbursed',
+    'AmountPaid',
     'financialYear',
     'department',
     'County',
-    'Constituency',
+    'SubCounty',
     'ward',
     'Contracted',
     'TenderContractNo',
@@ -154,13 +154,13 @@ const TEMPLATE_HEADER_VARIANTS = {
     ProjectDescription: ['Description', 'Project Description', 'Details'],
     Status: ['Project Status', 'Current Status'],
     budget: ['Budget', 'Estimated Cost', 'Budget (KES)'],
-    Disbursed: ['Disbursed', 'Amount Disbursed', 'Disbursed Amount', 'Amount Paid', 'Expenditure', 'amountPaid'],
+    Disbursed: ['Amount Paid', 'Paid Amount', 'AmountPaid', 'Paid', 'Expenditure', 'Disbursed', 'Amount Disbursed', 'Disbursed Amount', 'amountPaid'],
     financialYear: ['FY', 'Financial Year', 'Year'],
     department: ['Department', 'Implementing Department', 'Directorate'],
     County: ['County', 'County Name'],
-    Constituency: ['Constituency', 'Constituency Name'],
+    Constituency: ['SubCounty', 'Sub-county', 'Sub County', 'Subcounty'],
     ward: ['Ward', 'Ward Name'],
-    Contracted: ['Is Contracted', 'Contracted?', 'Contract Status'],
+    Contracted: ['Contracted Amount', 'Contract Amount', 'Contract Sum', 'Contracted', 'Contract Value'],
     TenderContractNo: ['Tender/Contract No', 'Tender No', 'Contract No', 'Tender Number', 'Contract Number'],
     StartDate: ['Start Date', 'Project Start Date', 'Commencement Date'],
     EndDate: ['End Date', 'Project End Date', 'Completion Date']
@@ -1487,50 +1487,6 @@ function CentralImportPage() {
                       </Card>
                     </Grid>
                   )}
-
-                  {/* Constituencies - Only for Projects Import */}
-                  {currentImportType?.id === 'projects' && mappingSummary.constituencies && (
-                    <Grid item xs={12} md={6}>
-                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
-                        <CardContent>
-                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
-                            Constituencies ({mappingSummary.constituencies.existing.length + mappingSummary.constituencies.unmatched.length})
-                          </Typography>
-                          {mappingSummary.constituencies.existing.length > 0 && (
-                            <Box sx={{ mb: 0.75 }}>
-                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
-                                <CheckCircleIcon fontSize="small" /> {mappingSummary.constituencies.existing.length} Matched in Kenya Wards
-                              </Typography>
-                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
-                                {mappingSummary.constituencies.existing.map((constituency, idx) => (
-                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
-                                    <CheckCircleIcon fontSize="small" color="success" sx={{ fontSize: '0.875rem' }} />
-                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{constituency}</Typography>
-                                  </Box>
-                                ))}
-                              </Box>
-                            </Box>
-                          )}
-                          {mappingSummary.constituencies.unmatched.length > 0 && (
-                            <Box>
-                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
-                                <ErrorIcon fontSize="small" /> {mappingSummary.constituencies.unmatched.length} Not Found in Kenya Wards
-                              </Typography>
-                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(2, 1fr)' }, gap: 0.5 }}>
-                                {mappingSummary.constituencies.unmatched.map((constituency, idx) => (
-                                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}>
-                                    <ErrorIcon fontSize="small" color="error" sx={{ fontSize: '0.875rem' }} />
-                                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{constituency}</Typography>
-                                  </Box>
-                                ))}
-                              </Box>
-                            </Box>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  )}
-
                   {/* Kenya Wards - Only for Projects Import */}
                   {currentImportType?.id === 'projects' && mappingSummary.kenyaWards && (
                     <Grid item xs={12} md={6}>
@@ -1726,34 +1682,6 @@ function CentralImportPage() {
                       </Card>
                     </Grid>
                   )}
-
-                  {/* Constituencies - Only for Projects Import */}
-                  {currentImportType?.id === 'projects' && mappingSummary.constituencies && (
-                    <Grid item xs={12} md={6}>
-                      <Card variant="outlined" sx={{ '& .MuiCardContent-root': { py: 1.5, '&:last-child': { pb: 1.5 } } }}>
-                        <CardContent>
-                          <Typography variant="body2" fontWeight={600} gutterBottom sx={{ fontSize: '0.875rem' }}>
-                            Constituencies ({mappingSummary.constituencies.existing.length + mappingSummary.constituencies.unmatched.length})
-                          </Typography>
-                          {mappingSummary.constituencies.existing.length > 0 && (
-                            <Box sx={{ mb: 0.75 }}>
-                              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
-                                <CheckCircleIcon fontSize="small" /> {mappingSummary.constituencies.existing.length} Matched in Kenya Wards
-                              </Typography>
-                            </Box>
-                          )}
-                          {mappingSummary.constituencies.unmatched.length > 0 && (
-                            <Box>
-                              <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', mb: 0.5 }}>
-                                <ErrorIcon fontSize="small" /> {mappingSummary.constituencies.unmatched.length} Not Found in Kenya Wards
-                              </Typography>
-                            </Box>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  )}
-
                   {/* Wards - Only for Projects Import */}
                   {currentImportType?.id === 'projects' && mappingSummary.kenyaWards && (
                     <Grid item xs={12} md={6}>

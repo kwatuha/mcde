@@ -83,7 +83,7 @@ const ReportingDashboardPage = () => {
   const [filters, setFilters] = useState({
     ministry: '',
     stateDepartment: '',
-    constituency: '',
+    subcounty: '',
     ward: '',
     financialYear: '',
     status: '',
@@ -94,7 +94,7 @@ const ReportingDashboardPage = () => {
   const [filterOptions, setFilterOptions] = useState({
     ministries: [],
     stateDepartments: [],
-    constituencies: [],
+    subcounties: [],
     wards: [],
     financialYears: [],
     statuses: [],
@@ -113,7 +113,7 @@ const ReportingDashboardPage = () => {
         // Extract unique values from projects
         const ministries = [...new Set(projectsData.map(p => p.departmentName || p.ministry).filter(Boolean))].sort();
         const stateDepartments = [...new Set(projectsData.map(p => p.sectionName || p.stateDepartment).filter(Boolean))].sort();
-        const constituencies = [...new Set(projectsData.map(p => p.constituency || p.constituencyNames).filter(Boolean))].sort();
+        const subcounties = [...new Set(projectsData.map(p => p.subcounty || p.subcountyNames).filter(Boolean))].sort();
         const wards = [...new Set(projectsData.map(p => p.ward || p.wardNames).filter(Boolean))].sort();
         const statuses = [...new Set(projectsData.map(p => p.status).filter(Boolean))].sort();
         const projectTypes = [...new Set(projectsData.map(p => p.categoryName || p.sector).filter(Boolean))].sort();
@@ -131,7 +131,7 @@ const ReportingDashboardPage = () => {
         setFilterOptions({
           ministries,
           stateDepartments,
-          constituencies,
+          subcounties,
           wards,
           financialYears,
           statuses,
@@ -185,10 +185,10 @@ const ReportingDashboardPage = () => {
         if (projectStateDept !== filters.stateDepartment) return false;
       }
       
-      // Handle constituency (can be constituency or constituencyNames field, or in location JSONB)
-      if (filters.constituency) {
-        const projectConstituency = p.constituency || p.constituencyNames || '';
-        if (projectConstituency !== filters.constituency) return false;
+      // Handle sub-county (can be subcounty or subcountyNames field, or in location JSONB)
+      if (filters.subcounty) {
+        const projectSubcounty = p.subcounty || p.subcountyNames || '';
+        if (projectSubcounty !== filters.subcounty) return false;
       }
       
       // Handle ward (can be ward or wardNames field, or in location JSONB)
@@ -224,7 +224,7 @@ const ReportingDashboardPage = () => {
     setFilters({
       ministry: '',
       stateDepartment: '',
-      constituency: '',
+      subcounty: '',
       ward: '',
       financialYear: '',
       status: '',
@@ -433,7 +433,7 @@ const ReportingDashboardPage = () => {
                   dataKey="absorptionRate" 
                   stroke="#eab308" 
                   strokeWidth={2}
-                  name="% Disbursement Rate"
+                  name="% Absorption Rate"
                   dot={{ r: 4 }}
                 />
               </ComposedChart>
@@ -471,7 +471,7 @@ const ReportingDashboardPage = () => {
                   outerRadius={100}
                   paddingAngle={2}
                   dataKey="value"
-                  label={({ name, value }) => `${value}`}
+                  label={({ value }) => `${value}`}
                 >
                   {chartData.typeChartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={Object.values(STATUS_COLORS)[index % Object.keys(STATUS_COLORS).length]} />
@@ -498,7 +498,7 @@ const ReportingDashboardPage = () => {
       case 3:
         return <Box p={3}><Typography>State Department Summary - Coming Soon</Typography></Box>;
       case 4:
-        return <Box p={3}><Typography>Constituency Summary - Coming Soon</Typography></Box>;
+        return <Box p={3}><Typography>Sub-county Summary - Coming Soon</Typography></Box>;
       case 5:
         return <Box p={3}><Typography>Ward Summary - Coming Soon</Typography></Box>;
       case 6:
@@ -668,14 +668,14 @@ const ReportingDashboardPage = () => {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Constituency</InputLabel>
+                  <InputLabel>Sub-county</InputLabel>
                   <Select
-                    value={filters.constituency}
-                    label="Constituency"
-                    onChange={(e) => handleFilterChange('constituency', e.target.value)}
+                    value={filters.subcounty}
+                    label="Sub-county"
+                    onChange={(e) => handleFilterChange('subcounty', e.target.value)}
                   >
-                    <MenuItem value="">All Constituencies</MenuItem>
-                    {filterOptions.constituencies.map((c) => (
+                    <MenuItem value="">All Sub-counties</MenuItem>
+                    {filterOptions.subcounties.map((c) => (
                       <MenuItem key={c} value={c}>
                         {c}
                       </MenuItem>
@@ -805,7 +805,7 @@ const ReportingDashboardPage = () => {
           <Tab label="Funding Source Summary" />
           <Tab label="Ministry Summary" />
           <Tab label="State Department Summary" />
-          <Tab label="Constituency Summary" />
+          <Tab label="Sub-county Summary" />
           <Tab label="Ward Summary" />
           <Tab label="Yearly Trends" />
         </Tabs>

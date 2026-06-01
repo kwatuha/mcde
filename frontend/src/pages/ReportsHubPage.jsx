@@ -89,6 +89,11 @@ const SECTIONS = [
         to: ROUTES.REGIONAL_REPORTING,
       },
       {
+        title: 'Departmental reports',
+        description: 'Executive department and implementation unit performance.',
+        to: ROUTES.DEPARTMENTAL_REPORTING,
+      },
+      {
         title: 'Project dashboards',
         description: 'Per-project dashboard analytics.',
         to: ROUTES.REPORTING_OVERVIEW,

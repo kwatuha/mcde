@@ -256,7 +256,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
     },
     { 
       field: 'constituency', 
-      headerName: 'Constituency', 
+      headerName: 'Sub-county', 
       flex: 1,
       minWidth: 160,
     },
@@ -409,7 +409,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                           onClick={() => {
                             // Toggle county selection; when selecting a county:
                             // - set county filter
-                            // - clear constituency & ward filters and selections
+                            // - clear sub-county & ward filters and selections
                             const isSame = selectedCounty === county;
                             const newCounty = isSame ? '' : county;
                             setSelectedCounty(isSame ? null : county);
@@ -437,7 +437,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                 <Card>
                   <CardContent>
                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Constituencies
+                      Sub-counties
                     </Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                       {Object.entries(summary.byConstituency).map(([constituency, count]) => (
@@ -449,9 +449,9 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                           variant={selectedConstituency === constituency ? 'filled' : 'outlined'}
                           clickable
                           onClick={() => {
-                            // Toggle constituency selection; when selecting:
+                            // Toggle sub-county selection; when selecting:
                             // - keep current county filter (if any)
-                            // - set constituency filter
+                            // - set sub-county filter
                             // - clear ward filter
                             const isSame = selectedConstituency === constituency;
                             const newConstituency = isSame ? '' : constituency;
@@ -467,7 +467,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                       ))}
                       {Object.keys(summary.byConstituency).length === 0 && (
                         <Typography variant="body2" color="text.secondary">
-                          No constituencies
+                          No sub-counties
                         </Typography>
                       )}
                     </Box>
@@ -492,7 +492,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                           clickable
                           onClick={() => {
                             // Clicking a ward chip narrows results to that ward within
-                            // the currently selected county/constituency (if any).
+                            // the currently selected county/sub-county (if any).
                             setFilters(prev => ({
                               ...prev,
                               ward: ward,
@@ -544,7 +544,7 @@ const ProjectSitesModal = ({ open, onClose, projectId, projectName, showSiteActi
                   <TextField
                     fullWidth
                     size="small"
-                    label="Filter by Constituency"
+                    label="Filter by Sub-county"
                     value={filters.constituency}
                     onChange={(e) => handleFilterChange('constituency', e.target.value)}
                     InputProps={{

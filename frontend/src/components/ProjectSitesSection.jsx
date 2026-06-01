@@ -361,11 +361,11 @@ const ProjectSitesSection = ({
                     </FormControl>
                   </Grid>
 
-                  {/* Constituency */}
+                  {/* Sub-county */}
                   <Grid item xs={12} sm={6} md={3}>
                     <TextField
                       fullWidth
-                      label="Constituency"
+                      label="Sub-county"
                       size="small"
                       value={site.constituency || ''}
                       onChange={(e) => handleSiteChange(index, 'constituency', e.target.value)}
@@ -590,7 +590,7 @@ const ProjectSitesSection = ({
                   <Grid item xs={12} sm={6} md={4}>
                     <TextField
                       fullWidth
-                      label="Amount Disbursed (KES)"
+                      label="Amount Paid (KES)"
                       type="number"
                       size="small"
                       inputProps={{ step: "0.01", min: "0" }}

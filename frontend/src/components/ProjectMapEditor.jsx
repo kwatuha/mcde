@@ -73,7 +73,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   
   const [mapData, setMapData] = useState(null);
-  const [projectGeoDetails, setProjectGeoDetails] = useState({ constituency: '', ward: '' });
+  const [projectGeoDetails, setProjectGeoDetails] = useState({ subcounty: '', ward: '' });
   const [geometryType, setGeometryType] = useState('Point');
   const [coordinates, setCoordinates] = useState({
     latitude: '',
@@ -234,11 +234,11 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
         const project = await apiService.projects.getProjectById(projectId);
         if (!mounted) return;
         setProjectGeoDetails({
-          constituency:
-            project?.constituency ||
-            project?.constituencyName ||
-            project?.constituencyNames ||
-            project?.location?.constituency ||
+          subcounty:
+            project?.subcounty ||
+            project?.subcountyName ||
+            project?.subcountyNames ||
+            project?.location?.subcounty ||
             '',
           ward:
             project?.ward ||
@@ -250,7 +250,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
       } catch (geoErr) {
         console.warn('[ProjectMapEditor] Unable to load project geo details:', geoErr?.message || geoErr);
         if (mounted) {
-          setProjectGeoDetails({ constituency: '', ward: '' });
+          setProjectGeoDetails({ subcounty: '', ward: '' });
         }
       }
     };
@@ -966,7 +966,7 @@ const ProjectMapEditor = ({ projectId, projectName }) => {
                     </Typography>
                   </Stack>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Constituency: {projectGeoDetails.constituency || 'N/A'}
+                    Sub-county: {projectGeoDetails.subcounty || 'N/A'}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     Ward: {projectGeoDetails.ward || 'N/A'}

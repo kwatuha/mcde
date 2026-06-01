@@ -16,8 +16,6 @@ import {
   MenuItem,
   Collapse,
   IconButton,
-  Tabs,
-  Tab,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -63,10 +61,6 @@ import {
 import { tokens } from './dashboard/theme';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isSuperAdminUser } from '../utils/roleUtils';
-import DepartmentSummaryReport from '../components/DepartmentSummaryReport';
-import SubcountySummaryReport from '../components/SubcountySummaryReport';
-import WardSummaryReport from '../components/WardSummaryReport';
-import YearlyTrendsReport from '../components/YearlyTrendsReport';
 
 /**
  * SystemDashboardPage
@@ -155,7 +149,6 @@ const SystemDashboardPage = () => {
     status: '',
   });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [adminBreakdownTab, setAdminBreakdownTab] = useState(0);
   const [sectors, setSectors] = useState([]);
   const [allProjects, setAllProjects] = useState([]);
   const [jobsSnapshot, setJobsSnapshot] = useState({
@@ -201,7 +194,7 @@ const SystemDashboardPage = () => {
           directorate:
             String(p.directorate ?? p.directorateName ?? p.agency ?? p.agencyName ?? '').trim() || 'Unknown',
           County: p.County || p.county || p.countyNames || 'Unknown',
-          Constituency: p.Constituency || p.constituency || p.constituencyNames || 'Unknown',
+          SubCounty: p.SubCounty || p.subCounty || p.subcounty || p.subcountyNames || p.Subcounty || 'Unknown',
           ward: p.ward || p.wardNames || 'Unknown',
           registrySectorRaw: rawRegistrySectorFromProject(p),
           sector: p.sector || p.categoryName || p.directorate || p.department || p.ministry || 'Unknown',
@@ -326,8 +319,6 @@ const SystemDashboardPage = () => {
         .map((p) => p.agency)
     )
   ).filter(Boolean);
-  const uniqueStatuses = Array.from(new Set(scopeBaseProjects.map((p) => p.Status))).filter(Boolean);
-
   useEffect(() => {
     setFilters((prev) => {
       const next = { ...prev };
@@ -354,7 +345,7 @@ const SystemDashboardPage = () => {
     absorptionBySector,
     jobsByCategoryChartData,
     sitesByStatusChartData,
-    projectsByConstituency,
+    projectsBySubcounty,
     projectsByCounty,
     projectsByBudgetSource,
     overallProgress,
@@ -446,13 +437,13 @@ const SystemDashboardPage = () => {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([name, value]) => ({ name, value }));
 
-    // Projects by Constituency
-    const constituencyMap = new Map();
+    // Projects by Sub-county
+    const subcountyMap = new Map();
     filteredProjects.forEach((p) => {
-      const key = p.Constituency || 'Unknown';
-      constituencyMap.set(key, (constituencyMap.get(key) || 0) + 1);
+      const key = p.SubCounty || 'Unknown';
+      subcountyMap.set(key, (subcountyMap.get(key) || 0) + 1);
     });
-    const constituencyChart = Array.from(constituencyMap.entries())
+    const subcountyChart = Array.from(subcountyMap.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
 
@@ -511,7 +502,7 @@ const SystemDashboardPage = () => {
       jobsByCategoryChartData: jobsChart,
       sitesByStatusChartData: sitesChart,
       projectsByFinancialYear: fyChart,
-      projectsByConstituency: constituencyChart,
+      projectsBySubcounty: subcountyChart,
       projectsByCounty: countyChart,
       projectsByDirectorate: directorateChart,
       projectsByBudgetSource: budgetSourceChart,
@@ -548,6 +539,57 @@ const SystemDashboardPage = () => {
     [filteredProjects]
   );
 
+  const regionalOverview = useMemo(() => {
+    const aggregateByRegion = (resolveName) => {
+      const map = new Map();
+      filteredProjects.forEach((project) => {
+        const rawName = String(resolveName(project) || '').trim();
+        const name = rawName && rawName.toLowerCase() !== 'unknown' ? rawName : 'Not specified';
+        const current = map.get(name) || {
+          name,
+          projects: 0,
+          budget: 0,
+          paid: 0,
+        };
+        current.projects += 1;
+        current.budget += Number(project.budget || 0);
+        current.paid += Number(project.Disbursed || 0);
+        map.set(name, current);
+      });
+
+      return [...map.values()]
+        .map((row) => ({
+          ...row,
+          absorption: row.budget > 0 ? (row.paid / row.budget) * 100 : 0,
+        }))
+        .sort((a, b) => b.projects - a.projects || b.budget - a.budget);
+    };
+
+    const subcounties = aggregateByRegion((project) => project.SubCounty);
+    const wards = aggregateByRegion((project) => project.ward);
+    const realSubcounties = subcounties.filter((row) => row.name !== 'Not specified');
+    const subcountiesWithBudget = realSubcounties.filter((row) => row.budget > 0);
+    const totalRegionalBudget = subcounties.reduce((sum, row) => sum + row.budget, 0);
+    const topThreeBudget = [...realSubcounties]
+      .sort((a, b) => b.budget - a.budget)
+      .slice(0, 3)
+      .reduce((sum, row) => sum + row.budget, 0);
+
+    return {
+      subcounties,
+      wards,
+      topSubcounties: subcounties.slice(0, 5),
+      topWards: wards.slice(0, 5),
+      highestAbsorptionSubcounty: [...subcountiesWithBudget].sort((a, b) => b.absorption - a.absorption)[0] || null,
+      lowestAbsorptionSubcounty: [...subcountiesWithBudget].sort((a, b) => a.absorption - b.absorption)[0] || null,
+      underServedSubcounties: [...realSubcounties]
+        .sort((a, b) => a.projects - b.projects || a.absorption - b.absorption)
+        .slice(0, 3),
+      topThreeBudgetShare: totalRegionalBudget > 0 ? (topThreeBudget / totalRegionalBudget) * 100 : 0,
+      unspecifiedProjects: subcounties.find((row) => row.name === 'Not specified')?.projects || 0,
+    };
+  }, [filteredProjects]);
+
   const executiveBrief = useMemo(() => {
     const riskStatuses = new Set(['Delayed', 'Stalled', 'Suspended']);
     const pipelineStatuses = new Set(['Not Started', 'Under Procurement']);
@@ -570,7 +612,7 @@ const SystemDashboardPage = () => {
       ? Math.round((jobsSnapshot.summary.totalFemale / jobsSnapshot.summary.totalJobs) * 100)
       : 0;
 
-    const topConstituency = projectsByConstituency?.[0];
+    const topSubcounty = projectsBySubcounty?.[0];
     const topCounty = projectsByCounty?.[0];
     const topSector = [...(absorptionBySector || [])]
       .sort((a, b) => (b.contracted || 0) - (a.contracted || 0))[0];
@@ -583,11 +625,11 @@ const SystemDashboardPage = () => {
       disbursementGap,
       directJobsShare,
       femaleJobsShare,
-      topConstituency,
+      topSubcounty,
       topCounty,
       topSector,
     };
-  }, [filteredProjects, kpis.totalBudget, kpis.totalDisbursed, projectsByConstituency, projectsByCounty, absorptionBySector, jobsSnapshot]);
+  }, [filteredProjects, kpis.totalBudget, kpis.totalDisbursed, projectsBySubcounty, projectsByCounty, absorptionBySector, jobsSnapshot]);
 
   const isLight = theme.palette.mode === 'light';
   const ui = {
@@ -1051,7 +1093,7 @@ const SystemDashboardPage = () => {
                       {formatCurrency(animTotalBudget)}
                     </Typography>
                     <Typography variant="caption" component="div" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[300], fontWeight: 600, fontSize: '1.1rem', mt: 0.125, lineHeight: 1.2 }}>
-                      {disbursedSharePct}% disbursed
+                      {disbursedSharePct}% paid
                     </Typography>
                   </Box>
                   <AttachMoneyIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.greenAccent[500], fontSize: '2rem', flexShrink: 0 }} />
@@ -1093,7 +1135,7 @@ const SystemDashboardPage = () => {
                 <Box display="flex" alignItems="flex-start" gap={0.75}>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.65rem', display: 'block' }}>
-                      Disbursement rate
+                      Absorption rate
                     </Typography>
                     <Typography variant="h5" sx={{ color: isLight ? '#ffffff' : '#fff', fontWeight: 800, fontSize: '2rem', mb: 0.25, lineHeight: 1.15 }}>
                       {animAbsorption}%
@@ -1118,7 +1160,7 @@ const SystemDashboardPage = () => {
                       }}
                     />
                     <Typography variant="caption" component="div" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[300], fontWeight: 600, fontSize: '1.1rem', lineHeight: 1.2 }}>
-                      Budget vs disbursed
+                      Budget vs paid
                     </Typography>
                   </Box>
                   <TimelineIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.yellowAccent[400], fontSize: '2rem', flexShrink: 0, mt: 0.25 }} />
@@ -1242,7 +1284,7 @@ const SystemDashboardPage = () => {
               <Box sx={{ mb: 1 }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.4}>
                   <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
-                    Budget / Disbursed
+                    Budget / Paid
                   </Typography>
                   <Typography variant="caption" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.72rem' }}>
                     {kpis.absorptionRate}%
@@ -1262,7 +1304,7 @@ const SystemDashboardPage = () => {
                 />
               </Box>
               <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
-                Disbursement gap: <strong>{formatCurrency(executiveBrief.disbursementGap)}</strong> pending against current allocated budget.
+                Payment gap: <strong>{formatCurrency(executiveBrief.disbursementGap)}</strong> pending against current allocated budget.
               </Typography>
             </CardContent>
           </Card>
@@ -1309,7 +1351,7 @@ const SystemDashboardPage = () => {
               </Typography>
               <Stack spacing={0.9} sx={{ flex: 1, minHeight: 0 }}>
                 <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
-                  Top constituency: <strong>{executiveBrief.topConstituency?.name || 'N/A'}</strong> ({executiveBrief.topConstituency?.value || 0} projects)
+                  Top sub-county: <strong>{executiveBrief.topSubcounty?.name || 'N/A'}</strong> ({executiveBrief.topSubcounty?.value || 0} projects)
                 </Typography>
                 <Typography variant="caption" sx={{ color: colors.grey[300], fontSize: '0.72rem' }}>
                   Top county: <strong>{executiveBrief.topCounty?.name || 'N/A'}</strong> ({executiveBrief.topCounty?.value || 0} projects)
@@ -1473,7 +1515,7 @@ const SystemDashboardPage = () => {
                       fontSize: '1rem',
                     }}
                   >
-                    Disbursement by Sector
+                    Paid Amount by Sector
                   </Typography>
                   <Typography
                     variant="caption"
@@ -1482,7 +1524,7 @@ const SystemDashboardPage = () => {
                       fontSize: '0.7rem',
                     }}
                   >
-                    Allocated vs. disbursed (live data)
+                    Allocated vs. paid (live data)
                   </Typography>
                 </Box>
               </Box>
@@ -1526,7 +1568,7 @@ const SystemDashboardPage = () => {
                     />
                     <Bar
                       dataKey="paid"
-                      name="Disbursed"
+                      name="Paid"
                       fill={colors.greenAccent[500]}
                       radius={[4, 4, 0, 0]}
                     />
@@ -2067,44 +2109,204 @@ const SystemDashboardPage = () => {
           }}
         >
           <Box sx={{ px: 2, pt: 2, pb: 1 }}>
-            <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.95rem' }}>
-              Regional Breakdown
-            </Typography>
-            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
-              Departments, sub-counties, wards and yearly trends (admin view)
-            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
+              <Box>
+                <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.95rem' }}>
+                  Regional Breakdown
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                  High-level footprint by sub-county and ward. Use Regional Reports for full drilldown.
+                </Typography>
+              </Box>
+              <Box
+                onClick={() => navigate('/regional-reports')}
+                sx={{
+                  alignSelf: { xs: 'flex-start', sm: 'center' },
+                  px: 1.25,
+                  py: 0.75,
+                  borderRadius: 1.5,
+                  cursor: 'pointer',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  color: colors.blueAccent[300],
+                  border: `1px solid ${colors.blueAccent[700]}`,
+                  '&:hover': {
+                    bgcolor: theme.palette.action.hover,
+                  },
+                }}
+              >
+                Open Regional Reports
+              </Box>
+            </Stack>
           </Box>
-          <Tabs
-            value={adminBreakdownTab}
-            onChange={(_, next) => setAdminBreakdownTab(next)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{
-              px: 1.5,
-              borderBottom: '1px solid',
-              borderColor: theme.palette.mode === 'dark' ? colors.primary[300] : 'divider',
-              '& .MuiTab-root': {
-                textTransform: 'none',
-                fontSize: '0.82rem',
-                fontWeight: 700,
-                minHeight: 42,
-                color: colors.grey[300],
-              },
-              '& .Mui-selected': {
-                color: colors.blueAccent[400],
-              },
-            }}
-          >
-            <Tab label="Departments" />
-            <Tab label="Sub-county" />
-            <Tab label="Ward" />
-            <Tab label="Yearly trends" />
-          </Tabs>
-          <Box sx={{ p: 2 }}>
-            {adminBreakdownTab === 0 && <DepartmentSummaryReport filters={{}} />}
-            {adminBreakdownTab === 1 && <SubcountySummaryReport filters={{}} />}
-            {adminBreakdownTab === 2 && <WardSummaryReport filters={{}} />}
-            {adminBreakdownTab === 3 && <YearlyTrendsReport filters={{}} />}
+          <Box sx={{ px: 2, pb: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, bgcolor: 'transparent' }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                      <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.88rem' }}>
+                        Top Sub-counties
+                      </Typography>
+                      <Chip size="small" label={`${regionalOverview.subcounties.length} total`} />
+                    </Stack>
+                    <Stack spacing={1}>
+                      {regionalOverview.topSubcounties.map((row) => (
+                        <Box key={row.name}>
+                          <Stack direction="row" justifyContent="space-between" spacing={1}>
+                            <Typography variant="body2" sx={{ color: colors.grey[100], fontWeight: 600 }}>
+                              {row.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                              {row.projects} project{row.projects === 1 ? '' : 's'}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ mt: 0.25 }}>
+                            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                              Budget {formatCurrency(row.budget)} | Paid {formatCurrency(row.paid)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: colors.greenAccent[400], fontWeight: 700 }}>
+                              {row.absorption.toFixed(1)}%
+                            </Typography>
+                          </Stack>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.max(0, Math.min(100, row.absorption))}
+                            sx={{ mt: 0.65, height: 6, borderRadius: 3 }}
+                          />
+                        </Box>
+                      ))}
+                      {regionalOverview.topSubcounties.length === 0 && (
+                        <Typography variant="body2" sx={{ color: colors.grey[400] }}>
+                          No regional data available for the selected filters.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={8}>
+                <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, bgcolor: 'transparent' }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                      <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.88rem' }}>
+                        Regional Equity Snapshot
+                      </Typography>
+                      <Chip size="small" label="High-level signals" color="primary" variant="outlined" />
+                    </Stack>
+                    <Grid container spacing={1}>
+                      {[
+                        {
+                          label: 'Highest absorption',
+                          value: regionalOverview.highestAbsorptionSubcounty?.name || 'N/A',
+                          sub: regionalOverview.highestAbsorptionSubcounty
+                            ? `${regionalOverview.highestAbsorptionSubcounty.absorption.toFixed(1)}% paid`
+                            : 'No budget data',
+                        },
+                        {
+                          label: 'Lowest absorption',
+                          value: regionalOverview.lowestAbsorptionSubcounty?.name || 'N/A',
+                          sub: regionalOverview.lowestAbsorptionSubcounty
+                            ? `${regionalOverview.lowestAbsorptionSubcounty.absorption.toFixed(1)}% paid`
+                            : 'No budget data',
+                        },
+                        {
+                          label: 'Top 3 budget share',
+                          value: `${regionalOverview.topThreeBudgetShare.toFixed(1)}%`,
+                          sub: 'Budget concentration',
+                        },
+                        {
+                          label: 'Missing sub-county',
+                          value: regionalOverview.unspecifiedProjects,
+                          sub: 'Projects needing cleanup',
+                        },
+                      ].map((item) => (
+                        <Grid item xs={12} sm={6} md={3} key={item.label}>
+                          <Box
+                            sx={{
+                              p: 1,
+                              height: '100%',
+                              borderRadius: 1.5,
+                              bgcolor: theme.palette.mode === 'dark' ? colors.primary[500] : theme.palette.grey[50],
+                              border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[300] : theme.palette.divider}`,
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ color: colors.grey[400], fontWeight: 600 }}>
+                              {item.label}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: colors.grey[100], fontWeight: 800 }} noWrap>
+                              {item.value}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                              {item.sub}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    <Divider sx={{ my: 1.25 }} />
+                    <Typography variant="caption" sx={{ color: colors.grey[400], fontWeight: 700 }}>
+                      Sub-counties needing attention
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                      {regionalOverview.underServedSubcounties.map((row) => (
+                        <Chip
+                          key={row.name}
+                          label={`${row.name}: ${row.projects} project${row.projects === 1 ? '' : 's'}, ${row.absorption.toFixed(1)}%`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ))}
+                      {regionalOverview.underServedSubcounties.length === 0 && (
+                        <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                          No sub-county coverage signals available.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12}>
+                <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, bgcolor: 'transparent' }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                      <Typography sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '0.88rem' }}>
+                        Top Wards
+                      </Typography>
+                      <Chip size="small" label={`${regionalOverview.wards.length} total`} />
+                    </Stack>
+                    <Grid container spacing={1}>
+                      {regionalOverview.topWards.map((row) => (
+                        <Grid item xs={12} sm={6} key={row.name}>
+                          <Box
+                            sx={{
+                              p: 1,
+                              borderRadius: 1.5,
+                              bgcolor: theme.palette.mode === 'dark' ? colors.primary[500] : theme.palette.grey[50],
+                              border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[300] : theme.palette.divider}`,
+                            }}
+                          >
+                            <Typography variant="body2" sx={{ color: colors.grey[100], fontWeight: 700 }} noWrap>
+                              {row.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                              {row.projects} projects | {row.absorption.toFixed(1)}% absorption
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                      {regionalOverview.topWards.length === 0 && (
+                        <Grid item xs={12}>
+                          <Typography variant="body2" sx={{ color: colors.grey[400] }}>
+                            No ward data available for the selected filters.
+                          </Typography>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
           </Box>
         </Card>
       </Box>

@@ -178,6 +178,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
     'PROJECT_BY_SECTOR_DASHBOARD',
     'FINANCE_DASHBOARD',
     'JOBS_DASHBOARD',
+    'DEPARTMENTAL_REPORTING',
   ];
   const allowedSet = new Set(allowedDashboardRoutes);
   const allowedProjectsRoutes = new Set(['PROJECTS']);

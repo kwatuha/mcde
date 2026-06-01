@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
+  GlobalStyles,
   Grid,
   LinearProgress,
   Paper,
@@ -18,9 +20,13 @@ import {
   Tabs,
   Typography,
 } from '@mui/material';
-import { LocationOn, Map as MapIcon } from '@mui/icons-material';
+import { LocationOn, Map as MapIcon, PictureAsPdf as PictureAsPdfIcon, Print as PrintIcon } from '@mui/icons-material';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import projectService from '../api/projectService';
 import { getProjectWardKey } from '../utils/projectWardKey';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl, getCountyOfficialName } from '../utils/countyOfficialPdfHeader';
+import countyLogoUrl from '../assets/gpris.png';
 
 const currency = (v) =>
   `KES ${Number(v || 0).toLocaleString('en-KE', {
@@ -35,8 +41,11 @@ const shortCurrency = (v) => {
   return `KES ${n.toLocaleString('en-KE')}`;
 };
 
+const fmtPercent = (v) => `${Number(v || 0).toFixed(1)}%`;
+
 const RegionalBreakdownDashboardPage = () => {
   const navigate = useNavigate();
+  const countyName = getCountyOfficialName();
   const [activeTab, setActiveTab] = useState(0);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +59,7 @@ const RegionalBreakdownDashboardPage = () => {
         // Use the same source as GIS dashboard so counts align.
         const data = await projectService.projects.getProjects();
         setRows(Array.isArray(data) ? data : []);
-      } catch (e) {
+      } catch {
         setError('Failed to load regional dashboard data.');
         setRows([]);
       } finally {
@@ -196,6 +205,219 @@ const RegionalBreakdownDashboardPage = () => {
     }
     const q = params.toString();
     navigate(q ? `/projects?${q}` : '/projects');
+  };
+
+  const makePdfRows = (scope) => {
+    const useWardScope = scope === 'ward';
+    const sourceRows = useWardScope ? wardRows : subcountyRows;
+    return sourceRows.map((row) => ({
+      name: useWardScope ? row.ward : row.subcounty,
+      subcounty: row.subcounty,
+      projectCount: row.projectCount,
+      totalBudget: row.totalBudget,
+      totalPaid: row.totalPaid,
+      absorptionRate: row.totalBudget > 0 ? (row.totalPaid / row.totalBudget) * 100 : 0,
+    }));
+  };
+
+  const addRegionalPdfSection = (doc, title, scopeRows, startY, scope = 'subcounty') => {
+    let y = startY;
+    const isWardScope = scope === 'ward';
+    doc.setFont('helvetica', 'bold').setFontSize(11).text(title, 14, y);
+    y += 5;
+    autoTable(doc, {
+      startY: y,
+      head: [isWardScope ? ['Ward', 'Sub-county', 'Projects', 'Budget', 'Paid', 'Absorption'] : ['Sub-county', 'Projects', 'Budget', 'Paid', 'Absorption']],
+      body: scopeRows.map((row) => [
+        row.name,
+        ...(isWardScope ? [row.subcounty || '-'] : []),
+        row.projectCount,
+        currency(row.totalBudget),
+        currency(row.totalPaid),
+        fmtPercent(row.absorptionRate),
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [25, 118, 210], textColor: 255 },
+      columnStyles: isWardScope
+        ? {
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+            4: { halign: 'right' },
+            5: { halign: 'right' },
+          }
+        : {
+            1: { halign: 'right' },
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+            4: { halign: 'right' },
+          },
+      margin: { left: 14, right: 14 },
+    });
+    return doc.lastAutoTable.finalY + 8;
+  };
+
+  const exportPdf = async (scope = activeTab === 1 ? 'ward' : 'subcounty') => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const logoDataUrl = await getCountyLogoDataUrl();
+    let y = drawCountyOfficialHeader(doc, {
+      title: 'Regional Breakdown Report',
+      subtitle: scope === 'all' ? 'Sub-county and ward performance' : `${scope === 'ward' ? 'Ward' : 'Sub-county'} performance`,
+      logoDataUrl,
+    });
+
+    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(80);
+    doc.text(
+      `Generated: ${new Date().toLocaleString('en-KE')} | Projects: ${totals.totalProjects} | Sub-counties: ${totals.subcounties} | Wards: ${totals.wards}`,
+      14,
+      y
+    );
+    y += 7;
+    autoTable(doc, {
+      startY: y,
+      head: [['Total Budget', 'Total Paid', 'Overall Absorption']],
+      body: [[currency(totals.totalBudget), currency(totals.totalPaid), fmtPercent(totals.totalBudget > 0 ? (totals.totalPaid / totals.totalBudget) * 100 : 0)]],
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    const sections = scope === 'all'
+      ? [
+          ['Sub-county Breakdown', makePdfRows('subcounty'), 'subcounty'],
+          ['Ward Breakdown', makePdfRows('ward'), 'ward'],
+        ]
+      : [[scope === 'ward' ? 'Ward Breakdown' : 'Sub-county Breakdown', makePdfRows(scope), scope]];
+
+    sections.forEach(([title, sectionRows, sectionScope], index) => {
+      if (index > 0) {
+        doc.addPage();
+        y = 18;
+      }
+      y = addRegionalPdfSection(doc, title, sectionRows, y, sectionScope);
+    });
+
+    if (distributionInsights.underServed.length > 0) {
+      if (y > 150) {
+        doc.addPage();
+        y = 18;
+      }
+      doc.setFont('helvetica', 'bold').setFontSize(11).text('Priority Regions (Under-served)', 14, y);
+      autoTable(doc, {
+        startY: y + 5,
+        head: [['Region', 'Project Gap', 'Budget Gap', 'Deficit Pressure', 'Recommendation']],
+        body: distributionInsights.underServed.map((row) => [
+          row.scopeLabel,
+          row.projectGap.toFixed(1),
+          currency(Math.max(row.budgetGap, 0)),
+          row.deficitPressure.toFixed(1),
+          row.recommendation,
+        ]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [245, 124, 0], textColor: 255 },
+        margin: { left: 14, right: 14 },
+      });
+    }
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i += 1) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(120);
+      doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() - 28, doc.internal.pageSize.getHeight() - 8);
+    }
+
+    const suffix = scope === 'all' ? 'all' : scope;
+    doc.save(`regional-breakdown-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const printReport = () => {
+    const printArea = document.getElementById('regional-reports-print-area');
+    if (!printArea) {
+      window.print();
+      return;
+    }
+
+    const clonedReport = printArea.cloneNode(true);
+    clonedReport.querySelectorAll('.regional-report-no-print').forEach((node) => node.remove());
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=900');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    const documentStyles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((node) => node.outerHTML)
+      .join('\n');
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Regional Breakdown Report</title>
+          ${documentStyles}
+          <style>
+            @page { size: landscape; margin: 10mm; }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: 100% !important;
+              background: #ffffff !important;
+              color: #111827 !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            #regional-reports-print-area {
+              width: 100% !important;
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+            }
+            .regional-report-no-print { display: none !important; }
+            .regional-report-screen-header { display: none !important; }
+            .regional-report-print-header { display: block !important; }
+            body *, #regional-reports-print-area, #regional-reports-print-area * {
+              visibility: visible !important;
+            }
+            #regional-reports-print-area .MuiTabs-root {
+              display: none !important;
+            }
+            #regional-reports-print-area .MuiTypography-root {
+              line-height: 1.2 !important;
+            }
+            .MuiPaper-root {
+              box-shadow: none !important;
+              break-inside: auto !important;
+              page-break-inside: auto !important;
+              margin-bottom: 6px !important;
+              border-radius: 4px !important;
+            }
+            .MuiTableCell-root {
+              padding: 3px 6px !important;
+              font-size: 9px !important;
+            }
+            .regional-report-print-header {
+              margin-bottom: 6mm !important;
+              padding-bottom: 4mm !important;
+              border-bottom: 1px solid #cbd5e1 !important;
+            }
+            .regional-report-print-header img {
+              width: 54px !important;
+              height: 54px !important;
+            }
+          </style>
+        </head>
+        <body>${clonedReport.outerHTML}</body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 400);
   };
 
   const chartCardSx = {
@@ -363,8 +585,110 @@ const RegionalBreakdownDashboardPage = () => {
   );
 
   return (
-    <Box sx={{ p: { xs: 1, sm: 1.5 }, width: '100%' }}>
+    <>
+      <GlobalStyles
+        styles={{
+          '@media print': {
+            'html, body, #root': {
+              width: '100% !important',
+              height: 'auto !important',
+              margin: '0 !important',
+              padding: '0 !important',
+              overflow: 'visible !important',
+            },
+            '.mcmes-app-main': {
+              width: '100% !important',
+              marginLeft: '0 !important',
+              marginTop: '0 !important',
+              padding: '0 !important',
+              minHeight: 'auto !important',
+              display: 'block !important',
+            },
+            '.mcmes-app-main > .MuiBox-root': {
+              padding: '0 !important',
+              overflow: 'visible !important',
+            },
+            '.MuiAppBar-root, .MuiDrawer-root, .MuiModal-root, .MuiBackdrop-root': {
+              display: 'none !important',
+            },
+            'body *': {
+              visibility: 'hidden !important',
+            },
+            '#regional-reports-print-area, #regional-reports-print-area *': {
+              visibility: 'visible !important',
+            },
+            '#regional-reports-print-area': {
+              position: 'static !important',
+              width: '100% !important',
+              maxWidth: '100% !important',
+              margin: '0 !important',
+              padding: '0 !important',
+              background: '#ffffff !important',
+              color: '#111827 !important',
+            },
+            '#regional-reports-print-area .regional-report-no-print': {
+              display: 'none !important',
+            },
+            '#regional-reports-print-area .regional-report-screen-header': {
+              display: 'none !important',
+            },
+            '#regional-reports-print-area .regional-report-print-header': {
+              display: 'block !important',
+              marginBottom: '6mm !important',
+              paddingBottom: '4mm !important',
+            },
+            '#regional-reports-print-area .MuiPaper-root': {
+              boxShadow: 'none !important',
+              breakInside: 'auto !important',
+              pageBreakInside: 'auto !important',
+              marginBottom: '6px !important',
+            },
+            '#regional-reports-print-area .MuiTableCell-root': {
+              padding: '3px 6px !important',
+              fontSize: '9px !important',
+            },
+            '#regional-reports-print-area .MuiTabs-root': {
+              display: 'none !important',
+            },
+          },
+          '@page': {
+            size: 'landscape',
+            margin: '10mm',
+          },
+        }}
+      />
+      <Box id="regional-reports-print-area" sx={{ p: { xs: 1, sm: 1.5 }, width: '100%' }}>
+        <Box
+          className="regional-report-print-header"
+          sx={{
+            display: 'none',
+            textAlign: 'center',
+            mb: 2,
+            pb: 1.5,
+            borderBottom: '1px solid #cbd5e1',
+          }}
+        >
+          <Box
+            component="img"
+            src={countyLogoUrl}
+            alt=""
+            sx={{ width: 58, height: 58, objectFit: 'contain', mb: 0.5 }}
+          />
+          <Typography sx={{ fontWeight: 800, fontSize: '0.95rem', letterSpacing: 0.4 }}>
+            REPUBLIC OF KENYA
+          </Typography>
+          <Typography sx={{ fontWeight: 800, fontSize: '0.95rem', letterSpacing: 0.4 }}>
+            {countyName}
+          </Typography>
+          <Typography sx={{ fontWeight: 900, fontSize: '1.05rem', mt: 0.75 }}>
+            REGIONAL BREAKDOWN REPORT
+          </Typography>
+          <Typography sx={{ fontSize: '0.78rem', color: '#475569', mt: 0.35 }}>
+            Sub-county and ward performance from project records · Generated {new Date().toLocaleString('en-KE')}
+          </Typography>
+        </Box>
       <Paper
+        className="regional-report-screen-header"
         elevation={0}
         sx={{
           p: 2,
@@ -378,16 +702,39 @@ const RegionalBreakdownDashboardPage = () => {
               : 'linear-gradient(145deg, #ffffff 0%, #f1f5f9 100%)',
         }}
       >
-        <Typography variant="h6" fontWeight={800} sx={{ fontSize: { xs: '1rem', sm: '1.15rem' } }}>
-          Regional Breakdown Dashboard
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Sub-county and ward performance from project records
-        </Typography>
-        <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          <Chip size="small" label={`Sub-counties: ${totals.subcounties}`} color="primary" variant="outlined" />
-          <Chip size="small" label={`Wards: ${totals.wards}`} color="primary" variant="outlined" />
-          <Chip size="small" label={`Projects: ${totals.totalProjects}`} color="primary" variant="outlined" />
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', gap: 1.5 }}>
+          <Box>
+            <Typography variant="h6" fontWeight={800} sx={{ fontSize: { xs: '1rem', sm: '1.15rem' } }}>
+              Regional Breakdown Dashboard
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Sub-county and ward performance from project records
+            </Typography>
+            <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              <Chip size="small" label={`Sub-counties: ${totals.subcounties}`} color="primary" variant="outlined" />
+              <Chip size="small" label={`Wards: ${totals.wards}`} color="primary" variant="outlined" />
+              <Chip size="small" label={`Projects: ${totals.totalProjects}`} color="primary" variant="outlined" />
+            </Box>
+          </Box>
+          <Box className="regional-report-no-print" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: { xs: 'flex-start', md: 'flex-end' }, gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PrintIcon />}
+              onClick={printReport}
+            >
+              Print
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<PictureAsPdfIcon />}
+              onClick={() => exportPdf('all')}
+              disabled={loading || rows.length === 0}
+            >
+              Export All
+            </Button>
+          </Box>
         </Box>
       </Paper>
 
@@ -594,7 +941,8 @@ const RegionalBreakdownDashboardPage = () => {
           </Table>
         </TableContainer>
       </Paper>
-    </Box>
+      </Box>
+    </>
   );
 };
 

@@ -1240,7 +1240,7 @@ export default function ProjectAnalyticsPage() {
                                             <CardHeader
                                                 title={
                                                     <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
-                                                        Disbursement Rate Trend
+                                                        Absorption Rate Trend
                                                     </Typography>
                                                 }
                                                 subheader={
@@ -1272,7 +1272,7 @@ export default function ProjectAnalyticsPage() {
                                                             <XAxis dataKey="name" />
                                                             <YAxis tickFormatter={(value) => `${value}%`} />
                                                             <Tooltip formatter={(value) => `${value.toFixed(2)}%`} />
-                                                            <Bar dataKey="absorptionRate" fill="#10b981" radius={[4, 4, 0, 0]} name="Disbursement Rate %" />
+                                                            <Bar dataKey="absorptionRate" fill="#10b981" radius={[4, 4, 0, 0]} name="Absorption Rate %" />
                                                         </BarChart>
                                                     </ResponsiveContainer>
                                                 )}

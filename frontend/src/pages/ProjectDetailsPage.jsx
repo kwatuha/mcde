@@ -315,10 +315,10 @@ function ProjectDetailsPage() {
     const [siteFormErrors, setSiteFormErrors] = useState({});
     // Cascading location for site dialog (same as Add New Project)
     const [siteCounties, setSiteCounties] = useState([]);
-    const [siteConstituencies, setSiteConstituencies] = useState([]);
+    const [siteSubcounties, setSiteSubcounties] = useState([]);
     const [siteWards, setSiteWards] = useState([]);
     const [loadingSiteCounties, setLoadingSiteCounties] = useState(false);
-    const [loadingSiteConstituencies, setLoadingSiteConstituencies] = useState(false);
+    const [loadingSiteSubcounties, setLoadingSiteSubcounties] = useState(false);
     const [loadingSiteWards, setLoadingSiteWards] = useState(false);
     // Export project sites (Excel/PDF) - same pattern as Kenya Wards
     const [exportAllSites, setExportAllSites] = useState(false);
@@ -1147,15 +1147,15 @@ function ProjectDetailsPage() {
 
     useEffect(() => {
         if (!openSiteDialog || !siteFormData.county) {
-            setSiteConstituencies([]);
+            setSiteSubcounties([]);
             return;
         }
         let cancelled = false;
-        setLoadingSiteConstituencies(true);
-        apiService.kenyaWards.getConstituenciesByCounty(siteFormData.county)
-            .then((data) => { if (!cancelled) setSiteConstituencies(data || []); })
-            .catch((e) => { if (!cancelled) console.error('Error fetching constituencies for site:', e); })
-            .finally(() => { if (!cancelled) setLoadingSiteConstituencies(false); });
+        setLoadingSiteSubcounties(true);
+        apiService.kenyaWards.getSubcounties(siteFormData.county)
+            .then((data) => { if (!cancelled) setSiteSubcounties(data || []); })
+            .catch((e) => { if (!cancelled) console.error('Error fetching sub-counties for site:', e); })
+            .finally(() => { if (!cancelled) setLoadingSiteSubcounties(false); });
         return () => { cancelled = true; };
     }, [openSiteDialog, siteFormData.county]);
 
@@ -1166,7 +1166,7 @@ function ProjectDetailsPage() {
         }
         let cancelled = false;
         setLoadingSiteWards(true);
-        apiService.kenyaWards.getWardsByConstituency(siteFormData.constituency)
+        apiService.kenyaWards.getWardsBySubcounty(siteFormData.constituency)
             .then((data) => { if (!cancelled) setSiteWards(data || []); })
             .catch((e) => { if (!cancelled) console.error('Error fetching wards for site:', e); })
             .finally(() => { if (!cancelled) setLoadingSiteWards(false); });
@@ -1199,7 +1199,7 @@ function ProjectDetailsPage() {
                 setExportingSitesExcel(false);
                 return;
             }
-            const headers = ['Site Name', 'County', 'Constituency', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
+            const headers = ['Site Name', 'County', 'Sub-county', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
             const rows = sitesToExport.map((site) => {
                 const name = site.site_name || site.siteName || '';
                 const status = site.status_norm || site.status_raw || site.status || '';
@@ -1207,7 +1207,7 @@ function ProjectDetailsPage() {
                 const cost = site.approved_cost != null || site.approvedCost != null
                     ? (site.approved_cost ?? site.approvedCost)
                     : '';
-                return [name, site.county || '', site.constituency || '', site.ward || '', status, progress, cost];
+                return [name, site.county || '', site.subcounty || site.constituency || '', site.ward || '', status, progress, cost];
             });
             const data = [headers, ...rows];
             const worksheet = XLSX.utils.aoa_to_sheet(data);
@@ -1244,7 +1244,7 @@ function ProjectDetailsPage() {
                 setExportingSitesPdf(false);
                 return;
             }
-            const headers = ['Site Name', 'County', 'Constituency', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
+            const headers = ['Site Name', 'County', 'Sub-county', 'Ward', 'Status', 'Progress', 'Approved Cost (KES)'];
             const dataRows = sitesToExport.map((site) => {
                 const name = site.site_name || site.siteName || '';
                 const status = site.status_norm || site.status_raw || site.status || '';
@@ -1252,7 +1252,7 @@ function ProjectDetailsPage() {
                 const cost = site.approved_cost != null || site.approvedCost != null
                     ? String(site.approved_cost ?? site.approvedCost)
                     : '';
-                return [name, site.county || '', site.constituency || '', site.ward || '', status, progress, cost];
+                return [name, site.county || '', site.subcounty || site.constituency || '', site.ward || '', status, progress, cost];
             });
             const doc = new jsPDF('landscape', 'pt', 'a4');
             autoTable(doc, {
@@ -1463,7 +1463,7 @@ function ProjectDetailsPage() {
     const handleDownloadSitesTemplate = () => {
         // Create template data
         const templateData = [
-            ['Site Name', 'County', 'Constituency', 'Ward', 'Status', 'Progress (%)', 'Approved Cost (KES)', 'Remarks']
+            ['Site Name', 'County', 'Sub-county', 'Ward', 'Status', 'Progress (%)', 'Approved Cost (KES)', 'Remarks']
         ];
         
         // Create worksheet
@@ -1473,7 +1473,7 @@ function ProjectDetailsPage() {
         worksheet['!cols'] = [
             { wch: 30 }, // Site Name
             { wch: 20 }, // County
-            { wch: 25 }, // Constituency
+            { wch: 25 }, // Sub-county
             { wch: 20 }, // Ward
             { wch: 15 }, // Status
             { wch: 15 }, // Progress
@@ -2418,6 +2418,7 @@ function ProjectDetailsPage() {
 
     // Calculate financial metrics
     const totalBudget = parseFloat(project?.costOfProject) || 0;
+    const contractedAmount = parseFloat(project?.Contracted) || 0;
     const paidAmount = parseFloat(project?.paidOut) || 0;
     const remainingBudget = totalBudget - paidAmount;
     const totalPartnerFunding = (Array.isArray(projectFundingEntries) ? projectFundingEntries : []).reduce(
@@ -2465,8 +2466,9 @@ function ProjectDetailsPage() {
             };
         });
     })();
-    // Disbursement rate: fraction of budget vs disbursed
-    const disbursementRate = totalBudget > 0 ? (paidAmount / totalBudget) * 100 : 0;
+    // Absorption rate: percentage of the budget that has been paid.
+    const absorptionRate = totalBudget > 0 ? (paidAmount / totalBudget) * 100 : 0;
+    const boundedAbsorptionRate = Math.max(0, Math.min(100, absorptionRate));
     const serverUrl = import.meta.env.VITE_API_BASE_URL || '';
 
     return (
@@ -2630,8 +2632,8 @@ function ProjectDetailsPage() {
                             {[
                                 { key: 'budget', label: 'Total Budget', value: formatCurrency(totalBudget), sub: null, Icon: MoneyIcon },
                                 { key: 'sites', label: 'Sites', value: sitesSummary.total || 0, sub: 'Project sites', Icon: LocationOnIcon },
-                                { key: 'disbursed', label: 'Disbursed', value: formatCurrency(paidAmount), sub: `${disbursementRate.toFixed(1)}% of budget`, Icon: PaidIcon },
-                                { key: 'rate', label: 'Disbursement Rate', value: `${disbursementRate.toFixed(1)}%`, sub: 'Disbursed vs Budget', Icon: ScheduleIcon },
+                                { key: 'paid', label: 'Paid Amount', value: formatCurrency(paidAmount), sub: `${absorptionRate.toFixed(1)}% of budget`, Icon: PaidIcon },
+                                { key: 'rate', label: 'Absorption Rate', value: `${absorptionRate.toFixed(1)}%`, sub: 'Paid vs Budget', Icon: ScheduleIcon },
                                 { key: 'jobs', label: 'Jobs Created', value: jobsSummary.totalJobs, sub: 'All categories', Icon: WorkIcon },
                             ].map(({ key, label, value, sub, Icon }) => (
                                 <Grid item xs={6} sm={4} md key={key}>
@@ -2955,7 +2957,7 @@ function ProjectDetailsPage() {
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
-                                    <strong style={{ color: theme.palette.primary.main }}>Constituency:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.constituencyNames || project?.constituency || 'N/A'}</span>
+                                    <strong style={{ color: theme.palette.primary.main }}>Sub-county:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.subcountyNames || project?.subcounty || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
@@ -3250,29 +3252,35 @@ function ProjectDetailsPage() {
                                 <Grid item xs={12} md={8}>
                                     <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, height: '100%' }}>
                                         <Grid container spacing={1}>
-                                            <Grid item xs={12} sm={4}>
+                                            <Grid item xs={12} sm={3}>
                                                 <Typography variant="caption" color="text.secondary">Total Budget</Typography>
                                                 <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{formatCurrency(totalBudget)}</Typography>
                                             </Grid>
-                                            <Grid item xs={12} sm={4}>
-                                                <Typography variant="caption" color="text.secondary">Disbursed</Typography>
+                                            <Grid item xs={12} sm={3}>
+                                                <Typography variant="caption" color="text.secondary">Contracted Amount</Typography>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: colors.blueAccent[500] }}>
+                                                    {formatCurrency(contractedAmount)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} sm={3}>
+                                                <Typography variant="caption" color="text.secondary">Paid Amount</Typography>
                                                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: colors.greenAccent[500] }}>
                                                     {formatCurrency(paidAmount)}
                                                 </Typography>
                                             </Grid>
-                                            <Grid item xs={12} sm={4}>
+                                            <Grid item xs={12} sm={3}>
                                                 <Typography variant="caption" color="text.secondary">Remaining</Typography>
                                                 <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{formatCurrency(remainingBudget)}</Typography>
                                             </Grid>
                                         </Grid>
                                         <Divider sx={{ my: 1 }} />
                                         <Box display="flex" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                                            <Typography variant="body2">Disbursement Rate</Typography>
+                                            <Typography variant="body2">Absorption Rate</Typography>
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: colors.blueAccent[500] }}>
-                                                {disbursementRate.toFixed(1)}%
+                                                {absorptionRate.toFixed(1)}%
                                             </Typography>
                                         </Box>
-                                        <LinearProgress variant="determinate" value={disbursementRate} sx={{ height: 8, borderRadius: 4 }} />
+                                        <LinearProgress variant="determinate" value={boundedAbsorptionRate} sx={{ height: 8, borderRadius: 4 }} />
                                     </Paper>
                                 </Grid>
                             </Grid>
@@ -5167,7 +5175,7 @@ function ProjectDetailsPage() {
                                             <TableRow>
                                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Site Name</TableCell>
                                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>County</TableCell>
-                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Constituency</TableCell>
+                                                <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Sub-county</TableCell>
                                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Ward</TableCell>
                                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Status</TableCell>
                                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem', py: 1.25, bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>Progress</TableCell>
@@ -5182,7 +5190,7 @@ function ProjectDetailsPage() {
                                                 .filter((site) => {
                                                     const locationFilter = siteFilters.location?.toLowerCase() || '';
                                                     const statusFilter = siteFilters.status;
-                                                    const locationText = [site.county, site.constituency, site.ward].filter(Boolean).join(' ').toLowerCase();
+                                                    const locationText = [site.county, site.subcounty || site.constituency, site.ward].filter(Boolean).join(' ').toLowerCase();
                                                     const statusText = (site.status_norm || site.status_raw || '').toString().toLowerCase();
                                                     const matchesLocation = !locationFilter || locationText.includes(locationFilter.toLowerCase());
                                                     const matchesStatus = !statusFilter || normalizeStatusForFilter(statusText) === normalizeStatusForFilter(statusFilter);
@@ -5198,7 +5206,7 @@ function ProjectDetailsPage() {
                                                     >
                                                         <TableCell sx={{ fontWeight: 500, py: 1.25 }}>{site.site_name || site.siteName || `Site ${index + 1}`}</TableCell>
                                                         <TableCell sx={{ py: 1.25 }}>{site.county || '—'}</TableCell>
-                                                        <TableCell sx={{ py: 1.25 }}>{site.constituency || '—'}</TableCell>
+                                                        <TableCell sx={{ py: 1.25 }}>{site.subcounty || site.constituency || '—'}</TableCell>
                                                         <TableCell sx={{ py: 1.25 }}>{site.ward || '—'}</TableCell>
                                                         <TableCell sx={{ py: 1.25 }}>
                                                             {(site.status_norm || site.status_raw) ? (
@@ -5339,7 +5347,7 @@ function ProjectDetailsPage() {
                                 }
                             />
                             <Autocomplete
-                                options={siteConstituencies}
+                                options={siteSubcounties}
                                 value={siteFormData.constituency || null}
                                 onChange={(event, newValue) => {
                                     const constituency = newValue || '';
@@ -5349,7 +5357,7 @@ function ProjectDetailsPage() {
                                         ...(constituency !== prev.constituency ? { ward: '' } : {}),
                                     }));
                                 }}
-                                loading={loadingSiteConstituencies}
+                                loading={loadingSiteSubcounties}
                                 disabled={!siteFormData.county}
                                 freeSolo
                                 fullWidth
@@ -5357,8 +5365,8 @@ function ProjectDetailsPage() {
                                 renderInput={(params) => (
                                     <TextField
                                         {...params}
-                                        label="Constituency"
-                                        placeholder={siteFormData.county ? 'Search or select constituency' : 'Select county first'}
+                                        label="Sub-county"
+                                        placeholder={siteFormData.county ? 'Search or select sub-county' : 'Select county first'}
                                     />
                                 )}
                                 filterOptions={(options, params) =>
@@ -5387,7 +5395,7 @@ function ProjectDetailsPage() {
                                     <TextField
                                         {...params}
                                         label="Ward"
-                                        placeholder={siteFormData.constituency ? 'Search or select ward' : 'Select constituency first'}
+                                        placeholder={siteFormData.constituency ? 'Search or select ward' : 'Select sub-county first'}
                                     />
                                 )}
                                 filterOptions={(options, params) => {

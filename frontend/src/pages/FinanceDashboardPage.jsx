@@ -165,7 +165,7 @@ const FinanceDashboardPage = () => {
           registrySectorRaw: rawRegistrySectorFromProject(p),
           sector: p.sector || p.categoryName || p.directorate || p.department || p.ministry || 'Unknown',
           budget: Number(p.budget ?? p.costOfProject ?? p.allocatedBudget ?? 0),
-          Disbursed: Number(p.Disbursed ?? p.paidOut ?? p.disbursedBudget ?? 0),
+          Paid: Number(p.Paid ?? p.Disbursed ?? p.paidOut ?? p.disbursedBudget ?? 0),
         }));
         setAllProjects(normalized);
       } catch (error) {
@@ -276,19 +276,19 @@ const FinanceDashboardPage = () => {
 
   const financialData = useMemo(() => {
     const totalBudget = filteredProjects.reduce((sum, p) => sum + (p.budget || 0), 0);
-    const totalDisbursed = filteredProjects.reduce((sum, p) => sum + (p.Disbursed || 0), 0);
-    const overallAbsorption = totalBudget > 0 ? Math.round((totalDisbursed / totalBudget) * 100) : 0;
+    const totalPaid = filteredProjects.reduce((sum, p) => sum + (p.Paid || 0), 0);
+    const overallAbsorption = totalBudget > 0 ? Math.round((totalPaid / totalBudget) * 100) : 0;
 
     const sectorDisplayMap = buildSectorDisplayMap(sectors);
     const sectorCanonicalLookup = buildSectorCanonicalLookup(sectors);
 
-    // Disbursement by Sector — registry sector field only vs Sectors Management
+    // Paid Amount by Sector — registry sector field only vs Sectors Management
     const sectorMap = new Map();
     filteredProjects.forEach((p) => {
       const sectorName = sectorRegistryBucketKey(p.registrySectorRaw ?? '', sectorCanonicalLookup);
       const current = sectorMap.get(sectorName) || { sector: sectorName, budget: 0, disbursed: 0 };
       current.budget += p.budget || 0;
-      current.disbursed += p.Disbursed || 0;
+      current.disbursed += p.Paid || 0;
       sectorMap.set(sectorName, current);
     });
     const sectorChart = Array.from(sectorMap.values()).map((row) => {
@@ -302,13 +302,13 @@ const FinanceDashboardPage = () => {
       };
     });
 
-    // Disbursement by Financial Year
+    // Paid Amount by Financial Year
     const fyMap = new Map();
     filteredProjects.forEach((p) => {
       const key = p.financialYear || 'Unknown';
       const current = fyMap.get(key) || { fy: key, budget: 0, disbursed: 0 };
       current.budget += p.budget || 0;
-      current.disbursed += p.Disbursed || 0;
+      current.disbursed += p.Paid || 0;
       fyMap.set(key, current);
     });
     const fyChart = Array.from(fyMap.values())
@@ -326,7 +326,7 @@ const FinanceDashboardPage = () => {
       const key = p.budgetSource || 'Unknown';
       const current = sourceMap.get(key) || { source: key, budget: 0, disbursed: 0 };
       current.budget += p.budget || 0;
-      current.disbursed += p.Disbursed || 0;
+      current.disbursed += p.Paid || 0;
       sourceMap.set(key, current);
     });
     const sourceChart = Array.from(sourceMap.values()).map((row) => ({
@@ -337,28 +337,28 @@ const FinanceDashboardPage = () => {
       color: row.source === 'County Revenue' ? '#3b82f6' : row.source === 'National Government' ? '#22c55e' : '#f97316',
     }));
 
-    // Top Under-Disbursed Projects
+    // Top Low Absorption Projects
     const underAbsorbing = filteredProjects.filter((p) => {
-      const rate = p.budget > 0 ? (p.Disbursed / p.budget) * 100 : 0;
+      const rate = p.budget > 0 ? (p.Paid / p.budget) * 100 : 0;
       return rate < 70;
     })
       .sort((a, b) => {
-        const rateA = a.budget > 0 ? (a.Disbursed / a.budget) * 100 : 0;
-        const rateB = b.budget > 0 ? (b.Disbursed / b.budget) * 100 : 0;
+        const rateA = a.budget > 0 ? (a.Paid / a.budget) * 100 : 0;
+        const rateB = b.budget > 0 ? (b.Paid / b.budget) * 100 : 0;
         return rateA - rateB;
       })
       .slice(0, 5)
       .map((p) => ({
         id: p.id ?? p.project_id ?? p.projectId ?? null,
         name: p.projectName,
-        absorption: p.budget > 0 ? Math.round((p.Disbursed / p.budget) * 100) : 0,
+        absorption: p.budget > 0 ? Math.round((p.Paid / p.budget) * 100) : 0,
         budget: p.budget,
-        disbursed: p.Disbursed,
+        disbursed: p.Paid,
       }));
 
     return {
       totalBudget,
-      totalDisbursed,
+      totalPaid,
       overallAbsorption,
       sectorChart,
       fyChart,
@@ -375,14 +375,14 @@ const FinanceDashboardPage = () => {
   };
 
   const animTotalBudget = useCountUp(Math.round(financialData.totalBudget || 0));
-  const animTotalDisbursed = useCountUp(Math.round(financialData.totalDisbursed || 0));
+  const animTotalPaid = useCountUp(Math.round(financialData.totalPaid || 0));
   const animAbsorption = useCountUp(financialData.overallAbsorption || 0);
   const animUnderCount = useCountUp(financialData.underAbsorbing.length);
 
   const filteredProjectCount = filteredProjects.length;
   const disbursedSharePct =
     financialData.totalBudget > 0
-      ? Math.round((financialData.totalDisbursed / financialData.totalBudget) * 100)
+      ? Math.round((financialData.totalPaid / financialData.totalBudget) * 100)
       : 0;
 
   return (
@@ -432,7 +432,7 @@ const FinanceDashboardPage = () => {
                 lineHeight: 1.4,
               }}
             >
-              Financial performance analysis: Track budget allocation, disbursement rates, funding sources, and identify under-performing projects.
+              Financial performance analysis: Track budget allocation, absorption rates, funding sources, and identify under-performing projects.
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -761,7 +761,7 @@ const FinanceDashboardPage = () => {
                   <Box display="flex" alignItems="center" gap={0.75}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.65rem', display: 'block' }}>
-                        Total Disbursed
+                        Total Paid
                       </Typography>
                       <Typography
                         variant="h5"
@@ -773,7 +773,7 @@ const FinanceDashboardPage = () => {
                           lineHeight: 1.15,
                         }}
                       >
-                        {formatCurrency(animTotalDisbursed)}
+                        {formatCurrency(animTotalPaid)}
                       </Typography>
                       <Typography variant="caption" component="div" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[300], fontWeight: 600, fontSize: '1.1rem', mt: 0.125, lineHeight: 1.2 }}>
                         {disbursedSharePct}% of budget
@@ -818,7 +818,7 @@ const FinanceDashboardPage = () => {
                   <Box display="flex" alignItems="flex-start" gap={0.75}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.65rem', display: 'block' }}>
-                        Overall Disbursement
+                        Overall Absorption
                       </Typography>
                       <Typography variant="h5" sx={{ color: isLight ? '#ffffff' : '#fff', fontWeight: 800, fontSize: '2rem', mb: 0.25, lineHeight: 1.15 }}>
                         {animAbsorption}%
@@ -843,7 +843,7 @@ const FinanceDashboardPage = () => {
                         }}
                       />
                       <Typography variant="caption" component="div" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[300], fontWeight: 600, fontSize: '1.1rem', lineHeight: 1.2 }}>
-                        Disbursed vs budgeted
+                        Paid vs budgeted
                       </Typography>
                     </Box>
                     <TrendingUpIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.yellowAccent[400], fontSize: '2rem', flexShrink: 0, mt: 0.25 }} />
@@ -885,13 +885,13 @@ const FinanceDashboardPage = () => {
                   <Box display="flex" alignItems="center" gap={0.75}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="caption" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[100], fontWeight: 600, fontSize: '0.65rem', display: 'block' }}>
-                        Under-Disbursed
+                        Low Absorption
                       </Typography>
                       <Typography variant="h5" sx={{ color: isLight ? '#ffffff' : '#fff', fontWeight: 800, fontSize: '2rem', mb: 0, lineHeight: 1.15 }}>
                         {animUnderCount}
                       </Typography>
                       <Typography variant="caption" component="div" sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.grey[300], fontWeight: 600, fontSize: '1.1rem', mt: 0.125, lineHeight: 1.2 }}>
-                        Below 70% disbursement
+                        Below 70% absorption
                       </Typography>
                     </Box>
                     <TrendingDownIcon sx={{ color: isLight ? 'rgba(255, 255, 255, 0.9)' : colors.redAccent[400], fontSize: '2rem', flexShrink: 0 }} />
@@ -955,10 +955,10 @@ const FinanceDashboardPage = () => {
                 </Box>
                 <Box>
                   <Typography variant="subtitle1" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '1rem' }}>
-                    Disbursement by Sector
+                    Paid Amount by Sector
                   </Typography>
                   <Typography variant="caption" sx={{ color: colors.grey[400], fontSize: '0.7rem' }}>
-                    Budget vs. disbursed by sector
+                    Budget vs. paid by sector
                   </Typography>
                 </Box>
               </Box>
@@ -993,7 +993,7 @@ const FinanceDashboardPage = () => {
                     />
                     <Legend />
                     <Bar dataKey="budget" name="Budget" fill={colors.blueAccent[500]} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="disbursed" name="Disbursed" fill={colors.greenAccent[500]} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="disbursed" name="Paid" fill={colors.greenAccent[500]} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </Box>
@@ -1042,7 +1042,7 @@ const FinanceDashboardPage = () => {
                 </Box>
                 <Box>
                   <Typography variant="subtitle1" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '1rem' }}>
-                    Disbursement by Financial Year
+                    Paid Amount by Financial Year
                   </Typography>
                   <Typography variant="caption" sx={{ color: colors.grey[400], fontSize: '0.7rem' }}>
                     Trend across financial years
@@ -1086,7 +1086,7 @@ const FinanceDashboardPage = () => {
                     <Line
                       type="monotone"
                       dataKey="disbursed"
-                      name="Disbursed"
+                      name="Paid"
                       stroke={colors.greenAccent[500]}
                       strokeWidth={2}
                       dot={{ fill: colors.greenAccent[500], r: 4 }}
@@ -1161,10 +1161,10 @@ const FinanceDashboardPage = () => {
                           Allocated
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          Disbursed
+                          Paid
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          Disbursement
+                          Absorption
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
                           Share
@@ -1220,7 +1220,7 @@ const FinanceDashboardPage = () => {
           </Card>
         </Grid>
 
-        {/* Top Under-Disbursed Projects */}
+        {/* Top Low Absorption Projects */}
         <Grid item xs={12} sx={{ width: '100%', maxWidth: '100%' }}>
           <Card
             sx={{
@@ -1255,17 +1255,17 @@ const FinanceDashboardPage = () => {
                 </Box>
                 <Box>
                   <Typography variant="subtitle1" sx={{ color: colors.grey[100], fontWeight: 700, fontSize: '1rem' }}>
-                    Under-Disbursed Projects
+                    Low Absorption Projects
                   </Typography>
                   <Typography variant="caption" sx={{ color: colors.grey[400], fontSize: '0.7rem' }}>
-                    Projects with disbursement below 70%
+                    Projects with absorption below 70%
                   </Typography>
                 </Box>
               </Box>
               <Box sx={{ mt: 0.5 }}>
                 {financialData.underAbsorbing.length === 0 ? (
                   <Typography variant="body2" sx={{ color: colors.grey[300], py: 2 }}>
-                    No under-disbursed projects for the selected filters.
+                    No low-absorption projects for the selected filters.
                   </Typography>
                 ) : (
                   <TableContainer
@@ -1280,9 +1280,9 @@ const FinanceDashboardPage = () => {
                       <TableHead>
                         <TableRow>
                           <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursement</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Absorption</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursed</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>Paid</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700 }}>Gap</TableCell>
                         </TableRow>
                       </TableHead>

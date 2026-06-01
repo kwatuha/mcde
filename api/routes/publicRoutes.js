@@ -182,7 +182,7 @@ async function buildPgPublicProjectWhereParts(q) {
     const rawSubTrimmed = rawSub != null ? String(rawSub).trim() : '';
     if (rawSubTrimmed) {
         parts.push(`(
-            COALESCE(p.location->>'constituency', '') ILIKE $${n}
+            COALESCE(p.location->>'subcounty', '') ILIKE $${n}
             OR COALESCE(p.location->>'county', '') ILIKE $${n}
         )`);
         params.push(`%${rawSubTrimmed}%`);
@@ -212,7 +212,7 @@ async function queryPgPublicProjectsForStats(q) {
             END AS "costOfProject",
             COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry_key,
             COALESCE(
-                NULLIF(TRIM(p.location->>'constituency'), ''),
+                NULLIF(TRIM(p.location->>'subcounty'), ''),
                 NULLIF(TRIM(p.location->>'county'), ''),
                 'Unassigned'
             ) AS subcounty_key,

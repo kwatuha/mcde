@@ -174,7 +174,7 @@ const ProjectBySectorDashboardPage = () => {
             agency,
             financialYear: p.financialYear || p.financialYearName || '',
             budget: Number(p.budget ?? p.costOfProject ?? p.allocatedBudget ?? 0),
-            Disbursed: Number(p.Disbursed ?? p.paidOut ?? p.disbursedBudget ?? 0),
+            Paid: Number(p.Paid ?? p.paidOut ?? p.disbursedBudget ?? 0),
           };
         });
         setAllProjects(normalized);
@@ -308,7 +308,7 @@ const ProjectBySectorDashboardPage = () => {
       counts.set(bk, (counts.get(bk) || 0) + 1);
       const curB = budgets.get(bk) || { budget: 0, disbursed: 0 };
       curB.budget += p.budget || 0;
-      curB.disbursed += p.Disbursed || 0;
+      curB.disbursed += p.Paid || 0;
       budgets.set(bk, curB);
 
       const st = normalizeProjectStatus(p.Status || p.status || 'Unknown');
@@ -947,7 +947,7 @@ const ProjectBySectorDashboardPage = () => {
                     <RechartsTooltip formatter={(v) => formatCurrency(v)} />
                     <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
                     <Bar dataKey="budget" name="Budget" fill={colors.blueAccent[500]} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="disbursed" name="Disbursed" fill={colors.greenAccent[500]} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="disbursed" name="Paid" fill={colors.greenAccent[500]} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </Box>
@@ -1032,8 +1032,8 @@ const ProjectBySectorDashboardPage = () => {
                   <TableCell align="right">Projects</TableCell>
                   <TableCell align="right">Share</TableCell>
                   <TableCell align="right">Budget</TableCell>
-                  <TableCell align="right">Disbursed</TableCell>
-                  <TableCell align="right">Disbursement</TableCell>
+                  <TableCell align="right">Paid</TableCell>
+                  <TableCell align="right">Absorption</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

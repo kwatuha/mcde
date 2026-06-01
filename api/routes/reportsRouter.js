@@ -3172,7 +3172,7 @@ async function buildBudgetJustificationRows(query = {}) {
                 NULLIF(TRIM(p.timeline->>'expected_completion_date'), '') AS "endDate",
                 CASE
                     WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
-                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
+                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No payment yet; justification required'
                     WHEN LOWER(COALESCE(p.progress->>'status', '')) IN ('at risk', 'delayed', 'stalled') THEN 'Implementation status requires budget variance explanation'
                     ELSE 'Pending bill justification required'
                 END AS "justificationHint"
@@ -3195,7 +3195,7 @@ async function buildBudgetJustificationRows(query = {}) {
                 p.endDate AS endDate,
                 CASE
                     WHEN ${pendingExpr} > (${budgetExpr} * 0.5) THEN 'High pending balance relative to budget'
-                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No disbursement yet; justification required'
+                    WHEN ${pendingExpr} > 0 AND ${paidExpr} = 0 THEN 'No payment yet; justification required'
                     WHEN LOWER(COALESCE(p.status, '')) IN ('at risk', 'delayed', 'stalled') THEN 'Implementation status requires budget variance explanation'
                     ELSE 'Pending bill justification required'
                 END AS justificationHint

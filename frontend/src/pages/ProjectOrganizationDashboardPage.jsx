@@ -88,12 +88,12 @@ export default function ProjectOrganizationDashboardPage() {
   const summary = useMemo(() => {
     const totalProjects = rows.reduce((sum, r) => sum + Number(r.projectCount || 0), 0);
     const totalAllocated = rows.reduce((sum, r) => sum + Number(r.allocatedBudget || 0), 0);
-    const totalDisbursed = rows.reduce((sum, r) => sum + Number(r.disbursedBudget || 0), 0);
+    const totalPaid = rows.reduce((sum, r) => sum + Number(r.disbursedBudget || 0), 0);
     return {
       orgCount: rows.length,
       totalProjects,
       totalAllocated,
-      totalDisbursed,
+      totalPaid,
     };
   }, [rows]);
 
@@ -301,15 +301,15 @@ export default function ProjectOrganizationDashboardPage() {
                   <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                     <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
                       <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
-                        Disbursed
+                        Paid
                       </Typography>
                       <PaymentsIcon sx={{ fontSize: 20, opacity: 0.85 }} />
                     </Box>
                     <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.25rem', lineHeight: 1.2, wordBreak: 'break-word' }}>
-                      {formatKes(summary.totalDisbursed)}
+                      {formatKes(summary.totalPaid)}
                     </Typography>
                     <Typography variant="caption" sx={{ opacity: 0.85, fontSize: '0.65rem' }}>
-                      KES {summary.totalDisbursed.toLocaleString()}
+                      KES {summary.totalPaid.toLocaleString()}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -382,7 +382,7 @@ export default function ProjectOrganizationDashboardPage() {
                   <TableCell sx={{ fontWeight: 700 }}>Organization</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Projects</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated Budget (KES)</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursed Budget (KES)</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Paid Amount (KES)</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -445,7 +445,7 @@ export default function ProjectOrganizationDashboardPage() {
                     <TableCell sx={{ fontWeight: 700 }}>State Department</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Agency</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated Budget</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>Disbursed Budget</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Paid Amount</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
