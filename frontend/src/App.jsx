@@ -18,6 +18,8 @@ import ProjectTeamsPage from './pages/ProjectTeamsPage';
 import ProjectPartnersPage from './pages/ProjectPartnersPage';
 import ProjectStatusPage from './pages/ProjectStatusPage';
 import ProjectUpdatesPage from './pages/ProjectUpdatesPage';
+import MonitoringProjectMonitoringPage from './pages/MonitoringProjectMonitoringPage';
+import ProjectMilestonesPage from './pages/ProjectMilestonesPage';
 import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
 import ProjectFeedbackByProjectPage from './pages/ProjectFeedbackByProjectPage';
@@ -31,6 +33,7 @@ import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
 import ProjectFinanceOverviewPage from './pages/ProjectFinanceOverviewPage';
 import FundingSourcesReportPage from './pages/FundingSourcesReportPage';
+import PaymentListPage from './pages/PaymentListPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -41,10 +44,12 @@ import HelpSupportPage from './pages/HelpSupportPage';
 
 // Import the StrategicPlanningPage
 import StrategicPlanningPage from './pages/StrategicPlanningPage';
+import CidpPillarsPage from './pages/CidpPillarsPage';
 import PlanningIndicatorsPage from './pages/PlanningIndicatorsPage';
 import PlanningProjectActivitiesPage from './pages/PlanningProjectActivitiesPage';
 import PlanningProjectRisksPage from './pages/PlanningProjectRisksPage';
 import PlanningReportingFrequencyPage from './pages/PlanningReportingFrequencyPage';
+import PlanningCimesListPage from './pages/PlanningCimesListPage';
 import {
   ProjectPlanningActivityLinksPage,
   ProjectPlanningRiskLinksPage,
@@ -214,6 +219,10 @@ const router = createBrowserRouter([
         element: <PaymentCertificatesPage />,
       },
       {
+        path: 'finance/payment-list',
+        element: <PaymentListPage />,
+      },
+      {
         path: 'finance/funding-sources-report',
         element: <FundingSourcesReportPage />,
       },
@@ -250,12 +259,20 @@ const router = createBrowserRouter([
         element: <ProjectDocumentsByProjectPage />,
       },
       {
+        path: 'projects/milestones',
+        element: <ProjectMilestonesPage />,
+      },
+      {
         path: 'projects/status',
         element: <ProjectStatusPage />,
       },
       {
         path: 'projects/updates',
         element: <ProjectUpdatesPage />,
+      },
+      {
+        path: 'monitoring/project-monitoring',
+        element: <MonitoringProjectMonitoringPage />,
       },
       {
         path: 'projects/teams',
@@ -404,6 +421,30 @@ const router = createBrowserRouter([
       {
         path: 'strategic-planning',
         element: <StrategicPlanningPage />,
+      },
+      {
+        path: 'planning/cidp-pillars',
+        element: <CidpPillarsPage />,
+      },
+      {
+        path: 'planning/cidp-periods',
+        element: <PlanningCimesListPage variant="cidp" />,
+      },
+      {
+        path: 'planning/adp-periods',
+        element: <PlanningCimesListPage variant="adp" />,
+      },
+      {
+        path: 'planning/programmes',
+        element: <PlanningCimesListPage variant="programmes" />,
+      },
+      {
+        path: 'planning/sector-list',
+        element: <PlanningCimesListPage variant="sectors" />,
+      },
+      {
+        path: 'planning/budget-allocation',
+        element: <PlanningCimesListPage variant="budgetAllocation" />,
       },
       {
         path: 'planning/indicators',

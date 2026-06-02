@@ -14,6 +14,8 @@ const isPostgres = DB_TYPE === 'postgresql';
 const rowsFromResult = (result) =>
   isPostgres ? result?.rows || [] : Array.isArray(result) ? result[0] || [] : [];
 
+const RISK_LEVELS = new Set(['No Risk', 'Low', 'Medium', 'High']);
+
 const canRead = privilege(['project.read_all', 'strategic_plan.read_all'], { anyOf: true });
 const canWrite = privilege(
   ['project.update', 'strategic_plan.update', 'strategic_plan.create'],
@@ -43,6 +45,18 @@ async function assertProjectExists(projectId) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+function normalizeRiskLevel(value, fallback = 'Medium') {
+  const level = String(value || '').trim();
+  if (RISK_LEVELS.has(level)) return level;
+  return fallback;
+}
+
+function normalizeDate(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
 router.use(async (req, res, next) => {
   try {
     await ensureLinkTables();
@@ -65,6 +79,9 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
       const r = await pool.query(
         `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
                 l.target_value AS "targetValue", l.baseline_value AS "baselineValue", l.notes, l.created_at AS "createdAt",
+                l.planned_start_date AS "startDate", l.planned_end_date AS "endDate",
+                l.activity_status AS "status", l.completed_at AS "completedAt",
+                l.cimes_project_code AS "sampleProjectCode", l.cimes_project_name AS "sampleProjectName",
                 a.activity_code AS "activityCode", a.activity_name AS "activityName",
                 i.name AS "indicatorName",
                 mt.label AS "measurementTypeLabel"
@@ -81,6 +98,9 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
               l.target_value AS targetValue, l.baseline_value AS baselineValue, l.notes, l.created_at AS createdAt,
+              l.planned_start_date AS startDate, l.planned_end_date AS endDate,
+              l.activity_status AS status, l.completed_at AS completedAt,
+              l.cimes_project_code AS sampleProjectCode, l.cimes_project_name AS sampleProjectName,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
               mt.label AS measurementTypeLabel
@@ -110,6 +130,10 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
   const baselineValue =
     baselineValueRaw === '' || baselineValueRaw == null ? null : Number(baselineValueRaw);
   const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
+  const startDate = normalizeDate(req.body.startDate ?? req.body.planned_start_date);
+  const endDate = normalizeDate(req.body.endDate ?? req.body.planned_end_date);
+  const status = req.body.status != null ? String(req.body.status).trim() || null : null;
+  const completedAt = normalizeDate(req.body.completedAt ?? req.body.completed_at);
   if (!Number.isFinite(activityId)) return res.status(400).json({ message: 'activityId is required.' });
   if (targetValueRaw !== '' && targetValueRaw != null && !Number.isFinite(targetValue)) {
     return res.status(400).json({ message: 'targetValue must be numeric when provided.' });
@@ -123,17 +147,25 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
     }
     if (isPostgres) {
       const r = await pool.query(
-        `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, target_value, baseline_value, notes)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO project_planning_activity_links (
+           project_id, planning_activity_id, target_value, baseline_value, notes,
+           planned_start_date, planned_end_date, activity_status, completed_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, project_id AS "projectId", planning_activity_id AS "planningActivityId",
-                   target_value AS "targetValue", baseline_value AS "baselineValue", notes, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [projectId, activityId, targetValue, baselineValue, notes || null]
+                   target_value AS "targetValue", baseline_value AS "baselineValue", notes,
+                   planned_start_date AS "startDate", planned_end_date AS "endDate",
+                   activity_status AS "status", completed_at AS "completedAt",
+                   voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [projectId, activityId, targetValue, baselineValue, notes || null, startDate, endDate, status, completedAt]
       );
       const row = r.rows?.[0];
       const detail = rowsFromResult(
         await pool.query(
           `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
                   l.target_value AS "targetValue", l.baseline_value AS "baselineValue", l.notes, l.created_at AS "createdAt",
+                  l.planned_start_date AS "startDate", l.planned_end_date AS "endDate",
+                  l.activity_status AS "status", l.completed_at AS "completedAt",
                   a.activity_code AS "activityCode", a.activity_name AS "activityName",
                   i.name AS "indicatorName",
                   mt.label AS "measurementTypeLabel"
@@ -148,12 +180,17 @@ router.post('/:projectId/planning-catalog/activities', canWrite, async (req, res
       return res.status(201).json(detail || row);
     }
     const [ins] = await pool.query(
-      `INSERT INTO project_planning_activity_links (project_id, planning_activity_id, target_value, baseline_value, notes) VALUES (?,?,?,?,?)`,
-      [projectId, activityId, targetValue, baselineValue, notes || null]
+      `INSERT INTO project_planning_activity_links (
+         project_id, planning_activity_id, target_value, baseline_value, notes,
+         planned_start_date, planned_end_date, activity_status, completed_at
+       ) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [projectId, activityId, targetValue, baselineValue, notes || null, startDate, endDate, status, completedAt]
     );
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
               l.target_value AS targetValue, l.baseline_value AS baselineValue, l.notes, l.created_at AS createdAt,
+              l.planned_start_date AS startDate, l.planned_end_date AS endDate,
+              l.activity_status AS status, l.completed_at AS completedAt,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
               mt.label AS measurementTypeLabel
@@ -187,6 +224,10 @@ router.put('/:projectId/planning-catalog/activities/:linkId', canWrite, async (r
   const baselineValue =
     baselineValueRaw === '' || baselineValueRaw == null ? null : Number(baselineValueRaw);
   const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
+  const startDate = normalizeDate(req.body.startDate ?? req.body.planned_start_date);
+  const endDate = normalizeDate(req.body.endDate ?? req.body.planned_end_date);
+  const status = req.body.status != null ? String(req.body.status).trim() || null : null;
+  const completedAt = normalizeDate(req.body.completedAt ?? req.body.completed_at);
   if (!Number.isFinite(projectId) || !Number.isFinite(linkId)) {
     return res.status(400).json({ message: 'Invalid id.' });
   }
@@ -200,16 +241,20 @@ router.put('/:projectId/planning-catalog/activities/:linkId', canWrite, async (r
     if (isPostgres) {
       const r = await pool.query(
         `UPDATE project_planning_activity_links
-         SET target_value = $1, baseline_value = $2, notes = $3, updated_at = NOW()
-         WHERE id = $4 AND project_id = $5 AND voided = false
+         SET target_value = $1, baseline_value = $2, notes = $3,
+             planned_start_date = $4, planned_end_date = $5, activity_status = $6, completed_at = $7,
+             updated_at = NOW()
+         WHERE id = $8 AND project_id = $9 AND voided = false
          RETURNING id`,
-        [targetValue, baselineValue, notes, linkId, projectId]
+        [targetValue, baselineValue, notes, startDate, endDate, status, completedAt, linkId, projectId]
       );
       if (!r.rowCount) return res.status(404).json({ message: 'Link not found.' });
       const detail = rowsFromResult(
         await pool.query(
           `SELECT l.id, l.project_id AS "projectId", l.planning_activity_id AS "planningActivityId",
                   l.target_value AS "targetValue", l.baseline_value AS "baselineValue", l.notes, l.created_at AS "createdAt",
+                  l.planned_start_date AS "startDate", l.planned_end_date AS "endDate",
+                  l.activity_status AS "status", l.completed_at AS "completedAt",
                   a.activity_code AS "activityCode", a.activity_name AS "activityName",
                   i.name AS "indicatorName",
                   mt.label AS "measurementTypeLabel"
@@ -225,14 +270,18 @@ router.put('/:projectId/planning-catalog/activities/:linkId', canWrite, async (r
     }
     const [u] = await pool.query(
       `UPDATE project_planning_activity_links
-       SET target_value = ?, baseline_value = ?, notes = ?, updated_at = NOW()
+       SET target_value = ?, baseline_value = ?, notes = ?,
+           planned_start_date = ?, planned_end_date = ?, activity_status = ?, completed_at = ?,
+           updated_at = NOW()
        WHERE id = ? AND project_id = ? AND voided = 0`,
-      [targetValue, baselineValue, notes, linkId, projectId]
+      [targetValue, baselineValue, notes, startDate, endDate, status, completedAt, linkId, projectId]
     );
     if (!u.affectedRows) return res.status(404).json({ message: 'Link not found.' });
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_activity_id AS planningActivityId,
               l.target_value AS targetValue, l.baseline_value AS baselineValue, l.notes, l.created_at AS createdAt,
+              l.planned_start_date AS startDate, l.planned_end_date AS endDate,
+              l.activity_status AS status, l.completed_at AS completedAt,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
               mt.label AS measurementTypeLabel
@@ -288,7 +337,7 @@ router.get('/:projectId/planning-catalog/risks', canRead, async (req, res) => {
     if (isPostgres) {
       const r = await pool.query(
         `SELECT l.id, l.project_id AS "projectId", l.planning_risk_id AS "planningRiskId",
-                l.notes, l.created_at AS "createdAt",
+                l.risk_level AS "riskLevel", l.notes, l.created_at AS "createdAt",
                 r.risk_code AS "riskCode", r.risk_name AS "riskName",
                 r.description AS "catalogDescription"
          FROM project_planning_risk_links l
@@ -301,7 +350,7 @@ router.get('/:projectId/planning-catalog/risks', canRead, async (req, res) => {
     }
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_risk_id AS planningRiskId,
-              l.notes, l.created_at AS createdAt,
+              l.risk_level AS riskLevel, l.notes, l.created_at AS createdAt,
               r.risk_code AS riskCode, r.risk_name AS riskName,
               r.description AS catalogDescription
        FROM project_planning_risk_links l
@@ -321,6 +370,7 @@ router.post('/:projectId/planning-catalog/risks', canWrite, async (req, res) => 
   const projectId = Number(req.params.projectId);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
   const riskId = Number(req.body.riskId ?? req.body.planningRiskId ?? req.body.planning_risk_id);
+  const riskLevel = normalizeRiskLevel(req.body.riskLevel ?? req.body.risk_level);
   const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
   if (!Number.isFinite(riskId)) return res.status(400).json({ message: 'riskId is required.' });
   try {
@@ -329,17 +379,17 @@ router.post('/:projectId/planning-catalog/risks', canWrite, async (req, res) => 
     }
     if (isPostgres) {
       const r = await pool.query(
-        `INSERT INTO project_planning_risk_links (project_id, planning_risk_id, notes)
-         VALUES ($1, $2, $3)
+        `INSERT INTO project_planning_risk_links (project_id, planning_risk_id, risk_level, notes)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, project_id AS "projectId", planning_risk_id AS "planningRiskId",
-                   notes, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [projectId, riskId, notes || null]
+                   risk_level AS "riskLevel", notes, voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [projectId, riskId, riskLevel, notes || null]
       );
       const row = r.rows?.[0];
       const detail = rowsFromResult(
         await pool.query(
           `SELECT l.id, l.project_id AS "projectId", l.planning_risk_id AS "planningRiskId",
-                  l.notes, l.created_at AS "createdAt",
+                  l.risk_level AS "riskLevel", l.notes, l.created_at AS "createdAt",
                   r.risk_code AS "riskCode", r.risk_name AS "riskName",
                   r.description AS "catalogDescription"
            FROM project_planning_risk_links l
@@ -351,12 +401,12 @@ router.post('/:projectId/planning-catalog/risks', canWrite, async (req, res) => 
       return res.status(201).json(detail || row);
     }
     const [ins] = await pool.query(
-      `INSERT INTO project_planning_risk_links (project_id, planning_risk_id, notes) VALUES (?,?,?)`,
-      [projectId, riskId, notes || null]
+      `INSERT INTO project_planning_risk_links (project_id, planning_risk_id, risk_level, notes) VALUES (?,?,?,?)`,
+      [projectId, riskId, riskLevel, notes || null]
     );
     const [rows] = await pool.query(
       `SELECT l.id, l.project_id AS projectId, l.planning_risk_id AS planningRiskId,
-              l.notes, l.created_at AS createdAt,
+              l.risk_level AS riskLevel, l.notes, l.created_at AS createdAt,
               r.risk_code AS riskCode, r.risk_name AS riskName,
               r.description AS catalogDescription
        FROM project_planning_risk_links l
@@ -372,6 +422,62 @@ router.post('/:projectId/planning-catalog/risks', canWrite, async (req, res) => 
     if (String(e.message).includes('foreign key') || String(e.code) === '23503') {
       return res.status(400).json({ message: 'Invalid or inactive catalog risk.' });
     }
+    res.status(500).json({ message: e.message });
+  }
+});
+
+/** @route PUT /api/projects/:projectId/planning-catalog/risks/:linkId */
+router.put('/:projectId/planning-catalog/risks/:linkId', canWrite, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const linkId = Number(req.params.linkId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(linkId)) {
+    return res.status(400).json({ message: 'Invalid id.' });
+  }
+  const riskLevel = normalizeRiskLevel(req.body.riskLevel ?? req.body.risk_level);
+  const notes = req.body.notes != null ? String(req.body.notes).trim() : null;
+  try {
+    if (isPostgres) {
+      const r = await pool.query(
+        `UPDATE project_planning_risk_links
+         SET risk_level = $1, notes = $2, updated_at = NOW()
+         WHERE id = $3 AND project_id = $4 AND voided = false
+         RETURNING id`,
+        [riskLevel, notes || null, linkId, projectId]
+      );
+      if (!r.rowCount) return res.status(404).json({ message: 'Link not found.' });
+      const detail = rowsFromResult(
+        await pool.query(
+          `SELECT l.id, l.project_id AS "projectId", l.planning_risk_id AS "planningRiskId",
+                  l.risk_level AS "riskLevel", l.notes, l.created_at AS "createdAt",
+                  r.risk_code AS "riskCode", r.risk_name AS "riskName",
+                  r.description AS "catalogDescription"
+           FROM project_planning_risk_links l
+           INNER JOIN planning_project_risks r ON r.id = l.planning_risk_id
+           WHERE l.id = $1`,
+          [linkId]
+        )
+      )[0];
+      return res.json(detail);
+    }
+    const [u] = await pool.query(
+      `UPDATE project_planning_risk_links
+       SET risk_level = ?, notes = ?, updated_at = NOW()
+       WHERE id = ? AND project_id = ? AND voided = 0`,
+      [riskLevel, notes || null, linkId, projectId]
+    );
+    if (!u.affectedRows) return res.status(404).json({ message: 'Link not found.' });
+    const [rows] = await pool.query(
+      `SELECT l.id, l.project_id AS projectId, l.planning_risk_id AS planningRiskId,
+              l.risk_level AS riskLevel, l.notes, l.created_at AS createdAt,
+              r.risk_code AS riskCode, r.risk_name AS riskName,
+              r.description AS catalogDescription
+       FROM project_planning_risk_links l
+       INNER JOIN planning_project_risks r ON r.id = l.planning_risk_id
+       WHERE l.id = ?`,
+      [linkId]
+    );
+    res.json(rows?.[0]);
+  } catch (e) {
     res.status(500).json({ message: e.message });
   }
 });

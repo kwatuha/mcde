@@ -64,12 +64,16 @@ export const ROUTES = {
     PROJECTS: '/projects',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
+    /** CIMES-style cross-project milestone target list. */
+    PROJECT_MILESTONES: '/projects/milestones',
     /** Project team members by project (sidebar under Projects). */
     PROJECT_TEAMS: '/projects/teams',
     /** Project-wide status/progress updates screen. */
     PROJECT_STATUS: '/projects/status',
     /** Monitoring hub linking to status, documents, evaluation, and feedback (sidebar under Monitoring). */
     PROJECT_UPDATES: '/projects/updates',
+    /** CIMES-style project monitoring records list (sidebar under Monitoring). */
+    MONITORING_PROJECT_MONITORING: '/monitoring/project-monitoring',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
     /** Completed procurements (handed off to contractor; audit trail on project). */
@@ -106,6 +110,12 @@ export const ROUTES = {
     /** Admin-only security and operations event log (sidebar under Admin). */
     AUDIT_TRAIL: '/audit-trail',
     STRATEGIC_PLANNING: '/strategic-planning',
+    CIDP_PILLARS: '/planning/cidp-pillars',
+    PLANNING_CIDP_PERIODS: '/planning/cidp-periods',
+    PLANNING_ADP_PERIODS: '/planning/adp-periods',
+    PLANNING_PROGRAMMES: '/planning/programmes',
+    PLANNING_SECTOR_LIST: '/planning/sector-list',
+    PLANNING_BUDGET_ALLOCATION: '/planning/budget-allocation',
     PLANNING_INDICATORS: '/planning/indicators',
     /** Measurable activity catalog (linked to KPIs / indicators) for projects & M&E. */
     PLANNING_PROJECT_ACTIVITIES: '/planning/project-activities',
@@ -158,6 +168,7 @@ export const ROUTES = {
     JOBS_DASHBOARD: '/jobs-dashboard', // ✨ NEW: Jobs & Impact Dashboard route
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
     FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
+    FINANCE_PAYMENT_LIST: '/finance/payment-list',
     FINANCE_FUNDING_SOURCES_REPORT: '/finance/funding-sources-report',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',

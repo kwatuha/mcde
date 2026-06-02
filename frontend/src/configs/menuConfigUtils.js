@@ -208,7 +208,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         const filteredSubmenus = (category.submenus || []).filter(
           (submenu) =>
             !submenu.hidden &&
-            submenu.route === 'FINANCE_PAYMENT_CERTIFICATES' &&
+            ['FINANCE_PAYMENT_CERTIFICATES', 'FINANCE_PAYMENT_LIST', 'FINANCE_FUNDING_SOURCES_REPORT'].includes(submenu.route) &&
             (!submenu.permission || (hasPrivilege && hasPrivilege(submenu.permission)))
         );
         return { ...category, submenus: filteredSubmenus };

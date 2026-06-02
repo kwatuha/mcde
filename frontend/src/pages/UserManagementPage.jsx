@@ -416,20 +416,20 @@ function UserManagementPage() {
 
   /** Effective organization access (legacy agency, whole parent org, or single department). */
   const [organizationScopes, setOrganizationScopes] = useState([]);
-  const [newScopeType, setNewScopeType] = useState('MINISTRY_ALL');
-  const [newScopeAgency, setNewScopeAgency] = useState(null);
+  const [newScopeType, setNewScopeType] = useState('STATE_DEPARTMENT_ALL');
   const [newScopeMinistry, setNewScopeMinistry] = useState(null);
   const [newScopeStateDept, setNewScopeStateDept] = useState(null);
+  const [newScopeStateDepts, setNewScopeStateDepts] = useState([]);
 
   /** Standalone dialog: assign org scope without opening full edit form */
   const [openStandaloneOrgDialog, setOpenStandaloneOrgDialog] = useState(false);
   const [standaloneOrgUserId, setStandaloneOrgUserId] = useState(null);
   const [standaloneOrgUsername, setStandaloneOrgUsername] = useState('');
   const [standaloneScopes, setStandaloneScopes] = useState([]);
-  const [standaloneNewScopeType, setStandaloneNewScopeType] = useState('MINISTRY_ALL');
-  const [standaloneNewAgency, setStandaloneNewAgency] = useState(null);
+  const [standaloneNewScopeType, setStandaloneNewScopeType] = useState('STATE_DEPARTMENT_ALL');
   const [standaloneNewMinistry, setStandaloneNewMinistry] = useState(null);
   const [standaloneNewStateDept, setStandaloneNewStateDept] = useState(null);
+  const [standaloneNewStateDepts, setStandaloneNewStateDepts] = useState([]);
   const [standaloneSaving, setStandaloneSaving] = useState(false);
 
   // View User Details Dialog State
@@ -1058,10 +1058,10 @@ function UserManagementPage() {
     }
     setCurrentUserToEdit(null);
     setOrganizationScopes([]);
-    setNewScopeType('MINISTRY_ALL');
-    setNewScopeAgency(null);
+    setNewScopeType('STATE_DEPARTMENT_ALL');
     setNewScopeMinistry(null);
     setNewScopeStateDept(null);
+    setNewScopeStateDepts([]);
     const countyParent = resolveCountyParentOrgName(ministriesHierarchy);
     setUserFormData({
       username: '', email: '', phoneNumber: '', password: 'reset123', confirmPassword: 'reset123', firstName: '', lastName: '',
@@ -1150,10 +1150,10 @@ function UserManagementPage() {
     setOpenStandaloneOrgDialog(false);
     setCurrentUserToEdit(userItem);
     setOrganizationScopes([]);
-    setNewScopeType('MINISTRY_ALL');
-    setNewScopeAgency(null);
+    setNewScopeType('STATE_DEPARTMENT_ALL');
     setNewScopeMinistry(null);
     setNewScopeStateDept(null);
+    setNewScopeStateDepts([]);
     const countyParentOpen = resolveCountyParentOrgName(ministriesHierarchy);
     const preSd = String(userItem.stateDepartment || userItem.state_department || '').trim();
     const preDirs = splitDirectorateProfileField(userItem.directorate || '');
@@ -1226,21 +1226,6 @@ function UserManagementPage() {
     }
   };
 
-  const standaloneScopeStateDepartments = useMemo(() => {
-    if (!standaloneNewMinistry) return [];
-    const selectedMinistryNorm = normalizeOrgText(standaloneNewMinistry);
-    const row = ministriesHierarchy.find((m) =>
-      normalizeOrgText(m?.name) === selectedMinistryNorm ||
-      normalizeOrgText(m?.alias) === selectedMinistryNorm
-    );
-
-    const names = (row?.departments || [])
-      .map((d) => String(d?.name || d?.departmentName || '').trim())
-      .filter(Boolean);
-
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
-  }, [ministriesHierarchy, standaloneNewMinistry]);
-
   const handleOpenStandaloneOrgDialog = async (row) => {
     if (!hasPrivilege('user.update')) {
       setSnackbar({ open: true, message: 'Permission denied to edit organization access.', severity: 'error' });
@@ -1255,15 +1240,23 @@ function UserManagementPage() {
     }
     setStandaloneOrgUserId(row.userId);
     setStandaloneOrgUsername(row.username || '');
-    setStandaloneNewScopeType('MINISTRY_ALL');
-    setStandaloneNewAgency(null);
+    setStandaloneNewScopeType('STATE_DEPARTMENT_ALL');
     setStandaloneNewMinistry(null);
     setStandaloneNewStateDept(null);
+    setStandaloneNewStateDepts([]);
     setStandaloneScopes([]);
     setOpenStandaloneOrgDialog(true);
     try {
       const full = await apiService.getUserById(row.userId);
-      setStandaloneScopes(Array.isArray(full.organizationScopes) ? full.organizationScopes : []);
+      const scopes = Array.isArray(full.organizationScopes) ? full.organizationScopes : [];
+      setStandaloneScopes(scopes);
+      const existingDepartmentScopes = scopes
+        .filter((s) => s?.scopeType === 'STATE_DEPARTMENT_ALL')
+        .map((s) => String(s.stateDepartment || s.state_department || '').trim())
+        .filter(Boolean);
+      setStandaloneNewStateDepts([...new Set(existingDepartmentScopes)]);
+      setStandaloneNewStateDept(existingDepartmentScopes[0] || null);
+      setStandaloneNewMinistry(countyParentOrgName);
     } catch (err) {
       console.warn('Could not load organization scopes:', err);
       setSnackbar({ open: true, message: 'Could not load organization scopes for this user.', severity: 'error' });
@@ -1275,6 +1268,10 @@ function UserManagementPage() {
     setStandaloneOrgUserId(null);
     setStandaloneOrgUsername('');
     setStandaloneScopes([]);
+    setStandaloneNewScopeType('STATE_DEPARTMENT_ALL');
+    setStandaloneNewMinistry(null);
+    setStandaloneNewStateDept(null);
+    setStandaloneNewStateDepts([]);
     setStandaloneSaving(false);
   };
 
@@ -1289,15 +1286,23 @@ function UserManagementPage() {
       }
       setStandaloneScopes([{ scopeType: 'MINISTRY_ALL', ministry: m }]);
     } else {
-      const m = (standaloneNewMinistry || '').trim();
-      const sd = (standaloneNewStateDept || '').trim();
-      if (!m || !sd) {
-        setSnackbar({ open: true, message: 'Select parent organization and department.', severity: 'warning' });
+      const m = countyParentOrgName;
+      const departments = [
+        ...new Set(
+          (Array.isArray(standaloneNewStateDepts) && standaloneNewStateDepts.length > 0
+            ? standaloneNewStateDepts
+            : [standaloneNewStateDept]
+          )
+            .map((sd) => String(sd || '').trim())
+            .filter(Boolean)
+        ),
+      ];
+      if (!departments.length) {
+        setSnackbar({ open: true, message: 'Select at least one department.', severity: 'warning' });
         return;
       }
-      setStandaloneScopes([{ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+      setStandaloneScopes(departments.map((sd) => ({ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd })));
     }
-    setStandaloneNewAgency(null);
   };
 
   const handleRemoveStandaloneScope = (index) => {
@@ -1377,35 +1382,25 @@ function UserManagementPage() {
       }
       setOrganizationScopes([{ scopeType: 'MINISTRY_ALL', ministry: m }]);
     } else {
-      const m = (newScopeMinistry || '').trim();
-      const sd = (newScopeStateDept || '').trim();
-      if (!m || !sd) {
-        setSnackbar({ open: true, message: 'Select parent organization and department.', severity: 'warning' });
+      const m = countyParentOrgName;
+      const departments = [
+        ...new Set(
+          (Array.isArray(newScopeStateDepts) && newScopeStateDepts.length > 0 ? newScopeStateDepts : [newScopeStateDept])
+            .map((sd) => String(sd || '').trim())
+            .filter(Boolean)
+        ),
+      ];
+      if (!departments.length) {
+        setSnackbar({ open: true, message: 'Select at least one department.', severity: 'warning' });
         return;
       }
-      setOrganizationScopes([{ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd }]);
+      setOrganizationScopes(departments.map((sd) => ({ scopeType: 'STATE_DEPARTMENT_ALL', ministry: m, stateDepartment: sd })));
     }
-    setNewScopeAgency(null);
   };
 
   const handleRemoveOrganizationScope = (index) => {
     setOrganizationScopes((prev) => prev.filter((_, i) => i !== index));
   };
-
-  const scopeBuilderStateDepartments = useMemo(() => {
-    if (!newScopeMinistry) return [];
-    const selectedMinistryNorm = normalizeOrgText(newScopeMinistry);
-    const row = ministriesHierarchy.find((m) =>
-      normalizeOrgText(m?.name) === selectedMinistryNorm ||
-      normalizeOrgText(m?.alias) === selectedMinistryNorm
-    );
-
-    const names = (row?.departments || [])
-      .map((d) => String(d?.name || d?.departmentName || '').trim())
-      .filter(Boolean);
-
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
-  }, [ministriesHierarchy, newScopeMinistry]);
 
   const handleOpenViewDetails = async (userRow) => {
     setViewDetailsUser(userRow);
@@ -4137,7 +4132,7 @@ function UserManagementPage() {
             Organization access (projects &amp; directories)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Department access above is saved as department-wide scopes. Use the builder below only for county-wide rules or an entire parent organization; those stack with the department list.
+            Parent organization is fixed to {countyParentOrgName}. Choose county-wide access or select the departments this user can see.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
@@ -4147,14 +4142,13 @@ function UserManagementPage() {
                 value={newScopeType}
                 onChange={(e) => {
                   setNewScopeType(e.target.value);
-                  setNewScopeAgency(null);
                   setNewScopeMinistry(null);
                   setNewScopeStateDept(null);
+                  setNewScopeStateDepts([]);
                 }}
               >
                 <MenuItem value="ALL_MINISTRIES">All departments (county-wide)</MenuItem>
-                <MenuItem value="MINISTRY_ALL">Parent organization — all departments</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">Single department</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">Specific departments</MenuItem>
               </Select>
             </FormControl>
             {newScopeType === 'ALL_MINISTRIES' && (
@@ -4166,36 +4160,20 @@ function UserManagementPage() {
                 sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
               />
             )}
-            {newScopeType === 'MINISTRY_ALL' && (
-              <Autocomplete
-                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={ministries}
-                value={newScopeMinistry}
-                onChange={(_, v) => setNewScopeMinistry(v)}
-                renderInput={(params) => <TextField {...params} label="Parent organization" margin="dense" size="small" />}
-              />
-            )}
             {newScopeType === 'STATE_DEPARTMENT_ALL' && (
-              <>
-                <Autocomplete
-                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                  options={ministries}
-                  value={newScopeMinistry}
-                  onChange={(_, v) => {
-                    setNewScopeMinistry(v);
-                    setNewScopeStateDept(null);
-                  }}
-                  renderInput={(params) => <TextField {...params} label="Parent organization" margin="dense" size="small" />}
-                />
-                <Autocomplete
-                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                  options={scopeBuilderStateDepartments}
-                  value={newScopeStateDept}
-                  onChange={(_, v) => setNewScopeStateDept(v)}
-                  disabled={!newScopeMinistry}
-                  renderInput={(params) => <TextField {...params} label="Department" margin="dense" size="small" />}
-                />
-              </>
+              <Autocomplete
+                multiple
+                sx={{ flex: 1, minWidth: 260, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={allCountyDepartmentNames}
+                value={Array.isArray(newScopeStateDepts) ? newScopeStateDepts : []}
+                onChange={(_, v) => {
+                  const next = Array.isArray(v) ? v : [];
+                  setNewScopeStateDepts(next);
+                  setNewScopeStateDept(next[0] || null);
+                  setNewScopeMinistry(countyParentOrgName);
+                }}
+                renderInput={(params) => <TextField {...params} label="Departments" margin="dense" size="small" />}
+              />
             )}
             <Button variant="outlined" size="small" onClick={handleAddOrganizationScope} sx={{ height: 40 }}>
               Apply access mode
@@ -4251,7 +4229,7 @@ function UserManagementPage() {
           }}
         >
           <Typography variant="body2" sx={{ mb: 2, color: colors.grey[200] }}>
-            County access: full catalog, one parent organization (all its departments), or one department. Users with the{' '}
+            County access: full catalog or selected departments. Parent organization is fixed to {countyParentOrgName}. Users with the{' '}
             <strong>organization.scope_bypass</strong> privilege are not restricted.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
@@ -4262,14 +4240,13 @@ function UserManagementPage() {
                 value={standaloneNewScopeType}
                 onChange={(e) => {
                   setStandaloneNewScopeType(e.target.value);
-                  setStandaloneNewAgency(null);
                   setStandaloneNewMinistry(null);
                   setStandaloneNewStateDept(null);
+                  setStandaloneNewStateDepts([]);
                 }}
               >
                 <MenuItem value="ALL_MINISTRIES">All departments (county-wide)</MenuItem>
-                <MenuItem value="MINISTRY_ALL">Parent organization — all departments</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">Single department</MenuItem>
+                <MenuItem value="STATE_DEPARTMENT_ALL">Specific departments</MenuItem>
               </Select>
             </FormControl>
             {standaloneNewScopeType === 'ALL_MINISTRIES' && (
@@ -4281,36 +4258,20 @@ function UserManagementPage() {
                 sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
               />
             )}
-            {standaloneNewScopeType === 'MINISTRY_ALL' && (
-              <Autocomplete
-                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={ministries}
-                value={standaloneNewMinistry}
-                onChange={(_, v) => setStandaloneNewMinistry(v)}
-                renderInput={(params) => <TextField {...params} label="Parent organization" margin="dense" size="small" />}
-              />
-            )}
             {standaloneNewScopeType === 'STATE_DEPARTMENT_ALL' && (
-              <>
-                <Autocomplete
-                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                  options={ministries}
-                  value={standaloneNewMinistry}
-                  onChange={(_, v) => {
-                    setStandaloneNewMinistry(v);
-                    setStandaloneNewStateDept(null);
-                  }}
-                  renderInput={(params) => <TextField {...params} label="Parent organization" margin="dense" size="small" />}
-                />
-                <Autocomplete
-                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                  options={standaloneScopeStateDepartments}
-                  value={standaloneNewStateDept}
-                  onChange={(_, v) => setStandaloneNewStateDept(v)}
-                  disabled={!standaloneNewMinistry}
-                  renderInput={(params) => <TextField {...params} label="Department" margin="dense" size="small" />}
-                />
-              </>
+              <Autocomplete
+                multiple
+                sx={{ flex: 1, minWidth: 260, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
+                options={allCountyDepartmentNames}
+                value={Array.isArray(standaloneNewStateDepts) ? standaloneNewStateDepts : []}
+                onChange={(_, v) => {
+                  const next = Array.isArray(v) ? v : [];
+                  setStandaloneNewStateDepts(next);
+                  setStandaloneNewStateDept(next[0] || null);
+                  setStandaloneNewMinistry(countyParentOrgName);
+                }}
+                renderInput={(params) => <TextField {...params} label="Departments" margin="dense" size="small" />}
+              />
             )}
             <Button variant="outlined" size="small" onClick={handleAddStandaloneScope} sx={{ height: 40 }}>
               Apply access mode

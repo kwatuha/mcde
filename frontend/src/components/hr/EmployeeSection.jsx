@@ -14,7 +14,6 @@ export default function EmployeeSection({
     handleOpenDeleteConfirmModal,
     fetchEmployee360View,
     showNotification,
-    refreshData,
     handleOpenAddEmployeeModal,
     handleOpenEditEmployeeModal
 }) {
@@ -132,7 +131,7 @@ export default function EmployeeSection({
             flex: 1, 
             minWidth: 120,
             renderCell: (params) => {
-                const title = params.row?.title || 'N/A';
+                const title = params.row?.designation || params.row?.title || params.row?.role || 'N/A';
                 return (
                     <Typography variant="body2" sx={{ fontSize: '0.8rem', color: colors.grey[300] }}>
                         {title}
@@ -163,11 +162,11 @@ export default function EmployeeSection({
         },
         { 
             field: 'startDate', 
-            headerName: 'Start Date', 
+            headerName: 'Date Employed', 
             flex: 0.7, 
             minWidth: 100,
             renderCell: (params) => {
-                const startDate = params.row?.startDate;
+                const startDate = params.row?.startDate || params.row?.dateEmployed;
                 if (!startDate) {
                     return <Typography variant="body2" sx={{ fontSize: '0.8rem', color: colors.grey[300] }}>N/A</Typography>;
                 }
@@ -178,7 +177,7 @@ export default function EmployeeSection({
                             {dateStr}
                         </Typography>
                     );
-                } catch (e) {
+                } catch {
                     return <Typography variant="body2" sx={{ fontSize: '0.8rem', color: colors.grey[300] }}>N/A</Typography>;
                 }
             }
@@ -403,14 +402,14 @@ export default function EmployeeSection({
                               const lastName = employee.lastName || '';
                               value = `${firstName} ${lastName}`.trim() || 'N/A';
                           } else if (col.field === 'jobTitle') {
-                              value = employee.title || 'N/A';
+                              value = employee.designation || employee.title || employee.role || 'N/A';
                           } else if (col.field === 'department') {
                               value = employee.department || 'N/A';
                           } else if (col.field === 'startDate') {
-                              if (employee.startDate) {
+                              if (employee.startDate || employee.dateEmployed) {
                                   try {
-                                      value = new Date(employee.startDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                                  } catch (e) {
+                                      value = new Date(employee.startDate || employee.dateEmployed).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                                  } catch {
                                       value = 'N/A';
                                   }
                               }

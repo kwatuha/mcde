@@ -99,22 +99,19 @@ export default function PlanningProjectRisksPage() {
     if (!canWrite) return;
     setMessage('');
     setError('');
-    if (!form.riskName.trim()) {
-      setError('Risk name is required.');
+    if (!form.riskCode.trim() || !form.riskName.trim()) {
+      setError('Risk code and risk name are required.');
       return;
     }
     try {
       if (dialog.editing) {
         await apiService.planning.updateProjectRisk(dialog.editing.id, {
+          riskCode: form.riskCode.trim(),
           riskName: form.riskName.trim(),
           description: form.description.trim() || null,
         });
         setMessage('Risk updated.');
       } else {
-        if (!form.riskCode.trim()) {
-          setError('Risk code is required.');
-          return;
-        }
         await apiService.planning.createProjectRisk({
           riskCode: form.riskCode.trim(),
           riskName: form.riskName.trim(),
@@ -258,17 +255,14 @@ export default function PlanningProjectRisksPage() {
         <DialogTitle>{dialog.editing ? 'Edit project risk' : 'New project risk'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {!dialog.editing && (
-              <TextField
-                label="Risk code"
-                required
-                fullWidth
-                value={form.riskCode}
-                onChange={(e) => setForm((p) => ({ ...p, riskCode: e.target.value }))}
-                helperText="Unique code (e.g. funding_delay, scope_creep). Stored lowercase."
-              />
-            )}
-            {dialog.editing && <TextField label="Risk code" fullWidth value={form.riskCode} disabled />}
+            <TextField
+              label="Risk code"
+              required
+              fullWidth
+              value={form.riskCode}
+              onChange={(e) => setForm((p) => ({ ...p, riskCode: e.target.value }))}
+              helperText="Unique code (e.g. funding_delay, scope_creep). Stored lowercase."
+            />
             <TextField
               label="Risk name"
               required

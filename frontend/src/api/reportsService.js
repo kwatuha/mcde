@@ -376,6 +376,10 @@ const reportsService = {
     const response = await axiosInstance.get('/reports/projects-by-funding-source', { params: filters });
     return response.data;
   },
+  getPaymentList: async (filters = {}) => {
+    const response = await axiosInstance.get('/reports/payment-list', { params: filters });
+    return response.data;
+  },
   downloadProjectFinancialStatement: async (projectId) => {
     const response = await axiosInstance.get('/reports/project-financial-statement/export', {
       params: { projectId },

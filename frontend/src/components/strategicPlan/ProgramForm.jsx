@@ -116,7 +116,7 @@ const ProgramForm = React.memo(({ formData, handleFormChange }) => {
   return (
     <Box sx={{ mt: 0.5, p: 0, width: '100%' }}>
       <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Define the Key Result Area details and expected delivery direction.
+        Define the programme details and expected delivery direction.
       </Typography>
       <Grid container spacing={1.5}>
         <Grid item xs={12} md={9}>
@@ -124,7 +124,7 @@ const ProgramForm = React.memo(({ formData, handleFormChange }) => {
             autoFocus
             margin="dense"
             name="programme"
-            label="Key Result Area Name"
+            label="Programme Name"
             type="text"
             fullWidth
             variant="outlined"
@@ -138,13 +138,13 @@ const ProgramForm = React.memo(({ formData, handleFormChange }) => {
           <TextField
             margin="dense"
             name="programCode"
-            label="KRA Code (optional)"
+            label="Programme Code (optional)"
             type="text"
             fullWidth
             variant="outlined"
             value={formData.programCode || ''}
             onChange={handleFormChange}
-            placeholder="KRA-01"
+            placeholder="PRG-01"
           />
         </Grid>
         <Grid item xs={12} md={6}>

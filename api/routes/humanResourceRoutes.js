@@ -80,6 +80,25 @@ function resetHrJoinSchemaMemo() {
     jobGroupTitleMemo = undefined;
 }
 
+let staffProfileColumnsReady = false;
+async function ensureStaffProfileColumns() {
+    if (staffProfileColumnsReady) return;
+    await db.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS employee_number TEXT`);
+    await db.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS date_employed DATE`);
+    await db.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS designation TEXT`);
+    staffProfileColumnsReady = true;
+}
+
+router.use(async (req, res, next) => {
+    try {
+        await ensureStaffProfileColumns();
+        next();
+    } catch (err) {
+        console.error('HR staff column initialization failed:', err);
+        res.status(500).json({ message: err.message || 'HR staff column initialization failed' });
+    }
+});
+
 // --- Employee Management ---
 router.get('/employees', auth, privilege(['employee.read_all', 'hr.access'], { anyOf: true }), async (req, res) => {
     const fallbackSql = `
@@ -234,22 +253,24 @@ ${tableHtml}
 );
 
 router.post('/employees', auth, privilege(['employee.create']), async (req, res) => {
-    const { firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, placeOfBirth, bloodType, religion, nationalId, kraPin, userId } = req.body;
+    const { firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, dateOfBirth, employmentStatus, startDate, dateEmployed, employeeNumber, designation, nationality, employmentType, managerId, role, nationalId, kraPin, userId } = req.body;
     
     const sql = `
         INSERT INTO staff (
-            first_name, last_name, email, phone_number, department_id, job_group_id, gender, date_of_birth, employment_status, start_date, emergency_contact_name,
-            emergency_contact_relationship, emergency_contact_phone, nationality, marital_status, employment_type, manager_id, role, place_of_birth, blood_type, religion,
+            first_name, last_name, email, phone_number, department_id, job_group_id, gender, date_of_birth, employment_status,
+            start_date, date_employed, employee_number, designation, nationality, employment_type, manager_id, role,
             national_id, kra_pin, user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING staff_id
     `;
     
     try {
+        const employmentDate = dateEmployed || startDate;
         const result = await pgq(sql, [
-            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
-            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, intOrNull(managerId), role ?? null,
-            placeOfBirth, bloodType, religion, nationalId, kraPin, intOrNull(userId)
+            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender,
+            formatDate(dateOfBirth), employmentStatus, formatDate(employmentDate), formatDate(employmentDate),
+            employeeNumber || null, designation || null, nationality, employmentType, intOrNull(managerId), designation || role || null,
+            nationalId, kraPin, intOrNull(userId)
         ]);
         res.status(201).json({ staffId: result.rows[0].staffId, message: 'Employee added successfully' });
     } catch (err) {
@@ -260,22 +281,24 @@ router.post('/employees', auth, privilege(['employee.create']), async (req, res)
 
 router.put('/employees/:id', auth, privilege(['employee.update']), async (req, res) => {
     const { id } = req.params;
-    const { firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, dateOfBirth, employmentStatus, startDate, emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, managerId, role, placeOfBirth, bloodType, religion, nationalId, kraPin, userId } = req.body;
+    const { firstName, lastName, email, phoneNumber, departmentId, jobGroupId, gender, employmentStatus, startDate, dateEmployed, employeeNumber, designation, nationality, employmentType, managerId, role, nationalId, userId } = req.body;
     
     const sql = `
         UPDATE staff SET
-            first_name = ?, last_name = ?, email = ?, phone_number = ?, department_id = ?, job_group_id = ?, gender = ?, date_of_birth = ?, employment_status = ?,
-            start_date = ?, emergency_contact_name = ?, emergency_contact_relationship = ?, emergency_contact_phone = ?, nationality = ?, marital_status = ?,
-            employment_type = ?, manager_id = ?, role = ?, place_of_birth = ?, blood_type = ?, religion = ?, national_id = ?, kra_pin = ?, user_id = ?,
+            first_name = ?, last_name = ?, email = ?, phone_number = ?, department_id = ?, job_group_id = ?, gender = ?, employment_status = ?,
+            start_date = ?, date_employed = ?, employee_number = ?, designation = ?, nationality = ?,
+            employment_type = ?, manager_id = ?, role = ?, national_id = ?, user_id = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE staff_id = ?
     `;
     
     try {
+        const employmentDate = dateEmployed || startDate;
         const result = await pgq(sql, [
-            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender, formatDate(dateOfBirth), employmentStatus, formatDate(startDate),
-            emergencyContactName, emergencyContactRelationship, emergencyContactPhone, nationality, maritalStatus, employmentType, intOrNull(managerId), role ?? null,
-            placeOfBirth, bloodType, religion, nationalId, kraPin, intOrNull(userId), id
+            firstName, lastName, email, phoneNumber, intOrNull(departmentId), intOrNull(jobGroupId), gender,
+            employmentStatus, formatDate(employmentDate), formatDate(employmentDate),
+            employeeNumber || null, designation || null, nationality, employmentType, intOrNull(managerId), designation || role || null,
+            nationalId, intOrNull(userId), id
         ]);
         
         if (result.rowCount === 0) {

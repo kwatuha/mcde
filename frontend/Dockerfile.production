@@ -21,6 +21,8 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 # Vite inlines public env at build time (must match runtime domain in Google Cloud key restrictions).
 ARG VITE_MAPS_API_KEY=
 ENV VITE_MAPS_API_KEY=$VITE_MAPS_API_KEY
+ARG VITE_CERT_COUNTY_NAME=County Government of Machakos
+ENV VITE_CERT_COUNTY_NAME=$VITE_CERT_COUNTY_NAME
 
 # Build the application for production
 # This creates optimized, minified bundles in /app/dist

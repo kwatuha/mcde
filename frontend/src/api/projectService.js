@@ -185,6 +185,13 @@ const projectService = {
       const { data } = await axiosInstance.post(`/projects/${projectId}/planning-catalog/risks`, payload);
       return data;
     },
+    updatePlanningCatalogRiskLink: async (projectId, linkId, payload) => {
+      const { data } = await axiosInstance.put(
+        `/projects/${projectId}/planning-catalog/risks/${linkId}`,
+        payload
+      );
+      return data;
+    },
     removePlanningCatalogRiskLink: async (projectId, linkId) => {
       const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/risks/${linkId}`);
       return data;
@@ -313,8 +320,8 @@ const projectService = {
 
   // --- Milestone Management API Calls (project_milestones) ---
   milestones: {
-    getAllMilestones: async () => {
-      const response = await axiosInstance.get('/milestones');
+    getAllMilestones: async (filters = {}) => {
+      const response = await axiosInstance.get('/milestones', { params: filters });
       return response.data;
     },
     getMilestonesForProject: async (projectId) => {
@@ -437,6 +444,10 @@ const projectService = {
   
   // --- NEW: Project Monitoring API Calls ---
   projectMonitoring: {
+    getAllRecords: async (filters = {}) => {
+      const response = await axiosInstance.get('/projects/monitoring-records', { params: filters });
+      return response.data;
+    },
     getRecordsByProject: async (projectId) => {
       const response = await axiosInstance.get(`/projects/${projectId}/monitoring`);
       return response.data;

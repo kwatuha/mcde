@@ -134,7 +134,7 @@ const TEMPLATE_HEADERS = {
     'state_department'
   ],
   'strategic-plans': [
-    'Plan Name', 'Plan Code', 'Program', 'Subprogram', 'Objective', 'Outcome', 'Output',
+    'Plan Name', 'Plan Code', 'Programme', 'Sub-programme', 'Objective', 'Outcome', 'Output',
     'Indicator', 'Baseline', 'Target', 'Year', 'Budget (KES)', 'Department'
   ],
   'map-data': [

@@ -109,10 +109,6 @@ app.get('/api/health', (req, res) => {
 // PUBLIC ROUTES - No authentication required (must be before authenticate middleware)
 app.use('/api/public', publicRoutes);
 
-// IMPORTANT: Mount the new dedicated routers
-// The reports router is mounted first to prevent conflicts with project routes.
-app.use('/api/reports', reportsRouter);
-
 // Dashboard configuration routes (public for testing)
 app.use('/api/dashboard', dashboardConfigRoutes);
 
@@ -120,6 +116,8 @@ app.use('/api/dashboard', dashboardConfigRoutes);
 app.use('/api/data-access', dataAccessRoutes);
 
 app.use('/api', authenticate);
+// Reports are project-derived and must use req.user for organization scoping.
+app.use('/api/reports', reportsRouter);
 app.use('/api/report-library', reportLibraryRoutes);
 app.use('/api/data-collection', dataCollectionRoutes);
 app.use('/api/report-schedules', reportSchedulingRoutes);

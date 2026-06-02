@@ -84,6 +84,12 @@
       "icon": "AttachMoneyIcon",
       "submenus": [
         {
+          "title": "Payment List",
+          "icon": "PaidIcon",
+          "route": "FINANCE_PAYMENT_LIST",
+          "permissionsAny": ["project.read_all", "document.read_all"]
+        },
+        {
           "title": "Payment Certificates",
           "icon": "DescriptionIcon",
           "route": "FINANCE_PAYMENT_CERTIFICATES",
@@ -117,6 +123,12 @@
           "icon": "DescriptionIcon",
           "route": "PROJECT_DOCUMENTS_BY_PROJECT",
           "permissionsAny": ["document.read_all", "document.create"]
+        },
+        {
+          "title": "Project Milestones",
+          "icon": "EventNoteIcon",
+          "route": "PROJECT_MILESTONES",
+          "permissionsAny": ["project.read_all", "project.update"]
         },
         {
           "title": "Project Status",
@@ -206,6 +218,36 @@
           "title": "CIDP",
           "icon": "AccountTreeIcon",
           "route": "STRATEGIC_PLANNING"
+        },
+        {
+          "title": "CIDP Pillars",
+          "icon": "AccountTreeIcon",
+          "route": "CIDP_PILLARS"
+        },
+        {
+          "title": "CIDP Periods",
+          "icon": "EventNoteIcon",
+          "route": "PLANNING_CIDP_PERIODS"
+        },
+        {
+          "title": "ADP Periods",
+          "icon": "EventNoteIcon",
+          "route": "PLANNING_ADP_PERIODS"
+        },
+        {
+          "title": "Programmes",
+          "icon": "ChecklistIcon",
+          "route": "PLANNING_PROGRAMMES"
+        },
+        {
+          "title": "Sector List",
+          "icon": "CategoryIcon",
+          "route": "PLANNING_SECTOR_LIST"
+        },
+        {
+          "title": "Budget Allocation",
+          "icon": "AttachMoneyIcon",
+          "route": "PLANNING_BUDGET_ALLOCATION"
         },
         {
           "title": "Measurement types",
@@ -319,6 +361,12 @@
       "label": "Monitoring",
       "icon": "SpeedIcon",
       "submenus": [
+        {
+          "title": "Project Monitoring",
+          "icon": "ChecklistIcon",
+          "route": "MONITORING_PROJECT_MONITORING",
+          "permissionsAny": ["project_monitoring.read", "project_monitoring.create", "project_monitoring.update"]
+        },
         {
           "title": "Project Documents",
           "icon": "DescriptionIcon",

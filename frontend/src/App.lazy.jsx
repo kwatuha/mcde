@@ -17,6 +17,8 @@ const ProjectManagementPage = lazy(() => import('./pages/ProjectManagementPage')
 const ProjectTeamsPage = lazy(() => import('./pages/ProjectTeamsPage'));
 const ProjectPartnersPage = lazy(() => import('./pages/ProjectPartnersPage'));
 const ProjectStatusPage = lazy(() => import('./pages/ProjectStatusPage'));
+const MonitoringProjectMonitoringPage = lazy(() => import('./pages/MonitoringProjectMonitoringPage'));
+const ProjectMilestonesPage = lazy(() => import('./pages/ProjectMilestonesPage'));
 const ProjectEvaluationPage = lazy(() => import('./pages/ProjectEvaluationPage'));
 const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackByProjectPage'));
 const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
@@ -31,16 +33,19 @@ const PendingBillsReportPage = lazy(() => import('./pages/PendingBillsReportPage
 const BudgetJustificationReportPage = lazy(() => import('./pages/BudgetJustificationReportPage'));
 const ProjectFinanceOverviewPage = lazy(() => import('./pages/ProjectFinanceOverviewPage'));
 const FundingSourcesReportPage = lazy(() => import('./pages/FundingSourcesReportPage'));
+const PaymentListPage = lazy(() => import('./pages/PaymentListPage'));
 const ScheduledReportsPage = lazy(() => import('./pages/ScheduledReportsPage'));
 const DataCollectionToolsPage = lazy(() => import('./pages/DataCollectionToolsPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
 const StrategicPlanningPage = lazy(() => import('./pages/StrategicPlanningPage'));
+const CidpPillarsPage = lazy(() => import('./pages/CidpPillarsPage'));
 const PlanningIndicatorsPage = lazy(() => import('./pages/PlanningIndicatorsPage'));
 const PlanningProjectActivitiesPage = lazy(() => import('./pages/PlanningProjectActivitiesPage'));
 const PlanningProjectRisksPage = lazy(() => import('./pages/PlanningProjectRisksPage'));
 const PlanningReportingFrequencyPage = lazy(() => import('./pages/PlanningReportingFrequencyPage'));
+const PlanningCimesListPage = lazy(() => import('./pages/PlanningCimesListPage'));
 const ProjectPlanningActivityLinksPage = lazy(() =>
   import('./pages/ProjectPlanningCatalogLinksPages').then((m) => ({ default: m.ProjectPlanningActivityLinksPage }))
 );
@@ -89,9 +94,9 @@ const LoadingFallback = () => (
 );
 
 // Wrapper component to add Suspense to lazy-loaded routes
-const LazyRoute = ({ component }) => (
+const LazyRoute = ({ component, componentProps = {} }) => (
   <Suspense fallback={<LoadingFallback />}>
-    {React.createElement(component)}
+    {React.createElement(component, componentProps)}
   </Suspense>
 );
 
@@ -140,6 +145,10 @@ const router = createBrowserRouter([
         element: <LazyRoute component={PaymentCertificatesPage} />,
       },
       {
+        path: 'finance/payment-list',
+        element: <LazyRoute component={PaymentListPage} />,
+      },
+      {
         path: 'finance/funding-sources-report',
         element: <LazyRoute component={FundingSourcesReportPage} />,
       },
@@ -154,6 +163,14 @@ const router = createBrowserRouter([
       {
         path: 'projects/status',
         element: <LazyRoute component={ProjectStatusPage} />,
+      },
+      {
+        path: 'projects/milestones',
+        element: <LazyRoute component={ProjectMilestonesPage} />,
+      },
+      {
+        path: 'monitoring/project-monitoring',
+        element: <LazyRoute component={MonitoringProjectMonitoringPage} />,
       },
       {
         path: 'projects/teams',
@@ -290,6 +307,30 @@ const router = createBrowserRouter([
       {
         path: 'strategic-planning',
         element: <LazyRoute component={StrategicPlanningPage} />,
+      },
+      {
+        path: 'planning/cidp-pillars',
+        element: <LazyRoute component={CidpPillarsPage} />,
+      },
+      {
+        path: 'planning/cidp-periods',
+        element: <LazyRoute component={PlanningCimesListPage} componentProps={{ variant: 'cidp' }} />,
+      },
+      {
+        path: 'planning/adp-periods',
+        element: <LazyRoute component={PlanningCimesListPage} componentProps={{ variant: 'adp' }} />,
+      },
+      {
+        path: 'planning/programmes',
+        element: <LazyRoute component={PlanningCimesListPage} componentProps={{ variant: 'programmes' }} />,
+      },
+      {
+        path: 'planning/sector-list',
+        element: <LazyRoute component={PlanningCimesListPage} componentProps={{ variant: 'sectors' }} />,
+      },
+      {
+        path: 'planning/budget-allocation',
+        element: <LazyRoute component={PlanningCimesListPage} componentProps={{ variant: 'budgetAllocation' }} />,
       },
       {
         path: 'planning/indicators',

@@ -339,7 +339,7 @@ function StrategicPlanDetailsPage() {
 
       <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
-          Programs and Sub-programs
+          Programmes and Sub-programmes
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip
@@ -349,7 +349,7 @@ function StrategicPlanDetailsPage() {
           />
           {canManagePrograms && (
             <Button size="small" startIcon={<AddIcon />} variant="contained" onClick={() => handleOpenCreateProgramDialog(strategicPlan.cidpid)}>
-              Add Program
+              Add Programme
             </Button>
           )}
         </Stack>
@@ -390,25 +390,25 @@ function StrategicPlanDetailsPage() {
                   <Box display="flex" alignItems="center" justifyContent="space-between" width="100%" pr={2}>
                     <Box flex={1} minWidth={0} mr={1}>
                       <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                        {program.programme || 'Unnamed Program'}
+                        {program.programme || 'Unnamed Programme'}
                       </Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
                         {program.description || 'No description'}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Expand row to view or manage sub-programs
+                        Expand row to view or manage sub-programmes
                       </Typography>
                     </Box>
                     <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
                       {canManagePrograms && (
-                        <Tooltip title="Edit Program">
+                        <Tooltip title="Edit Programme">
                           <IconButton size="small" color="primary" onClick={() => handleOpenEditDialog('program', program)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {canManagePrograms && (
-                        <Tooltip title="Delete Program">
+                        <Tooltip title="Delete Programme">
                           <IconButton size="small" color="error" onClick={() => handleDelete('program', program.programId)}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -420,7 +420,7 @@ function StrategicPlanDetailsPage() {
                           startIcon={<AddIcon />}
                           onClick={() => handleOpenCreateSubprogramDialog(program.programId)}
                         >
-                          Add sub-program
+                          Add sub-programme
                         </Button>
                       )}
                     </Stack>
@@ -510,7 +510,7 @@ function StrategicPlanDetailsPage() {
                             <TableRow>
                             <TableCell colSpan={5}>
                               <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                No sub-programs available for this program.
+                                No sub-programmes available for this programme.
                               </Typography>
                             </TableCell>
                           </TableRow>
@@ -525,7 +525,7 @@ function StrategicPlanDetailsPage() {
                         startIcon={<FileDownloadIcon />}
                         onClick={() => handleDownloadPdf('program_pdf', program.programme, program.programId)}
                       >
-                        Download Program PDF
+                        Download Programme PDF
                       </Button>
                     </Box>
                   )}
@@ -535,7 +535,7 @@ function StrategicPlanDetailsPage() {
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            No programs available for this plan.
+            No programmes available for this plan.
           </Typography>
         )}
 
@@ -559,10 +559,10 @@ function StrategicPlanDetailsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Sub-program Annual Work Plans Dialog */}
+      {/* Sub-programme Annual Work Plans Dialog */}
       <Dialog open={openWorkplansDialog} onClose={handleCloseSubprogramWorkplansDialog} fullWidth maxWidth="lg">
         <DialogTitle>
-          Annual Work Plans - {selectedSubprogram?.subProgramme || 'Sub-Program'}
+          Annual Work Plans - {selectedSubprogram?.subProgramme || 'Sub-programme'}
         </DialogTitle>
         <DialogContent dividers>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>

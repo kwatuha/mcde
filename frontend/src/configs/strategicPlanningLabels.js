@@ -16,12 +16,12 @@ const strategicPlanningLabels = {
     },
   },
   program: {
-    singular: 'Key Result Area',
-    plural: 'KRAs',
-    // Define alternative names that clients might use for "Program"
-    altNames: ['Key Result Area', 'KRA', 'Strategic Objective'],
+    singular: 'Programme',
+    plural: 'Programmes',
+    // Keep legacy import aliases, but display CIDP programmes as programmes in the UI.
+    altNames: ['Programme', 'Program', 'Strategic Objective'],
     fields: {
-      programme: 'Key Result Area', // This is the field name in your DB
+      programme: 'Programme', // This is the field name in your DB
       departmentId: 'Department',
       sectionId: 'Section',
       needsPriorities: 'Needs & Priorities',
@@ -33,12 +33,12 @@ const strategicPlanningLabels = {
     },
   },
   subprogram: {
-    singular: 'Sub-Program',
-    plural: 'Sub-Programs',
+    singular: 'Sub-programme',
+    plural: 'Sub-programmes',
     // Define alternative names that clients might use for "Subprogram"
     altNames: ['Initiative', 'Action Plan', 'Project Activity'],
     fields: {
-      subProgramme: 'Sub-Program', // This is the field name in your DB
+      subProgramme: 'Sub-programme', // This is the field name in your DB
       keyOutcome: 'Key Outcome',
       planningIndicator: 'KPI / indicator',
       kpi: 'KPI',

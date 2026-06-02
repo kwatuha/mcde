@@ -60,7 +60,10 @@ import {
 } from 'recharts';
 import { tokens } from './dashboard/theme';
 import { useAuth } from '../context/AuthContext.jsx';
-import { isSuperAdminUser } from '../utils/roleUtils';
+import {
+  buildProjectOrganizationScopeMeta,
+  filterProjectsByOrganizationScope,
+} from '../utils/projectOrganizationScope';
 
 /**
  * SystemDashboardPage
@@ -235,60 +238,11 @@ const SystemDashboardPage = () => {
   }, []);
 
   const orgScopeMeta = useMemo(() => {
-    const scopes = Array.isArray(user?.organizationScopes) ? user.organizationScopes : [];
-    const normalized = scopes
-      .map((s) => ({
-        scopeType: String(s?.scopeType || s?.scope_type || '').trim().toUpperCase(),
-        ministry: String(s?.ministry || '').trim(),
-        stateDepartment: String(s?.stateDepartment || s?.state_department || '').trim(),
-      }))
-      .filter((s) => s.scopeType);
-
-    const superAdmin = isSuperAdminUser(user);
-    const hasAllMinistriesScope =
-      superAdmin || normalized.some((s) => s.scopeType === 'ALL_MINISTRIES');
-    const ministryScopes = normalized.filter((s) => s.scopeType === 'MINISTRY_ALL' && s.ministry);
-    const stateDeptScopes = normalized.filter(
-      (s) => s.scopeType === 'STATE_DEPARTMENT_ALL' && s.ministry && s.stateDepartment
-    );
-
-    if (hasAllMinistriesScope) return { level: 'all', allowedMinistries: null, allowedPairs: null };
-    if (ministryScopes.length > 0) {
-      return {
-        level: 'ministry',
-        allowedMinistries: new Set(ministryScopes.map((s) => s.ministry.toLowerCase())),
-        allowedPairs: null,
-      };
-    }
-    if (stateDeptScopes.length > 0) {
-      return {
-        level: 'state_department',
-        allowedMinistries: null,
-        allowedPairs: new Set(
-          stateDeptScopes.map((s) => `${s.ministry.toLowerCase()}|${s.stateDepartment.toLowerCase()}`)
-        ),
-      };
-    }
-    return { level: 'all', allowedMinistries: null, allowedPairs: null };
+    return buildProjectOrganizationScopeMeta(user);
   }, [user]);
 
   const scopeBaseProjects = useMemo(() => {
-    if (orgScopeMeta.level === 'ministry') {
-      return allProjects.filter((p) =>
-        orgScopeMeta.allowedMinistries.has(String(p.ministry || '').trim().toLowerCase())
-      );
-    }
-    if (orgScopeMeta.level === 'state_department') {
-      return allProjects.filter((p) => {
-        const k = `${String(p.ministry || '').trim().toLowerCase()}|${String(
-          p.stateDepartment || ''
-        )
-          .trim()
-          .toLowerCase()}`;
-        return orgScopeMeta.allowedPairs.has(k);
-      });
-    }
-    return allProjects;
+    return filterProjectsByOrganizationScope(allProjects, orgScopeMeta);
   }, [allProjects, orgScopeMeta]);
 
   const filteredProjects = useMemo(() => {

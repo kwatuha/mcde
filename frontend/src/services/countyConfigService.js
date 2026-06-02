@@ -44,8 +44,8 @@ export const fetchCountyConfig = async () => {
         project: 'Project',
         subcounty: 'Sub-County',
         ward: 'Ward',
-        program: 'Program',
-        subprogram: 'Sub-Program'
+        program: 'Programme',
+        subprogram: 'Sub-programme'
       },
       features: {
         departments: true,

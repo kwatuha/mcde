@@ -32,12 +32,30 @@ export function buildSectorDisplayMap(sectors) {
  */
 export function buildSectorCanonicalLookup(sectors) {
   const map = new Map();
+  const addKey = (value, canonical) => {
+    if (value == null || String(value).trim() === '') return;
+    const norm = String(value).trim().toLowerCase();
+    if (!map.has(norm)) map.set(norm, canonical);
+  };
+  const addAliasKeys = (alias, canonical) => {
+    if (alias == null || String(alias).trim() === '') return;
+    addKey(alias, canonical);
+    String(alias)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((part) => addKey(part, canonical));
+  };
   (sectors || []).forEach((sector) => {
     const sectorName = sector.sectorName || sector.name;
     if (sectorName == null || String(sectorName).trim() === '') return;
     const canonical = String(sectorName).trim();
-    const norm = canonical.toLowerCase();
-    if (!map.has(norm)) map.set(norm, canonical);
+    addKey(canonical, canonical);
+    addAliasKeys(sector.alias, canonical);
+    (sector.subSectors || []).forEach((subSector) => {
+      addKey(subSector.subSectorName || subSector.name, canonical);
+      addAliasKeys(subSector.alias, canonical);
+    });
   });
   return map;
 }

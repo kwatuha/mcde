@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { Box, Button, Tooltip, useTheme } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import GridViewIcon from '@mui/icons-material/GridView';
@@ -57,7 +57,7 @@ import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
 /** First sidebar destination when switching ribbon tab (menuConfig `route` keys). */
 const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
   dashboard: 'PROJECT_BY_STATUS_DASHBOARD',
-  finance: 'FINANCE_PAYMENT_CERTIFICATES',
+  finance: 'FINANCE_PAYMENT_LIST',
   reporting: 'PROJECTS',
   management: 'BUDGET_MANAGEMENT',
   procurement: 'PROCUREMENT',
@@ -135,12 +135,6 @@ export default function RibbonMenu({ isAdmin = false }) {
     return sortMenuCategoriesForNav(cats);
   }, [isAdmin, hasPrivilege, user]);
   
-  // Find the index of the selected category
-  const selectedCategoryIndex = useMemo(() => {
-    const index = menuCategories.findIndex(cat => cat.id === selectedCategoryId);
-    return index >= 0 ? index : 0;
-  }, [selectedCategoryId, menuCategories]);
-  
   // Only collapse the primary menu bar height on scroll
   useEffect(() => {
     let ticking = false;
@@ -158,7 +152,7 @@ export default function RibbonMenu({ isAdmin = false }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const getDefaultRouteForCategory = (categoryId) => {
+  const getDefaultRouteForCategory = useCallback((categoryId) => {
     const category = menuCategories.find((cat) => cat.id === categoryId);
     if (!category || !category.submenus) return null;
 
@@ -194,7 +188,7 @@ export default function RibbonMenu({ isAdmin = false }) {
       if (submenu.to) return submenu.to;
     }
     return null;
-  };
+  }, [hasPrivilege, isAdmin, menuCategories, user]);
 
   // Sync ribbon category from URL + navigate to default when switching tabs (same tick as stale category was the flicker bug)
   useEffect(() => {
@@ -251,7 +245,7 @@ export default function RibbonMenu({ isAdmin = false }) {
     } else {
       manualSelectionRef.current = false;
     }
-  }, [selectedCategoryId, menuCategories, navigate, location.pathname, hasPrivilege, user]);
+  }, [selectedCategoryId, menuCategories, navigate, location.pathname, getDefaultRouteForCategory, setSelectedCategoryId]);
 
   // Keyboard shortcuts: Alt+1..4 to switch categories quickly
   useEffect(() => {

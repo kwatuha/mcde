@@ -185,6 +185,43 @@ const PROJECT_STATUS_KPI_DEFS = [
   },
 ];
 
+const normalizeHomeProjectRows = (response) => {
+  const rows = Array.isArray(response?.projects)
+    ? response.projects
+    : Array.isArray(response?.rows)
+      ? response.rows
+      : Array.isArray(response)
+        ? response
+        : [];
+
+  return rows.map((p) => ({
+    ...p,
+    id: p.id ?? p.projectId ?? p.project_id,
+    status: p.status || p.Status || 'Unknown',
+    projectName: p.projectName || p.project_name || p.name || 'Untitled Project',
+    updatedAt: p.updatedAt || p.updated_at,
+    createdAt: p.createdAt || p.created_at,
+    startDate: p.startDate || p.start_date,
+  }));
+};
+
+const buildRecentProjects = (projects) =>
+  projects
+    .filter((p) => p?.id)
+    .sort((a, b) => {
+      const dateA = new Date(a?.updatedAt || a?.createdAt || a?.startDate || 0);
+      const dateB = new Date(b?.updatedAt || b?.createdAt || b?.startDate || 0);
+      return dateB - dateA;
+    })
+    .slice(0, 3)
+    .map((p) => ({
+      id: p.id,
+      projectName: p.projectName || 'Untitled Project',
+      status: p.status || 'Unknown',
+      createdAt: p.createdAt,
+      startDate: p.startDate,
+    }));
+
 const HomePage = () => {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -261,103 +298,13 @@ const HomePage = () => {
   const [statusProjects, setStatusProjects] = useState([]);
   const [loadingStatusProjects, setLoadingStatusProjects] = useState(false);
 
-  // Fetch project statistics - optimized to use stats API first
+  // Fetch project statistics from the scoped registry endpoint so homepage rows match project access.
   useEffect(() => {
     const fetchProjectStats = async () => {
       try {
         setLoadingProjects(true);
-        
-        // Try to get stats from public API first (much faster than fetching all projects)
-        let statsOverview = null;
-        try {
-          statsOverview = await apiService.public.getStatsOverview();
-        } catch (err) {
-          // Silently fail and try authenticated endpoint
-        }
-        
-        // If we have stats, use them and only fetch recent projects
-        if (statsOverview && statsOverview.total_projects) {
-          const stats = {
-            total: statsOverview.total_projects || 0,
-            active: statsOverview.ongoing_projects || 0,
-            completed: statsOverview.completed_projects || 0,
-            pending: (statsOverview.not_started_projects || 0) + 
-                     (statsOverview.under_procurement_projects || 0) + 
-                     (statsOverview.stalled_projects || 0),
-          };
-          setProjectStats({ ...stats, loading: false });
-          
-          // Fetch only recent projects (limit to 10 for performance)
-          try {
-            const response = await apiService.analytics.getProjectsForOrganization({ limit: 5000 });
-            const projects = (Array.isArray(response) ? response : []).map((p) => ({
-              ...p,
-              status: p.status || p.Status || 'Unknown',
-              projectName: p.projectName || p.project_name || 'Untitled Project',
-            }));
-            
-            // Calculate status stats
-            const statusStatsCalc = {
-              'Completed': 0,
-              'Ongoing': 0,
-              'Not started': 0,
-              'Stalled': 0,
-              'Under Procurement': 0,
-              'Suspended': 0,
-              'Other': 0,
-            };
-            projects.forEach(p => {
-              const normalized = normalizeProjectStatus(p.status || p.Status || 'Unknown');
-              if (statusStatsCalc.hasOwnProperty(normalized)) {
-                statusStatsCalc[normalized]++;
-              } else {
-                statusStatsCalc['Other']++;
-              }
-            });
-            
-            const recent = projects
-              .filter(p => p?.id)
-              .sort((a, b) => {
-                const dateA = new Date(a?.updatedAt || a?.createdAt || a?.startDate || a?.start_date || 0);
-                const dateB = new Date(b?.updatedAt || b?.createdAt || b?.startDate || b?.start_date || 0);
-                return dateB - dateA;
-              })
-              .slice(0, 3)
-              .map(p => ({
-                id: p.id,
-                projectName: p.projectName || p.project_name || 'Untitled Project',
-                status: p.status || 'Unknown',
-                createdAt: p.createdAt,
-                startDate: p.startDate || p.start_date,
-              }));
-            setRecentProjects(recent);
-            setAllProjects(projects); // Store all projects for status stats
-          } catch (err) {
-            setRecentProjects([]);
-            setAllProjects([]);
-          }
-          return;
-        }
-        
-        // Fallback: Get project list for status statistics (fetch more for accuracy)
-        let response;
-        try {
-          response = await apiService.analytics.getProjectsForOrganization({ limit: 5000 }); // Stable endpoint for status stats
-        } catch (authErr) {
-          try {
-            const publicData = await apiService.public.getProjects({ limit: 50 });
-            response = publicData.projects || publicData;
-          } catch (pubErr) {
-            throw authErr; // Use original error
-          }
-        }
-        
-        // Handle different response formats
-        const projects = (Array.isArray(response) ? response : []).map((p) => ({
-          ...p,
-          status: p.status || p.Status || 'Unknown',
-          projectName: p.projectName || p.project_name || 'Untitled Project',
-        }));
+        const response = await apiService.projects.getProjects({ limit: 5000 });
+        const projects = normalizeHomeProjectRows(response);
         
         if (projects.length === 0) {
           setProjectStats({ total: 0, active: 0, completed: 0, pending: 0, loading: false });
@@ -411,25 +358,7 @@ const HomePage = () => {
         
         setProjectStats({ ...stats, loading: false });
         setAllProjects(projects);
-        
-        // Get recent projects (latest 3 by activity date)
-        const recent = projects
-          .filter(p => p?.id)
-          .sort((a, b) => {
-            const dateA = new Date(a?.updatedAt || a?.createdAt || a?.startDate || a?.start_date || 0);
-            const dateB = new Date(b?.updatedAt || b?.createdAt || b?.startDate || b?.start_date || 0);
-            return dateB - dateA;
-          })
-          .slice(0, 3)
-          .map(p => ({
-            id: p.id,
-            projectName: p.projectName || p.project_name || 'Untitled Project',
-            status: p.status || 'Unknown',
-            createdAt: p.createdAt,
-            startDate: p.startDate || p.start_date,
-          }));
-        
-        setRecentProjects(recent);
+        setRecentProjects(buildRecentProjects(projects));
       } catch (error) {
         console.error('Error fetching project stats:', error);
         setProjectStats({ total: 0, active: 0, completed: 0, pending: 0, loading: false });
@@ -745,12 +674,9 @@ const HomePage = () => {
     setLoadingStatusProjects(true);
     
     try {
-      // Fetch all projects with this status
-      const response = await apiService.analytics.getProjectsForOrganization({ limit: 5000 });
-      const projects = (Array.isArray(response) ? response : []).map((p) => ({
-        ...p,
-        status: p.status || p.Status || 'Unknown',
-      }));
+      const projects = allProjects.length > 0
+        ? allProjects
+        : normalizeHomeProjectRows(await apiService.projects.getProjects({ limit: 5000 }));
       
       // Filter projects by normalized status
       const filtered = projects.filter(p => {

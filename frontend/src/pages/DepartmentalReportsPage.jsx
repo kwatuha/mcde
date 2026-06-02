@@ -32,6 +32,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import projectService from '../api/projectService';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl, getCountyOfficialName } from '../utils/countyOfficialPdfHeader';
+import { printElementInNewWindow } from '../utils/printWindow';
 import countyLogoUrl from '../assets/gpris.png';
 
 const currency = (value) =>
@@ -305,62 +306,60 @@ const DepartmentalReportsPage = () => {
 
   const printReport = () => {
     const printArea = document.getElementById('departmental-reports-print-area');
-    if (!printArea) {
-      window.print();
-      return;
-    }
-    const clonedReport = printArea.cloneNode(true);
-    clonedReport.querySelectorAll('.departmental-report-no-print').forEach((node) => node.remove());
-    const printWindow = window.open('', '_blank', 'width=1200,height=900');
-    if (!printWindow) {
-      window.print();
-      return;
-    }
-    const documentStyles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-      .map((node) => node.outerHTML)
-      .join('\n');
-    printWindow.document.open();
-    printWindow.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>Departmental Performance Report</title>
-          ${documentStyles}
-          <style>
-            @page { size: landscape; margin: 10mm; }
-            html, body {
-              margin: 0 !important;
-              padding: 0 !important;
-              width: 100% !important;
-              background: #ffffff !important;
-              color: #111827 !important;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            #departmental-reports-print-area {
-              width: 100% !important;
-              max-width: none !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              background: #ffffff !important;
-            }
-            .departmental-report-no-print, .departmental-report-screen-header, .MuiTabs-root { display: none !important; }
-            .departmental-report-print-header { display: block !important; margin-bottom: 6mm !important; padding-bottom: 4mm !important; border-bottom: 1px solid #cbd5e1 !important; }
-            .departmental-report-print-header img { width: 54px !important; height: 54px !important; }
-            .MuiPaper-root { box-shadow: none !important; break-inside: auto !important; page-break-inside: auto !important; margin-bottom: 6px !important; border-radius: 4px !important; }
-            .MuiTableCell-root { padding: 3px 6px !important; font-size: 9px !important; }
-            .MuiTypography-root { line-height: 1.2 !important; }
-          </style>
-        </head>
-        <body>${clonedReport.outerHTML}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 400);
+    printElementInNewWindow({
+      element: printArea,
+      title: 'Departmental Performance Report',
+      removeSelectors: ['.departmental-report-no-print'],
+      fallback: () => window.print(),
+      extraStyles: `
+        @page { size: landscape; margin: 10mm; }
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          background: #ffffff !important;
+          color: #111827 !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        #departmental-reports-print-area {
+          width: 100% !important;
+          max-width: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+        }
+        .departmental-report-no-print,
+        .departmental-report-screen-header,
+        .MuiTabs-root {
+          display: none !important;
+        }
+        .departmental-report-print-header {
+          display: block !important;
+          margin-bottom: 6mm !important;
+          padding-bottom: 4mm !important;
+          border-bottom: 1px solid #cbd5e1 !important;
+        }
+        .departmental-report-print-header img {
+          width: 54px !important;
+          height: 54px !important;
+        }
+        .MuiPaper-root {
+          box-shadow: none !important;
+          break-inside: auto !important;
+          page-break-inside: auto !important;
+          margin-bottom: 6px !important;
+          border-radius: 4px !important;
+        }
+        .MuiTableCell-root {
+          padding: 3px 6px !important;
+          font-size: 9px !important;
+        }
+        .MuiTypography-root {
+          line-height: 1.2 !important;
+        }
+      `,
+    });
   };
 
   const chartCardSx = {

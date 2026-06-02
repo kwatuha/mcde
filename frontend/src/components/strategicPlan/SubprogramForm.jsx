@@ -9,8 +9,10 @@ const indicatorFilterOptions = createFilterOptions({
     `${option.name || ''} ${option.description || ''} ${option.measurementTypeLabel || ''} ${option.measurementTypeCode || ''}`,
 });
 
+const TARGET_YEARS = [1, 2, 3, 4, 5];
+
 const SubprogramForm = React.memo(({ formData, handleFormChange, readOnly = false }) => {
-  const years = [1, 2, 3, 4, 5];
+  const years = TARGET_YEARS;
   const [indicatorOptions, setIndicatorOptions] = useState([]);
   const [indicatorsLoading, setIndicatorsLoading] = useState(true);
 
@@ -151,7 +153,7 @@ const SubprogramForm = React.memo(({ formData, handleFormChange, readOnly = fals
               autoFocus
               margin="none"
               name="subProgramme"
-              label="Sub-Program"
+              label="Sub-programme"
               type="text"
               fullWidth
               variant="outlined"

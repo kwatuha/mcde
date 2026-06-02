@@ -15,6 +15,7 @@ import {
   IconButton,
   Tooltip,
   Stack,
+  Chip,
   useTheme,
   Autocomplete,
   Link as MuiLink,
@@ -42,6 +43,17 @@ function getProjectId(p) {
 function getProjectDisplayName(p) {
   if (p == null) return 'Unknown project';
   return p.name || p.projectName || p.project_name || `Project ${getProjectId(p) ?? ''}`.trim();
+}
+
+const RISK_LEVEL_OPTIONS = ['No Risk', 'Low', 'Medium', 'High'];
+const ACTIVITY_STATUS_OPTIONS = ['PLANNED', 'ONGOING', 'COMPLETED', 'DELAYED', 'STALLED'];
+
+function riskLevelColor(level) {
+  if (level === 'No Risk') return 'success';
+  if (level === 'Low') return 'info';
+  if (level === 'Medium') return 'warning';
+  if (level === 'High') return 'error';
+  return 'default';
 }
 
 function CatalogLinksPage({ kind }) {
@@ -74,11 +86,21 @@ function CatalogLinksPage({ kind }) {
   const [addCatalogId, setAddCatalogId] = useState('');
   const [addTargetValue, setAddTargetValue] = useState('');
   const [addBaselineValue, setAddBaselineValue] = useState('');
+  const [addStartDate, setAddStartDate] = useState('');
+  const [addEndDate, setAddEndDate] = useState('');
+  const [addActivityStatus, setAddActivityStatus] = useState('PLANNED');
+  const [addCompletedAt, setAddCompletedAt] = useState('');
+  const [addRiskLevel, setAddRiskLevel] = useState('Medium');
   const [addNotes, setAddNotes] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [editingLink, setEditingLink] = useState(null);
   const [editTargetValue, setEditTargetValue] = useState('');
   const [editBaselineValue, setEditBaselineValue] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editActivityStatus, setEditActivityStatus] = useState('PLANNED');
+  const [editCompletedAt, setEditCompletedAt] = useState('');
+  const [editRiskLevel, setEditRiskLevel] = useState('Medium');
   const [editNotes, setEditNotes] = useState('');
 
   const selectedPid = selectedProject ? getProjectId(selectedProject) : null;
@@ -190,6 +212,11 @@ function CatalogLinksPage({ kind }) {
     setAddNotes('');
     setAddTargetValue('');
     setAddBaselineValue('');
+    setAddStartDate('');
+    setAddEndDate('');
+    setAddActivityStatus('PLANNED');
+    setAddCompletedAt('');
+    setAddRiskLevel('Medium');
     const first = addChoices[0];
     setAddCatalogId(first ? String(first.id) : '');
     setAddOpen(true);
@@ -220,12 +247,17 @@ function CatalogLinksPage({ kind }) {
           activityId: idNum,
           targetValue: targetNum,
           baselineValue: baselineNum,
+          startDate: addStartDate || null,
+          endDate: addEndDate || null,
+          status: addActivityStatus || null,
+          completedAt: addCompletedAt || null,
           notes: addNotes.trim() || null,
         });
         setMessage('Activity linked to project.');
       } else {
         await apiService.projects.addPlanningCatalogRiskLink(selectedPid, {
           riskId: idNum,
+          riskLevel: addRiskLevel,
           notes: addNotes.trim() || null,
         });
         setMessage('Risk linked to project.');
@@ -262,12 +294,34 @@ function CatalogLinksPage({ kind }) {
     );
     const bl = row?.baselineValue ?? row?.baseline_value;
     setEditBaselineValue(bl == null || bl === '' ? '' : String(bl));
+    setEditStartDate((row?.startDate || row?.planned_start_date || '').slice(0, 10));
+    setEditEndDate((row?.endDate || row?.planned_end_date || '').slice(0, 10));
+    setEditActivityStatus(row?.status || row?.activity_status || 'PLANNED');
+    setEditCompletedAt((row?.completedAt || row?.completed_at || '').slice(0, 10));
+    setEditRiskLevel(row?.riskLevel || row?.risk_level || 'Medium');
     setEditNotes(row?.notes || '');
     setEditOpen(true);
   };
 
   const saveEdit = async () => {
     if (!canEdit || selectedPid == null || !editingLink) return;
+    if (!isActivities) {
+      setError('');
+      setMessage('');
+      try {
+        await apiService.projects.updatePlanningCatalogRiskLink(selectedPid, editingLink.id, {
+          riskLevel: editRiskLevel,
+          notes: editNotes.trim() || null,
+        });
+        setEditOpen(false);
+        setEditingLink(null);
+        setMessage(editRiskLevel === 'No Risk' ? 'Risk marked as mitigated / no risk.' : 'Risk link updated.');
+        await loadLinks();
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || 'Update failed.');
+      }
+      return;
+    }
     const targetNum = editTargetValue === '' ? null : Number(editTargetValue);
     const baselineNum = editBaselineValue === '' ? null : Number(editBaselineValue);
     if (editTargetValue !== '' && !Number.isFinite(targetNum)) {
@@ -284,6 +338,10 @@ function CatalogLinksPage({ kind }) {
       await apiService.projects.updatePlanningCatalogActivityLink(selectedPid, editingLink.id, {
         targetValue: targetNum,
         baselineValue: baselineNum,
+        startDate: editStartDate || null,
+        endDate: editEndDate || null,
+        status: editActivityStatus || null,
+        completedAt: editCompletedAt || null,
         notes: editNotes.trim() || null,
       });
       setEditOpen(false);
@@ -307,6 +365,33 @@ function CatalogLinksPage({ kind }) {
       width: 120,
       valueGetter: (v, row) =>
         row.measurementTypeLabel || row.measurement_type_label || '—',
+    },
+    {
+      field: 'startDate',
+      headerName: 'Start',
+      width: 115,
+      valueGetter: (v, row) => row.startDate || row.planned_start_date || null,
+      valueFormatter: (value) => (value ? new Date(value).toLocaleDateString('en-GB') : '—'),
+    },
+    {
+      field: 'endDate',
+      headerName: 'End',
+      width: 115,
+      valueGetter: (v, row) => row.endDate || row.planned_end_date || null,
+      valueFormatter: (value) => (value ? new Date(value).toLocaleDateString('en-GB') : '—'),
+    },
+    {
+      field: 'status',
+      headerName: 'Status',
+      width: 120,
+      valueGetter: (v, row) => row.status || row.activity_status || '—',
+    },
+    {
+      field: 'completedAt',
+      headerName: 'Completed',
+      width: 120,
+      valueGetter: (v, row) => row.completedAt || row.completed_at || null,
+      valueFormatter: (value) => (value ? new Date(value).toLocaleDateString('en-GB') : '—'),
     },
     {
       field: 'targetValue',
@@ -354,19 +439,43 @@ function CatalogLinksPage({ kind }) {
       minWidth: 200,
       valueGetter: (v, row) => row.catalogDescription || row.catalog_description || '—',
     },
+    {
+      field: 'riskLevel',
+      headerName: 'Risk level',
+      width: 130,
+      valueGetter: (v, row) => row.riskLevel || row.risk_level || 'Medium',
+      renderCell: (params) => {
+        const level = params.row?.riskLevel || params.row?.risk_level || params.value || 'Medium';
+        return (
+          <Chip
+            size="small"
+            label={level}
+            color={riskLevelColor(level)}
+            variant={level === 'No Risk' ? 'filled' : 'outlined'}
+          />
+        );
+      },
+    },
     { field: 'notes', headerName: 'Notes', flex: 1, minWidth: 120 },
     {
       field: 'actions',
       headerName: '',
-      width: 72,
+      width: 110,
       sortable: false,
       renderCell: (params) =>
         canEdit ? (
-          <Tooltip title="Remove link">
-            <IconButton size="small" color="error" onClick={() => removeLink(params.row)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" spacing={0}>
+            <Tooltip title="Edit risk level">
+              <IconButton size="small" onClick={() => openEdit(params.row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Remove link">
+              <IconButton size="small" color="error" onClick={() => removeLink(params.row)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         ) : null,
     },
   ];
@@ -535,7 +644,61 @@ function CatalogLinksPage({ kind }) {
                   onChange={(e) => setAddBaselineValue(e.target.value)}
                   helperText="Starting value before the project; used with target and achieved in evaluation."
                 />
+                <TextField
+                  label="Start date"
+                  type="date"
+                  fullWidth
+                  value={addStartDate}
+                  onChange={(e) => setAddStartDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  label="End date"
+                  type="date"
+                  fullWidth
+                  value={addEndDate}
+                  onChange={(e) => setAddEndDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  select
+                  label="Status"
+                  fullWidth
+                  value={addActivityStatus}
+                  onChange={(e) => setAddActivityStatus(e.target.value)}
+                >
+                  {ACTIVITY_STATUS_OPTIONS.map((status) => (
+                    <MenuItem key={status} value={status}>
+                      {status}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Completed at"
+                  type="date"
+                  fullWidth
+                  value={addCompletedAt}
+                  onChange={(e) => setAddCompletedAt(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
               </>
+            )}
+            {!isActivities && (
+              <TextField
+                select
+                label="Risk level"
+                fullWidth
+                required
+                value={addRiskLevel}
+                onChange={(e) => setAddRiskLevel(e.target.value)}
+                helperText="Select No Risk after mitigation when the project is risk-free."
+              >
+                {RISK_LEVEL_OPTIONS.map((level) => (
+                  <MenuItem key={level} value={level}>
+                    {level}
+                  </MenuItem>
+                ))}
+              </TextField>
             )}
             <TextField
               label="Notes (optional)"
@@ -557,34 +720,93 @@ function CatalogLinksPage({ kind }) {
       </Dialog>
 
       <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Edit linked activity</DialogTitle>
+        <DialogTitle>{isActivities ? 'Edit linked activity' : 'Edit linked risk'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
-              label="Activity"
+              label={isActivities ? 'Activity' : 'Risk'}
               fullWidth
               value={
                 editingLink
-                  ? `${editingLink.activityCode || ''} — ${editingLink.activityName || ''}`
+                  ? isActivities
+                    ? `${editingLink.activityCode || ''} — ${editingLink.activityName || ''}`
+                    : `${editingLink.riskCode || ''} — ${editingLink.riskName || ''}`
                   : ''
               }
               disabled
             />
-            <TextField
-              label="Target (optional)"
-              type="number"
-              fullWidth
-              value={editTargetValue}
-              onChange={(e) => setEditTargetValue(e.target.value)}
-            />
-            <TextField
-              label="Baseline (optional)"
-              type="number"
-              fullWidth
-              value={editBaselineValue}
-              onChange={(e) => setEditBaselineValue(e.target.value)}
-              helperText="Starting value for this link; evaluation stores a snapshot when you save a line."
-            />
+            {isActivities ? (
+              <>
+                <TextField
+                  label="Target (optional)"
+                  type="number"
+                  fullWidth
+                  value={editTargetValue}
+                  onChange={(e) => setEditTargetValue(e.target.value)}
+                />
+                <TextField
+                  label="Baseline (optional)"
+                  type="number"
+                  fullWidth
+                  value={editBaselineValue}
+                  onChange={(e) => setEditBaselineValue(e.target.value)}
+                  helperText="Starting value for this link; evaluation stores a snapshot when you save a line."
+                />
+                <TextField
+                  label="Start date"
+                  type="date"
+                  fullWidth
+                  value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  label="End date"
+                  type="date"
+                  fullWidth
+                  value={editEndDate}
+                  onChange={(e) => setEditEndDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  select
+                  label="Status"
+                  fullWidth
+                  value={editActivityStatus}
+                  onChange={(e) => setEditActivityStatus(e.target.value)}
+                >
+                  {ACTIVITY_STATUS_OPTIONS.map((status) => (
+                    <MenuItem key={status} value={status}>
+                      {status}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Completed at"
+                  type="date"
+                  fullWidth
+                  value={editCompletedAt}
+                  onChange={(e) => setEditCompletedAt(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </>
+            ) : (
+              <TextField
+                select
+                label="Risk level"
+                fullWidth
+                required
+                value={editRiskLevel}
+                onChange={(e) => setEditRiskLevel(e.target.value)}
+                helperText="Use No Risk when mitigation has made the project risk-free."
+              >
+                {RISK_LEVEL_OPTIONS.map((level) => (
+                  <MenuItem key={level} value={level}>
+                    {level}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
             <TextField
               label="Notes (optional)"
               fullWidth

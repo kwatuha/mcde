@@ -3,6 +3,78 @@ import axiosInstance from './axiosInstance';
 const base = '/planning';
 
 const planningService = {
+  getCidpPillars: async () => {
+    const { data } = await axiosInstance.get(`${base}/cidp-pillars`);
+    return data;
+  },
+  createCidpPillar: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/cidp-pillars`, payload);
+    return data;
+  },
+  updateCidpPillar: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/cidp-pillars/${id}`, payload);
+    return data;
+  },
+  deleteCidpPillar: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/cidp-pillars/${id}`);
+    return data;
+  },
+  getCidpPeriods: async () => {
+    const { data } = await axiosInstance.get(`${base}/cidp-periods`);
+    return data;
+  },
+  createCidpPeriod: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/cidp-periods`, payload);
+    return data;
+  },
+  updateCidpPeriod: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/cidp-periods/${id}`, payload);
+    return data;
+  },
+  deleteCidpPeriod: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/cidp-periods/${id}`);
+    return data;
+  },
+  getAdpPeriods: async () => {
+    const { data } = await axiosInstance.get(`${base}/adp-periods`);
+    return data;
+  },
+  createAdpPeriod: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/adp-periods`, payload);
+    return data;
+  },
+  updateAdpPeriod: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/adp-periods/${id}`, payload);
+    return data;
+  },
+  deleteAdpPeriod: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/adp-periods/${id}`);
+    return data;
+  },
+  getProgrammes: async () => {
+    const { data } = await axiosInstance.get(`${base}/programmes`);
+    return data;
+  },
+  createProgramme: async (payload) => {
+    const { data } = await axiosInstance.post(`${base}/programmes`, payload);
+    return data;
+  },
+  updateProgramme: async (id, payload) => {
+    const { data } = await axiosInstance.put(`${base}/programmes/${id}`, payload);
+    return data;
+  },
+  deleteProgramme: async (id) => {
+    const { data } = await axiosInstance.delete(`${base}/programmes/${id}`);
+    return data;
+  },
+  getPlanningSectors: async () => {
+    const { data } = await axiosInstance.get(`${base}/sectors`);
+    return data;
+  },
+  getBudgetAllocations: async (params = {}) => {
+    const { data } = await axiosInstance.get(`${base}/budget-allocations`, { params });
+    return data;
+  },
   getMeasurementTypes: async () => {
     const { data } = await axiosInstance.get(`${base}/measurement-types`);
     return data;

@@ -88,7 +88,7 @@ const HelpSupportPage = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-                Programs & Sub Programs Guide
+                Programmes & Sub-programmes Guide
               </Typography>
               <Divider sx={{ mb: 2 }} />
               <List dense disablePadding>
@@ -100,14 +100,14 @@ const HelpSupportPage = () => {
                 </ListItem>
                 <ListItem>
                   <ListItemText
-                    primary="Step 2: Add Programs"
-                    secondary="Inside the selected plan details, go to Programs and click Add Program."
+                    primary="Step 2: Add Programmes"
+                    secondary="Inside the selected plan details, go to Programmes and click Add Programme."
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText
-                    primary="Step 3: Add Sub Programs"
-                    secondary="Under each Program, click Add Sub Program and save."
+                    primary="Step 3: Add Sub-programmes"
+                    secondary="Under each Programme, click Add Sub-programme and save."
                   />
                 </ListItem>
                 <ListItem>

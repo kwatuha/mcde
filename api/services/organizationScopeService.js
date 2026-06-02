@@ -44,17 +44,21 @@ function userHasOrganizationBypass(privileges) {
 
 function normalizeScopeInput(raw) {
     if (!raw || typeof raw !== 'object') return null;
-    const scopeType = raw.scopeType || raw.scope_type;
-    if (!scopeType || !Object.values(SCOPE_TYPES).includes(scopeType)) return null;
+    const scopeType = String(raw.scopeType || raw.scope_type || '').trim().toUpperCase();
+    if (!scopeType) return null;
+
+    // UI uses ALL_MINISTRIES for county-wide access. Store it as MINISTRY_ALL('*')
+    // because older scope filters already treat * / all as unrestricted.
+    if (scopeType === 'ALL_MINISTRIES') {
+        return { scopeType: SCOPE_TYPES.MINISTRY_ALL, agencyId: null, ministry: '*', stateDepartment: null };
+    }
+    if (!Object.values(SCOPE_TYPES).includes(scopeType)) return null;
 
     if (scopeType === SCOPE_TYPES.AGENCY) {
         const agencyId = raw.agencyId ?? raw.agency_id;
         const n = parseInt(String(agencyId), 10);
         if (!Number.isFinite(n)) return null;
         return { scopeType: SCOPE_TYPES.AGENCY, agencyId: n, ministry: null, stateDepartment: null };
-    }
-    if (scopeType === 'ALL_MINISTRIES') {
-        return { scopeType: SCOPE_TYPES.MINISTRY_ALL, agencyId: null, ministry: '*', stateDepartment: null };
     }
     if (scopeType === SCOPE_TYPES.MINISTRY_ALL) {
         const ministry = (raw.ministry || '').trim();
@@ -85,7 +89,11 @@ async function fetchOrganizationScopesForUser(userId) {
         `
         SELECT
             s.id,
-            s.scope_type AS "scopeType",
+            CASE
+                WHEN s.scope_type = 'MINISTRY_ALL' AND LOWER(TRIM(COALESCE(s.ministry, ''))) IN ('*', 'all')
+                    THEN 'ALL_MINISTRIES'
+                ELSE s.scope_type
+            END AS "scopeType",
             s.agency_id AS "agencyId",
             s.ministry,
             s.state_department AS "stateDepartment",
@@ -117,7 +125,11 @@ async function fetchOrganizationScopesForUsers(userIds) {
         SELECT
             s.user_id AS "userId",
             s.id,
-            s.scope_type AS "scopeType",
+            CASE
+                WHEN s.scope_type = 'MINISTRY_ALL' AND LOWER(TRIM(COALESCE(s.ministry, ''))) IN ('*', 'all')
+                    THEN 'ALL_MINISTRIES'
+                ELSE s.scope_type
+            END AS "scopeType",
             s.agency_id AS "agencyId",
             s.ministry,
             s.state_department AS "stateDepartment",
@@ -161,6 +173,9 @@ async function replaceUserOrganizationScopes(userId, scopesPayload) {
             const n = normalizeScopeInput(row);
             if (n) normalized.push(n);
         }
+    }
+    if (Array.isArray(scopesPayload) && scopesPayload.length > 0 && normalized.length === 0) {
+        throw new Error('No valid organization access rows were provided.');
     }
 
     const conn = await pool.getConnection();
@@ -380,6 +395,30 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                                 ) || '%'
                             )
                         )
+                        OR (
+                            -- County project data stores the parent as "Machakos County Executive";
+                            -- allow a national/county ministry scope to match meaningful department/directorate tokens.
+                            NULLIF(TRIM(COALESCE(s.ministry, '')), '') IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1
+                                FROM regexp_split_to_table(
+                                    regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '[^a-z0-9]+', ' ', 'g'),
+                                    '\\s+'
+                                ) AS scope_token(token)
+                                WHERE LENGTH(scope_token.token) >= 3
+                                  AND scope_token.token NOT IN (
+                                      'and', 'the', 'for', 'of', 'state', 'department', 'ministry',
+                                      'county', 'government', 'development', 'services', 'service',
+                                      'planning', 'management', 'administration'
+                                  )
+                                  AND (
+                                      regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || scope_token.token || '%'
+                                      OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || scope_token.token || '%'
+                                  )
+                            )
+                        )
                         OR EXISTS (
                             SELECT 1
                             FROM ministries m
@@ -467,6 +506,49 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                             AND
                             LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.ministry, '')))
                             AND LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(s.state_department, '')))
+                        )
+                        OR (
+                            NULLIF(TRIM(COALESCE(s.state_department, '')), '') IS NOT NULL
+                            AND NULLIF(TRIM(COALESCE(${pa}.ministry, '')), '') IS NOT NULL
+                            AND LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(s.state_department, '')))
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM ministries scope_m
+                            JOIN departments scope_d
+                              ON scope_d."ministryId" = scope_m."ministryId"
+                             AND COALESCE(scope_d.voided, false) = false
+                            WHERE COALESCE(scope_m.voided, false) = false
+                              AND (
+                                    LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(scope_m.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(scope_m.alias, ''), ',')) AS scope_ma(token)
+                                        WHERE LOWER(TRIM(COALESCE(s.ministry, ''))) = LOWER(TRIM(COALESCE(scope_ma.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(s.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(scope_m.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                              AND (
+                                    LOWER(TRIM(COALESCE(s.state_department, ''))) = LOWER(TRIM(COALESCE(scope_d.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(scope_d.alias, ''), ',')) AS scope_da(token)
+                                        WHERE LOWER(TRIM(COALESCE(s.state_department, ''))) = LOWER(TRIM(COALESCE(scope_da.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(s.state_department, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(scope_d.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
+                              AND (
+                                    LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(scope_d.name, '')))
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(string_to_array(COALESCE(scope_d.alias, ''), ',')) AS proj_da(token)
+                                        WHERE LOWER(TRIM(COALESCE(${pa}.ministry, ''))) = LOWER(TRIM(COALESCE(proj_da.token, '')))
+                                    )
+                                    OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.ministry, ''))), '[^a-z0-9]+', '', 'g')
+                                       = regexp_replace(LOWER(TRIM(COALESCE(scope_d.name, ''))), '[^a-z0-9]+', '', 'g')
+                              )
                         )
                         OR (
                             NULLIF(TRIM(COALESCE(s.ministry, '')), '') IS NOT NULL
@@ -582,6 +664,30 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                                     '',
                                     'g'
                                 ) || '%'
+                            )
+                        )
+                        OR (
+                            -- Match county directorates/department names even when the user scope uses
+                            -- a shorter national-style state department name.
+                            NULLIF(TRIM(COALESCE(s.state_department, '')), '') IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1
+                                FROM regexp_split_to_table(
+                                    regexp_replace(LOWER(TRIM(COALESCE(s.state_department, ''))), '[^a-z0-9]+', ' ', 'g'),
+                                    '\\s+'
+                                ) AS scope_token(token)
+                                WHERE LENGTH(scope_token.token) >= 3
+                                  AND scope_token.token NOT IN (
+                                      'and', 'the', 'for', 'of', 'state', 'department', 'ministry',
+                                      'county', 'government', 'development', 'services', 'service',
+                                      'directorate', 'planning', 'management', 'administration'
+                                  )
+                                  AND (
+                                      regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || scope_token.token || '%'
+                                      OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || scope_token.token || '%'
+                                  )
                             )
                         )
                         OR EXISTS (
@@ -1080,17 +1186,32 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                                             OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', '', 'g')
                                                = regexp_replace(LOWER(TRIM(COALESCE(du.name, ''))), '[^a-z0-9]+', '', 'g')
                                       )
-                                      AND (
-                                          NULLIF(TRIM(COALESCE(u.directorate, '')), '') IS NULL
-                                          OR LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(u.directorate, '')))
-                                          OR EXISTS (
-                                              SELECT 1
-                                              FROM unnest(string_to_array(COALESCE(u.directorate, ''), '|||')) AS udir(tok)
-                                              WHERE NULLIF(TRIM(udir.tok), '') IS NOT NULL
-                                                AND LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(udir.tok))
-                                          )
-                                      )
                                 )
+                            )
+                        )
+                        OR (
+                            -- Users without explicit scope rows should still be limited by
+                            -- their profile department. County project data often stores that
+                            -- department as a longer department/section name.
+                            NULLIF(TRIM(COALESCE(u.state_department, '')), '') IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1
+                                FROM regexp_split_to_table(
+                                    regexp_replace(LOWER(TRIM(COALESCE(u.state_department, ''))), '[^a-z0-9]+', ' ', 'g'),
+                                    '\\s+'
+                                ) AS profile_dept_token(token)
+                                WHERE LENGTH(profile_dept_token.token) >= 3
+                                  AND profile_dept_token.token NOT IN (
+                                      'and', 'the', 'for', 'of', 'state', 'department', 'ministry',
+                                      'county', 'government', 'development', 'services', 'service',
+                                      'directorate', 'planning', 'management', 'administration'
+                                  )
+                                  AND (
+                                      regexp_replace(LOWER(TRIM(COALESCE(${pa}.state_department, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || profile_dept_token.token || '%'
+                                      OR regexp_replace(LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))), '[^a-z0-9]+', ' ', 'g')
+                                          LIKE '%' || profile_dept_token.token || '%'
+                                  )
                             )
                         )
                         OR (

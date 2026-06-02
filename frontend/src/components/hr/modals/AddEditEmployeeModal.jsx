@@ -13,7 +13,6 @@ import {
   MenuItem,
   Typography,
   Divider,
-  Stack,
   Box,
 } from '@mui/material';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
@@ -35,7 +34,36 @@ const sectionTitleSx = {
 };
 
 const fieldProps = { size: 'small', fullWidth: true, margin: 'dense' };
-const selectFormProps = { fullWidth: true, size: 'small', margin: 'dense' };
+const selectFormProps = { fullWidth: true, size: 'small', margin: 'dense', sx: { minWidth: 220 } };
+
+const emptyEmployeeForm = {
+  firstName: '',
+  lastName: '',
+  employeeNumber: '',
+  email: '',
+  phoneNumber: '',
+  departmentId: '',
+  jobGroupId: '',
+  gender: '',
+  nationalId: '',
+  employmentStatus: 'Active',
+  dateEmployed: '',
+  designation: '',
+  nationality: '',
+  employmentType: 'Full-time',
+  managerId: '',
+  role: '',
+};
+
+function normalizeEmployeeFormData(employee = {}) {
+  return {
+    ...emptyEmployeeForm,
+    ...employee,
+    employeeNumber: employee.employeeNumber || employee.employee_number || '',
+    dateEmployed: employee.dateEmployed || employee.date_employed || employee.startDate || employee.start_date || '',
+    designation: employee.designation || employee.role || '',
+  };
+}
 
 function SectionHeader({ icon: Icon, label, sx = {} }) {
   return (
@@ -64,7 +92,7 @@ export default function AddEditEmployeeModal({
       try {
         const data = await apiService.metadata.departments.getAllDepartments();
         setDepartments(Array.isArray(data) ? data : []);
-      } catch (error) {
+      } catch {
         showNotification('Could not load departments.', 'error');
       }
     };
@@ -73,39 +101,15 @@ export default function AddEditEmployeeModal({
       fetchDepartments();
       setFormData(
         isEditMode
-          ? editedItem
-          : {
-              firstName: '',
-              lastName: '',
-              email: '',
-              phoneNumber: '',
-              departmentId: '',
-              jobGroupId: '',
-              gender: '',
-              dateOfBirth: '',
-              placeOfBirth: '',
-              bloodType: '',
-              religion: '',
-              nationalId: '',
-              kraPin: '',
-              employmentStatus: 'Active',
-              startDate: '',
-              emergencyContactName: '',
-              emergencyContactRelationship: '',
-              emergencyContactPhone: '',
-              nationality: '',
-              maritalStatus: 'Single',
-              employmentType: 'Full-time',
-              managerId: '',
-              role: '',
-            }
+          ? normalizeEmployeeFormData(editedItem)
+          : emptyEmployeeForm
       );
     }
-  }, [isOpen, isEditMode, editedItem]);
+  }, [isOpen, isEditMode, editedItem, showNotification]);
 
   useEffect(() => {
     if (isEditMode && editedItem) {
-      setFormData(editedItem);
+      setFormData(normalizeEmployeeFormData(editedItem));
     }
   }, [isEditMode, editedItem]);
 
@@ -131,12 +135,22 @@ export default function AddEditEmployeeModal({
       const payload = {
         ...formData,
         userId: 1,
+        startDate: formData.dateEmployed || formData.startDate,
+        role: formData.designation || formData.role,
         departmentId: toIntOrOmit(formData.departmentId),
         jobGroupId: toIntOrOmit(formData.jobGroupId),
         managerId: toIntOrOmit(formData.managerId),
       };
+      delete payload.dateOfBirth;
+      delete payload.date_of_birth;
+      delete payload.kraPin;
+      delete payload.kra_pin;
       if (isEditMode) {
-        await apiFunction(editedItem.staffId, payload);
+        const staffId = editedItem.staffId ?? editedItem.staff_id ?? editedItem.id;
+        if (!staffId) {
+          throw new Error('Employee ID is missing. Please refresh and try again.');
+        }
+        await apiFunction(staffId, payload);
       } else {
         await apiFunction(payload);
       }
@@ -214,6 +228,15 @@ export default function AddEditEmployeeModal({
                     />
                   </Grid>
                   <Grid xs={12} sm={4}>
+                    <TextField
+                      {...fieldProps}
+                      name="employeeNumber"
+                      label="Employee number"
+                      value={formData.employeeNumber || ''}
+                      onChange={handleFormChange}
+                    />
+                  </Grid>
+                  <Grid xs={12} sm={4}>
                     <FormControl {...selectFormProps} required>
                       <InputLabel>Gender</InputLabel>
                       <Select
@@ -227,26 +250,6 @@ export default function AddEditEmployeeModal({
                         <MenuItem value="Other">Other</MenuItem>
                       </Select>
                     </FormControl>
-                  </Grid>
-                  <Grid xs={12} sm={4}>
-                    <TextField
-                      {...fieldProps}
-                      name="dateOfBirth"
-                      label="Date of birth"
-                      type="date"
-                      value={formData.dateOfBirth?.slice(0, 10) || ''}
-                      onChange={handleFormChange}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  </Grid>
-                  <Grid xs={12} sm={4}>
-                    <TextField
-                      {...fieldProps}
-                      name="placeOfBirth"
-                      label="Place of birth"
-                      value={formData.placeOfBirth || ''}
-                      onChange={handleFormChange}
-                    />
                   </Grid>
                   <Grid xs={12} sm={4}>
                     <TextField
@@ -266,148 +269,46 @@ export default function AddEditEmployeeModal({
                       onChange={handleFormChange}
                     />
                   </Grid>
-                  <Grid xs={12} sm={4}>
+                </Grid>
+              </Box>
+            </Grid>
+
+            {/* Contact — right column */}
+            <Grid xs={12} lg={5}>
+              <Box
+                sx={{
+                  height: '100%',
+                  p: { xs: 0, sm: 1.5 },
+                  borderRadius: 1,
+                  bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'grey.50'),
+                  border: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <SectionHeader icon={ContactMailOutlinedIcon} label="Contact" />
+                <Grid container spacing={1.25} columns={12}>
+                  <Grid xs={12} sm={6}>
                     <TextField
                       {...fieldProps}
-                      name="kraPin"
-                      label="KRA PIN"
-                      value={formData.kraPin || ''}
+                      name="email"
+                      label="Email"
+                      type="email"
+                      value={formData.email || ''}
                       onChange={handleFormChange}
+                      required
                     />
                   </Grid>
-                  <Grid xs={12} sm={4}>
-                    <FormControl {...selectFormProps}>
-                      <InputLabel>Marital status</InputLabel>
-                      <Select
-                        name="maritalStatus"
-                        value={formData.maritalStatus || ''}
-                        label="Marital status"
-                        onChange={handleFormChange}
-                      >
-                        <MenuItem value="Single">Single</MenuItem>
-                        <MenuItem value="Married">Married</MenuItem>
-                        <MenuItem value="Divorced">Divorced</MenuItem>
-                        <MenuItem value="Widowed">Widowed</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} sm={4}>
-                    <FormControl {...selectFormProps}>
-                      <InputLabel>Blood type</InputLabel>
-                      <Select
-                        name="bloodType"
-                        value={formData.bloodType || ''}
-                        label="Blood type"
-                        onChange={handleFormChange}
-                      >
-                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bt) => (
-                          <MenuItem key={bt} value={bt}>
-                            {bt}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid xs={12} sm={8}>
+                  <Grid xs={12} sm={6}>
                     <TextField
                       {...fieldProps}
-                      name="religion"
-                      label="Religion"
-                      value={formData.religion || ''}
+                      name="phoneNumber"
+                      label="Phone"
+                      value={formData.phoneNumber || ''}
                       onChange={handleFormChange}
                     />
                   </Grid>
                 </Grid>
               </Box>
-            </Grid>
-
-            {/* Contact + emergency — right column */}
-            <Grid xs={12} lg={5}>
-              <Stack spacing={2} sx={{ height: '100%' }}>
-                <Box
-                  sx={{
-                    p: { xs: 0, sm: 1.5 },
-                    borderRadius: 1,
-                    bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'grey.50'),
-                    border: 1,
-                    borderColor: 'divider',
-                  }}
-                >
-                  <SectionHeader icon={ContactMailOutlinedIcon} label="Contact" />
-                  <Grid container spacing={1.25} columns={12}>
-                    <Grid xs={12} sm={6}>
-                      <TextField
-                        {...fieldProps}
-                        name="email"
-                        label="Email"
-                        type="email"
-                        value={formData.email || ''}
-                        onChange={handleFormChange}
-                        required
-                      />
-                    </Grid>
-                    <Grid xs={12} sm={6}>
-                      <TextField
-                        {...fieldProps}
-                        name="phoneNumber"
-                        label="Phone"
-                        value={formData.phoneNumber || ''}
-                        onChange={handleFormChange}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-                <Box
-                  sx={{
-                    p: { xs: 0, sm: 1.5 },
-                    borderRadius: 1,
-                    bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'grey.50'),
-                    border: 1,
-                    borderColor: 'divider',
-                    flex: 1,
-                  }}
-                >
-                  <SectionHeader label="Emergency contact" sx={{ mt: 0 }} />
-                  <Grid container spacing={1.25} columns={12}>
-                    <Grid xs={12} sm={6}>
-                      <TextField
-                        {...fieldProps}
-                        name="emergencyContactName"
-                        label="Name"
-                        value={formData.emergencyContactName || ''}
-                        onChange={handleFormChange}
-                      />
-                    </Grid>
-                    <Grid xs={12} sm={6}>
-                      <FormControl {...selectFormProps}>
-                        <InputLabel>Relationship</InputLabel>
-                        <Select
-                          name="emergencyContactRelationship"
-                          value={formData.emergencyContactRelationship || ''}
-                          label="Relationship"
-                          onChange={handleFormChange}
-                        >
-                          <MenuItem value="Spouse">Spouse</MenuItem>
-                          <MenuItem value="Parent">Parent</MenuItem>
-                          <MenuItem value="Sibling">Sibling</MenuItem>
-                          <MenuItem value="Child">Child</MenuItem>
-                          <MenuItem value="Friend">Friend</MenuItem>
-                          <MenuItem value="Other">Other</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid xs={12}>
-                      <TextField
-                        {...fieldProps}
-                        name="emergencyContactPhone"
-                        label="Phone"
-                        value={formData.emergencyContactPhone || ''}
-                        onChange={handleFormChange}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              </Stack>
             </Grid>
 
             <Grid xs={12}>
@@ -510,10 +411,10 @@ export default function AddEditEmployeeModal({
                   <Grid xs={12} sm={6} md={2}>
                     <TextField
                       {...fieldProps}
-                      name="startDate"
-                      label="Start date"
+                      name="dateEmployed"
+                      label="Date employed"
                       type="date"
-                      value={formData.startDate?.slice(0, 10) || ''}
+                      value={formData.dateEmployed?.slice(0, 10) || ''}
                       onChange={handleFormChange}
                       InputLabelProps={{ shrink: true }}
                     />
@@ -542,10 +443,10 @@ export default function AddEditEmployeeModal({
                   <Grid xs={12} sm={6} md={8}>
                     <TextField
                       {...fieldProps}
-                      name="role"
-                      label="Role / position title"
+                      name="designation"
+                      label="Designation"
                       placeholder="e.g. Senior analyst"
-                      value={formData.role || ''}
+                      value={formData.designation || ''}
                       onChange={handleFormChange}
                     />
                   </Grid>

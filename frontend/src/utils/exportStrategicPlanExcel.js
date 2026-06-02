@@ -42,8 +42,8 @@ export function downloadStrategicPlanExcel({ strategicPlan, programs = [], subpr
     ['End year', strategicPlan?.endYear ?? ''],
     ['Vision', strategicPlan?.vision ?? ''],
     ['Mission', strategicPlan?.mission ?? ''],
-    ['Programs count', programs.length],
-    ['Sub-programs count', subprograms.length],
+    ['Programmes count', programs.length],
+    ['Sub-programmes count', subprograms.length],
   ];
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
@@ -52,9 +52,9 @@ export function downloadStrategicPlanExcel({ strategicPlan, programs = [], subpr
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Plan summary');
 
   const progHeaders = [
-    'Program ID',
-    'KRA code',
-    'Key Result Area (program)',
+    'Programme ID',
+    'Programme code',
+    'Programme',
     'Description',
     'Needs & priorities',
     'Strategies',
@@ -82,7 +82,7 @@ export function downloadStrategicPlanExcel({ strategicPlan, programs = [], subpr
   const wsPrograms = XLSX.utils.aoa_to_sheet([progHeaders, ...progData]);
   wsPrograms['!cols'] = progHeaders.map((_, i) => ({ wch: i === 3 || i === 4 || i === 5 || i === 6 || i === 7 ? 36 : 18 }));
   if (progData.length > 0) setAutofilter(wsPrograms);
-  XLSX.utils.book_append_sheet(wb, wsPrograms, 'Programs (KRAs)');
+  XLSX.utils.book_append_sheet(wb, wsPrograms, 'Programmes');
 
   const programOrder = new Map(programs.map((p, i) => [p.programId, i]));
   const progById = new Map(programs.map((p) => [p.programId, p]));
@@ -96,10 +96,10 @@ export function downloadStrategicPlanExcel({ strategicPlan, programs = [], subpr
 
   const subHeaders = [
     'CIDP ID',
-    'Program (KRA)',
-    'Program ID',
-    'Sub-program ID',
-    'Sub-program',
+    'Programme',
+    'Programme ID',
+    'Sub-programme ID',
+    'Sub-programme',
     'Key outcome',
     'KPI',
     'Unit of measure',
@@ -155,7 +155,7 @@ export function downloadStrategicPlanExcel({ strategicPlan, programs = [], subpr
     return { wch: 14 };
   });
   if (subRows.length > 0) setAutofilter(wsSub);
-  XLSX.utils.book_append_sheet(wb, wsSub, 'Sub-programs');
+  XLSX.utils.book_append_sheet(wb, wsSub, 'Sub-programmes');
 
   const slug = String(planTitle)
     .replace(/[^a-z0-9]+/gi, '_')

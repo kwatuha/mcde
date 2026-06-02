@@ -43,6 +43,7 @@ const INITIAL_FORM = {
   teamName: '',
   name: '',
   role: '',
+  employeeNumber: '',
   email: '',
   phone: '',
   dateAppointed: '',
@@ -75,6 +76,15 @@ export default function ProjectTeamsPage() {
     [projects, selectedProjectId]
   );
   const normalizeEmail = useCallback((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''), []);
+  const getEmployeeNumber = useCallback((value) => (
+    value?.employeeNumber ||
+    value?.employee_number ||
+    value?.staffNumber ||
+    value?.staff_number ||
+    value?.payrollNumber ||
+    value?.payroll_number ||
+    ''
+  ), []);
 
   const enrichTeamWithStaffSource = useCallback(
     (team) => {
@@ -87,6 +97,7 @@ export default function ProjectTeamsPage() {
         isStaffMember: true,
         staffSource: match.source,
         staffDirectoryId: match.id,
+        employeeNumber: team.employeeNumber || team.employee_number || match.employeeNumber || '',
       };
     },
     [staffDirectory, normalizeEmail]
@@ -143,6 +154,7 @@ export default function ProjectTeamsPage() {
           fullName,
           role: employee?.jobTitle || employee?.position || employee?.designation || u.roleName || u.role || '',
           source: employee ? 'staff' : 'user',
+          employeeNumber: getEmployeeNumber(employee) || getEmployeeNumber(u),
           employee,
         });
       }
@@ -156,6 +168,7 @@ export default function ProjectTeamsPage() {
           fullName: e.fullName || [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || email,
           role: e.jobTitle || e.position || e.designation || '',
           source: 'employee',
+          employeeNumber: getEmployeeNumber(e),
           employee: e,
         });
       }
@@ -167,7 +180,7 @@ export default function ProjectTeamsPage() {
     } finally {
       setLoadingStaffDirectory(false);
     }
-  }, []);
+  }, [getEmployeeNumber, normalizeEmail]);
 
   const loadTeams = useCallback(async () => {
     if (!selectedProjectId) {
@@ -228,6 +241,7 @@ export default function ProjectTeamsPage() {
       teamName: row.teamName || '',
       name: row.name || '',
       role: row.role || '',
+      employeeNumber: row.employeeNumber || row.employee_number || '',
       email: row.email || '',
       phone: row.phone || '',
       dateAppointed: row.dateAppointed ? new Date(row.dateAppointed).toISOString().slice(0, 10) : '',
@@ -257,6 +271,7 @@ export default function ProjectTeamsPage() {
           isStaffMember: Boolean(selectedStaff && (selectedStaff.source === 'staff' || selectedStaff.source === 'employee')),
           staffSource: selectedStaff?.source || null,
           staffDirectoryId: selectedStaff?.id || null,
+          employeeNumber: form.employeeNumber || selectedStaff?.employeeNumber || '',
         };
         if (apiService.projects?.addTeamMember) {
           const saved = await apiService.projects.addTeamMember(selectedProjectId, form);
@@ -291,13 +306,13 @@ export default function ProjectTeamsPage() {
 
   const handleDownloadTemplate = () => {
     if (!selectedProjectId) return;
-    const headers = ['Team Name', 'Name', 'Role', 'Email', 'Phone', 'Date Appointed', 'Date Ended', 'Notes'];
+    const headers = ['Team Name', 'Name', 'Role', 'Employee No.', 'Email', 'Phone', 'Date Appointed', 'Date Ended', 'Notes'];
     const exampleRows = [
-      ['Inspection Team', 'John Doe', 'Project Manager', 'john.doe@example.com', '+254712345678', '2026-01-01', '', 'Team lead'],
-      ['PMC', 'Jane Smith', 'Engineer', 'jane.smith@example.com', '+254700000000', '2026-01-15', '', 'Member'],
+      ['Inspection Team', 'John Doe', 'Project Manager', 'EMP001', 'john.doe@example.com', '+254712345678', '2026-01-01', '', 'Team lead'],
+      ['PMC', 'Jane Smith', 'Engineer', 'EMP002', 'jane.smith@example.com', '+254700000000', '2026-01-15', '', 'Member'],
     ];
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleRows]);
-    worksheet['!cols'] = [{ wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
+    worksheet['!cols'] = [{ wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 16 }, { wch: 30 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Team Template');
     XLSX.writeFile(workbook, `project-teams-template-${selectedProjectId}.xlsx`);
@@ -321,11 +336,12 @@ export default function ProjectTeamsPage() {
             teamName: String(row[0] || '').trim(),
             name: String(row[1] || '').trim(),
             role: String(row[2] || '').trim(),
-            email: String(row[3] || '').trim(),
-            phone: String(row[4] || '').trim(),
-            dateAppointed: String(row[5] || '').trim(),
-            dateEnded: String(row[6] || '').trim(),
-            notes: String(row[7] || '').trim(),
+            employeeNumber: String(row[3] || '').trim(),
+            email: String(row[4] || '').trim(),
+            phone: String(row[5] || '').trim(),
+            dateAppointed: String(row[6] || '').trim(),
+            dateEnded: String(row[7] || '').trim(),
+            notes: String(row[8] || '').trim(),
             projectId: selectedProjectId,
           };
           if (team.teamName || team.name) uploadedTeams.push(team);
@@ -340,11 +356,12 @@ export default function ProjectTeamsPage() {
             teamName: v[0] || '',
             name: v[1] || '',
             role: v[2] || '',
-            email: v[3] || '',
-            phone: v[4] || '',
-            dateAppointed: v[5] || '',
-            dateEnded: v[6] || '',
-            notes: v[7] || '',
+            employeeNumber: v[3] || '',
+            email: v[4] || '',
+            phone: v[5] || '',
+            dateAppointed: v[6] || '',
+            dateEnded: v[7] || '',
+            notes: v[8] || '',
             projectId: selectedProjectId,
           };
           if (team.teamName || team.name) uploadedTeams.push(team);
@@ -355,7 +372,9 @@ export default function ProjectTeamsPage() {
 
       if (!uploadedTeams.length) throw new Error('No valid team rows found in file.');
       const existingSet = new Set(teams.map((t) => `${t.teamName || ''}|${t.name || ''}|${t.email || ''}`));
-      const newTeams = uploadedTeams.filter((t) => !existingSet.has(`${t.teamName || ''}|${t.name || ''}|${t.email || ''}`));
+      const newTeams = uploadedTeams
+        .filter((t) => !existingSet.has(`${t.teamName || ''}|${t.name || ''}|${t.email || ''}`))
+        .map(enrichTeamWithStaffSource);
       const updated = [...teams, ...newTeams];
       setTeams(updated);
       localStorage.setItem(`project-teams-${selectedProjectId}`, JSON.stringify(updated));
@@ -383,12 +402,13 @@ export default function ProjectTeamsPage() {
       m.teamName || 'General',
       m.name || 'N/A',
       m.role || 'N/A',
+      m.employeeNumber || m.employee_number || 'N/A',
       m.email || 'N/A',
       m.phone || 'N/A',
       m.dateAppointed ? new Date(m.dateAppointed).toLocaleDateString() : 'N/A',
     ]);
     autoTable(doc, {
-      head: [['#', 'Team', 'Name', 'Role', 'Email', 'Phone', 'Date Appointed']],
+      head: [['#', 'Team', 'Name', 'Role', 'Employee No.', 'Email', 'Phone', 'Date Appointed']],
       body: rows,
       startY: 86,
       styles: { fontSize: 8 },
@@ -399,12 +419,12 @@ export default function ProjectTeamsPage() {
   const handlePrintTeams = () => {
     const htmlRows = teams
       .map(
-        (m, i) => `<tr><td>${i + 1}</td><td>${m.teamName || 'General'}</td><td>${m.name || 'N/A'}</td><td>${m.role || 'N/A'}</td><td>${m.email || 'N/A'}</td><td>${m.phone || 'N/A'}</td></tr>`
+        (m, i) => `<tr><td>${i + 1}</td><td>${m.teamName || 'General'}</td><td>${m.name || 'N/A'}</td><td>${m.role || 'N/A'}</td><td>${m.employeeNumber || m.employee_number || 'N/A'}</td><td>${m.email || 'N/A'}</td><td>${m.phone || 'N/A'}</td></tr>`
       )
       .join('');
     const w = window.open('', '_blank');
     if (!w) return;
-    w.document.write(`<html><head><title>Project Teams</title></head><body><h2>Project Team Members</h2><p>Project: ${selectedProject?.projectName || selectedProject?.name || 'N/A'}</p><table border="1" cellspacing="0" cellpadding="6"><thead><tr><th>#</th><th>Team</th><th>Name</th><th>Role</th><th>Email</th><th>Phone</th></tr></thead><tbody>${htmlRows}</tbody></table></body></html>`);
+    w.document.write(`<html><head><title>Project Teams</title></head><body><h2>Project Team Members</h2><p>Project: ${selectedProject?.projectName || selectedProject?.name || 'N/A'}</p><table border="1" cellspacing="0" cellpadding="6"><thead><tr><th>#</th><th>Team</th><th>Name</th><th>Role</th><th>Employee No.</th><th>Email</th><th>Phone</th></tr></thead><tbody>${htmlRows}</tbody></table></body></html>`);
     w.document.close();
     w.focus();
     setTimeout(() => w.print(), 250);
@@ -490,6 +510,18 @@ export default function ProjectTeamsPage() {
                 { field: 'teamName', headerName: 'Team', width: 150, valueGetter: (_, r) => r.teamName || r.role || 'General' },
                 { field: 'name', headerName: 'Name', flex: 1, minWidth: 160 },
                 { field: 'role', headerName: 'Role', width: 180 },
+                {
+                  field: 'employeeNumber',
+                  headerName: 'Employee No.',
+                  width: 150,
+                  valueGetter: (_, r) => {
+                    const isStaff =
+                      r.isStaffMember === true ||
+                      r.staffSource === 'staff' ||
+                      r.staffSource === 'employee';
+                    return isStaff ? (r.employeeNumber || r.employee_number || '—') : '—';
+                  },
+                },
                 { field: 'email', headerName: 'Email', flex: 1, minWidth: 180 },
                 {
                   field: 'source',
@@ -564,12 +596,13 @@ export default function ProjectTeamsPage() {
                 setForm((prev) => ({
                   ...prev,
                   name: value.fullName || prev.name,
+                  employeeNumber: value.employeeNumber || prev.employeeNumber,
                   email: value.email || prev.email,
                   role: prev.role || value.role || prev.role,
                 }));
               }}
               getOptionLabel={(option) =>
-                `${option.fullName}${option.role ? ` (${option.role})` : ''} — ${option.email}`
+                `${option.fullName}${option.employeeNumber ? ` [${option.employeeNumber}]` : ''}${option.role ? ` (${option.role})` : ''} — ${option.email}`
               }
               renderInput={(params) => (
                 <TextField
@@ -582,6 +615,7 @@ export default function ProjectTeamsPage() {
             />
             <TextField label="Team Name" value={form.teamName} onChange={(e) => setForm((p) => ({ ...p, teamName: e.target.value }))} />
             <TextField label="Name" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+            <TextField label="Employee No." value={form.employeeNumber} onChange={(e) => setForm((p) => ({ ...p, employeeNumber: e.target.value }))} />
             <FormControl fullWidth>
               <InputLabel>Role</InputLabel>
               <Select

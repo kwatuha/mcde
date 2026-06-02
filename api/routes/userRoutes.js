@@ -762,6 +762,14 @@ router.put('/users/:id', async (req, res) => {
         ...otherFieldsToUpdate
     } = req.body;
     const scopesPayload = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
+    if (scopesPayload !== undefined) {
+        if (!Array.isArray(scopesPayload)) {
+            return res.status(400).json({ error: 'Organization access must be an array.' });
+        }
+        if (scopesPayload.length > 0 && !scopesPayload.some((row) => orgScope.normalizeScopeInput(row))) {
+            return res.status(400).json({ error: 'No valid organization access rows were provided.' });
+        }
+    }
     const incomingPhone = req.body.phoneNumber ?? req.body.phone_number;
     if (incomingPhone !== undefined && incomingPhone !== null && String(incomingPhone).trim() !== '') {
         const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
@@ -988,6 +996,9 @@ router.put('/users/:id', async (req, res) => {
                     await orgScope.replaceUserOrganizationScopes(id, Array.isArray(scopesPayload) ? scopesPayload : []);
                 } catch (scopeErr) {
                     console.error('Error updating organization scopes:', scopeErr);
+                    return res.status(400).json({
+                        error: scopeErr.message || 'Error updating organization access.',
+                    });
                 }
             }
 

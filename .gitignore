@@ -9,6 +9,9 @@ nginx/gprs.sites-available.working
 .env
 .env.local
 api/.env.remote
+api/.env.remote-copy
+api/.env.before-remote-copy
+deploy/pull-server-db-to-local-copy.sh
 .envGov
 .env.development
 .env.production

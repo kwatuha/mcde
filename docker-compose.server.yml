@@ -13,6 +13,7 @@ services:
       dockerfile: Dockerfile.production
       args:
         VITE_MAPS_API_KEY: ${VITE_MAPS_API_KEY:-}
+        VITE_CERT_COUNTY_NAME: ${VITE_CERT_COUNTY_NAME:-County Government of Machakos}
     container_name: machakosme_react_frontend
     restart: always
     ports:

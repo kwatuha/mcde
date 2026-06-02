@@ -3,6 +3,7 @@ import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Paper, CircularProgress, IconButton,
   Snackbar, Alert, Stack, useTheme, Grid, Card, CardContent,
+  Chip, Divider,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
 import { 
@@ -14,12 +15,17 @@ import {
   Clear as ClearIcon
 } from '@mui/icons-material';
 import axiosInstance from '../api/axiosInstance';
-import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "./dashboard/theme";
 import Header from "./dashboard/Header";
 
+const emptySubSector = () => ({
+  id: null,
+  subSectorName: '',
+  alias: '',
+  description: '',
+});
+
 function SectorsPage() {
-  const { user, hasPrivilege } = useAuth();
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const isLight = theme.palette.mode === 'light';
@@ -38,6 +44,7 @@ function SectorsPage() {
     sectorName: '',
     alias: '',
     description: '',
+    subSectors: [],
   });
   const [formErrors, setFormErrors] = useState({});
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -74,7 +81,12 @@ function SectorsPage() {
     return (
       (sector.sectorName || '').toLowerCase().includes(query) ||
       (sector.alias || '').toLowerCase().includes(query) ||
-      (sector.description || '').toLowerCase().includes(query)
+      (sector.description || '').toLowerCase().includes(query) ||
+      (sector.subSectors || []).some((subSector) =>
+        (subSector.subSectorName || '').toLowerCase().includes(query) ||
+        (subSector.alias || '').toLowerCase().includes(query) ||
+        (subSector.description || '').toLowerCase().includes(query)
+      )
     );
   });
 
@@ -93,8 +105,45 @@ function SectorsPage() {
     if (!formData.sectorName.trim()) {
       errors.sectorName = 'Sector name is required';
     }
+    const subSectorNames = new Set();
+    formData.subSectors.forEach((subSector, index) => {
+      const name = (subSector.subSectorName || '').trim();
+      if (!name) {
+        errors[`subSectors.${index}.subSectorName`] = 'Sub-sector name is required';
+        return;
+      }
+      const key = name.toLowerCase();
+      if (subSectorNames.has(key)) {
+        errors[`subSectors.${index}.subSectorName`] = 'Duplicate sub-sector name in this sector';
+      }
+      subSectorNames.add(key);
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const handleSubSectorChange = (index, field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      subSectors: prev.subSectors.map((subSector, i) =>
+        i === index ? { ...subSector, [field]: value } : subSector
+      ),
+    }));
+    const errorKey = `subSectors.${index}.${field}`;
+    if (formErrors[errorKey]) {
+      setFormErrors((prev) => ({ ...prev, [errorKey]: '' }));
+    }
+  };
+
+  const handleAddSubSector = () => {
+    setFormData((prev) => ({ ...prev, subSectors: [...prev.subSectors, emptySubSector()] }));
+  };
+
+  const handleRemoveSubSector = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      subSectors: prev.subSectors.filter((_, i) => i !== index),
+    }));
   };
 
   // Handle save (create or update)
@@ -179,6 +228,12 @@ function SectorsPage() {
       sectorName: sector.sectorName || '',
       alias: sector.alias || '',
       description: sector.description || '',
+      subSectors: (sector.subSectors || []).map((subSector) => ({
+        id: subSector.id || null,
+        subSectorName: subSector.subSectorName || subSector.name || '',
+        alias: subSector.alias || '',
+        description: subSector.description || '',
+      })),
     });
     setFormErrors({});
     setOpenDialog(true);
@@ -190,6 +245,7 @@ function SectorsPage() {
       sectorName: '',
       alias: '',
       description: '',
+      subSectors: [],
     });
     setFormErrors({});
     setCurrentSector(null);
@@ -212,7 +268,7 @@ function SectorsPage() {
     },
     {
       field: 'alias',
-      headerName: 'Alias',
+      headerName: 'Sector Alias',
       flex: 1,
       minWidth: 150,
       editable: false,
@@ -224,6 +280,38 @@ function SectorsPage() {
           {params.value || '-'}
         </Typography>
       ),
+    },
+    {
+      field: 'subSectors',
+      headerName: 'Sub-sectors',
+      flex: 1.4,
+      minWidth: 260,
+      sortable: false,
+      renderCell: (params) => {
+        const subSectors = params.row?.subSectors || [];
+        if (!subSectors.length) {
+          return (
+            <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+              No sub-sectors
+            </Typography>
+          );
+        }
+        return (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
+            {subSectors.slice(0, 4).map((subSector) => (
+              <Chip
+                key={subSector.id || subSector.subSectorName}
+                size="small"
+                label={subSector.alias ? `${subSector.subSectorName} (${subSector.alias})` : subSector.subSectorName}
+                variant="outlined"
+              />
+            ))}
+            {subSectors.length > 4 && (
+              <Chip size="small" label={`+${subSectors.length - 4} more`} color="primary" variant="outlined" />
+            )}
+          </Box>
+        );
+      },
     },
     {
       field: 'description',
@@ -294,12 +382,29 @@ function SectorsPage() {
             </CardContent>
           </Card>
         </Grid>
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Box display="flex" alignItems="center" gap={2}>
+                <CategoryIcon sx={{ fontSize: 40, color: colors.greenAccent[500] }} />
+                <Box>
+                  <Typography variant="h4" fontWeight={600}>
+                    {sectors.reduce((sum, sector) => sum + (sector.subSectors?.length || 0), 0)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Total Sub-sectors
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
       {/* Actions Bar */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <TextField
-          placeholder="Search sectors..."
+          placeholder="Search sectors, aliases, or sub-sectors..."
           variant="outlined"
           size="small"
           value={searchQuery}
@@ -316,7 +421,7 @@ function SectorsPage() {
               </IconButton>
             ),
           }}
-          sx={{ width: 300 }}
+          sx={{ width: { xs: '100%', sm: 420 } }}
         />
         <Button
           variant="contained"
@@ -334,6 +439,11 @@ function SectorsPage() {
       </Box>
 
       {/* DataGrid */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
       <Paper sx={{ height: 600, width: '100%' }}>
         <DataGrid
           key={refreshKey}
@@ -341,6 +451,7 @@ function SectorsPage() {
           columns={columns}
           loading={loading}
           getRowId={(row) => row.id}
+          getRowHeight={() => 'auto'}
           pageSizeOptions={[10, 25, 50, 100]}
           initialState={{
             pagination: {
@@ -363,7 +474,7 @@ function SectorsPage() {
       </Paper>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={openDialog} onClose={() => { setOpenDialog(false); resetForm(); }} maxWidth="sm" fullWidth>
+      <Dialog open={openDialog} onClose={() => { setOpenDialog(false); resetForm(); }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white' }}>
           {currentSector ? 'Edit Sector' : 'Add Sector'}
         </DialogTitle>
@@ -384,12 +495,12 @@ function SectorsPage() {
             />
             <TextField
               margin="dense"
-              label="Alias (Short Name)"
+              label="Sector Aliases"
               fullWidth
               variant="outlined"
               value={formData.alias}
               onChange={(e) => handleInputChange('alias', e.target.value)}
-              helperText="Optional: A shorter name or abbreviation for use in dashboards and reports"
+              helperText="Optional: comma-separated aliases or abbreviations used in imports, dashboards, and reports"
               sx={{ mb: 2 }}
             />
             <TextField
@@ -403,6 +514,76 @@ function SectorsPage() {
               onChange={(e) => handleInputChange('description', e.target.value)}
               sx={{ mb: 2 }}
             />
+            <Divider />
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} sx={{ mb: 1 }}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Sub-sectors
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Add sub-sectors under this sector. Each sub-sector can also have comma-separated aliases.
+                  </Typography>
+                </Box>
+                <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={handleAddSubSector}>
+                  Add Sub-sector
+                </Button>
+              </Box>
+              <Stack spacing={1.25}>
+                {formData.subSectors.map((subSector, index) => (
+                  <Paper key={subSector.id || `new-${index}`} variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          label="Sub-sector Name"
+                          size="small"
+                          fullWidth
+                          required
+                          value={subSector.subSectorName}
+                          onChange={(e) => handleSubSectorChange(index, 'subSectorName', e.target.value)}
+                          error={!!formErrors[`subSectors.${index}.subSectorName`]}
+                          helperText={formErrors[`subSectors.${index}.subSectorName`]}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          label="Aliases"
+                          size="small"
+                          fullWidth
+                          value={subSector.alias}
+                          onChange={(e) => handleSubSectorChange(index, 'alias', e.target.value)}
+                          helperText="Comma-separated"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          label="Description"
+                          size="small"
+                          fullWidth
+                          value={subSector.description}
+                          onChange={(e) => handleSubSectorChange(index, 'description', e.target.value)}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={1} display="flex" alignItems="flex-start" justifyContent="flex-end">
+                        <IconButton
+                          color="error"
+                          size="small"
+                          onClick={() => handleRemoveSubSector(index)}
+                          aria-label="Remove sub-sector"
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                ))}
+                {formData.subSectors.length === 0 && (
+                  <Alert severity="info">
+                    No sub-sectors added yet. Use Add Sub-sector to create one under this sector.
+                  </Alert>
+                )}
+              </Stack>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px' }}>

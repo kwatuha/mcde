@@ -11,9 +11,14 @@ const routeTitles = {
   '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
+  '/projects/milestones': { title: 'Project Milestone List', subtitle: 'Projects - milestones, targets, periods, and remarks' },
   '/projects/teams': { title: 'Project Teams', subtitle: 'Manage team members across projects' },
   '/projects/status': { title: 'Project Status', subtitle: 'Manage overall status and progress updates' },
   '/projects/updates': { title: 'Project Updates', subtitle: 'Monitoring hub for status, documents, and feedback' },
+  '/monitoring/project-monitoring': {
+    title: 'Project Monitoring List',
+    subtitle: 'Monitoring - project activities, indicators, evidence and achieved values',
+  },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
     subtitle: 'Associate Planning catalog activities with projects',
@@ -33,6 +38,7 @@ const routeTitles = {
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },
   '/project-by-sector-dashboard': { title: 'Project By Sector', subtitle: 'Sector spread & registry alignment' },
   '/finance/payment-certificates': { title: 'Payment Certificates', subtitle: 'All projects' },
+  '/finance/payment-list': { title: 'Payment List', subtitle: 'Project payments with budget and funding context' },
   '/finance/funding-sources-report': { title: 'Funding Sources Report', subtitle: 'Projects grouped by funding source' },
 
   // Reporting routes
@@ -59,6 +65,30 @@ const routeTitles = {
   '/maps/import-data': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/map-data-import': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/strategic-planning': { title: 'CIDP', subtitle: 'County Integrated Development Plan' },
+  '/planning/cidp-pillars': {
+    title: 'CIDP Pillars',
+    subtitle: 'Planning - pillars, objectives, sectors, programmes, and SDG linkages',
+  },
+  '/planning/cidp-periods': {
+    title: 'CIDP Period List',
+    subtitle: 'Planning - CIDP implementation periods',
+  },
+  '/planning/adp-periods': {
+    title: 'ADP Period List',
+    subtitle: 'Planning - annual development plan periods',
+  },
+  '/planning/programmes': {
+    title: 'Programme List',
+    subtitle: 'Planning - programmes, objectives, sectors, and SDG linkages',
+  },
+  '/planning/sector-list': {
+    title: 'Sector List',
+    subtitle: 'Planning - sectors and project counts',
+  },
+  '/planning/budget-allocation': {
+    title: 'Budget Allocation List',
+    subtitle: 'Planning - project allocation register',
+  },
   '/planning/indicators': {
     title: 'Indicators & KPIs',
     subtitle: 'Planning — measurement types, KPIs & indicators',

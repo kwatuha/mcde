@@ -104,7 +104,7 @@ function StrategicPlanningPage() {
     setSnackbar({
       open: true,
       severity: 'info',
-      message: `Pending approval for work plan #${wid}: open the strategic plan that contains this work plan, then Sub-programs → Work plans → select the row to use the approval panel.`,
+      message: `Pending approval for work plan #${wid}: open the strategic plan that contains this work plan, then Sub-programmes -> Work plans -> select the row to use the approval panel.`,
     });
     const next = new URLSearchParams(searchParams);
     next.delete('focusWorkplan');

@@ -15,6 +15,7 @@ import {
   IconButton,
   Tooltip,
   Stack,
+  Chip,
   useTheme,
 } from '@mui/material';
 import {
@@ -29,6 +30,21 @@ import Header from './dashboard/Header';
 import { tokens } from './dashboard/theme';
 const checkUserPrivilege = (user, privilegeName) =>
   user && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
+
+const formatDate = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const statusColor = (status) => {
+  const s = String(status || '').toUpperCase();
+  if (s === 'COMPLETED') return 'success';
+  if (s === 'ONGOING') return 'warning';
+  if (s === 'PLANNED') return 'info';
+  return 'default';
+};
 
 export default function PlanningProjectActivitiesPage() {
   const theme = useTheme();
@@ -114,8 +130,8 @@ export default function PlanningProjectActivitiesPage() {
     setMessage('');
     setError('');
     const indicatorId = Number(form.indicatorId);
-    if (!form.activityName.trim()) {
-      setError('Activity name is required.');
+    if (!form.activityCode.trim() || !form.activityName.trim()) {
+      setError('Activity code and activity name are required.');
       return;
     }
     if (!Number.isFinite(indicatorId)) {
@@ -125,16 +141,13 @@ export default function PlanningProjectActivitiesPage() {
     try {
       if (dialog.editing) {
         await apiService.planning.updateProjectActivity(dialog.editing.id, {
+          activityCode: form.activityCode.trim(),
           activityName: form.activityName.trim(),
           description: form.description.trim() || null,
           indicatorId,
         });
         setMessage('Activity updated.');
       } else {
-        if (!form.activityCode.trim()) {
-          setError('Activity code is required.');
-          return;
-        }
         await apiService.planning.createProjectActivity({
           activityCode: form.activityCode.trim(),
           activityName: form.activityName.trim(),
@@ -165,8 +178,73 @@ export default function PlanningProjectActivitiesPage() {
   const isDark = theme.palette.mode === 'dark';
 
   const columns = [
-    { field: 'activityCode', headerName: 'Activity code', width: 140 },
-    { field: 'activityName', headerName: 'Activity name', flex: 1, minWidth: 180 },
+    { field: 'activityCode', headerName: 'Project Activity Code', width: 170 },
+    { field: 'activityName', headerName: 'Project Activity Name', flex: 1, minWidth: 200 },
+    { field: 'description', headerName: 'Project Activity Description', flex: 1.2, minWidth: 260 },
+    {
+      field: 'sampleProjectCode',
+      headerName: 'Project Code',
+      width: 130,
+      valueGetter: (value, row) => row.sampleProjectCode || '—',
+    },
+    {
+      field: 'sampleProjectName',
+      headerName: 'Project Name',
+      flex: 1,
+      minWidth: 220,
+      valueGetter: (value, row) => row.sampleProjectName || 'Not linked',
+    },
+    {
+      field: 'startDate',
+      headerName: 'Start Date',
+      width: 130,
+      valueGetter: (value, row) => row.startDate,
+      valueFormatter: (value) => formatDate(value),
+    },
+    {
+      field: 'endDate',
+      headerName: 'End Date',
+      width: 130,
+      valueGetter: (value, row) => row.endDate,
+      valueFormatter: (value) => formatDate(value),
+    },
+    {
+      field: 'indicatorCount',
+      headerName: 'Indicators',
+      width: 110,
+      type: 'number',
+      valueGetter: (value, row) => Number(row.indicatorCount ?? row.linkedProjectCount ?? 0),
+    },
+    {
+      field: 'baselineCount',
+      headerName: 'Baselines',
+      width: 110,
+      type: 'number',
+      valueGetter: (value, row) => Number(row.baselineCount ?? 0),
+    },
+    {
+      field: 'milestoneCount',
+      headerName: 'Milestones',
+      width: 120,
+      type: 'number',
+      valueGetter: (value, row) => Number(row.milestoneCount ?? 0),
+    },
+    {
+      field: 'status',
+      headerName: 'Status',
+      width: 140,
+      renderCell: (params) => {
+        const label = params.row?.status || 'CATALOG';
+        return <Chip size="small" label={label} color={statusColor(label)} variant="outlined" />;
+      },
+    },
+    {
+      field: 'completedAt',
+      headerName: 'Completed At',
+      width: 130,
+      valueGetter: (value, row) => row.completedAt,
+      valueFormatter: (value) => formatDate(value),
+    },
     { field: 'indicatorName', headerName: 'Indicator (KPI)', flex: 1, minWidth: 200 },
     {
       field: 'measurementTypeLabel',
@@ -179,7 +257,6 @@ export default function PlanningProjectActivitiesPage() {
         row.measurement_type_code ||
         '—',
     },
-    { field: 'description', headerName: 'Description', flex: 1.2, minWidth: 220 },
     {
       field: 'actions',
       headerName: '',
@@ -223,8 +300,8 @@ export default function PlanningProjectActivitiesPage() {
         }}
       >
         <Header
-          title="Planning — Project activities"
-          subtitle="Measurable activities tied to KPIs / indicators (for projects and M&E)"
+          title="Project Activity List"
+          subtitle="CIMES-style activity catalog with linked project context, dates, status, indicators and baselines"
         />
       </Box>
       <Box sx={{ p: 2, maxWidth: 1400, mx: 'auto' }}>
@@ -253,10 +330,10 @@ export default function PlanningProjectActivitiesPage() {
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
                 <Box>
                   <Typography variant="h6" fontWeight={700}>
-                    Activity catalog
+                    Project activities
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Activity code (unique), name, linked indicator (with its measurement unit), and optional description.
+                    Seeded CIMES activities are linked to sample projects; unlinked rows remain available as catalog activities.
                   </Typography>
                 </Box>
                 {canWrite && (
@@ -270,7 +347,7 @@ export default function PlanningProjectActivitiesPage() {
                   </Button>
                 )}
               </Stack>
-              <Box sx={{ height: 520, width: '100%' }}>
+              <Box sx={{ height: 560, width: '100%' }}>
                 <DataGrid
                   rows={rows}
                   columns={columns}
@@ -289,19 +366,14 @@ export default function PlanningProjectActivitiesPage() {
         <DialogTitle>{dialog.editing ? 'Edit project activity' : 'New project activity'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {!dialog.editing && (
-              <TextField
-                label="Activity code"
-                required
-                fullWidth
-                value={form.activityCode}
-                onChange={(e) => setForm((p) => ({ ...p, activityCode: e.target.value }))}
-                helperText="Unique code (e.g. latrine_install, road_km). Stored lowercase."
-              />
-            )}
-            {dialog.editing && (
-              <TextField label="Activity code" fullWidth value={form.activityCode} disabled />
-            )}
+            <TextField
+              label="Activity code"
+              required
+              fullWidth
+              value={form.activityCode}
+              onChange={(e) => setForm((p) => ({ ...p, activityCode: e.target.value }))}
+              helperText="Unique code (e.g. ACT-001, road_km)."
+            />
             <TextField
               label="Activity name"
               required

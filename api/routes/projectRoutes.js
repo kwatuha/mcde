@@ -328,12 +328,12 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 NULL AS "piFirstName",
                 NULL AS "piLastName",
                 NULL AS "piEmail",
-                NULL AS "departmentId",
-                p.ministry AS "departmentName",
+                cd."departmentId" AS "departmentId",
+                COALESCE(NULLIF(TRIM(cd.name), ''), NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "departmentName",
                 p.ministry AS "ministry",
-                NULL AS "departmentAlias",
-                NULL AS "sectionId",
-                p.state_department AS "sectionName",
+                cd.alias AS "departmentAlias",
+                ds."sectionId" AS "sectionId",
+                COALESCE(NULLIF(TRIM(ds.name), ''), NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS "sectionName",
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
                 p.timeline->>'financial_year' AS "financialYearName",
@@ -376,6 +376,19 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.location->>'ward' AS "wardNames"
             FROM projects p
             ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
+            LEFT JOIN departments cd
+              ON COALESCE(cd.voided, false) = false
+             AND (
+                    LOWER(TRIM(COALESCE(cd.name, ''))) = LOWER(TRIM(COALESCE(p.state_department, '')))
+                    OR LOWER(TRIM(COALESCE(cd.alias, ''))) = LOWER(TRIM(COALESCE(p.state_department, '')))
+                 )
+            LEFT JOIN sections ds
+              ON COALESCE(ds.voided, false) = false
+             AND ds."departmentId" = cd."departmentId"
+             AND (
+                    LOWER(TRIM(COALESCE(ds.name, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
+                    OR LOWER(TRIM(COALESCE(ds.alias, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
+                 )
             WHERE p.project_id = $1 AND p.voided = false
         `;
     } else {
@@ -443,6 +456,194 @@ const extractCoordinates = (geometry) => {
 const projectCountiesRouter = express.Router({ mergeParams: true });
 const projectSubcountiesRouter = express.Router({ mergeParams: true });
 const projectWardsRouter = express.Router({ mergeParams: true });
+
+const getMonitoringListRows = (result) => {
+    if (Array.isArray(result)) return result[0] || [];
+    return result?.rows || [];
+};
+
+const ensureProjectMonitoringListColumns = async () => {
+    const dbType = process.env.DB_TYPE || 'mysql';
+    const runSafe = async (sql) => {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            const code = String(err?.code || '');
+            const msg = String(err?.message || '').toLowerCase();
+            if (code === '42P07' || code === '42710' || code === '23505' || code === 'ER_DUP_FIELDNAME' || msg.includes('duplicate column')) return;
+            throw err;
+        }
+    };
+
+    if (dbType === 'postgresql') {
+        await runSafe(`
+            CREATE TABLE IF NOT EXISTS project_monitoring_records (
+                record_id BIGSERIAL PRIMARY KEY,
+                project_id BIGINT NOT NULL,
+                comment TEXT NOT NULL,
+                recommendations TEXT NULL,
+                challenges TEXT NULL,
+                activity_code TEXT NULL,
+                activity_name TEXT NULL,
+                indicator_name TEXT NULL,
+                achieved_value NUMERIC NULL,
+                warning_level TEXT NULL,
+                is_routine_observation BOOLEAN NOT NULL DEFAULT TRUE,
+                user_id BIGINT NULL,
+                observation_date DATE NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NULL,
+                voided BOOLEAN NOT NULL DEFAULT FALSE,
+                voided_by BIGINT NULL
+            )
+        `);
+        await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS activity_code TEXT NULL`);
+        await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS activity_name TEXT NULL`);
+        await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS indicator_name TEXT NULL`);
+        await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS achieved_value NUMERIC NULL`);
+        await runSafe(`CREATE INDEX IF NOT EXISTS idx_project_monitoring_records_project_id ON project_monitoring_records (project_id)`);
+        return;
+    }
+
+    await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN activityCode VARCHAR(128) NULL`);
+    await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN activityName VARCHAR(512) NULL`);
+    await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN indicatorName VARCHAR(512) NULL`);
+    await runSafe(`ALTER TABLE project_monitoring_records ADD COLUMN achievedValue DECIMAL(18,2) NULL`);
+};
+
+router.get('/monitoring-records', async (req, res) => {
+    const dbType = process.env.DB_TYPE || 'mysql';
+    const { startDate, endDate, search } = req.query;
+
+    try {
+        await ensureProjectMonitoringListColumns();
+
+        if (dbType === 'postgresql') {
+            const params = [];
+            const where = ['COALESCE(m.voided, false) = false', 'COALESCE(p.voided, false) = false'];
+            const pushParam = (value) => {
+                params.push(value);
+                return `$${params.length}`;
+            };
+
+            if (startDate) where.push(`COALESCE(m.observation_date, m.created_at::date) >= ${pushParam(startDate)}`);
+            if (endDate) where.push(`COALESCE(m.observation_date, m.created_at::date) <= ${pushParam(endDate)}`);
+            if (search) {
+                const token = `%${String(search).trim()}%`;
+                const ph = pushParam(token);
+                where.push(`(
+                    p.name ILIKE ${ph}
+                    OR COALESCE(p.data_sources->>'project_ref_num', '') ILIKE ${ph}
+                    OR COALESCE(m.activity_code, '') ILIKE ${ph}
+                    OR COALESCE(m.activity_name, '') ILIKE ${ph}
+                    OR COALESCE(m.indicator_name, '') ILIKE ${ph}
+                    OR COALESCE(m.comment, '') ILIKE ${ph}
+                )`);
+            }
+
+            const rows = await pool.query(
+                `
+                WITH document_counts AS (
+                    SELECT "projectId" AS project_id, COUNT(*)::int AS evidence_count
+                    FROM "project_documents"
+                    WHERE COALESCE("voided", false) = false
+                    GROUP BY "projectId"
+                )
+                SELECT
+                    m.record_id AS "recordId",
+                    m.project_id AS "projectId",
+                    COALESCE(NULLIF(p.data_sources->>'project_ref_num', ''), 'ADP-' || LPAD(p.project_id::text, 3, '0')) AS "projectCode",
+                    p.name AS "projectName",
+                    COALESCE(NULLIF(m.activity_code, ''), 'ACT-' || LPAD(m.record_id::text, 3, '0')) AS "projectActivityCode",
+                    COALESCE(NULLIF(m.activity_name, ''), 'Project monitoring') AS "projectActivityName",
+                    COALESCE(NULLIF(m.indicator_name, ''), 'Project progress') AS "projectIndicatorName",
+                    COALESCE(m.observation_date, m.created_at::date) AS "reportDate",
+                    m.achieved_value AS "achievedValue",
+                    COALESCE(d.evidence_count, 0) AS "evidenceCount",
+                    m.comment AS remarks,
+                    COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.firstname, u.lastname)), ''), 'System') AS "createdBy",
+                    m.warning_level AS "warningLevel",
+                    m.is_routine_observation AS "isRoutineObservation",
+                    m.recommendations,
+                    m.challenges,
+                    m.created_at AS "createdAt",
+                    m.updated_at AS "updatedAt"
+                FROM project_monitoring_records m
+                INNER JOIN projects p ON p.project_id = m.project_id
+                LEFT JOIN users u ON u.userid = m.user_id
+                LEFT JOIN document_counts d ON d.project_id = m.project_id
+                WHERE ${where.join(' AND ')}
+                ORDER BY COALESCE(m.observation_date, m.created_at::date) DESC NULLS LAST, m.record_id DESC
+                `,
+                params
+            );
+            return res.json(rows.rows || []);
+        }
+
+        const params = [];
+        const where = ['COALESCE(m.voided, 0) = 0', 'COALESCE(p.voided, 0) = 0'];
+        if (startDate) {
+            where.push('DATE(COALESCE(m.observationDate, m.createdAt)) >= ?');
+            params.push(startDate);
+        }
+        if (endDate) {
+            where.push('DATE(COALESCE(m.observationDate, m.createdAt)) <= ?');
+            params.push(endDate);
+        }
+        if (search) {
+            const token = `%${String(search).trim()}%`;
+            where.push(`(
+                p.projectName LIKE ?
+                OR COALESCE(p.ProjectRefNum, '') LIKE ?
+                OR COALESCE(m.activityCode, '') LIKE ?
+                OR COALESCE(m.activityName, '') LIKE ?
+                OR COALESCE(m.indicatorName, '') LIKE ?
+                OR COALESCE(m.comment, '') LIKE ?
+            )`);
+            params.push(token, token, token, token, token, token);
+        }
+
+        const result = await pool.query(
+            `
+            SELECT
+                m.recordId,
+                m.projectId,
+                COALESCE(NULLIF(p.ProjectRefNum, ''), CONCAT('ADP-', LPAD(p.id, 3, '0'))) AS projectCode,
+                p.projectName,
+                COALESCE(NULLIF(m.activityCode, ''), CONCAT('ACT-', LPAD(m.recordId, 3, '0'))) AS projectActivityCode,
+                COALESCE(NULLIF(m.activityName, ''), 'Project monitoring') AS projectActivityName,
+                COALESCE(NULLIF(m.indicatorName, ''), 'Project progress') AS projectIndicatorName,
+                DATE(COALESCE(m.observationDate, m.createdAt)) AS reportDate,
+                m.achievedValue,
+                COALESCE(d.evidenceCount, 0) AS evidenceCount,
+                m.comment AS remarks,
+                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, ''))), ''), 'System') AS createdBy,
+                m.warningLevel,
+                m.isRoutineObservation,
+                m.recommendations,
+                m.challenges,
+                m.createdAt,
+                m.updatedAt
+            FROM project_monitoring_records m
+            INNER JOIN projects p ON p.id = m.projectId
+            LEFT JOIN users u ON u.userId = m.userId
+            LEFT JOIN (
+                SELECT projectId, COUNT(*) AS evidenceCount
+                FROM project_documents
+                WHERE COALESCE(voided, 0) = 0
+                GROUP BY projectId
+            ) d ON d.projectId = m.projectId
+            WHERE ${where.join(' AND ')}
+            ORDER BY DATE(COALESCE(m.observationDate, m.createdAt)) DESC, m.recordId DESC
+            `,
+            params
+        );
+        return res.json(getMonitoringListRows(result));
+    } catch (error) {
+        console.error('Error fetching project monitoring records list:', error);
+        res.status(500).json({ message: 'Error fetching project monitoring records list', error: error.message });
+    }
+});
 
 // Mount other route files
 router.use('/appointmentschedules', appointmentScheduleRoutes);
@@ -2109,28 +2310,29 @@ router.post('/confirm-import-data', async (req, res) => {
     // Helper function to update project in PostgreSQL with JSONB structure
     const updateProjectInPostgreSQL = async (connection, projectId, projectPayload, departmentId, sectionId, locationData = null) => {
         // Get department and section names if IDs are available
-        let ministry = projectPayload.ministry || null;
+        let ministry = projectPayload.ministry || (departmentId ? 'Machakos County Executive' : null);
         let stateDepartment = projectPayload.stateDepartment || null;
+        let implementingAgency = projectPayload.implementing_agency || projectPayload.directorate || null;
         
-        if (!ministry && departmentId) {
+        if (!stateDepartment && departmentId) {
             const deptResult = await connection.query(
-                'SELECT name FROM departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
+                'SELECT name FROM departments WHERE "departmentId" = $1 AND (voided IS NULL OR voided = false)',
                 [departmentId]
             );
             const deptRows = getQueryRows(deptResult);
             if (deptRows.length > 0) {
-                ministry = deptRows[0].name;
+                stateDepartment = deptRows[0].name;
             }
         }
         
-        if (!stateDepartment && sectionId) {
+        if (!implementingAgency && sectionId) {
             const sectionResult = await connection.query(
-                'SELECT name FROM sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
+                'SELECT name FROM sections WHERE "sectionId" = $1 AND (voided IS NULL OR voided = false)',
                 [sectionId]
             );
             const sectionRows = getQueryRows(sectionResult);
             if (sectionRows.length > 0) {
-                stateDepartment = sectionRows[0].name;
+                implementingAgency = sectionRows[0].name;
             }
         }
 
@@ -2259,7 +2461,7 @@ router.post('/confirm-import-data', async (req, res) => {
         const updateParams = [
             projectPayload.projectName,
             projectPayload.projectDescription,
-            projectPayload.implementing_agency || projectPayload.directorate,
+            implementingAgency,
             projectPayload.sector,
             ministry,
             stateDepartment,
@@ -2322,7 +2524,7 @@ router.post('/confirm-import-data', async (req, res) => {
                 if (departmentName) {
                     // Get all departments and check manually (to handle comma-separated aliases properly)
                     const deptResult = await connection.query(
-                        `SELECT departmentId, name, alias FROM departments 
+                        `SELECT "departmentId" AS "departmentId", name, alias FROM departments
                          WHERE (voided IS NULL OR voided = false)`
                     );
                     const allDepts = getQueryRows(deptResult);
@@ -2370,7 +2572,7 @@ router.post('/confirm-import-data', async (req, res) => {
                 if (directorateName) {
                     // Get all sections and check manually (to handle comma-separated aliases properly)
                     const sectionResult = await connection.query(
-                        `SELECT sectionId, name, alias, departmentId FROM sections 
+                        `SELECT "sectionId" AS "sectionId", name, alias, "departmentId" AS "departmentId" FROM sections
                          WHERE (voided IS NULL OR voided = false)`
                     );
                     const allSections = getQueryRows(sectionResult);
@@ -2715,28 +2917,29 @@ router.post('/confirm-import-data', async (req, res) => {
                         });
 
                         // Get department and section names if IDs are available
-                        let ministry = projectPayload.ministry || null;
+                        let ministry = projectPayload.ministry || (departmentId ? 'Machakos County Executive' : null);
                         let stateDepartment = projectPayload.stateDepartment || null;
+                        let implementingAgency = projectPayload.implementing_agency || projectPayload.directorate || null;
                         
-                        if (!ministry && departmentId) {
+                        if (!stateDepartment && departmentId) {
                             const deptResult = await connection.query(
-                                'SELECT name FROM departments WHERE departmentId = $1 AND (voided IS NULL OR voided = false)',
+                                'SELECT name FROM departments WHERE "departmentId" = $1 AND (voided IS NULL OR voided = false)',
                                 [departmentId]
                             );
                             const deptRows = getQueryRows(deptResult);
                             if (deptRows.length > 0) {
-                                ministry = deptRows[0].name;
+                                stateDepartment = deptRows[0].name;
                             }
                         }
                         
-                        if (!stateDepartment && sectionId) {
+                        if (!implementingAgency && sectionId) {
                             const sectionResult = await connection.query(
-                                'SELECT name FROM sections WHERE sectionId = $1 AND (voided IS NULL OR voided = false)',
+                                'SELECT name FROM sections WHERE "sectionId" = $1 AND (voided IS NULL OR voided = false)',
                                 [sectionId]
                             );
                             const sectionRows = getQueryRows(sectionResult);
                             if (sectionRows.length > 0) {
-                                stateDepartment = sectionRows[0].name;
+                                implementingAgency = sectionRows[0].name;
                             }
                         }
 
@@ -2753,7 +2956,7 @@ router.post('/confirm-import-data', async (req, res) => {
                         const insertResult = await connection.query(insertQuery, [
                             projectPayload.projectName,
                             projectPayload.projectDescription,
-                            projectPayload.implementing_agency || projectPayload.directorate,
+                            implementingAgency,
                             projectPayload.sector,
                             ministry,
                             stateDepartment,
@@ -3120,11 +3323,10 @@ router.get('/status-counts', async (req, res) => {
         ];
         const queryParams = [];
 
-        // Enforce organization visibility unless user is admin-like or has explicit bypass.
+        // Enforce organization visibility unless user is Super Admin or has explicit bypass.
         const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
-        const isAdminLike = privilege.isAdminLike(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
                 whereConditions.push(scopeFragPg);
@@ -3156,7 +3358,7 @@ router.get('/status-counts', async (req, res) => {
 
         if (department || departmentId) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.ministry = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`(d.name = ${placeholder} OR d.alias = ${placeholder} OR p.departmentId = ${placeholder})`);
                 const deptValue = department || departmentId;
@@ -3180,7 +3382,7 @@ router.get('/status-counts', async (req, res) => {
 
         if (section) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.implementing_agency = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`s.name = ${placeholder}`);
             }
@@ -3273,11 +3475,10 @@ router.get('/directorate-counts', async (req, res) => {
         ];
         const queryParams = [];
 
-        // Enforce organization visibility unless user is admin-like or has explicit bypass.
+        // Enforce organization visibility unless user is Super Admin or has explicit bypass.
         const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
-        const isAdminLike = privilege.isAdminLike(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
                 whereConditions.push(scopeFragPg);
@@ -3308,7 +3509,7 @@ router.get('/directorate-counts', async (req, res) => {
 
         if (department || departmentId) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.ministry = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`(d.name = ${placeholder} OR d.alias = ${placeholder} OR p.departmentId = ${placeholder})`);
                 const deptValue = department || departmentId;
@@ -3332,7 +3533,7 @@ router.get('/directorate-counts', async (req, res) => {
 
         if (section) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.implementing_agency = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`s.name = ${placeholder}`);
             }
@@ -3421,8 +3622,7 @@ router.get('/organization-distribution', async (req, res) => {
         // Enforce organization visibility unless user has bypass privilege.
         const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
-        const isAdminLike = privilege.isAdminLike(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -3440,8 +3640,8 @@ router.get('/organization-distribution', async (req, res) => {
 
         let sqlQuery = '';
         if (DB_TYPE === 'postgresql') {
-            const ministryExpr = "COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned')";
-            const stateExpr = "COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')";
+            const ministryExpr = "COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')";
+            const stateExpr = "COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned')";
             const agencyExpr = "COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned')";
             let selectMinistry = `${ministryExpr} AS "ministry"`;
             let selectState = `${stateExpr} AS "stateDepartment"`;
@@ -3537,8 +3737,7 @@ router.get('/organization-projects', async (req, res) => {
 
         const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
-        const isAdminLike = privilege.isAdminLike(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -3547,10 +3746,10 @@ router.get('/organization-projects', async (req, res) => {
 
         if (ministry && ministry.toLowerCase() !== 'all') {
             if (ministry.toLowerCase() === 'unassigned') {
-                whereConditions.push("NULLIF(TRIM(COALESCE(p.ministry, '')), '') IS NULL");
+                whereConditions.push("NULLIF(TRIM(COALESCE(p.state_department, '')), '') IS NULL");
             } else {
                 if (DB_TYPE === 'postgresql') {
-                    whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                    whereConditions.push("LOWER(TRIM(COALESCE(p.state_department, ''))) = LOWER(TRIM(COALESCE(?, '')))");
                 } else {
                     whereConditions.push("LOWER(TRIM(COALESCE(p.ministry, ''))) = LOWER(TRIM(COALESCE(?, '')))");
                 }
@@ -3559,9 +3758,9 @@ router.get('/organization-projects', async (req, res) => {
         }
         if (stateDepartment && stateDepartment.toLowerCase() !== 'all') {
             if (stateDepartment.toLowerCase() === 'unassigned') {
-                whereConditions.push("NULLIF(TRIM(COALESCE(p.state_department, '')), '') IS NULL");
+                whereConditions.push("NULLIF(TRIM(COALESCE(p.implementing_agency, '')), '') IS NULL");
             } else {
-                whereConditions.push("LOWER(TRIM(COALESCE(p.state_department, ''))) = LOWER(TRIM(COALESCE(?, '')))");
+                whereConditions.push("LOWER(TRIM(COALESCE(p.implementing_agency, ''))) = LOWER(TRIM(COALESCE(?, '')))");
                 queryParams.push(stateDepartment);
             }
         }
@@ -3582,8 +3781,8 @@ router.get('/organization-projects', async (req, res) => {
                     p.project_id AS id,
                     p.name AS "projectName",
                     COALESCE(p.progress->>'status', 'Unknown') AS status,
-                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry,
-                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "stateDepartment",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS ministry,
+                    COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS "stateDepartment",
                     COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS agency,
                     COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                     p.location->>'ward' AS "wardNames",
@@ -3648,8 +3847,7 @@ router.get('/jobs-snapshot', async (req, res) => {
 
         const authUserId = getScopeUserId(req.user);
         const authPrivileges = req.user?.privileges || [];
-        const isAdminLike = privilege.isAdminLike(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !isAdminLike && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -4307,12 +4505,12 @@ router.get('/', async (req, res) => {
                 NULL AS piFirstName,
                 NULL AS piLastName,
                 NULL AS piEmail,
-                NULL AS "departmentId",
-                p.ministry AS "departmentName",
+                cd."departmentId" AS "departmentId",
+                COALESCE(NULLIF(TRIM(cd.name), ''), NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "departmentName",
                 p.ministry AS "ministry",
-                NULL AS "departmentAlias",
-                NULL AS "sectionId",
-                p.state_department AS "sectionName",
+                cd.alias AS "departmentAlias",
+                ds."sectionId" AS "sectionId",
+                COALESCE(NULLIF(TRIM(ds.name), ''), NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS "sectionName",
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
                 p.timeline->>'financial_year' AS "financialYearName",
@@ -4423,6 +4621,19 @@ router.get('/', async (req, res) => {
             FROM
                 projects p
             ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
+            LEFT JOIN departments cd
+              ON COALESCE(cd.voided, false) = false
+             AND (
+                    LOWER(TRIM(COALESCE(cd.name, ''))) = LOWER(TRIM(COALESCE(p.state_department, '')))
+                    OR LOWER(TRIM(COALESCE(cd.alias, ''))) = LOWER(TRIM(COALESCE(p.state_department, '')))
+                 )
+            LEFT JOIN sections ds
+              ON COALESCE(ds.voided, false) = false
+             AND ds."departmentId" = cd."departmentId"
+             AND (
+                    LOWER(TRIM(COALESCE(ds.name, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
+                    OR LOWER(TRIM(COALESCE(ds.alias, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
+                 )
             LEFT JOIN (
                 SELECT project_id, COUNT(*) AS site_count
                 FROM project_sites
@@ -4526,20 +4737,28 @@ router.get('/', async (req, res) => {
             }
         }
         if (departmentId) { 
-            // For PostgreSQL, we now use ministry text field, but can also search by name
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push('p.ministry ILIKE ?');
-                queryParams.push(`%${departmentId}%`);
+                whereConditions.push(`(
+                    cd."departmentId"::text = ?
+                    OR p.state_department ILIKE ?
+                    OR cd.name ILIKE ?
+                    OR COALESCE(cd.alias, '') ILIKE ?
+                )`);
+                queryParams.push(String(departmentId), `%${departmentId}%`, `%${departmentId}%`, `%${departmentId}%`);
             } else {
                 whereConditions.push('p.departmentId = ?'); 
                 queryParams.push(parseInt(departmentId)); 
             }
         }
         if (sectionId) { 
-            // For PostgreSQL, we now use state_department text field
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push('p.state_department ILIKE ?');
-                queryParams.push(`%${sectionId}%`);
+                whereConditions.push(`(
+                    ds."sectionId"::text = ?
+                    OR p.implementing_agency ILIKE ?
+                    OR ds.name ILIKE ?
+                    OR COALESCE(ds.alias, '') ILIKE ?
+                )`);
+                queryParams.push(String(sectionId), `%${sectionId}%`, `%${sectionId}%`, `%${sectionId}%`);
             } else {
                 whereConditions.push('p.sectionId = ?'); 
                 queryParams.push(parseInt(sectionId)); 
@@ -5883,6 +6102,10 @@ router.post('/', validateProject, async (req, res) => {
                     projectName,
                     projectDescription,
                     directorate,
+                    department,
+                    departmentName,
+                    sectionName,
+                    implementingAgency,
                     startDate,
                     endDate,
                     costOfProject,
@@ -5912,6 +6135,9 @@ router.post('/', validateProject, async (req, res) => {
                     longitude,
                     feedbackEnabled
                 } = projectData;
+                const countyDepartment = departmentName || department || stateDepartment || null;
+                const countySection = sectionName || implementingAgency || directorate || null;
+                const parentMinistry = ministry || (countyDepartment ? 'Machakos County Executive' : null);
                 
                 // categoryId was extracted separately from req.body, use it here
 
@@ -6005,10 +6231,10 @@ router.post('/', validateProject, async (req, res) => {
                 const result = await pool.query(insertQuery, [
                     projectName,
                     projectDescription || null,
-                    directorate || null,
+                    countySection || null,
                     sector !== undefined ? (sector || null) : null,
-                    ministry || null,
-                    stateDepartment || null,
+                    parentMinistry,
+                    countyDepartment,
                     categoryId ? parseInt(categoryId, 10) : null,
                     timeline,
                     budget,
@@ -6195,6 +6421,10 @@ router.put('/:id', validateProject, async (req, res) => {
                 projectName,
                 projectDescription,
                 directorate,
+                department,
+                departmentName,
+                sectionName,
+                implementingAgency,
                 startDate,
                 endDate,
                 costOfProject,
@@ -6227,6 +6457,8 @@ router.put('/:id', validateProject, async (req, res) => {
                 complaintsReceived,
                 commonFeedback
             } = projectData;
+            const countyDepartment = departmentName || department || stateDepartment || null;
+            const countySection = sectionName || implementingAgency || directorate || null;
 
             // Debug logging for sector, ministry, stateDepartment
             console.log('=== UPDATE PROJECT DEBUG ===');
@@ -6368,9 +6600,9 @@ router.put('/:id', validateProject, async (req, res) => {
                 updateFields.push(`description = $${paramIndex++}`);
                 updateValues.push(projectDescription);
             }
-            if (directorate !== undefined) {
+            if (directorate !== undefined || sectionName !== undefined || implementingAgency !== undefined) {
                 updateFields.push(`implementing_agency = $${paramIndex++}`);
-                updateValues.push(directorate);
+                updateValues.push(countySection);
             }
             // Use 'in' operator to check if key exists in projectData, even if value is empty string or undefined
             if ('sector' in projectData) {
@@ -6392,10 +6624,10 @@ router.put('/:id', validateProject, async (req, res) => {
             } else {
                 console.log('Ministry not in projectData, skipping update');
             }
-            if ('stateDepartment' in projectData) {
-                console.log('Adding stateDepartment to update:', stateDepartment, 'Raw value:', projectData.stateDepartment);
+            if ('stateDepartment' in projectData || 'departmentName' in projectData || 'department' in projectData) {
+                console.log('Adding department/stateDepartment to update:', countyDepartment, 'Raw value:', projectData.stateDepartment || projectData.departmentName || projectData.department);
                 updateFields.push(`state_department = $${paramIndex++}`);
-                const stateDeptValue = (stateDepartment && typeof stateDepartment === 'string' && stateDepartment.trim() !== '') ? stateDepartment.trim() : null;
+                const stateDeptValue = (countyDepartment && typeof countyDepartment === 'string' && countyDepartment.trim() !== '') ? countyDepartment.trim() : null;
                 console.log('StateDepartment value to save:', stateDeptValue);
                 updateValues.push(stateDeptValue);
             } else {

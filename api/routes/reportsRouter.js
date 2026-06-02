@@ -6,9 +6,41 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
+const orgScope = require('../services/organizationScopeService');
+const { isSuperAdminRequester } = require('../utils/roleUtils');
 
 // Helper function to get DB type
 const getDBType = () => process.env.DB_TYPE || 'mysql';
+const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+
+async function addProjectScopeWhere(req, whereConditions, queryParams, projectAlias = 'p', placeholderIndex = null) {
+    const DB_TYPE = getDBType();
+    if (DB_TYPE !== 'postgresql') return placeholderIndex;
+
+    const authUserId = getScopeUserId(req.user);
+    const authPrivileges = req.user?.privileges || [];
+    if (!authUserId) {
+        whereConditions.push('FALSE');
+        return placeholderIndex;
+    }
+    if (isSuperAdminRequester(req.user) || orgScope.userHasOrganizationBypass(authPrivileges)) {
+        return placeholderIndex;
+    }
+    if (!(await orgScope.organizationScopeTableExists())) {
+        whereConditions.push('FALSE');
+        return placeholderIndex;
+    }
+
+    let nextIndex = Number.isFinite(Number(placeholderIndex))
+        ? Number(placeholderIndex)
+        : queryParams.length + 1;
+    const scopeFragment = orgScope
+        .buildProjectListScopeFragment(projectAlias)
+        .replace(/\?/g, () => `$${nextIndex++}`);
+    whereConditions.push(scopeFragment);
+    queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
+    return nextIndex;
+}
 
 function cloneCellStyle(targetCell, sourceCell) {
     if (!targetCell || !sourceCell) return;
@@ -113,7 +145,7 @@ const getProjectIdField = (prefix = 'p') => {
 const getDepartmentIdField = (prefix = 'p') => {
     const DB_TYPE = getDBType();
     if (DB_TYPE === 'postgresql') {
-        return `${prefix}.ministry`; // In PostgreSQL, department is stored as ministry text
+        return `${prefix}.state_department`; // County department text in PostgreSQL.
     }
     return `${prefix}.departmentId`;
 };
@@ -173,7 +205,7 @@ router.get('/department-summary', async (req, res) => {
 
         if (department) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.ministry = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`d.name = ${placeholder}`);
             }
@@ -194,7 +226,7 @@ router.get('/department-summary', async (req, res) => {
 
         if (section) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.implementing_agency = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`(s.name = ${placeholder} OR s.sectionName = ${placeholder})`);
                 queryParams.push(section);
@@ -245,9 +277,11 @@ router.get('/department-summary', async (req, res) => {
             placeholderIndex++;
         }
 
+        placeholderIndex = await addProjectScopeWhere(req, whereConditions, queryParams, 'p', placeholderIndex);
+
         let sqlQuery = `
             SELECT
-                ${DB_TYPE === 'postgresql' ? 'COALESCE(p.ministry, \'Unassigned\')' : 'd.name'} AS "departmentName",
+                ${DB_TYPE === 'postgresql' ? 'COALESCE(p.state_department, \'Unassigned\')' : 'd.name'} AS "departmentName",
                 ${DB_TYPE === 'postgresql' ? 'NULL' : 'd.alias'} AS "departmentAlias",
                 COUNT(${getProjectIdField()}) AS "numProjects",
                 SUM(${getCostField()}) AS "allocatedBudget",
@@ -310,9 +344,9 @@ router.get('/department-summary', async (req, res) => {
         if (DB_TYPE === 'postgresql') {
             sqlQuery += ` WHERE ${whereClause}
                 GROUP BY
-                    COALESCE(p.ministry, 'Unassigned')
+                    COALESCE(p.state_department, 'Unassigned')
                 ORDER BY
-                    COALESCE(p.ministry, 'Unassigned');
+                    COALESCE(p.state_department, 'Unassigned');
             `;
         } else {
             sqlQuery += ` WHERE ${whereClause} AND d.name IS NOT NULL
@@ -509,7 +543,7 @@ router.get('/project-status-summary', async (req, res) => {
         }
         if (departmentId) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.ministry = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`p.departmentId = ${placeholder}`);
             }
@@ -519,6 +553,7 @@ router.get('/project-status-summary', async (req, res) => {
         // Location filters will require joins, similar to the main projects API
         // For simplicity, we'll assume a direct lookup for now
         // A more robust solution would involve conditional joins here
+        placeholderIndex = await addProjectScopeWhere(req, whereConditions, queryParams, 'p', placeholderIndex);
         
         const pgWhereConditions = whereConditions;
         
@@ -565,10 +600,10 @@ router.get('/project-category-summary', async (req, res) => {
                 queryParams.push(finYearId);
             }
             if (departmentId) {
-                // In PostgreSQL, department is stored as ministry text
-                whereConditions.push(`p.ministry = $${queryParams.length + 1}`);
+                whereConditions.push(`p.state_department = $${queryParams.length + 1}`);
                 queryParams.push(departmentId);
             }
+            await addProjectScopeWhere(req, whereConditions, queryParams, 'p');
 
             const sqlQuery = `
                 SELECT
@@ -1227,7 +1262,7 @@ router.get('/financial-status-by-project-status', async (req, res) => {
         }
         if (departmentId) {
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push(`p.ministry = ${placeholder}${placeholderIndex}`);
+                whereConditions.push(`p.state_department = ${placeholder}${placeholderIndex}`);
             } else {
                 whereConditions.push(`p.departmentId = ${placeholder}`);
             }
@@ -1236,6 +1271,7 @@ router.get('/financial-status-by-project-status', async (req, res) => {
         }
         // Location filters can be added here with appropriate joins
         // For example, if (countyId) { whereConditions.push('c.countyId = ?'); queryParams.push(countyId); }
+        placeholderIndex = await addProjectScopeWhere(req, whereConditions, queryParams, 'p', placeholderIndex);
 
         const sqlQuery = `
             SELECT
@@ -1449,11 +1485,17 @@ router.get('/annual-trends', async (req, res) => {
             const DB_TYPE = getDBType();
             let earliestProject;
             if (DB_TYPE === 'postgresql') {
+                const earliestWhere = [
+                    'p.voided = false',
+                    `(p.timeline->>'start_date') IS NOT NULL`,
+                ];
+                const earliestParams = [];
+                await addProjectScopeWhere(req, earliestWhere, earliestParams, 'p');
                 const result = await pool.query(`
                     SELECT MIN(EXTRACT(YEAR FROM (p.timeline->>'start_date')::date)) as "earliestYear"
                     FROM projects p
-                    WHERE p.voided = false AND (p.timeline->>'start_date') IS NOT NULL
-                `);
+                    WHERE ${earliestWhere.join(' AND ')}
+                `, earliestParams);
                 earliestProject = result.rows || result;
             } else {
                 [earliestProject] = await pool.execute(`
@@ -1479,6 +1521,16 @@ router.get('/annual-trends', async (req, res) => {
         }
         
         const DB_TYPE = getDBType();
+        const annualPgWhere = [
+            'p.voided = false',
+            `(p.timeline->>'start_date') IS NOT NULL`,
+            `EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) >= $1`,
+            `EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) <= $2`,
+        ];
+        const annualPgParams = [actualStartYear, actualEndYear];
+        if (DB_TYPE === 'postgresql') {
+            await addProjectScopeWhere(req, annualPgWhere, annualPgParams, 'p', 3);
+        }
         // Get project performance trends
         let projectPerformance;
         if (DB_TYPE === 'postgresql') {
@@ -1490,13 +1542,10 @@ router.get('/annual-trends', async (req, res) => {
                     AVG((p.progress->>'percentage_complete')::numeric) as "avgProgress",
                     AVG(EXTRACT(EPOCH FROM ((${getEndDateField()}) - (${getStartDateField()}))) / 86400) as "avgDuration"
                 FROM projects p
-                WHERE p.voided = false 
-                    AND (p.timeline->>'start_date') IS NOT NULL
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) >= $1
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) <= $2
+                WHERE ${annualPgWhere.join(' AND ')}
                 GROUP BY EXTRACT(YEAR FROM (p.timeline->>'start_date')::date)
                 ORDER BY year
-            `, [actualStartYear, actualEndYear]);
+            `, annualPgParams);
             projectPerformance = result.rows || result;
         } else {
             [projectPerformance] = await pool.execute(`
@@ -1530,13 +1579,10 @@ router.get('/annual-trends', async (req, res) => {
                         ELSE 0 
                     END as "absorptionRate"
                 FROM projects p
-                WHERE p.voided = false 
-                    AND (p.timeline->>'start_date') IS NOT NULL
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) >= $1
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) <= $2
+                WHERE ${annualPgWhere.join(' AND ')}
                 GROUP BY EXTRACT(YEAR FROM (p.timeline->>'start_date')::date)
                 ORDER BY year
-            `, [actualStartYear, actualEndYear]);
+            `, annualPgParams);
             financialTrends = result.rows || result;
         } else {
             [financialTrends] = await pool.execute(`
@@ -1565,19 +1611,16 @@ router.get('/annual-trends', async (req, res) => {
             const result = await pool.query(`
                 SELECT 
                     EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) as year,
-                    p.ministry as "departmentName",
+                    p.state_department as "departmentName",
                     NULL as "departmentAlias",
                     COUNT(p.project_id) as "projectCount",
                     SUM((${getCostField()})) as "departmentBudget",
                     SUM((${getPaidField()})) as "departmentExpenditure"
                 FROM projects p
-                WHERE p.voided = false 
-                    AND (p.timeline->>'start_date') IS NOT NULL
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) >= $1
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) <= $2
-                GROUP BY EXTRACT(YEAR FROM (p.timeline->>'start_date')::date), p.ministry
-                ORDER BY year, p.ministry
-            `, [actualStartYear, actualEndYear]);
+                WHERE ${annualPgWhere.join(' AND ')}
+                GROUP BY EXTRACT(YEAR FROM (p.timeline->>'start_date')::date), p.state_department
+                ORDER BY year, p.state_department
+            `, annualPgParams);
             departmentTrends = result.rows || result;
         } else {
             [departmentTrends] = await pool.execute(`
@@ -1608,14 +1651,11 @@ router.get('/annual-trends', async (req, res) => {
                     ${getStatusField()} as status,
                     COUNT(p.project_id) as count
                 FROM projects p
-                WHERE p.voided = false 
-                    AND (p.timeline->>'start_date') IS NOT NULL
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) >= $1
-                    AND EXTRACT(YEAR FROM (p.timeline->>'start_date')::date) <= $2
+                WHERE ${annualPgWhere.join(' AND ')}
                     AND ${getStatusField()} IS NOT NULL
                 GROUP BY EXTRACT(YEAR FROM (p.timeline->>'start_date')::date), ${getStatusField()}
                 ORDER BY year, ${getStatusField()}
-            `, [actualStartYear, actualEndYear]);
+            `, annualPgParams);
             statusTrends = result.rows || result;
         } else {
             [statusTrends] = await pool.execute(`
@@ -2161,7 +2201,7 @@ router.get('/projects-by-village', async (req, res) => {
     }
 });
 
-async function buildAbsorptionReport(query = {}) {
+async function buildAbsorptionReport(query = {}, req = null) {
     const DB_TYPE = getDBType();
     const isPg = DB_TYPE === 'postgresql';
     const placeholder = isPg ? '$' : '?';
@@ -2185,7 +2225,7 @@ async function buildAbsorptionReport(query = {}) {
     const statusExpr = isPg ? `COALESCE(p.progress->>'status', '')` : `COALESCE(p.status, '')`;
     const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
     const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
-    const deptExpr = isPg ? `COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned')` : `COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned')`;
+    const deptExpr = isPg ? `COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')` : `COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned')`;
     const startExpr = isPg ? `(p.timeline->>'start_date')::date` : `p.startDate`;
     const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
     const fyExpr = isPg ? `COALESCE(p.timeline->>'financial_year', '')` : `COALESCE(CAST(p.finYearId AS CHAR), '')`;
@@ -2222,6 +2262,7 @@ async function buildAbsorptionReport(query = {}) {
         where.push(`${budgetExpr} <= ${isPg ? `${placeholder}${i++}` : placeholder}`);
         params.push(Number(maxBudget));
     }
+    i = await addProjectScopeWhere(req || {}, where, params, 'p', i);
 
     const baseSql = `
         FROM projects p
@@ -2315,7 +2356,7 @@ async function buildAbsorptionReport(query = {}) {
 
 router.get('/absorption-report', async (req, res) => {
     try {
-        const payload = await buildAbsorptionReport(req.query || {});
+        const payload = await buildAbsorptionReport(req.query || {}, req);
         return res.status(200).json(payload);
     } catch (error) {
         console.error('Error fetching absorption report:', error);
@@ -2328,7 +2369,7 @@ router.get('/absorption-report', async (req, res) => {
 
 router.get('/absorption-report/export', async (req, res) => {
     try {
-        const payload = await buildAbsorptionReport(req.query || {});
+        const payload = await buildAbsorptionReport(req.query || {}, req);
         const workbook = new ExcelJS.Workbook();
         const primaryTemplate = path.resolve(__dirname, '..', 'templates', 'budget_absorption_rate.xlsx');
         const fallbackTemplate = path.resolve(__dirname, '..', 'templates', '002_budget_absorption_rate.xlsx');
@@ -2868,7 +2909,7 @@ router.get('/pending-bills', async (req, res) => {
         const where = [isPg ? 'COALESCE(p.voided, false) = false' : '(p.voided IS NULL OR p.voided = 0)'];
         if (department) {
             if (isPg) {
-                where.push(`COALESCE(p.ministry, '') = ${placeholder}${p++}`);
+                where.push(`COALESCE(p.state_department, '') = ${placeholder}${p++}`);
             } else {
                 where.push(`COALESCE(d.name, '') = ${placeholder}`);
             }
@@ -2914,7 +2955,7 @@ router.get('/pending-bills', async (req, res) => {
                 SELECT
                     p.project_id AS "projectId",
                     COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
-                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                     COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                     ${costExpr} AS "contractSum",
                     ${paidExpr} AS "amountPaid",
@@ -2993,7 +3034,7 @@ router.get('/pending-bills/export', async (req, res) => {
         const includeZeroPending = String(req.query.includeZeroPending || '').toLowerCase() === 'true';
         const where = [isPg ? 'COALESCE(p.voided, false) = false' : '(p.voided IS NULL OR p.voided = 0)'];
 
-        if (department) { where.push(isPg ? `COALESCE(p.ministry, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`); params.push(department); }
+        if (department) { where.push(isPg ? `COALESCE(p.state_department, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`); params.push(department); }
         if (status) { where.push(isPg ? `COALESCE(p.progress->>'status', '') = ${placeholder}${p++}` : `COALESCE(p.status, '') = ${placeholder}`); params.push(status); }
         if (projectName) { where.push(isPg ? `LOWER(COALESCE(p.name, '')) LIKE LOWER(${placeholder}${p++})` : `LOWER(COALESCE(p.projectName, '')) LIKE LOWER(${placeholder})`); params.push(`%${projectName}%`); }
         const costExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
@@ -3008,7 +3049,7 @@ router.get('/pending-bills/export', async (req, res) => {
                 SELECT
                     p.project_id AS "projectId",
                     COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
-                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                     COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                     ${costExpr} AS "contractSum",
                     ${paidExpr} AS "amountPaid",
@@ -3121,7 +3162,7 @@ async function buildBudgetJustificationRows(query = {}) {
     const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
 
     if (department) {
-        where.push(isPg ? `COALESCE(p.ministry, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`);
+        where.push(isPg ? `COALESCE(p.state_department, '') = ${placeholder}${p++}` : `COALESCE(d.name, '') = ${placeholder}`);
         params.push(department);
     }
     if (status) {
@@ -3162,7 +3203,7 @@ async function buildBudgetJustificationRows(query = {}) {
             SELECT
                 p.project_id AS "projectId",
                 COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
-                COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                 COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                 ${budgetExpr} AS "budgetAmount",
                 ${paidExpr} AS "paidAmount",
@@ -3516,6 +3557,284 @@ async function columnExistsInDb(tableName, columnName) {
     }
 }
 
+function firstPresent(row, keys) {
+    for (const key of keys) {
+        if (row && row[key] !== undefined && row[key] !== null && row[key] !== '') return row[key];
+        const lowerKey = String(key).toLowerCase();
+        if (row && row[lowerKey] !== undefined && row[lowerKey] !== null && row[lowerKey] !== '') return row[lowerKey];
+    }
+    return null;
+}
+
+function toReportNumber(value) {
+    const n = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+}
+
+function toIsoDateOnly(value) {
+    if (!value) return null;
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+}
+
+function rowMatchesDateRange(rowDate, startDate, endDate) {
+    if (!startDate && !endDate) return true;
+    if (!rowDate) return false;
+    if (startDate && rowDate < startDate) return false;
+    if (endDate && rowDate > endDate) return false;
+    return true;
+}
+
+async function getPaymentListProjectRows(isPg) {
+    const hasProjectRef = await columnExistsInDb('projects', 'ProjectRefNum').catch(() => false);
+    const hasUpdatedAt = await columnExistsInDb('projects', 'updatedAt').catch(() => false);
+    const hasUpdatedAtSnake = await columnExistsInDb('projects', 'updated_at').catch(() => false);
+    const hasContracted = await columnExistsInDb('projects', 'Contracted').catch(() => false);
+    const hasContractSum = await columnExistsInDb('projects', 'contractSum').catch(() => false);
+    const updatedExpr = isPg
+        ? (hasUpdatedAtSnake ? `p.updated_at` : `NULL::timestamptz`)
+        : (hasUpdatedAt ? `p.updatedAt` : `NULL`);
+    const projectCodeExpr = isPg
+        ? `COALESCE(NULLIF(TRIM(p.data_sources->>'project_ref_num'), ''), CONCAT('Project #', p.project_id))`
+        : (hasProjectRef ? `COALESCE(NULLIF(TRIM(p.ProjectRefNum), ''), CONCAT('Project #', p.id))` : `CONCAT('Project #', p.id)`);
+    const contractedExpr = !isPg
+        ? (hasContracted && hasContractSum
+            ? `COALESCE(p.Contracted, p.contractSum, 0)`
+            : hasContracted
+                ? `COALESCE(p.Contracted, 0)`
+                : hasContractSum
+                    ? `COALESCE(p.contractSum, 0)`
+                    : `0`)
+        : null;
+    const sql = isPg
+        ? `
+            SELECT
+                p.project_id AS "projectId",
+                ${projectCodeExpr} AS "projectCode",
+                COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
+                COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
+                COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
+                COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0) AS "budgetAmount",
+                CASE
+                    WHEN (p.budget->>'contracted') ~ '^[0-9]+(\\.[0-9]+)?$' THEN (p.budget->>'contracted')::numeric
+                    ELSE 0
+                END AS "contractedAmount",
+                COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0) AS "paidAmount",
+                ${updatedExpr} AS "updatedAt"
+            FROM projects p
+            WHERE COALESCE(p.voided, false) = false
+        `
+        : `
+            SELECT
+                p.id AS projectId,
+                ${projectCodeExpr} AS projectCode,
+                COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
+                COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
+                COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
+                COALESCE(p.costOfProject, 0) AS budgetAmount,
+                ${contractedExpr} AS contractedAmount,
+                COALESCE(p.paidOut, 0) AS paidAmount,
+                ${updatedExpr} AS updatedAt
+            FROM projects p
+            LEFT JOIN departments d ON p.departmentId = d.departmentId AND (d.voided IS NULL OR d.voided = 0)
+            WHERE COALESCE(p.voided, 0) = 0
+        `;
+    const result = await pool.query(sql);
+    const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+    return rows.map((row) => ({
+        projectId: row.projectId ?? row.projectid,
+        projectCode: row.projectCode ?? row.projectcode,
+        projectName: row.projectName ?? row.projectname,
+        department: row.department || 'Unassigned',
+        status: row.status || 'Unknown',
+        budgetAmount: toReportNumber(row.budgetAmount ?? row.budgetamount),
+        contractedAmount: toReportNumber(row.contractedAmount ?? row.contractedamount),
+        paidAmount: toReportNumber(row.paidAmount ?? row.paidamount),
+        updatedAt: row.updatedAt ?? row.updatedat ?? null,
+    }));
+}
+
+async function getGroupedAmountMap(isPg, tableName, projectIdColumn, amountColumn, whereSql = '') {
+    if (!(await tableExistsInDb(tableName).catch(() => false))) return new Map();
+    const projectExpr = isPg ? `"${projectIdColumn}"` : projectIdColumn;
+    const amountExpr = isPg ? `"${amountColumn}"` : amountColumn;
+    const sql = `
+        SELECT ${projectExpr} AS project_id, COALESCE(SUM(${amountExpr}), 0) AS total_amount
+        FROM ${tableName}
+        ${whereSql ? `WHERE ${whereSql}` : ''}
+        GROUP BY ${projectExpr}
+    `;
+    const result = await pool.query(sql);
+    const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+    return new Map(rows.map((row) => [String(row.project_id), toReportNumber(row.total_amount)]));
+}
+
+router.get('/payment-list', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        const isPg = DB_TYPE === 'postgresql';
+        const startDate = String(req.query.startDate || '').slice(0, 10);
+        const endDate = String(req.query.endDate || '').slice(0, 10);
+        const search = String(req.query.search || '').trim().toLowerCase();
+        const departmentFilter = String(req.query.department || '').trim();
+        const sourceFilter = String(req.query.source || '').trim();
+        const limit = Number(req.query.limit || 5000);
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(10000, limit)) : 5000;
+
+        const projects = await getPaymentListProjectRows(isPg);
+        const byId = new Map(projects.map((p) => [String(p.projectId), p]));
+        const byCode = new Map(projects.map((p) => [String(p.projectCode || '').toLowerCase(), p]).filter(([k]) => k));
+        const byName = new Map(projects.map((p) => [String(p.projectName || '').toLowerCase(), p]).filter(([k]) => k));
+
+        const fundingMap = await getGroupedAmountMap(
+            isPg,
+            'project_funding_entries',
+            'project_id',
+            'amount',
+            isPg ? 'COALESCE(voided, false) = false' : 'COALESCE(voided, 0) = 0'
+        ).catch(() => new Map());
+
+        let certifiedMap = new Map();
+        if (await tableExistsInDb('projectcertificate').catch(() => false)) {
+            const hasCertNet = await columnExistsInDb('projectcertificate', 'certificateNetAmount').catch(() => false);
+            const hasCertData = await columnExistsInDb('projectcertificate', 'certificateData').catch(() => false);
+            const netPartsPg = [];
+            const netPartsMy = [];
+            if (hasCertNet) {
+                netPartsPg.push(`c."certificateNetAmount"`);
+                netPartsMy.push(`c.certificateNetAmount`);
+            }
+            if (hasCertData) {
+                netPartsPg.push(`NULLIF(TRIM(c."certificateData"->>'certificateNetAmount'), '')::numeric`);
+                netPartsPg.push(`NULLIF(TRIM(c."certificateData"->>'netAmount'), '')::numeric`);
+                netPartsMy.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.certificateNetAmount')), '') AS DECIMAL(18,2))`);
+                netPartsMy.push(`CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(c.certificateData, '$.netAmount')), '') AS DECIMAL(18,2))`);
+            }
+            const netExpr = isPg
+                ? (netPartsPg.length ? `COALESCE(${netPartsPg.join(', ')}, 0)` : '0')
+                : (netPartsMy.length ? `COALESCE(${netPartsMy.join(', ')}, 0)` : '0');
+            const sql = isPg
+                ? `SELECT c."projectId" AS project_id, COALESCE(SUM(${netExpr}), 0) AS total_amount
+                   FROM projectcertificate c
+                   WHERE COALESCE(c.voided, false) = false
+                   GROUP BY c."projectId"`
+                : `SELECT c.projectId AS project_id, COALESCE(SUM(${netExpr}), 0) AS total_amount
+                   FROM projectcertificate c
+                   WHERE COALESCE(c.voided, 0) = 0
+                   GROUP BY c.projectId`;
+            const result = await pool.query(sql);
+            const rows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+            certifiedMap = new Map(rows.map((row) => [String(row.project_id), toReportNumber(row.total_amount)]));
+        }
+
+        let rows = [];
+        const hasProjectPayments = await tableExistsInDb('projectpayments').catch(() => false);
+        if (hasProjectPayments) {
+            const result = await pool.query(`SELECT * FROM projectpayments LIMIT ${safeLimit}`);
+            const rawRows = isPg ? (result.rows || []) : (Array.isArray(result) ? (result[0] || []) : []);
+            rows = rawRows
+                .map((row, idx) => {
+                    const projectId = firstPresent(row, ['projectId', 'project_id']);
+                    const projectCode = firstPresent(row, ['projectCode', 'project_code', 'ProjectRefNum', 'projectRefNum', 'adpProjectCode']);
+                    const projectName = firstPresent(row, ['projectName', 'project_name', 'name']);
+                    const project =
+                        (projectId != null ? byId.get(String(projectId)) : null) ||
+                        (projectCode ? byCode.get(String(projectCode).toLowerCase()) : null) ||
+                        (projectName ? byName.get(String(projectName).toLowerCase()) : null) ||
+                        null;
+                    const id = project?.projectId ?? projectId ?? `payment-${idx + 1}`;
+                    return {
+                        id: firstPresent(row, ['paymentId', 'payment_id', 'id']) ?? `payment-${idx + 1}`,
+                        paymentDate: toIsoDateOnly(firstPresent(row, ['paymentDate', 'payment_date', 'paidAt', 'paid_at', 'paidDate', 'createdAt', 'created_at'])),
+                        projectId: project?.projectId ?? projectId ?? null,
+                        projectCode: project?.projectCode ?? projectCode ?? `Project #${id}`,
+                        projectName: project?.projectName ?? projectName ?? `Project #${id}`,
+                        department: project?.department || firstPresent(row, ['department', 'ministry']) || 'Unassigned',
+                        status: project?.status || firstPresent(row, ['status']) || 'Unknown',
+                        narration: firstPresent(row, ['narration', 'description', 'remarks', 'notes', 'particulars']) || 'Project payment',
+                        amount: toReportNumber(firstPresent(row, ['amount', 'paymentAmount', 'payment_amount', 'paidAmount', 'amountPaid', 'paid_out'])),
+                        budgetAmount: project?.budgetAmount || 0,
+                        contractedAmount: project?.contractedAmount || 0,
+                        paidAmount: project?.paidAmount || 0,
+                        fundingAmount: fundingMap.get(String(project?.projectId ?? projectId)) || 0,
+                        certifiedAmount: certifiedMap.get(String(project?.projectId ?? projectId)) || 0,
+                        dataSource: 'Payment records',
+                    };
+                })
+                .filter((row) => row.amount > 0);
+        }
+
+        if (!rows.length) {
+            rows = projects
+                .filter((project) => Number(project.paidAmount || 0) > 0)
+                .map((project) => ({
+                    id: `project-paid-${project.projectId}`,
+                    paymentDate: toIsoDateOnly(project.updatedAt),
+                    projectId: project.projectId,
+                    projectCode: project.projectCode || `Project #${project.projectId}`,
+                    projectName: project.projectName || `Project #${project.projectId}`,
+                    department: project.department || 'Unassigned',
+                    status: project.status || 'Unknown',
+                    narration: 'Recorded paid amount from project registry',
+                    amount: Number(project.paidAmount || 0),
+                    budgetAmount: Number(project.budgetAmount || 0),
+                    contractedAmount: Number(project.contractedAmount || 0),
+                    paidAmount: Number(project.paidAmount || 0),
+                    fundingAmount: fundingMap.get(String(project.projectId)) || 0,
+                    certifiedAmount: certifiedMap.get(String(project.projectId)) || 0,
+                    dataSource: 'Project paid amount',
+                }));
+        }
+
+        const filteredRows = rows
+            .map((row) => ({
+                ...row,
+                absorptionPercentage: Number(row.budgetAmount || 0) > 0 ? (Number(row.paidAmount || row.amount || 0) / Number(row.budgetAmount || 0)) * 100 : 0,
+                fundingCoveragePercentage: Number(row.budgetAmount || 0) > 0 ? (Number(row.fundingAmount || 0) / Number(row.budgetAmount || 0)) * 100 : 0,
+                certificateVariance: Math.max(0, Number(row.certifiedAmount || 0) - Number(row.paidAmount || 0)),
+            }))
+            .filter((row) => rowMatchesDateRange(row.paymentDate, startDate, endDate))
+            .filter((row) => !departmentFilter || row.department === departmentFilter)
+            .filter((row) => !sourceFilter || row.dataSource === sourceFilter)
+            .filter((row) => {
+                if (!search) return true;
+                return [row.projectCode, row.projectName, row.department, row.status, row.narration, row.dataSource]
+                    .filter(Boolean)
+                    .some((value) => String(value).toLowerCase().includes(search));
+            })
+            .sort((a, b) => String(b.paymentDate || '').localeCompare(String(a.paymentDate || '')) || Number(b.amount || 0) - Number(a.amount || 0))
+            .slice(0, safeLimit);
+
+        const projectIds = new Set(filteredRows.map((row) => row.projectId).filter((id) => id !== null && id !== undefined));
+        const departments = [...new Set(rows.map((row) => row.department).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        const sources = [...new Set(rows.map((row) => row.dataSource).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        const summary = filteredRows.reduce((acc, row) => {
+            acc.totalPaid += Number(row.amount || 0);
+            acc.totalBudget += Number(row.budgetAmount || 0);
+            acc.totalContracted += Number(row.contractedAmount || 0);
+            acc.totalFunding += Number(row.fundingAmount || 0);
+            acc.totalCertified += Number(row.certifiedAmount || 0);
+            return acc;
+        }, { totalPaid: 0, totalBudget: 0, totalContracted: 0, totalFunding: 0, totalCertified: 0 });
+
+        return res.status(200).json({
+            rows: filteredRows,
+            summary: {
+                ...summary,
+                rowCount: filteredRows.length,
+                projectCount: projectIds.size,
+                absorptionPercentage: summary.totalBudget > 0 ? (summary.totalPaid / summary.totalBudget) * 100 : 0,
+                fundingCoveragePercentage: summary.totalBudget > 0 ? (summary.totalFunding / summary.totalBudget) * 100 : 0,
+            },
+            options: { departments, sources },
+        });
+    } catch (error) {
+        console.error('Error building payment list report:', error);
+        return res.status(500).json({ message: 'Error building payment list report', error: error.message });
+    }
+});
+
 router.get('/project-finance-overview', async (req, res) => {
     try {
         const DB_TYPE = getDBType();
@@ -3572,7 +3891,7 @@ router.get('/project-finance-overview', async (req, res) => {
         if (department) {
             if (isPg) {
                 params.push(department);
-                where.push(`COALESCE(p.ministry,'') = $${params.length}`);
+                where.push(`COALESCE(p.state_department,'') = $${params.length}`);
             } else {
                 params.push(department);
                 where.push(`COALESCE(d.name,'') = ?`);
@@ -3616,7 +3935,7 @@ router.get('/project-finance-overview', async (req, res) => {
                 SELECT
                     p.project_id AS "projectId",
                     ${pgProjectNameSelect} AS "projectName",
-                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                     COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                     ${budgetExpr} AS "budgetAmount",
                     ${paidExpr} AS "paidAmount",
@@ -3785,7 +4104,7 @@ router.get('/projects-by-funding-source', async (req, res) => {
         }
         if (department) {
             params.push(department);
-            where.push(isPg ? `COALESCE(p.ministry,'') = $${params.length}` : `COALESCE(d.name,'') = ?`);
+            where.push(isPg ? `COALESCE(p.state_department,'') = $${params.length}` : `COALESCE(d.name,'') = ?`);
         }
 
         const fsJoin = hasFundingSources
@@ -3811,7 +4130,7 @@ router.get('/projects-by-funding-source', async (req, res) => {
                 SELECT
                     p.project_id AS "projectId",
                     ${pgProjectNameSelect} AS "projectName",
-                    COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                     COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                     ${budgetExpr} AS "budgetAmount",
                     ${paidExpr} AS "paidAmount",
@@ -4116,7 +4435,7 @@ router.get('/project-financial-statement/export', async (req, res) => {
             ? `
                 SELECT p.project_id AS "projectId",
                        COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
-                       COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS "department",
+                       COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                        COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
                        COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0) AS "budgetAmount",
                        COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0) AS "paidAmount"
