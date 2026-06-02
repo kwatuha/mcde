@@ -420,6 +420,12 @@
           "route": "REPORT_LIBRARY"
         },
         {
+          "title": "County Operations",
+          "icon": "AssessmentIcon",
+          "route": "COUNTY_OPERATIONS_REPORT",
+          "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
+        },
+        {
           "title": "Absorption Report",
           "icon": "AssessmentIcon",
           "route": "ABSORPTION_REPORT",

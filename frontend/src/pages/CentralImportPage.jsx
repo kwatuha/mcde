@@ -389,18 +389,6 @@ function CentralImportPage() {
                 existing: deduplicateCaseInsensitive(mappingSummary.stateDepartments?.existing || []),
                 unmatched: deduplicateCaseInsensitive(mappingSummary.stateDepartments?.unmatched || [])
               } : undefined,
-            counties: mappingSummary.counties ? {
-              existing: deduplicateCaseInsensitive(mappingSummary.counties?.existing || []),
-              unmatched: deduplicateCaseInsensitive(mappingSummary.counties?.unmatched || [])
-            } : undefined,
-            constituencies: mappingSummary.constituencies ? {
-              existing: deduplicateCaseInsensitive(mappingSummary.constituencies?.existing || []),
-              unmatched: deduplicateCaseInsensitive(mappingSummary.constituencies?.unmatched || [])
-            } : undefined,
-            kenyaWards: mappingSummary.kenyaWards ? {
-              existing: deduplicateCaseInsensitive(mappingSummary.kenyaWards?.existing || []),
-              unmatched: deduplicateCaseInsensitive(mappingSummary.kenyaWards?.unmatched || [])
-            } : undefined,
               duplicateProjectNames: mappingSummary.duplicateProjectNames || []
             };
 

@@ -29,6 +29,7 @@ const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage')
 const ReportsHubPage = lazy(() => import('./pages/ReportsHubPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const ReportLibraryPage = lazy(() => import('./pages/ReportLibraryPage'));
+const CountyOperationsReportPage = lazy(() => import('./pages/CountyOperationsReportPage'));
 const PendingBillsReportPage = lazy(() => import('./pages/PendingBillsReportPage'));
 const BudgetJustificationReportPage = lazy(() => import('./pages/BudgetJustificationReportPage'));
 const ProjectFinanceOverviewPage = lazy(() => import('./pages/ProjectFinanceOverviewPage'));
@@ -239,6 +240,10 @@ const router = createBrowserRouter([
       {
         path: 'report-library',
         element: <LazyRoute component={ReportLibraryPage} />,
+      },
+      {
+        path: 'county-operations-report',
+        element: <LazyRoute component={CountyOperationsReportPage} />,
       },
       {
         path: 'pending-bills-report',

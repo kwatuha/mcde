@@ -1,193 +1,493 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Card,
   CardActionArea,
   CardContent,
+  Chip,
   Container,
+  Divider,
+  InputAdornment,
+  Paper,
+  Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import HubIcon from '@mui/icons-material/Hub';
+import InsightsIcon from '@mui/icons-material/Insights';
+import MapIcon from '@mui/icons-material/Map';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import SearchIcon from '@mui/icons-material/Search';
+import TuneIcon from '@mui/icons-material/Tune';
 import { Link as RouterLink } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
 
 const SECTIONS = [
   {
+    id: 'finance',
     title: 'Financial & registry',
     description: 'Downloads, statements, and finance-oriented outputs.',
+    icon: AttachMoneyIcon,
     links: [
       {
         title: 'Report library',
         description: 'Curated report documents and references.',
         to: ROUTES.REPORT_LIBRARY,
+        tags: ['library', 'documents', 'uploads'],
+        icon: MenuBookIcon,
+      },
+      {
+        title: 'County operations report',
+        description: 'Department, region, KPI, evaluation, and attention summaries.',
+        to: ROUTES.COUNTY_OPERATIONS_REPORT,
+        tags: ['operations', 'departments', 'regions', 'kpi', 'evaluation'],
+        featured: true,
+        icon: InsightsIcon,
       },
       {
         title: 'Pending bills report',
         description: 'Outstanding project bill balances and exports.',
         to: ROUTES.PENDING_BILLS_REPORT,
+        tags: ['pending bills', 'finance', 'balances'],
+        icon: AttachMoneyIcon,
       },
       {
         title: 'Budget justification',
         description: 'Filter projects and download justification templates.',
         to: ROUTES.BUDGET_JUSTIFICATION_REPORT,
+        tags: ['budget', 'justification', 'template'],
+        icon: AssessmentIcon,
       },
       {
         title: 'Project finance overview',
         description: 'Financing mix, partner contributions, and statements.',
         to: ROUTES.PROJECT_FINANCE_OVERVIEW_REPORT,
+        tags: ['finance', 'partners', 'statements'],
+        icon: AttachMoneyIcon,
       },
       {
         title: 'Absorption report',
         description: 'Budget absorption and financial analytics.',
         to: ROUTES.ABSORPTION_REPORT,
+        tags: ['absorption', 'budget', 'payments'],
+        featured: true,
+        icon: AssessmentIcon,
       },
       {
         title: 'Scheduled reports',
         description: 'Automated or recurring report configuration.',
         to: ROUTES.SCHEDULED_REPORTS,
+        tags: ['scheduled', 'recurring', 'automation'],
+        icon: TuneIcon,
       },
     ],
   },
   {
+    id: 'performance',
     title: 'Performance & accountability',
     description: 'Periodic and county-level performance views.',
+    icon: FactCheckIcon,
     links: [
       {
         title: 'Performance management report',
         description: 'Performance metrics and management analytics.',
         to: ROUTES.PERFORMANCE_MANAGEMENT_REPORT,
+        tags: ['performance', 'management', 'metrics'],
+        icon: FactCheckIcon,
       },
       {
         title: 'CAPR report',
         description: 'County annual performance reporting.',
         to: ROUTES.CAPR_REPORT,
+        tags: ['annual', 'capr', 'county performance'],
+        featured: true,
+        icon: AssessmentIcon,
       },
       {
         title: 'Quarterly implementation report',
         description: 'Quarterly implementation summary.',
         to: ROUTES.QUARTERLY_IMPLEMENTATION_REPORT,
+        tags: ['quarterly', 'implementation', 'periodic'],
+        icon: AssessmentIcon,
       },
     ],
   },
   {
+    id: 'geography',
     title: 'Dashboards & geography',
     description: 'Consolidated views also reachable from the Dashboard ribbon.',
+    icon: MapIcon,
     links: [
       {
         title: 'Reporting dashboard',
         description: 'Cross-cutting reporting dashboard.',
         to: ROUTES.REPORTING_DASHBOARD,
+        tags: ['dashboard', 'reporting', 'overview'],
+        icon: DashboardIcon,
       },
       {
         title: 'Regional reports',
         description: 'Regional analytics overview.',
         to: ROUTES.REGIONAL_DASHBOARD,
+        tags: ['regional', 'geography', 'overview'],
+        icon: MapIcon,
       },
       {
         title: 'Regional breakdown',
         description: 'Sub-county and ward dashboards.',
         to: ROUTES.REGIONAL_REPORTING,
+        tags: ['sub-county', 'ward', 'regional'],
+        featured: true,
+        icon: MapIcon,
       },
       {
         title: 'Departmental reports',
         description: 'Executive department and implementation unit performance.',
         to: ROUTES.DEPARTMENTAL_REPORTING,
+        tags: ['department', 'unit', 'performance'],
+        featured: true,
+        icon: AssessmentIcon,
       },
       {
         title: 'Project dashboards',
         description: 'Per-project dashboard analytics.',
         to: ROUTES.REPORTING_OVERVIEW,
+        tags: ['project', 'dashboard', 'analytics'],
+        icon: DashboardIcon,
       },
       {
         title: 'Projects dashboard',
         description: 'Registry-wide projects dashboard view.',
         to: ROUTES.NEW_DASHBOARD,
+        tags: ['registry', 'dashboard', 'projects'],
+        icon: DashboardIcon,
       },
       {
         title: 'GIS dashboard',
         description: 'Map-based indicators and geographic summaries.',
         to: ROUTES.GIS_DASHBOARD,
+        tags: ['gis', 'map', 'location'],
+        icon: MapIcon,
       },
     ],
   },
   {
+    id: 'monitoring',
     title: 'Projects & monitoring',
     description: 'Charts, evaluation exports, field tools, and raw tables.',
+    icon: AssessmentIcon,
     links: [
       {
         title: 'Project status charts',
         description: 'Status distribution and projects by directorate.',
         to: ROUTES.REPORTS,
+        tags: ['status', 'charts', 'directorate'],
+        icon: AssessmentIcon,
       },
       {
         title: 'Project evaluation',
         description: 'M&E evaluation grid and structured export.',
         to: ROUTES.PROJECT_EVALUATION,
+        tags: ['evaluation', 'm&e', 'export'],
+        icon: FactCheckIcon,
       },
       {
         title: 'Checklists & visits',
         description: 'Inspection templates and visit records.',
         to: ROUTES.DATA_COLLECTION_TOOLS,
+        tags: ['checklists', 'visits', 'inspection'],
+        icon: FactCheckIcon,
       },
       {
         title: 'Raw data',
         description: 'Tabular data and document-style exports.',
         to: ROUTES.RAW_DATA,
+        tags: ['raw data', 'tables', 'exports'],
+        icon: AssessmentIcon,
       },
     ],
   },
   {
+    id: 'planning',
     title: 'Planning',
     description: 'Planning catalog links to reporting cadence.',
+    icon: TuneIcon,
     links: [
       {
         title: 'Reporting frequency',
         description: 'How often indicators and milestones are reported.',
         to: ROUTES.PLANNING_REPORTING_FREQUENCY,
+        tags: ['frequency', 'cadence', 'periods'],
+        icon: TuneIcon,
       },
     ],
   },
 ];
 
-export default function ReportsHubPage() {
-  return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-        Reports hub
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 720 }}>
-        One place to open reporting and analytics screens that also live elsewhere in the app. Each card
-        goes to the existing page; permissions are unchanged.
-      </Typography>
+const ALL_CATEGORY = 'all';
 
-      {SECTIONS.map((section) => (
-        <Box key={section.title} sx={{ mb: 4 }}>
-          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-            {section.title}
+const flattenedReports = SECTIONS.flatMap((section) =>
+  section.links.map((report) => ({
+    ...report,
+    sectionId: section.id,
+    sectionTitle: section.title,
+    sectionIcon: section.icon,
+  }))
+);
+
+function ReportCard({ report, compact = false }) {
+  const Icon = report.icon || AssessmentIcon;
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        height: '100%',
+        borderColor: report.featured ? 'primary.light' : 'divider',
+        bgcolor: report.featured ? 'primary.50' : 'background.paper',
+        transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: 4,
+          borderColor: 'primary.main',
+        },
+      }}
+    >
+      <CardActionArea component={RouterLink} to={report.to} sx={{ height: '100%', alignItems: 'stretch' }}>
+        <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 2,
+                display: 'grid',
+                placeItems: 'center',
+                color: 'primary.main',
+                bgcolor: 'primary.50',
+                border: '1px solid',
+                borderColor: 'primary.100',
+              }}
+            >
+              <Icon fontSize="small" />
+            </Box>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                {report.title}
+              </Typography>
+              {!compact && (
+                <Typography variant="caption" color="text.secondary">
+                  {report.sectionTitle}
+                </Typography>
+              )}
+            </Box>
+            <ArrowForwardIcon fontSize="small" color="action" />
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+            {report.description}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {section.description}
-          </Typography>
+          {!compact && (
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+              {(report.tags || []).slice(0, 3).map((tag) => (
+                <Chip key={tag} label={tag} size="small" variant="outlined" />
+              ))}
+            </Stack>
+          )}
+        </CardContent>
+      </CardActionArea>
+    </Card>
+  );
+}
+
+export default function ReportsHubPage() {
+  const [query, setQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
+
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const filteredSections = useMemo(() => {
+    return SECTIONS.map((section) => {
+      const links = section.links
+        .map((report) => ({ ...report, sectionId: section.id, sectionTitle: section.title }))
+        .filter((report) => {
+          const categoryMatch = activeCategory === ALL_CATEGORY || report.sectionId === activeCategory;
+          if (!categoryMatch) return false;
+          if (!normalizedQuery) return true;
+          const haystack = [
+            report.title,
+            report.description,
+            report.sectionTitle,
+            ...(report.tags || []),
+          ]
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(normalizedQuery);
+        });
+      return { ...section, links };
+    }).filter((section) => section.links.length > 0);
+  }, [activeCategory, normalizedQuery]);
+
+  const featuredReports = flattenedReports.filter((report) => report.featured).slice(0, 5);
+  const totalMatches = filteredSections.reduce((sum, section) => sum + section.links.length, 0);
+
+  return (
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.5, md: 4 },
+          mb: 3,
+          borderRadius: 4,
+          color: 'white',
+          overflow: 'hidden',
+          position: 'relative',
+          background: 'linear-gradient(135deg, #0f4c81 0%, #1c7c54 100%)',
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            right: -60,
+            top: -60,
+            width: 220,
+            height: 220,
+            borderRadius: '50%',
+            bgcolor: 'rgba(255,255,255,0.12)',
+          }}
+        />
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems={{ xs: 'stretch', md: 'center' }}>
+          <Box sx={{ flex: 1, position: 'relative' }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <HubIcon />
+              <Typography variant="overline" sx={{ letterSpacing: 1.4, color: 'rgba(255,255,255,0.82)' }}>
+                County reporting centre
+              </Typography>
+            </Stack>
+            <Typography variant="h3" sx={{ fontWeight: 900, lineHeight: 1.05, mb: 1 }}>
+              Find the right report faster
+            </Typography>
+            <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.88)', maxWidth: 760 }}>
+              Search across finance, operations, performance, regional dashboards, monitoring, and planning
+              reports from one place.
+            </Typography>
+          </Box>
+          <Paper sx={{ p: 2, borderRadius: 3, minWidth: { xs: '100%', md: 360 }, position: 'relative' }}>
+            <TextField
+              fullWidth
+              autoFocus
+              placeholder="Search reports, e.g. regional, pending bills, evaluation..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon color="action" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Showing {totalMatches} of {flattenedReports.length} reports
+            </Typography>
+          </Paper>
+        </Stack>
+      </Paper>
+
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 3 }}>
+        <Chip
+          label="All reports"
+          color={activeCategory === ALL_CATEGORY ? 'primary' : 'default'}
+          onClick={() => setActiveCategory(ALL_CATEGORY)}
+        />
+        {SECTIONS.map((section) => {
+          const Icon = section.icon;
+          return (
+            <Chip
+              key={section.id}
+              icon={<Icon />}
+              label={section.title}
+              color={activeCategory === section.id ? 'primary' : 'default'}
+              variant={activeCategory === section.id ? 'filled' : 'outlined'}
+              onClick={() => setActiveCategory(section.id)}
+            />
+          );
+        })}
+      </Stack>
+
+      {!normalizedQuery && activeCategory === ALL_CATEGORY && (
+        <Box sx={{ mb: 4 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+            <InsightsIcon color="primary" />
+            <Typography variant="h6" sx={{ fontWeight: 800 }}>
+              Recommended reports
+            </Typography>
+          </Stack>
           <Grid container spacing={2}>
-            {section.links.map(({ title, description, to }) => (
-              <Grid item xs={12} sm={6} md={4} key={to}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardActionArea component={RouterLink} to={to} sx={{ height: '100%', alignItems: 'stretch' }}>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                        {title}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {description}
-                      </Typography>
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
+            {featuredReports.map((report) => (
+              <Grid item xs={12} sm={6} lg={2.4} key={report.to}>
+                <ReportCard report={report} compact />
               </Grid>
             ))}
           </Grid>
         </Box>
-      ))}
+      )}
+
+      {filteredSections.length === 0 && (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
+          <SearchIcon color="disabled" sx={{ fontSize: 44, mb: 1 }} />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            No reports found
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try a different keyword or choose another report category.
+          </Typography>
+        </Paper>
+      )}
+
+      {filteredSections.map((section) => {
+        const SectionIcon = section.icon;
+        return (
+        <Box key={section.title} sx={{ mb: 4 }}>
+          <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 0.5 }}>
+            <Box
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: 2,
+                display: 'grid',
+                placeItems: 'center',
+                color: 'primary.main',
+                bgcolor: 'primary.50',
+              }}
+            >
+              <SectionIcon fontSize="small" />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                {section.title}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {section.description}
+              </Typography>
+            </Box>
+            <Chip label={`${section.links.length} report${section.links.length === 1 ? '' : 's'}`} size="small" />
+          </Stack>
+          <Divider sx={{ mb: 2 }} />
+          <Grid container spacing={2}>
+            {section.links.map((report) => (
+              <Grid item xs={12} sm={6} md={4} key={report.to}>
+                <ReportCard report={report} />
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+        );
+      })}
     </Container>
   );
 }

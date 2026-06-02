@@ -244,6 +244,26 @@ const reportsService = {
     }
   },
 
+  getCountyOperationsFilterOptions: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/county-operations/filter-options', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch county operations filter options:', error);
+      throw error;
+    }
+  },
+
+  getCountyOperationsReport: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/county-operations/summary', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch county operations report:', error);
+      throw error;
+    }
+  },
+
   // --- Annual Trends ---
   getAnnualTrends: async (filters = {}) => {
     try {

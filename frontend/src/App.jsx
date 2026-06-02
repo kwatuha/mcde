@@ -29,6 +29,7 @@ import ProjectGanttChartPage from './pages/ProjectGanttChartPage';
 import ReportsPage from './pages/ReportsPage';
 import ReportsHubPage from './pages/ReportsHubPage';
 import ReportLibraryPage from './pages/ReportLibraryPage';
+import CountyOperationsReportPage from './pages/CountyOperationsReportPage';
 import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
 import ProjectFinanceOverviewPage from './pages/ProjectFinanceOverviewPage';
@@ -333,6 +334,10 @@ const router = createBrowserRouter([
       {
         path: 'report-library',
         element: <ReportLibraryPage />,
+      },
+      {
+        path: 'county-operations-report',
+        element: <CountyOperationsReportPage />,
       },
       {
         path: 'pending-bills-report',

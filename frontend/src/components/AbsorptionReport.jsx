@@ -11,16 +11,11 @@ import {
     TableRow,
     Button,
     Chip,
-    IconButton,
-    Tooltip,
     Fade,
     Slide,
     CircularProgress,
     Alert,
-    useTheme,
     Card,
-    CardContent,
-    Divider,
     Grid,
     Stack,
     FormControl,
@@ -31,19 +26,15 @@ import {
 } from '@mui/material';
 import {
     PictureAsPdf as PdfIcon,
-    TableChart as ExcelIcon,
-    FilterList as FilterIcon,
-    Refresh as RefreshIcon,
-    PlayArrow as PlayIcon,
-    MoreVert as MoreVertIcon
+    TableChart as ExcelIcon
 } from '@mui/icons-material';
 import apiService from '../api';
 import { formatCurrency } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const AbsorptionReport = () => {
-    const theme = useTheme();
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [reportData, setReportData] = useState([]);
@@ -104,33 +95,34 @@ const AbsorptionReport = () => {
     }, []);
 
     const formatPercentage = (value) => {
-        return `${value.toFixed(1)}%`;
+        return `${Number(value || 0).toFixed(1)}%`;
     };
 
-    const handleExportPDF = () => {
+    const handleExportPDF = async () => {
         setExportingPDF(true);
         try {
             const doc = new jsPDF('landscape', 'pt', 'a4');
-            
-            // Add title
-            doc.setFontSize(18);
-            doc.setFont('helvetica', 'bold');
-            doc.text('Absorption Report', 40, 40);
-            
-            // Add subtitle
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'normal');
-            doc.text('Project budget absorption and financial performance analysis', 40, 60);
-            
-            // Add generation date
-            doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 40, 80);
-            
-            // Prepare table data
+            const logoDataUrl = await getCountyLogoDataUrl();
+            let y = drawCountyOfficialHeader(doc, {
+                unit: 'pt',
+                logoDataUrl,
+                title: 'Absorption Report',
+                departmentName: filters.department || '',
+            });
+
+            const activeFilters = Object.entries(filters)
+                .filter(([, value]) => String(value || '').trim() !== '')
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ');
+            doc.setFontSize(9);
+            doc.text(`Generated: ${new Date().toLocaleString()} | Filters: ${activeFilters || 'All scoped records'}`, 40, y);
+            y += 16;
+
             const headers = [
                 'Department',
-                'Projects',
-                'Ward',
+                'Sub-county',
                 'Status',
+                'Projects',
                 '% Complete',
                 'Budget',
                 'Contract Sum',
@@ -139,37 +131,37 @@ const AbsorptionReport = () => {
             ];
             
             const data = reportData.map(row => [
-                row.department,
-                row.projectCount.toString(),
-                row.ward || '-',
-                row.status || '-',
-                `${row.completionPercentage.toFixed(1)}%`,
+                row.department || 'Unassigned',
+                row.subCounty || 'Countywide/Unassigned',
+                row.status || 'Unspecified',
+                String(row.projectCount || 0),
+                `${Number(row.completionPercentage || 0).toFixed(1)}%`,
                 formatCurrency(row.budget),
                 formatCurrency(row.contractSum),
                 formatCurrency(row.paidAmount),
-                `${row.absorptionPercentage.toFixed(1)}%`
+                `${Number(row.absorptionPercentage || 0).toFixed(1)}%`
             ]);
             
             // Add summary row
             data.push([
                 'TOTAL',
-                totals.count.toString(),
-                '-',
-                '-',
-                `${totals.averageCompletion.toFixed(1)}%`,
+                '',
+                '',
+                String(totals.count || 0),
+                `${Number(totals.averageCompletion || 0).toFixed(1)}%`,
                 formatCurrency(totals.totalBudget),
                 formatCurrency(totals.totalContractSum),
                 formatCurrency(totals.totalPaidAmount),
-                `${totals.absorbedPercentage.toFixed(1)}%`
+                `${Number(totals.absorbedPercentage || 0).toFixed(1)}%`
             ]);
             
             // Create table
-            doc.autoTable({
+            autoTable(doc, {
                 head: [headers],
                 body: data,
-                startY: 100,
+                startY: y,
                 styles: {
-                    fontSize: 8,
+                    fontSize: 7,
                     cellPadding: 3,
                     overflow: 'linebreak',
                     halign: 'left'
@@ -180,13 +172,14 @@ const AbsorptionReport = () => {
                     fontStyle: 'bold'
                 },
                 columnStyles: {
-                    4: { halign: 'right' }, // % Complete
-                    5: { halign: 'right' }, // Budget
-                    6: { halign: 'right' }, // Contract Sum
-                    7: { halign: 'right' }, // Paid Amount
-                    8: { halign: 'right' }  // Absorption %
+                    3: { halign: 'right' },
+                    4: { halign: 'right' },
+                    5: { halign: 'right' },
+                    6: { halign: 'right' },
+                    7: { halign: 'right' },
+                    8: { halign: 'right' }
                 },
-                margin: { top: 100, left: 40, right: 40 }
+                margin: { top: 40, left: 40, right: 40 }
             });
             
             // Save the PDF
@@ -260,106 +253,95 @@ const AbsorptionReport = () => {
             background: '#f0f9ff',
             minHeight: '100vh'
         }}>
-            {/* Header Section */}
+            {/* Header and filters */}
             <Fade in timeout={800}>
-                <Box sx={{ mb: 4, textAlign: 'center' }}>
-                    <Typography 
-                        variant="h4" 
-                        component="h1" 
-                        sx={{ 
-                            fontWeight: 'bold',
-                            color: '#1976d2',
-                            mb: 1.5,
-                            letterSpacing: '0.3px'
-                        }}
+                <Paper
+                    elevation={0}
+                    sx={{
+                        p: { xs: 2.25, md: 3 },
+                        mb: 3,
+                        borderRadius: 3,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        bgcolor: '#ffffff',
+                        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+                    }}
+                >
+                    <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'stretch', md: 'flex-start' }}
+                        spacing={2.5}
+                        sx={{ mb: 2.5 }}
                     >
-                        Absorption Report
-                    </Typography>
-                    <Typography 
-                        variant="subtitle1" 
-                        color="text.secondary" 
-                        sx={{ 
-                            fontWeight: 400,
-                            opacity: 0.8,
-                            letterSpacing: '0.2px'
-                        }}
-                    >
-                        Project budget absorption and financial performance analysis
-                    </Typography>
-                </Box>
-            </Fade>
+                        <Box sx={{ flex: 1, minWidth: 0, pr: { md: 2 } }}>
+                            <Typography
+                                variant="h5"
+                                component="h1"
+                                sx={{
+                                    fontWeight: 800,
+                                    color: '#1976d2',
+                                    mb: 0.5,
+                                    letterSpacing: '0.2px',
+                                }}
+                            >
+                                Absorption Report
+                            </Typography>
+                            <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ maxWidth: 760, lineHeight: 1.6 }}
+                            >
+                                Project budget absorption and financial performance analysis.
+                            </Typography>
+                        </Box>
+                        <Stack
+                            direction="row"
+                            spacing={1}
+                            useFlexGap
+                            flexWrap={{ xs: 'wrap', md: 'nowrap' }}
+                            justifyContent={{ xs: 'flex-start', md: 'flex-end' }}
+                            sx={{ flexShrink: 0, minWidth: { md: 300 } }}
+                        >
+                            <Button
+                                variant="contained"
+                                startIcon={exportingPDF ? <CircularProgress size={20} color="inherit" /> : <PdfIcon />}
+                                onClick={handleExportPDF}
+                                disabled={isLoading || reportData.length === 0 || exportingPDF || exportingExcel}
+                                sx={{
+                                    backgroundColor: '#d32f2f',
+                                    '&:hover': { backgroundColor: '#b71c1c' },
+                                    '&:disabled': { backgroundColor: '#ccc', color: '#666' },
+                                    borderRadius: '8px',
+                                    textTransform: 'none',
+                                    fontWeight: 600,
+                                    minWidth: 132,
+                                }}
+                            >
+                                {exportingPDF ? 'Generating...' : 'PDF'}
+                            </Button>
+                            <Button
+                                variant="contained"
+                                startIcon={exportingExcel ? <CircularProgress size={20} color="inherit" /> : <ExcelIcon />}
+                                onClick={handleExportExcel}
+                                disabled={isLoading || reportData.length === 0 || exportingPDF || exportingExcel}
+                                sx={{
+                                    backgroundColor: '#2e7d32',
+                                    '&:hover': { backgroundColor: '#1b5e20' },
+                                    '&:disabled': { backgroundColor: '#ccc', color: '#666' },
+                                    borderRadius: '8px',
+                                    textTransform: 'none',
+                                    fontWeight: 600,
+                                    minWidth: 132,
+                                }}
+                            >
+                                {exportingExcel ? 'Generating...' : 'Excel'}
+                            </Button>
+                        </Stack>
+                    </Stack>
 
-            {/* Export Controls */}
-            <Slide direction="up" in timeout={1000}>
-                <Box sx={{ mb: 3, display: 'flex', gap: 2, justifyContent: 'flex-start' }}>
-                    <Button
-                        variant="contained"
-                        startIcon={exportingPDF ? <CircularProgress size={20} color="inherit" /> : <PdfIcon />}
-                        onClick={handleExportPDF}
-                        disabled={isLoading || reportData.length === 0 || exportingPDF || exportingExcel}
-                        sx={{
-                            backgroundColor: '#d32f2f',
-                            '&:hover': {
-                                backgroundColor: '#b71c1c',
-                            },
-                            '&:disabled': {
-                                backgroundColor: '#ccc',
-                                color: '#666'
-                            },
-                            borderRadius: '8px',
-                            textTransform: 'none',
-                            fontWeight: 600
-                        }}
-                    >
-                        {exportingPDF ? 'Generating PDF...' : 'Export to PDF'}
-                    </Button>
-                    <Button
-                        variant="contained"
-                        startIcon={exportingExcel ? <CircularProgress size={20} color="inherit" /> : <ExcelIcon />}
-                        onClick={handleExportExcel}
-                        disabled={isLoading || reportData.length === 0 || exportingPDF || exportingExcel}
-                        sx={{
-                            backgroundColor: '#2e7d32',
-                            '&:hover': {
-                                backgroundColor: '#1b5e20',
-                            },
-                            '&:disabled': {
-                                backgroundColor: '#ccc',
-                                color: '#666'
-                            },
-                            borderRadius: '8px',
-                            textTransform: 'none',
-                            fontWeight: 600
-                        }}
-                    >
-                        {exportingExcel ? 'Generating Excel...' : 'Export to Excel'}
-                    </Button>
-                </Box>
-            </Slide>
-
-            {/* Active Filters */}
-            <Slide direction="up" in timeout={1200}>
-                <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {Object.entries(filters).filter(([, value]) => String(value || '').trim() !== '').map(([key, value]) => (
-                        <Chip
-                            key={key}
-                            label={`${key}: ${value}`}
-                            onDelete={() => removeFilter(key)}
-                            color="primary"
-                            variant="outlined"
-                            sx={{
-                                borderRadius: '16px',
-                                fontWeight: 500
-                            }}
-                        />
-                    ))}
-                </Box>
-            </Slide>
-
-            <Slide direction="up" in timeout={1100}>
-                <Paper sx={{ p: 2, mb: 2 }}>
-                    <Grid container spacing={1.5}>
-                        <Grid item xs={12} md={3}>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} sm={6} md={4} lg={3}>
                             <FormControl size="small" fullWidth sx={{ minWidth: 180 }}>
                                 <InputLabel>Department</InputLabel>
                                 <Select
@@ -372,7 +354,7 @@ const AbsorptionReport = () => {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12} md={2}>
+                        <Grid item xs={12} sm={6} md={3} lg={2}>
                             <FormControl size="small" fullWidth sx={{ minWidth: 160 }}>
                                 <InputLabel>Status</InputLabel>
                                 <Select
@@ -391,21 +373,21 @@ const AbsorptionReport = () => {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12} md={2}>
+                        <Grid item xs={12} sm={6} md={3} lg={2}>
                             <TextField size="small" type="date" fullWidth label="Start date" value={filters.startDate} onChange={(e) => setFilters((p) => ({ ...p, startDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
                         </Grid>
-                        <Grid item xs={12} md={2}>
+                        <Grid item xs={12} sm={6} md={3} lg={2}>
                             <TextField size="small" type="date" fullWidth label="End date" value={filters.endDate} onChange={(e) => setFilters((p) => ({ ...p, endDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
                         </Grid>
-                        <Grid item xs={12} md={1.5}>
+                        <Grid item xs={12} sm={6} md={3} lg={1.5}>
                             <TextField size="small" type="number" fullWidth label="Min %" value={filters.minAbsorption} onChange={(e) => setFilters((p) => ({ ...p, minAbsorption: e.target.value }))} />
                         </Grid>
-                        <Grid item xs={12} md={1.5}>
+                        <Grid item xs={12} sm={6} md={3} lg={1.5}>
                             <TextField size="small" type="number" fullWidth label="Max %" value={filters.maxAbsorption} onChange={(e) => setFilters((p) => ({ ...p, maxAbsorption: e.target.value }))} />
                         </Grid>
                         <Grid item xs={12}>
-                            <Stack direction="row" spacing={1}>
-                                <Button variant="contained" onClick={() => fetchData(filters)} disabled={isLoading}>Apply Filters</Button>
+                            <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Button variant="contained" onClick={() => fetchData(filters)} disabled={isLoading} sx={{ minWidth: 132 }}>Apply filters</Button>
                                 <Button variant="outlined" onClick={() => {
                                     const reset = { department: '', status: '', startDate: '', endDate: '', minAbsorption: '', maxAbsorption: '' };
                                     setFilters(reset);
@@ -414,8 +396,23 @@ const AbsorptionReport = () => {
                             </Stack>
                         </Grid>
                     </Grid>
+
+                    {Object.entries(filters).some(([, value]) => String(value || '').trim() !== '') && (
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
+                            {Object.entries(filters).filter(([, value]) => String(value || '').trim() !== '').map(([key, value]) => (
+                                <Chip
+                                    key={key}
+                                    label={`${key}: ${value}`}
+                                    onDelete={() => removeFilter(key)}
+                                    color="primary"
+                                    variant="outlined"
+                                    sx={{ borderRadius: '16px', fontWeight: 500 }}
+                                />
+                            ))}
+                        </Stack>
+                    )}
                 </Paper>
-            </Slide>
+            </Fade>
 
             {/* Main Report Table */}
             <Slide direction="up" in timeout={1400}>
@@ -443,7 +440,7 @@ const AbsorptionReport = () => {
                             }
                         }}
                     >
-                        <Table sx={{ minWidth: 1200 }} stickyHeader>
+                        <Table sx={{ minWidth: 1150 }} stickyHeader>
                             <TableHead>
                                 <TableRow sx={{ 
                                     backgroundColor: '#1976d2',
@@ -464,60 +461,30 @@ const AbsorptionReport = () => {
                                         zIndex: 1
                                     }
                                 }}>
-                                    <TableCell sx={{ 
-                                        width: '25%',
-                                        backgroundColor: '#1976d2',
-                                        position: 'sticky',
-                                        top: 0,
-                                        zIndex: 2
-                                    }}>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                            Project
-                                            <IconButton size="small" sx={{ color: 'white' }}>
-                                                <MoreVertIcon fontSize="small" />
-                                            </IconButton>
-                                        </Box>
+                                    <TableCell sx={{ width: '22%', backgroundColor: '#1976d2', position: 'sticky', top: 0, zIndex: 2 }}>
+                                        Department
+                                    </TableCell>
+                                    <TableCell sx={{ width: '14%', backgroundColor: '#1976d2', position: 'sticky', top: 0, zIndex: 2 }}>
+                                        Sub-county
+                                    </TableCell>
+                                    <TableCell sx={{ width: '12%', backgroundColor: '#1976d2', position: 'sticky', top: 0, zIndex: 2 }}>
+                                        Status
+                                    </TableCell>
+                                    <TableCell sx={{ width: '8%', textAlign: 'right', backgroundColor: '#1976d2', position: 'sticky', top: 0, zIndex: 2 }}>
+                                        Projects
                                     </TableCell>
                                     <TableCell sx={{ 
-                                        width: '10%',
-                                        backgroundColor: '#1976d2',
-                                        position: 'sticky',
-                                        top: 0,
-                                        zIndex: 2
-                                    }}>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                            Ward
-                                            <IconButton size="small" sx={{ color: 'white' }}>
-                                                <MoreVertIcon fontSize="small" />
-                                            </IconButton>
-                                        </Box>
-                                    </TableCell>
-                                    <TableCell sx={{ 
-                                        width: '10%',
-                                        backgroundColor: '#1976d2',
-                                        position: 'sticky',
-                                        top: 0,
-                                        zIndex: 2
-                                    }}>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                            Status
-                                            <IconButton size="small" sx={{ color: 'white' }}>
-                                                <MoreVertIcon fontSize="small" />
-                                            </IconButton>
-                                        </Box>
-                                    </TableCell>
-                                    <TableCell sx={{ 
-                                        width: '10%', 
+                                        width: '9%', 
                                         textAlign: 'right',
                                         backgroundColor: '#1976d2',
                                         position: 'sticky',
                                         top: 0,
                                         zIndex: 2
                                     }}>
-                                        % Comple...
+                                        % Complete
                                     </TableCell>
                                     <TableCell sx={{ 
-                                        width: '15%', 
+                                        width: '12%', 
                                         textAlign: 'right',
                                         backgroundColor: '#1976d2',
                                         position: 'sticky',
@@ -527,7 +494,7 @@ const AbsorptionReport = () => {
                                         Budget
                                     </TableCell>
                                     <TableCell sx={{ 
-                                        width: '15%', 
+                                        width: '12%', 
                                         textAlign: 'right',
                                         backgroundColor: '#1976d2',
                                         position: 'sticky',
@@ -537,7 +504,7 @@ const AbsorptionReport = () => {
                                         Contract Sum
                                     </TableCell>
                                     <TableCell sx={{ 
-                                        width: '15%', 
+                                        width: '12%', 
                                         textAlign: 'right',
                                         backgroundColor: '#1976d2',
                                         position: 'sticky',
@@ -547,14 +514,14 @@ const AbsorptionReport = () => {
                                         Paid Amount
                                     </TableCell>
                                     <TableCell sx={{ 
-                                        width: '10%', 
+                                        width: '9%', 
                                         textAlign: 'right',
                                         backgroundColor: '#1976d2',
                                         position: 'sticky',
                                         top: 0,
                                         zIndex: 2
                                     }}>
-                                        Absorption ...
+                                        Absorption %
                                     </TableCell>
                                 </TableRow>
                             </TableHead>
@@ -577,21 +544,23 @@ const AbsorptionReport = () => {
                                         }}
                                     >
                                         <TableCell>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <PlayIcon sx={{ color: theme.palette.primary.main, fontSize: '1rem' }} />
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                    Dept.: {row.department} ({row.projectCount})
-                                                </Typography>
-                                            </Box>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Typography variant="body2" color="text.secondary">
-                                                {row.ward || '-'}
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                                {row.department || 'Unassigned'}
                                             </Typography>
                                         </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" color="text.secondary">
-                                                {row.status || '-'}
+                                                {row.subCounty || 'Countywide/Unassigned'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {row.status || 'Unspecified'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell sx={{ textAlign: 'right' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                                {row.projectCount || 0}
                                             </Typography>
                                         </TableCell>
                                         <TableCell sx={{ textAlign: 'right' }}>
@@ -635,7 +604,12 @@ const AbsorptionReport = () => {
                                 }}>
                                     <TableCell colSpan={3}>
                                         <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                                            Count: {totals.count}
+                                            TOTAL
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell sx={{ textAlign: 'right' }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                            {totals.count}
                                         </Typography>
                                     </TableCell>
                                     <TableCell sx={{ textAlign: 'right' }}>

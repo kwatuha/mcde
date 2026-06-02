@@ -2226,6 +2226,7 @@ async function buildAbsorptionReport(query = {}, req = null) {
     const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
     const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
     const deptExpr = isPg ? `COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')` : `COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned')`;
+    const subCountyExpr = `COALESCE(NULLIF(TRIM(sc.name), ''), 'Countywide/Unassigned')`;
     const startExpr = isPg ? `(p.timeline->>'start_date')::date` : `p.startDate`;
     const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
     const fyExpr = isPg ? `COALESCE(p.timeline->>'financial_year', '')` : `COALESCE(CAST(p.finYearId AS CHAR), '')`;
@@ -2264,17 +2265,35 @@ async function buildAbsorptionReport(query = {}, req = null) {
     }
     i = await addProjectScopeWhere(req || {}, where, params, 'p', i);
 
+    const projectJoinSql = isPg ? '' : 'LEFT JOIN departments d ON p.departmentId = d.departmentId AND d.voided = 0';
     const baseSql = `
         FROM projects p
-        ${isPg ? '' : 'LEFT JOIN departments d ON p.departmentId = d.departmentId AND d.voided = 0'}
+        ${projectJoinSql}
+        WHERE ${where.join(' AND ')}
+    `;
+    const groupedBaseSql = `
+        FROM projects p
+        ${projectJoinSql}
+        LEFT JOIN project_subcounties psc ON p.id = psc.projectId AND COALESCE(psc.voided, 0) = 0
+        LEFT JOIN subcounties sc ON psc.subcountyId = sc.subcountyId AND COALESCE(sc.voided, 0) = 0
         WHERE ${where.join(' AND ')}
     `;
     const groupedSql = `
         SELECT
             ${deptExpr} AS "department",
-            COUNT(*)::int AS "projectCount",
-            CASE WHEN COUNT(*) > 0
-                 THEN ROUND((SUM(CASE WHEN LOWER(${statusExpr}) = 'completed' THEN 1 ELSE 0 END) * 100.0 / COUNT(*))::numeric, 1)
+            ${subCountyExpr} AS "subCounty",
+            COALESCE(NULLIF(${statusExpr}, ''), 'Unspecified') AS "status",
+            COUNT(DISTINCT p.id)::int AS "projectCount",
+            CASE WHEN COUNT(DISTINCT p.id) > 0
+                 THEN ROUND(AVG(CASE
+                    WHEN LOWER(${statusExpr}) = 'completed' THEN 100
+                    WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
+                    WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
+                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
+                    WHEN LOWER(${statusExpr}) = 'initiated' THEN 20
+                    WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
+                    ELSE 0
+                 END)::numeric, 1)
                  ELSE 0 END AS "completionPercentage",
             SUM(${budgetExpr}) AS "budget",
             SUM(${budgetExpr}) AS "contractSum",
@@ -2282,8 +2301,8 @@ async function buildAbsorptionReport(query = {}, req = null) {
             CASE WHEN SUM(${budgetExpr}) > 0
                  THEN ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, 2)
                  ELSE 0 END AS "absorptionPercentage"
-        ${baseSql}
-        GROUP BY ${deptExpr}
+        ${groupedBaseSql}
+        GROUP BY ${deptExpr}, ${subCountyExpr}, COALESCE(NULLIF(${statusExpr}, ''), 'Unspecified')
     `;
 
     const outerWhere = [];
@@ -2301,7 +2320,7 @@ async function buildAbsorptionReport(query = {}, req = null) {
     const groupedFinalSql = `
       SELECT * FROM (${groupedSql}) a
       ${outerWhere.length ? `WHERE ${outerWhere.join(' AND ')}` : ''}
-      ORDER BY "department"
+      ORDER BY "department", "subCounty", "status"
     `;
     const groupedResult = await pool.query(groupedFinalSql, outerParams);
     const groupedRows = isPg ? (groupedResult.rows || []) : (Array.isArray(groupedResult) ? (groupedResult[0] || []) : []);
@@ -2313,8 +2332,9 @@ async function buildAbsorptionReport(query = {}, req = null) {
                  THEN ROUND(AVG(CASE
                     WHEN LOWER(${statusExpr}) = 'completed' THEN 100
                     WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
-                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
                     WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
+                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
+                    WHEN LOWER(${statusExpr}) = 'initiated' THEN 20
                     WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
                     ELSE 0
                  END)::numeric, 1)
@@ -2334,9 +2354,9 @@ async function buildAbsorptionReport(query = {}, req = null) {
         data: groupedRows.map((row, idx) => ({
             id: idx + 1,
             department: row.department || 'Unassigned',
+            subCounty: row.subCounty || 'Countywide/Unassigned',
             projectCount: Number(row.projectCount || 0),
-            ward: '',
-            status: '',
+            status: row.status || 'Unspecified',
             completionPercentage: Number(row.completionPercentage || 0),
             budget: Number(row.budget || 0),
             contractSum: Number(row.contractSum || 0),
@@ -2371,30 +2391,34 @@ router.get('/absorption-report/export', async (req, res) => {
     try {
         const payload = await buildAbsorptionReport(req.query || {}, req);
         const workbook = new ExcelJS.Workbook();
-        const primaryTemplate = path.resolve(__dirname, '..', 'templates', 'budget_absorption_rate.xlsx');
-        const fallbackTemplate = path.resolve(__dirname, '..', 'templates', '002_budget_absorption_rate.xlsx');
-        try {
-            await workbook.xlsx.readFile(primaryTemplate);
-        } catch {
-            await workbook.xlsx.readFile(fallbackTemplate);
-        }
-        const ws = workbook.worksheets[0] || workbook.addWorksheet('Absorption Report');
-        if (ws.actualRowCount === 0) {
-            ws.addRow(['Department', 'Projects', '% Complete', 'Budget', 'Contract Sum', 'Paid Amount', 'Absorption %']);
-        }
-        const sampleRowIndex = ws.actualRowCount >= 2 ? 2 : ws.actualRowCount + 1;
-        if (ws.actualRowCount < sampleRowIndex) ws.addRow([]);
-        const dataRows = payload.data.map((row) => ([
+        workbook.creator = 'Machakos CIMES';
+        workbook.created = new Date();
+        const ws = workbook.addWorksheet('Absorption Report');
+        ws.addRow(['Absorption Report']);
+        ws.addRow([`Generated: ${new Date().toLocaleString('en-KE')}`]);
+        ws.addRow([]);
+        ws.addRow(['Department', 'Sub-county', 'Status', 'Projects', '% Complete', 'Budget', 'Contract Sum', 'Paid Amount', 'Absorption %']);
+        const headerRow = ws.getRow(4);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1976D2' } };
+
+        payload.data.forEach((row) => {
+            ws.addRow([
             row.department,
+            row.subCounty || 'Countywide/Unassigned',
+            row.status || 'Unspecified',
             Number(row.projectCount || 0),
             Number(row.completionPercentage || 0),
             Number(row.budget || 0),
             Number(row.contractSum || 0),
             Number(row.paidAmount || 0),
             Number(row.absorptionPercentage || 0),
-        ]));
-        dataRows.push([
+            ]);
+        });
+        ws.addRow([
             'TOTAL',
+            '',
+            '',
             Number(payload.summary.count || 0),
             Number(payload.summary.averageCompletion || 0),
             Number(payload.summary.totalBudget || 0),
@@ -2402,9 +2426,14 @@ router.get('/absorption-report/export', async (req, res) => {
             Number(payload.summary.totalPaidAmount || 0),
             Number(payload.summary.absorbedPercentage || 0),
         ]);
-        fillTemplateFromSampleRow(ws, sampleRowIndex, dataRows);
         ws.columns.forEach((c) => {
             if (!c.width || c.width < 16) c.width = 18;
+        });
+        [6, 7, 8].forEach((col) => {
+            ws.getColumn(col).numFmt = '"KES" #,##0.00';
+        });
+        [5, 9].forEach((col) => {
+            ws.getColumn(col).numFmt = '0.0';
         });
         const suffix = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -4634,6 +4663,710 @@ router.get('/project-financial-statement/export', async (req, res) => {
     } catch (error) {
         console.error('Error exporting project financial statement:', error);
         return res.status(500).json({ message: 'Error exporting project financial statement', error: error.message });
+    }
+});
+
+const safeMoneyExpr = (jsonExpr, key) => `
+    CASE
+        WHEN (${jsonExpr}->>'${key}') ~ '^[0-9]+(\\.[0-9]+)?$'
+        THEN (${jsonExpr}->>'${key}')::numeric
+        ELSE 0
+    END
+`;
+
+const safeProgressExpr = (alias = 'p') => `
+    CASE
+        WHEN (${alias}.progress->>'percentage_complete') ~ '^[0-9]+(\\.[0-9]+)?$'
+        THEN (${alias}.progress->>'percentage_complete')::numeric
+        ELSE 0
+    END
+`;
+
+const projectOperationalDateExpr = (alias = 'p') => `
+    COALESCE(
+        NULLIF(${alias}.timeline->>'last_updated', '')::date,
+        NULLIF(${alias}.timeline->>'expected_completion_date', '')::date,
+        NULLIF(${alias}.timeline->>'start_date', '')::date,
+        ${alias}.updated_at::date
+    )
+`;
+
+const fiscalYearExpr = (dateExpr) => `
+    CASE
+        WHEN ${dateExpr} IS NULL THEN NULL
+        WHEN EXTRACT(MONTH FROM ${dateExpr}) >= 7
+            THEN EXTRACT(YEAR FROM ${dateExpr})::int::text || '/' || (EXTRACT(YEAR FROM ${dateExpr})::int + 1)::text
+        ELSE (EXTRACT(YEAR FROM ${dateExpr})::int - 1)::text || '/' || EXTRACT(YEAR FROM ${dateExpr})::int::text
+    END
+`;
+
+const fiscalQuarterExpr = (dateExpr) => `
+    CASE
+        WHEN ${dateExpr} IS NULL THEN NULL
+        WHEN EXTRACT(MONTH FROM ${dateExpr}) BETWEEN 7 AND 9 THEN 'Q1'
+        WHEN EXTRACT(MONTH FROM ${dateExpr}) BETWEEN 10 AND 12 THEN 'Q2'
+        WHEN EXTRACT(MONTH FROM ${dateExpr}) BETWEEN 1 AND 3 THEN 'Q3'
+        WHEN EXTRACT(MONTH FROM ${dateExpr}) BETWEEN 4 AND 6 THEN 'Q4'
+        ELSE NULL
+    END
+`;
+
+const getCountyOpsPeriodBounds = (financialYear, period) => {
+    const match = String(financialYear || '').match(/(\d{4})\D+(\d{4})/);
+    if (!match) return null;
+    const startYear = Number(match[1]);
+    const endYear = Number(match[2]);
+    if (!Number.isFinite(startYear) || !Number.isFinite(endYear)) return null;
+    const key = String(period || '').trim().toUpperCase();
+    const ranges = {
+        Q1: [`${startYear}-07-01`, `${startYear}-09-30`],
+        Q2: [`${startYear}-10-01`, `${startYear}-12-31`],
+        Q3: [`${endYear}-01-01`, `${endYear}-03-31`],
+        Q4: [`${endYear}-04-01`, `${endYear}-06-30`],
+        H1: [`${startYear}-07-01`, `${startYear}-12-31`],
+        H2: [`${endYear}-01-01`, `${endYear}-06-30`],
+        ANNUAL: [`${startYear}-07-01`, `${endYear}-06-30`],
+    };
+    const range = ranges[key];
+    return range ? { startDate: range[0], endDate: range[1] } : null;
+};
+
+let countyOperationsTablesEnsured = false;
+async function ensureCountyOperationsReportTables() {
+    if (countyOperationsTablesEnsured || getDBType() !== 'postgresql') return;
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS planning_measurement_types (
+            id BIGSERIAL PRIMARY KEY,
+            code TEXT NOT NULL,
+            label TEXT NOT NULL,
+            description TEXT NULL,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_planning_mt_code UNIQUE (code)
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS planning_indicators (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NULL,
+            measurement_type_id BIGINT NOT NULL REFERENCES planning_measurement_types(id),
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS planning_project_activities (
+            id BIGSERIAL PRIMARY KEY,
+            activity_code TEXT NOT NULL,
+            activity_name TEXT NOT NULL,
+            indicator_id BIGINT NOT NULL REFERENCES planning_indicators(id),
+            description TEXT NULL,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_planning_proj_act_code UNIQUE (activity_code)
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS project_planning_activity_links (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL,
+            planning_activity_id BIGINT NOT NULL REFERENCES planning_project_activities(id),
+            target_value NUMERIC NULL,
+            baseline_value NUMERIC NULL,
+            notes TEXT NULL,
+            planned_start_date DATE NULL,
+            planned_end_date DATE NULL,
+            activity_status TEXT NULL,
+            completed_at DATE NULL,
+            cimes_project_code TEXT NULL,
+            cimes_project_name TEXT NULL,
+            seed_source TEXT NULL,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_proj_plan_act_link_idx ON project_planning_activity_links(project_id, planning_activity_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ppactlink_project ON project_planning_activity_links(project_id)`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS target_value NUMERIC NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS baseline_value NUMERIC NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS planned_start_date DATE NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS planned_end_date DATE NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS activity_status TEXT NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS completed_at DATE NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS cimes_project_code TEXT NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS cimes_project_name TEXT NULL`);
+    await pool.query(`ALTER TABLE project_planning_activity_links ADD COLUMN IF NOT EXISTS seed_source TEXT NULL`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS project_monitoring_records (
+            record_id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL,
+            comment TEXT NOT NULL,
+            recommendations TEXT NULL,
+            challenges TEXT NULL,
+            activity_code TEXT NULL,
+            activity_name TEXT NULL,
+            indicator_name TEXT NULL,
+            achieved_value NUMERIC NULL,
+            warning_level TEXT NULL,
+            is_routine_observation BOOLEAN NOT NULL DEFAULT TRUE,
+            user_id BIGINT NULL,
+            observation_date DATE NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NULL,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            voided_by BIGINT NULL
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_monitoring_records_project_id ON project_monitoring_records(project_id)`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS activity_code TEXT NULL`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS activity_name TEXT NULL`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS indicator_name TEXT NULL`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS achieved_value NUMERIC NULL`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS warning_level TEXT NULL`);
+    await pool.query(`ALTER TABLE project_monitoring_records ADD COLUMN IF NOT EXISTS observation_date DATE NULL`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS project_evaluations (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL,
+            evaluation_date DATE NULL,
+            project_code TEXT NULL,
+            project_name TEXT NULL,
+            activity_code TEXT NULL,
+            activity_name TEXT NULL,
+            indicator_name TEXT NULL,
+            milestone_value NUMERIC NULL,
+            baseline_value NUMERIC NULL,
+            achieved_value NUMERIC NULL,
+            performance_score NUMERIC NULL,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_evaluations_project ON project_evaluations(project_id)`);
+    await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS evaluation_date DATE NULL`);
+    await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS baseline_value NUMERIC NULL`);
+    await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS achieved_value NUMERIC NULL`);
+    await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS performance_score NUMERIC NULL`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS planning_reporting_frequencies (
+            id BIGSERIAL PRIMARY KEY,
+            frequency_code TEXT NOT NULL,
+            frequency_name TEXT NOT NULL,
+            description TEXT NULL,
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            voided BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_planning_reporting_frequency_code UNIQUE (frequency_code)
+        )
+    `);
+    countyOperationsTablesEnsured = true;
+}
+
+async function buildCountyOperationsProjectWhere(req, alias = 'p', startingIndex = 1) {
+    const { department, section, status, financialYear, period, startDate, endDate, subCounty, ward } = req.query || {};
+    const where = [`COALESCE(${alias}.voided, false) = false`];
+    const params = [];
+    let idx = startingIndex;
+    const dateExpr = projectOperationalDateExpr(alias);
+    const fyExpr = fiscalYearExpr(dateExpr);
+    const fqExpr = fiscalQuarterExpr(dateExpr);
+
+    if (department) {
+        where.push(`COALESCE(NULLIF(TRIM(${alias}.state_department), ''), 'Unassigned') = $${idx++}`);
+        params.push(String(department));
+    }
+    if (section) {
+        where.push(`COALESCE(NULLIF(TRIM(${alias}.implementing_agency), ''), 'Unassigned') = $${idx++}`);
+        params.push(String(section));
+    }
+    if (status) {
+        where.push(`COALESCE(${alias}.progress->>'status', 'Unknown') ILIKE $${idx++}`);
+        params.push(String(status));
+    }
+    if (financialYear) {
+        where.push(`(NULLIF(TRIM(${alias}.timeline->>'financial_year'), '') = $${idx} OR ${fyExpr} = $${idx})`);
+        params.push(String(financialYear));
+        idx += 1;
+    }
+
+    const periodBounds = getCountyOpsPeriodBounds(financialYear, period);
+    if (periodBounds) {
+        where.push(`${dateExpr} BETWEEN $${idx++}::date AND $${idx++}::date`);
+        params.push(periodBounds.startDate, periodBounds.endDate);
+    } else if (period && ['Q1', 'Q2', 'Q3', 'Q4'].includes(String(period).toUpperCase())) {
+        where.push(`${fqExpr} = $${idx++}`);
+        params.push(String(period).toUpperCase());
+    }
+    if (startDate) {
+        where.push(`${dateExpr} >= $${idx++}::date`);
+        params.push(String(startDate));
+    }
+    if (endDate) {
+        where.push(`${dateExpr} <= $${idx++}::date`);
+        params.push(String(endDate));
+    }
+    if (subCounty) {
+        where.push(`COALESCE(NULLIF(TRIM(${alias}.location->>'subcounty'), ''), NULLIF(TRIM(${alias}.location->>'constituency'), ''), 'Unspecified') = $${idx++}`);
+        params.push(String(subCounty));
+    }
+    if (ward) {
+        where.push(`COALESCE(NULLIF(TRIM(${alias}.location->>'ward'), ''), 'Unspecified') = $${idx++}`);
+        params.push(String(ward));
+    }
+
+    idx = await addProjectScopeWhere(req, where, params, alias, idx);
+    return { where, params, nextIndex: idx || (params.length + 1), whereSql: where.join(' AND ') };
+}
+
+router.get('/county-operations/filter-options', async (req, res) => {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'County operations reports currently require PostgreSQL project storage.' });
+        }
+        await ensureCountyOperationsReportTables();
+        const scope = await buildCountyOperationsProjectWhere(req, 'p', 1);
+        const result = await pool.query(
+            `
+            SELECT
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')), NULL) AS departments,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned')), NULL) AS sections,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown')), NULL) AS statuses,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Unspecified')), NULL) AS "subCounties",
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified')), NULL) AS wards,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), ${fiscalYearExpr(projectOperationalDateExpr('p'))})), NULL) AS "financialYears"
+            FROM projects p
+            WHERE ${scope.whereSql}
+            `,
+            scope.params
+        );
+        const frequencies = await pool.query(
+            `SELECT frequency_code AS "frequencyCode", frequency_name AS "frequencyName"
+             FROM planning_reporting_frequencies
+             WHERE COALESCE(voided, false) = false AND COALESCE(active, true) = true
+             ORDER BY frequency_name`
+        ).catch(() => ({ rows: [] }));
+        const row = result.rows?.[0] || {};
+        const sortText = (arr) => (Array.isArray(arr) ? arr.filter(Boolean).sort((a, b) => String(a).localeCompare(String(b))) : []);
+        return res.json({
+            departments: sortText(row.departments),
+            sections: sortText(row.sections),
+            statuses: sortText(row.statuses),
+            subCounties: sortText(row.subCounties),
+            wards: sortText(row.wards),
+            financialYears: sortText(row.financialYears).reverse(),
+            periods: [
+                { code: '', name: 'All periods' },
+                { code: 'Q1', name: 'Q1: Jul - Sep' },
+                { code: 'Q2', name: 'Q2: Oct - Dec' },
+                { code: 'Q3', name: 'Q3: Jan - Mar' },
+                { code: 'Q4', name: 'Q4: Apr - Jun' },
+                { code: 'H1', name: 'Half year: Jul - Dec' },
+                { code: 'H2', name: 'Half year: Jan - Jun' },
+                { code: 'ANNUAL', name: 'Annual: Jul - Jun' },
+            ],
+            reportingFrequencies: frequencies.rows || [],
+        });
+    } catch (error) {
+        console.error('Error fetching county operations filter options:', error);
+        return res.status(500).json({ message: 'Error fetching county operations filter options', error: error.message });
+    }
+});
+
+router.get('/county-operations/summary', async (req, res) => {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'County operations reports currently require PostgreSQL project storage.' });
+        }
+        await ensureCountyOperationsReportTables();
+        const scope = await buildCountyOperationsProjectWhere(req, 'p', 1);
+        const whereSql = scope.whereSql;
+        const params = scope.params;
+        const allocatedExpr = safeMoneyExpr('p.budget', 'allocated_amount_kes');
+        const disbursedExpr = safeMoneyExpr('p.budget', 'disbursed_amount_kes');
+        const contractedExpr = safeMoneyExpr('p.budget', 'contract_sum_kes');
+        const progressExpr = safeProgressExpr('p');
+        const dateExpr = projectOperationalDateExpr('p');
+        const fyExpr = `COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), ${fiscalYearExpr(dateExpr)})`;
+        const fqExpr = fiscalQuarterExpr(dateExpr);
+
+        const queries = await Promise.all([
+            pool.query(`
+                SELECT
+                    COUNT(DISTINCT p.project_id)::int AS "projectCount",
+                    COUNT(DISTINCT COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned'))::int AS "departmentCount",
+                    COUNT(DISTINCT COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned'))::int AS "sectionCount",
+                    COALESCE(SUM(${allocatedExpr}), 0) AS "allocatedBudget",
+                    COALESCE(SUM(${disbursedExpr}), 0) AS "disbursedBudget",
+                    COALESCE(SUM(${contractedExpr}), 0) AS "contractedBudget",
+                    COALESCE(AVG(${progressExpr}), 0) AS "averageProgress",
+                    COUNT(*) FILTER (WHERE COALESCE(p.progress->>'status', '') ILIKE '%complete%')::int AS "completedProjects",
+                    COUNT(*) FILTER (WHERE COALESCE(p.progress->>'status', '') ~* '(stalled|delay|suspend|cancel|terminat|risk)')::int AS "attentionProjects"
+                FROM projects p
+                WHERE ${whereSql}
+            `, params),
+            pool.query(`
+                WITH scoped_projects AS (
+                    SELECT
+                        p.project_id,
+                        COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                        COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS section,
+                        ${allocatedExpr} AS allocated_budget,
+                        ${disbursedExpr} AS disbursed_budget,
+                        ${progressExpr} AS progress,
+                        COALESCE(p.progress->>'status', '') AS status
+                    FROM projects p
+                    WHERE ${whereSql}
+                ),
+                project_rollup AS (
+                    SELECT
+                        department,
+                        section,
+                        COUNT(*)::int AS "projectCount",
+                        COALESCE(SUM(allocated_budget), 0) AS "allocatedBudget",
+                        COALESCE(SUM(disbursed_budget), 0) AS "disbursedBudget",
+                        COALESCE(AVG(progress), 0) AS "averageProgress",
+                        COUNT(*) FILTER (WHERE status ILIKE '%complete%')::int AS "completedProjects",
+                        COUNT(*) FILTER (WHERE status ~* '(stalled|delay|suspend|cancel|terminat|risk)')::int AS "attentionProjects"
+                    FROM scoped_projects
+                    GROUP BY department, section
+                ),
+                activity_rollup AS (
+                    SELECT sp.department, sp.section, COUNT(DISTINCT l.id)::int AS "linkedActivityCount"
+                    FROM scoped_projects sp
+                    INNER JOIN project_planning_activity_links l ON l.project_id = sp.project_id AND COALESCE(l.voided, false) = false
+                    GROUP BY sp.department, sp.section
+                ),
+                evaluation_rollup AS (
+                    SELECT
+                        sp.department,
+                        sp.section,
+                        COUNT(DISTINCT e.id)::int AS "evaluationCount",
+                        COALESCE(AVG(e.performance_score), 0) AS "averagePerformanceScore"
+                    FROM scoped_projects sp
+                    INNER JOIN project_evaluations e ON e.project_id = sp.project_id AND COALESCE(e.voided, false) = false
+                    GROUP BY sp.department, sp.section
+                )
+                SELECT
+                    pr.department,
+                    pr.section,
+                    pr."projectCount",
+                    pr."allocatedBudget",
+                    pr."disbursedBudget",
+                    pr."averageProgress",
+                    pr."completedProjects",
+                    pr."attentionProjects",
+                    COALESCE(ar."linkedActivityCount", 0) AS "linkedActivityCount",
+                    COALESCE(er."evaluationCount", 0) AS "evaluationCount",
+                    COALESCE(er."averagePerformanceScore", 0) AS "averagePerformanceScore"
+                FROM project_rollup pr
+                LEFT JOIN activity_rollup ar ON ar.department = pr.department AND ar.section = pr.section
+                LEFT JOIN evaluation_rollup er ON er.department = pr.department AND er.section = pr.section
+                ORDER BY pr."projectCount" DESC, pr.department, pr.section
+                LIMIT 100
+            `, params),
+            pool.query(`
+                SELECT
+                    COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Unspecified') AS "subCounty",
+                    COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified') AS ward,
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                    COUNT(DISTINCT p.project_id)::int AS "projectCount",
+                    COALESCE(SUM(${allocatedExpr}), 0) AS "allocatedBudget",
+                    COALESCE(SUM(${disbursedExpr}), 0) AS "disbursedBudget",
+                    COALESCE(AVG(${progressExpr}), 0) AS "averageProgress",
+                    COUNT(*) FILTER (WHERE COALESCE(p.progress->>'status', '') ~* '(stalled|delay|suspend|cancel|terminat|risk)')::int AS "attentionProjects"
+                FROM projects p
+                WHERE ${whereSql}
+                GROUP BY 1, 2, 3
+                ORDER BY "projectCount" DESC, "subCounty", ward, department
+                LIMIT 200
+            `, params),
+            pool.query(`
+                WITH scoped_projects AS (
+                    SELECT
+                        COALESCE(${fyExpr}, 'Unspecified') AS "financialYear",
+                        COALESCE(${fqExpr}, 'Unspecified') AS period,
+                        ${allocatedExpr} AS allocated_budget,
+                        ${disbursedExpr} AS disbursed_budget,
+                        ${progressExpr} AS progress,
+                        COALESCE(p.progress->>'status', '') AS status
+                    FROM projects p
+                    WHERE ${whereSql}
+                )
+                SELECT
+                    "financialYear",
+                    period,
+                    COUNT(*)::int AS "projectCount",
+                    COALESCE(SUM(allocated_budget), 0) AS "allocatedBudget",
+                    COALESCE(SUM(disbursed_budget), 0) AS "disbursedBudget",
+                    COALESCE(AVG(progress), 0) AS "averageProgress",
+                    COUNT(*) FILTER (WHERE status ILIKE '%complete%')::int AS "completedProjects",
+                    COUNT(*) FILTER (WHERE status ~* '(stalled|delay|suspend|cancel|terminat|risk)')::int AS "attentionProjects"
+                FROM scoped_projects
+                GROUP BY "financialYear", period
+                ORDER BY "financialYear" DESC,
+                    CASE period WHEN 'Q1' THEN 1 WHEN 'Q2' THEN 2 WHEN 'Q3' THEN 3 WHEN 'Q4' THEN 4 ELSE 5 END
+            `, params),
+            pool.query(`
+                WITH latest_monitoring AS (
+                    SELECT DISTINCT ON (m.project_id, COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')))
+                        m.project_id,
+                        COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')) AS activity_key,
+                        m.achieved_value,
+                        m.observation_date,
+                        m.warning_level
+                    FROM project_monitoring_records m
+                    WHERE COALESCE(m.voided, false) = false
+                    ORDER BY m.project_id, activity_key, COALESCE(m.observation_date, m.created_at::date) DESC, m.record_id DESC
+                ),
+                latest_eval AS (
+                    SELECT DISTINCT ON (e.project_id, COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')))
+                        e.project_id,
+                        COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')) AS activity_key,
+                        e.achieved_value,
+                        e.performance_score,
+                        e.evaluation_date
+                    FROM project_evaluations e
+                    WHERE COALESCE(e.voided, false) = false
+                    ORDER BY e.project_id, activity_key, COALESCE(e.evaluation_date, e.created_at::date) DESC, e.id DESC
+                )
+                SELECT
+                    p.project_id AS "projectId",
+                    p.name AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS section,
+                    ${fyExpr} AS "financialYear",
+                    ${fqExpr} AS period,
+                    a.activity_code AS "activityCode",
+                    a.activity_name AS "activityName",
+                    i.name AS "indicatorName",
+                    mt.label AS "measurementType",
+                    l.baseline_value AS "baselineValue",
+                    l.target_value AS "targetValue",
+                    COALESCE(le.achieved_value, lm.achieved_value) AS "achievedValue",
+                    le.performance_score AS "performanceScore",
+                    l.planned_start_date AS "plannedStartDate",
+                    l.planned_end_date AS "plannedEndDate",
+                    l.activity_status AS "activityStatus",
+                    COALESCE(le.evaluation_date, lm.observation_date) AS "lastReportedAt",
+                    lm.warning_level AS "warningLevel",
+                    CASE
+                        WHEN l.target_value IS NOT NULL AND l.target_value <> 0 AND COALESCE(le.achieved_value, lm.achieved_value) IS NOT NULL
+                        THEN (COALESCE(le.achieved_value, lm.achieved_value) / l.target_value) * 100
+                        ELSE NULL
+                    END AS "achievementRate"
+                FROM project_planning_activity_links l
+                INNER JOIN projects p ON p.project_id = l.project_id
+                INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id AND COALESCE(a.voided, false) = false
+                INNER JOIN planning_indicators i ON i.id = a.indicator_id AND COALESCE(i.voided, false) = false
+                LEFT JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND COALESCE(mt.voided, false) = false
+                LEFT JOIN latest_monitoring lm ON lm.project_id = p.project_id
+                    AND lm.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                LEFT JOIN latest_eval le ON le.project_id = p.project_id
+                    AND le.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                WHERE COALESCE(l.voided, false) = false AND ${whereSql}
+                ORDER BY department, section, "plannedEndDate" NULLS LAST, "activityName"
+                LIMIT 500
+            `, params),
+            pool.query(`
+                WITH latest_monitoring AS (
+                    SELECT DISTINCT ON (m.project_id, COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')))
+                        m.project_id,
+                        COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')) AS activity_key,
+                        m.achieved_value,
+                        m.observation_date
+                    FROM project_monitoring_records m
+                    WHERE COALESCE(m.voided, false) = false
+                    ORDER BY m.project_id, activity_key, COALESCE(m.observation_date, m.created_at::date) DESC, m.record_id DESC
+                ),
+                latest_eval AS (
+                    SELECT DISTINCT ON (e.project_id, COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')))
+                        e.project_id,
+                        COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')) AS activity_key,
+                        e.achieved_value,
+                        e.performance_score,
+                        e.evaluation_date
+                    FROM project_evaluations e
+                    WHERE COALESCE(e.voided, false) = false
+                    ORDER BY e.project_id, activity_key, COALESCE(e.evaluation_date, e.created_at::date) DESC, e.id DESC
+                ),
+                indicator_rows AS (
+                    SELECT
+                        COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Unspecified') AS "subCounty",
+                        COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified') AS ward,
+                        i.name AS "indicatorName",
+                        COALESCE(mt.label, 'Unspecified') AS "measurementType",
+                        p.project_id,
+                        l.target_value,
+                        COALESCE(le.achieved_value, lm.achieved_value) AS achieved_value,
+                        le.performance_score
+                    FROM project_planning_activity_links l
+                    INNER JOIN projects p ON p.project_id = l.project_id
+                    INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id AND COALESCE(a.voided, false) = false
+                    INNER JOIN planning_indicators i ON i.id = a.indicator_id AND COALESCE(i.voided, false) = false
+                    LEFT JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND COALESCE(mt.voided, false) = false
+                    LEFT JOIN latest_monitoring lm ON lm.project_id = p.project_id
+                        AND lm.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                    LEFT JOIN latest_eval le ON le.project_id = p.project_id
+                        AND le.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                    WHERE COALESCE(l.voided, false) = false AND ${whereSql}
+                )
+                SELECT
+                    "subCounty",
+                    ward,
+                    "indicatorName",
+                    "measurementType",
+                    COUNT(DISTINCT project_id)::int AS "projectCount",
+                    COALESCE(SUM(target_value), 0) AS "targetValue",
+                    COALESCE(SUM(achieved_value), 0) AS "achievedValue",
+                    COALESCE(AVG(performance_score), 0) AS "averagePerformanceScore",
+                    CASE
+                        WHEN COALESCE(SUM(target_value), 0) > 0 THEN (COALESCE(SUM(achieved_value), 0) / SUM(target_value)) * 100
+                        ELSE NULL
+                    END AS "achievementRate"
+                FROM indicator_rows
+                GROUP BY "subCounty", ward, "indicatorName", "measurementType"
+                ORDER BY "subCounty", ward, "indicatorName"
+                LIMIT 500
+            `, params),
+            pool.query(`
+                WITH latest_monitoring AS (
+                    SELECT DISTINCT ON (m.project_id, COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')))
+                        m.project_id,
+                        COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')) AS activity_key,
+                        m.achieved_value,
+                        m.observation_date
+                    FROM project_monitoring_records m
+                    WHERE COALESCE(m.voided, false) = false
+                    ORDER BY m.project_id, activity_key, COALESCE(m.observation_date, m.created_at::date) DESC, m.record_id DESC
+                ),
+                latest_eval AS (
+                    SELECT DISTINCT ON (e.project_id, COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')))
+                        e.project_id,
+                        COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')) AS activity_key,
+                        e.achieved_value,
+                        e.performance_score,
+                        e.evaluation_date
+                    FROM project_evaluations e
+                    WHERE COALESCE(e.voided, false) = false
+                    ORDER BY e.project_id, activity_key, COALESCE(e.evaluation_date, e.created_at::date) DESC, e.id DESC
+                ),
+                indicator_rows AS (
+                    SELECT
+                        COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                        COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified') AS ward,
+                        i.name AS "indicatorName",
+                        COALESCE(mt.label, 'Unspecified') AS "measurementType",
+                        p.project_id,
+                        l.target_value,
+                        COALESCE(le.achieved_value, lm.achieved_value) AS achieved_value,
+                        le.performance_score
+                    FROM project_planning_activity_links l
+                    INNER JOIN projects p ON p.project_id = l.project_id
+                    INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id AND COALESCE(a.voided, false) = false
+                    INNER JOIN planning_indicators i ON i.id = a.indicator_id AND COALESCE(i.voided, false) = false
+                    LEFT JOIN planning_measurement_types mt ON mt.id = i.measurement_type_id AND COALESCE(mt.voided, false) = false
+                    LEFT JOIN latest_monitoring lm ON lm.project_id = p.project_id
+                        AND lm.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                    LEFT JOIN latest_eval le ON le.project_id = p.project_id
+                        AND le.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+                    WHERE COALESCE(l.voided, false) = false AND ${whereSql}
+                )
+                SELECT
+                    department,
+                    ward,
+                    "indicatorName",
+                    "measurementType",
+                    COUNT(DISTINCT project_id)::int AS "projectCount",
+                    COALESCE(SUM(target_value), 0) AS "targetValue",
+                    COALESCE(SUM(achieved_value), 0) AS "achievedValue",
+                    COALESCE(AVG(performance_score), 0) AS "averagePerformanceScore",
+                    CASE
+                        WHEN COALESCE(SUM(target_value), 0) > 0 THEN (COALESCE(SUM(achieved_value), 0) / SUM(target_value)) * 100
+                        ELSE NULL
+                    END AS "achievementRate"
+                FROM indicator_rows
+                GROUP BY department, ward, "indicatorName", "measurementType"
+                ORDER BY department, ward, "indicatorName"
+                LIMIT 500
+            `, params),
+            pool.query(`
+                SELECT
+                    e.id,
+                    e.project_id AS "projectId",
+                    p.name AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS section,
+                    COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Unspecified') AS "subCounty",
+                    COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified') AS ward,
+                    ${fyExpr} AS "financialYear",
+                    e.evaluation_date AS "evaluationDate",
+                    e.activity_code AS "activityCode",
+                    e.activity_name AS "activityName",
+                    e.indicator_name AS "indicatorName",
+                    e.baseline_value AS "baselineValue",
+                    e.milestone_value AS "targetValue",
+                    e.achieved_value AS "achievedValue",
+                    e.performance_score AS "performanceScore"
+                FROM project_evaluations e
+                INNER JOIN projects p ON p.project_id = e.project_id
+                WHERE COALESCE(e.voided, false) = false AND ${whereSql}
+                ORDER BY "subCounty", ward, e.evaluation_date DESC NULLS LAST, e.updated_at DESC NULLS LAST
+                LIMIT 300
+            `, params),
+            pool.query(`
+                SELECT
+                    p.project_id AS "projectId",
+                    p.name AS "projectName",
+                    COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+                    COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS section,
+                    COALESCE(p.progress->>'status', 'Unknown') AS status,
+                    ${progressExpr} AS progress,
+                    ${allocatedExpr} AS "allocatedBudget",
+                    ${disbursedExpr} AS "disbursedBudget",
+                    CASE WHEN ${allocatedExpr} > 0 THEN (${disbursedExpr} / ${allocatedExpr}) * 100 ELSE 0 END AS "absorptionRate",
+                    NULLIF(p.progress->>'status_reason', '') AS "statusReason",
+                    NULLIF(p.progress->>'latest_update_summary', '') AS "latestUpdateSummary"
+                FROM projects p
+                WHERE ${whereSql}
+                  AND (
+                    COALESCE(p.progress->>'status', '') ~* '(stalled|delay|suspend|cancel|terminat|risk)'
+                    OR (${allocatedExpr} > 0 AND (${disbursedExpr} / NULLIF(${allocatedExpr}, 0)) < 0.25 AND ${progressExpr} < 50)
+                  )
+                ORDER BY progress ASC, "allocatedBudget" DESC
+                LIMIT 50
+            `, params),
+        ]);
+
+        const summary = queries[0].rows?.[0] || {};
+        return res.json({
+            filters: req.query || {},
+            generatedAt: new Date().toISOString(),
+            summary: {
+                ...summary,
+                absorptionRate: Number(summary.allocatedBudget || 0) > 0
+                    ? (Number(summary.disbursedBudget || 0) / Number(summary.allocatedBudget || 0)) * 100
+                    : 0,
+            },
+            departmentRows: queries[1].rows || [],
+            regionalRows: queries[2].rows || [],
+            periodRows: queries[3].rows || [],
+            activityRows: queries[4].rows || [],
+            indicatorRegionRows: queries[5].rows || [],
+            indicatorDepartmentWardRows: queries[6].rows || [],
+            evaluationRows: queries[7].rows || [],
+            attentionRows: queries[8].rows || [],
+        });
+    } catch (error) {
+        console.error('Error fetching county operations report:', error);
+        return res.status(500).json({ message: 'Error fetching county operations report', error: error.message });
     }
 });
 
