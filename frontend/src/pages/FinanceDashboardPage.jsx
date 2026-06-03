@@ -50,6 +50,7 @@ import { tokens } from './dashboard/theme';
 import { useNavigate } from 'react-router-dom';
 import sectorsService from '../api/sectorsService';
 import projectService from '../api/projectService';
+import reportsService from '../api/reportsService';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
@@ -135,6 +136,7 @@ const FinanceDashboardPage = () => {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [sectors, setSectors] = useState([]);
   const [allProjects, setAllProjects] = useState([]);
+  const [fundingSourceGroups, setFundingSourceGroups] = useState([]);
 
   useEffect(() => {
     const loadSectors = async () => {
@@ -177,6 +179,19 @@ const FinanceDashboardPage = () => {
       }
     };
     fetchProjects();
+  }, []);
+
+  useEffect(() => {
+    const fetchFundingSources = async () => {
+      try {
+        const report = await reportsService.getProjectsByFundingSource({ limit: 10000 });
+        setFundingSourceGroups(Array.isArray(report?.groups) ? report.groups : []);
+      } catch (error) {
+        console.error('Error fetching finance dashboard funding sources:', error);
+        setFundingSourceGroups([]);
+      }
+    };
+    fetchFundingSources();
   }, []);
 
   const orgScopeMeta = useMemo(() => {
@@ -283,22 +298,64 @@ const FinanceDashboardPage = () => {
         absorption: row.budget > 0 ? Math.round((row.disbursed / row.budget) * 100) : 0,
       }));
 
-    // Budget Source Analysis
-    const sourceMap = new Map();
+    // Funding Source Analysis: prefer the richer funding-source report entries,
+    // then fall back to the legacy project budgetSource field when no entries exist.
+    const filteredProjectIds = new Set(
+      filteredProjects
+        .map((p) => String(p.id ?? p.project_id ?? p.projectId ?? ''))
+        .filter(Boolean)
+    );
+    const sourceRowsFromReport = fundingSourceGroups
+      .map((group) => {
+        const projects = Array.isArray(group.projects) ? group.projects : [];
+        const scopedProjects = filteredProjectIds.size
+          ? projects.filter((project) => filteredProjectIds.has(String(project.projectId ?? project.id ?? '')))
+          : projects;
+        const seenProjects = new Set();
+        const totals = scopedProjects.reduce(
+          (acc, project) => {
+            const projectId = String(project.projectId ?? project.id ?? project.projectName ?? '');
+            acc.funding += Number(project.fundingAmount || 0);
+            if (!seenProjects.has(projectId)) {
+              seenProjects.add(projectId);
+              acc.budget += Number(project.budgetAmount || 0);
+              acc.paid += Number(project.paidAmount || 0);
+            }
+            return acc;
+          },
+          { funding: 0, budget: 0, paid: 0 }
+        );
+        return {
+          source: group.fundingSourceName || 'Unknown Source',
+          budget: totals.funding,
+          projectBudget: totals.budget,
+          disbursed: totals.paid,
+          projectCount: seenProjects.size,
+        };
+      })
+      .filter((row) => row.budget > 0 || row.disbursed > 0 || row.projectCount > 0);
+
+    const fallbackSourceMap = new Map();
     filteredProjects.forEach((p) => {
       const key = p.budgetSource || 'Unknown';
-      const current = sourceMap.get(key) || { source: key, budget: 0, disbursed: 0 };
+      const current = fallbackSourceMap.get(key) || { source: key, budget: 0, disbursed: 0, projectCount: 0 };
       current.budget += p.budget || 0;
       current.disbursed += p.Paid || 0;
-      sourceMap.set(key, current);
+      current.projectCount += 1;
+      fallbackSourceMap.set(key, current);
     });
-    const sourceChart = Array.from(sourceMap.values()).map((row) => ({
-      name: row.source,
-      budget: row.budget,
-      disbursed: row.disbursed,
-      absorption: row.budget > 0 ? Math.round((row.disbursed / row.budget) * 100) : 0,
-      color: row.source === 'County Revenue' ? '#3b82f6' : row.source === 'National Government' ? '#22c55e' : '#f97316',
-    }));
+    const sourceRows = sourceRowsFromReport.length ? sourceRowsFromReport : Array.from(fallbackSourceMap.values());
+    const sourceChart = sourceRows
+      .sort((a, b) => (b.budget || 0) - (a.budget || 0))
+      .map((row) => ({
+        name: row.source,
+        budget: row.budget,
+        projectBudget: row.projectBudget || row.budget,
+        disbursed: row.disbursed,
+        projectCount: row.projectCount || 0,
+        absorption: row.budget > 0 ? Math.round((row.disbursed / row.budget) * 100) : 0,
+        color: row.source === 'County Revenue' ? '#3b82f6' : row.source === 'National Government' ? '#22c55e' : '#f97316',
+      }));
 
     // Top Low Absorption Projects
     const underAbsorbing = filteredProjects.filter((p) => {
@@ -328,7 +385,7 @@ const FinanceDashboardPage = () => {
       sourceChart,
       underAbsorbing,
     };
-  }, [filteredProjects, sectors]);
+  }, [filteredProjects, fundingSourceGroups, sectors]);
 
   const isLight = theme.palette.mode === 'light';
   const ui = {
@@ -1121,7 +1178,7 @@ const FinanceDashboardPage = () => {
                           Source
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          Allocated
+                          Funding
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
                           Paid
@@ -1130,7 +1187,7 @@ const FinanceDashboardPage = () => {
                           Absorption
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          Share
+                          Projects
                         </TableCell>
                       </TableRow>
                     </TableHead>
@@ -1138,7 +1195,6 @@ const FinanceDashboardPage = () => {
                       {[...financialData.sourceChart]
                         .sort((a, b) => (b.budget || 0) - (a.budget || 0))
                         .map((row, index) => {
-                          const share = financialData.totalBudget > 0 ? Math.round(((row.budget || 0) / financialData.totalBudget) * 100) : 0;
                           return (
                             <TableRow
                               key={`${row.name}-${index}`}
@@ -1170,7 +1226,7 @@ const FinanceDashboardPage = () => {
                                 />
                               </TableCell>
                               <TableCell align="right" sx={{ color: colors.grey[100], fontWeight: 600 }}>
-                                {share}%
+                                {row.projectCount || 0}
                               </TableCell>
                             </TableRow>
                           );

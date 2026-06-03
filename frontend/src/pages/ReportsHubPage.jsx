@@ -17,7 +17,6 @@ import Grid from '@mui/material/Grid';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
-import DashboardIcon from '@mui/icons-material/Dashboard';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import HubIcon from '@mui/icons-material/Hub';
 import InsightsIcon from '@mui/icons-material/Insights';
@@ -89,55 +88,11 @@ const SECTIONS = [
     ],
   },
   {
-    id: 'performance',
-    title: 'Performance & accountability',
-    description: 'Periodic and county-level performance views.',
-    icon: FactCheckIcon,
-    links: [
-      {
-        title: 'Performance management report',
-        description: 'Performance metrics and management analytics.',
-        to: ROUTES.PERFORMANCE_MANAGEMENT_REPORT,
-        tags: ['performance', 'management', 'metrics'],
-        icon: FactCheckIcon,
-      },
-      {
-        title: 'CAPR report',
-        description: 'County annual performance reporting.',
-        to: ROUTES.CAPR_REPORT,
-        tags: ['annual', 'capr', 'county performance'],
-        featured: true,
-        icon: AssessmentIcon,
-      },
-      {
-        title: 'Quarterly implementation report',
-        description: 'Quarterly implementation summary.',
-        to: ROUTES.QUARTERLY_IMPLEMENTATION_REPORT,
-        tags: ['quarterly', 'implementation', 'periodic'],
-        icon: AssessmentIcon,
-      },
-    ],
-  },
-  {
     id: 'geography',
     title: 'Dashboards & geography',
     description: 'Consolidated views also reachable from the Dashboard ribbon.',
     icon: MapIcon,
     links: [
-      {
-        title: 'Reporting dashboard',
-        description: 'Cross-cutting reporting dashboard.',
-        to: ROUTES.REPORTING_DASHBOARD,
-        tags: ['dashboard', 'reporting', 'overview'],
-        icon: DashboardIcon,
-      },
-      {
-        title: 'Regional reports',
-        description: 'Regional analytics overview.',
-        to: ROUTES.REGIONAL_DASHBOARD,
-        tags: ['regional', 'geography', 'overview'],
-        icon: MapIcon,
-      },
       {
         title: 'Regional breakdown',
         description: 'Sub-county and ward dashboards.',
@@ -155,20 +110,6 @@ const SECTIONS = [
         icon: AssessmentIcon,
       },
       {
-        title: 'Project dashboards',
-        description: 'Per-project dashboard analytics.',
-        to: ROUTES.REPORTING_OVERVIEW,
-        tags: ['project', 'dashboard', 'analytics'],
-        icon: DashboardIcon,
-      },
-      {
-        title: 'Projects dashboard',
-        description: 'Registry-wide projects dashboard view.',
-        to: ROUTES.NEW_DASHBOARD,
-        tags: ['registry', 'dashboard', 'projects'],
-        icon: DashboardIcon,
-      },
-      {
         title: 'GIS dashboard',
         description: 'Map-based indicators and geographic summaries.',
         to: ROUTES.GIS_DASHBOARD,
@@ -184,13 +125,6 @@ const SECTIONS = [
     icon: AssessmentIcon,
     links: [
       {
-        title: 'Project status charts',
-        description: 'Status distribution and projects by directorate.',
-        to: ROUTES.REPORTS,
-        tags: ['status', 'charts', 'directorate'],
-        icon: AssessmentIcon,
-      },
-      {
         title: 'Project evaluation',
         description: 'M&E evaluation grid and structured export.',
         to: ROUTES.PROJECT_EVALUATION,
@@ -203,13 +137,6 @@ const SECTIONS = [
         to: ROUTES.DATA_COLLECTION_TOOLS,
         tags: ['checklists', 'visits', 'inspection'],
         icon: FactCheckIcon,
-      },
-      {
-        title: 'Raw data',
-        description: 'Tabular data and document-style exports.',
-        to: ROUTES.RAW_DATA,
-        tags: ['raw data', 'tables', 'exports'],
-        icon: AssessmentIcon,
       },
     ],
   },
@@ -336,13 +263,13 @@ export default function ReportsHubPage() {
   const totalMatches = filteredSections.reduce((sum, section) => sum + section.links.length, 0);
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
+    <Container maxWidth="xl" sx={{ py: 2 }}>
       <Paper
         elevation={0}
         sx={{
-          p: { xs: 2.5, md: 4 },
-          mb: 3,
-          borderRadius: 4,
+          p: { xs: 2, md: 2.5 },
+          mb: 2,
+          borderRadius: 3,
           color: 'white',
           overflow: 'hidden',
           position: 'relative',
@@ -352,34 +279,34 @@ export default function ReportsHubPage() {
         <Box
           sx={{
             position: 'absolute',
-            right: -60,
-            top: -60,
-            width: 220,
-            height: 220,
+            right: -45,
+            top: -70,
+            width: 170,
+            height: 170,
             borderRadius: '50%',
-            bgcolor: 'rgba(255,255,255,0.12)',
+            bgcolor: 'rgba(255,255,255,0.1)',
           }}
         />
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems={{ xs: 'stretch', md: 'center' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
           <Box sx={{ flex: 1, position: 'relative' }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <HubIcon />
-              <Typography variant="overline" sx={{ letterSpacing: 1.4, color: 'rgba(255,255,255,0.82)' }}>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.5 }}>
+              <HubIcon sx={{ fontSize: 18 }} />
+              <Typography variant="caption" sx={{ letterSpacing: 1.1, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', fontWeight: 700 }}>
                 County reporting centre
               </Typography>
             </Stack>
-            <Typography variant="h3" sx={{ fontWeight: 900, lineHeight: 1.05, mb: 1 }}>
+            <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.15, mb: 0.5 }}>
               Find the right report faster
             </Typography>
-            <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.88)', maxWidth: 760 }}>
-              Search across finance, operations, performance, regional dashboards, monitoring, and planning
-              reports from one place.
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.88)', maxWidth: 720 }}>
+              Search across finance, operations, dashboards, monitoring, and planning reports.
             </Typography>
           </Box>
-          <Paper sx={{ p: 2, borderRadius: 3, minWidth: { xs: '100%', md: 360 }, position: 'relative' }}>
+          <Paper sx={{ p: 1.25, borderRadius: 2.5, minWidth: { xs: '100%', md: 320 }, position: 'relative' }}>
             <TextField
               fullWidth
               autoFocus
+              size="small"
               placeholder="Search reports, e.g. regional, pending bills, evaluation..."
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -391,14 +318,14 @@ export default function ReportsHubPage() {
                 ),
               }}
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
               Showing {totalMatches} of {flattenedReports.length} reports
             </Typography>
           </Paper>
         </Stack>
       </Paper>
 
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 3 }}>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
         <Chip
           label="All reports"
           color={activeCategory === ALL_CATEGORY ? 'primary' : 'default'}

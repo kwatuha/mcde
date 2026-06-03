@@ -28,6 +28,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import apiService from '../api';
 import reportsService from '../api/reportsService';
 import { exportMEReportExcel, exportMESummaryPdf } from '../utils/meReportExports';
@@ -54,6 +55,12 @@ function TabPanel({ children, value, index }) {
       {children}
     </Box>
   );
+}
+
+function canPreviewInBrowser(row) {
+  const mime = String(row?.mimeType || '').toLowerCase();
+  const name = String(row?.originalFileName || '').toLowerCase();
+  return mime.includes('pdf') || name.endsWith('.pdf');
 }
 
 export default function ReportLibraryPage() {
@@ -131,6 +138,34 @@ export default function ReportLibraryPage() {
       window.URL.revokeObjectURL(url);
     }, 'Downloading...');
 
+  const handlePreviewUploaded = (row) => {
+    const previewWindow = window.open('', '_blank');
+    if (previewWindow) {
+      previewWindow.document.write('<p style="font-family: sans-serif; padding: 16px;">Loading preview...</p>');
+    }
+
+    run(async () => {
+      const { blob } = await reportsService.downloadReportLibraryFile(row.id, row.originalFileName);
+      const previewBlob = blob.type === 'application/pdf'
+        ? blob
+        : new Blob([blob], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(previewBlob);
+
+      if (previewWindow) {
+        previewWindow.location.href = url;
+        setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      }
+    }, 'Opening preview...');
+  };
+
   const handleDownloadExcel = () =>
     run(async () => {
       const rows = await getCountyRows();
@@ -140,7 +175,7 @@ export default function ReportLibraryPage() {
   const handleSummaryPdf = () =>
     run(async () => {
       const rows = await getCountyRows();
-      exportMESummaryPdf(rows);
+      await exportMESummaryPdf(rows);
     }, 'Generating report...');
 
   const openEdit = (row) => {
@@ -225,52 +260,111 @@ export default function ReportLibraryPage() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Paper sx={{ p: { xs: 2, md: 3 } }}>
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Report Library
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Upload approved report files (PDF, Word, Excel) and make them available for download.
-        </Typography>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.25, md: 3 },
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', md: 'flex-start' }}
+          spacing={2.5}
+          sx={{ mb: 2 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
+              Report Library
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 760, lineHeight: 1.6 }}>
+              Upload approved report files and download county-level M&amp;E summaries from one workspace.
+            </Typography>
+          </Box>
+          <Tabs
+            value={tab}
+            onChange={(_e, v) => setTab(v)}
+            variant="standard"
+            sx={{
+              minHeight: 40,
+              alignSelf: { xs: 'stretch', md: 'center' },
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              px: 0.5,
+              bgcolor: 'background.default',
+              '& .MuiTab-root': {
+                minHeight: 38,
+                minWidth: { xs: 0, sm: 180 },
+                flex: { xs: 1, sm: 'initial' },
+                textTransform: 'none',
+                fontWeight: 700,
+              },
+              '& .MuiTabs-indicator': { display: 'none' },
+            }}
+          >
+            <Tab icon={<CloudDownloadIcon />} iconPosition="start" label={`Downloads (${uploadedReports.length})`} />
+            <Tab icon={<CloudUploadIcon />} iconPosition="start" label="Upload" />
+          </Tabs>
+        </Stack>
 
         {listError && <Alert severity="error" sx={{ mb: 2 }}>{listError}</Alert>}
         {uploadHint && <Alert severity="success" sx={{ mb: 2 }}>{uploadHint}</Alert>}
 
-        <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="fullWidth">
-          <Tab icon={<CloudDownloadIcon />} iconPosition="start" label={`Download reports (${uploadedReports.length})`} />
-          <Tab icon={<CloudUploadIcon />} iconPosition="start" label="Upload report" />
-        </Tabs>
-        <Divider sx={{ mt: 1 }} />
-
         <TabPanel value={tab} index={0}>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            Monitoring &amp; evaluation (M&amp;E)
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            County-level export: project list workbook with summary/yearly/coverage sheets, and a printable summary PDF.
-          </Typography>
-          <Stack spacing={1.5} alignItems="flex-start" sx={{ mb: 3 }}>
-            <Button
-              variant="contained"
-              startIcon={<TableChartIcon />}
-              onClick={handleDownloadExcel}
-              disabled={loading}
+          <Paper variant="outlined" sx={{ p: 2, mb: 2.5, borderRadius: 2.5, bgcolor: 'background.default' }}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              alignItems={{ xs: 'stretch', md: 'center' }}
+              justifyContent="space-between"
+              spacing={2}
             >
-              Download project list & summaries (Excel)
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<SummarizeIcon />}
-              onClick={handleSummaryPdf}
-              disabled={loading}
-            >
-              Download summary, yearly & coverage (PDF)
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle1" fontWeight={700}>
+                  Monitoring &amp; evaluation exports
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  County-level project workbook plus printable summary, yearly and coverage PDF.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ flexShrink: 0 }}>
+                <Button
+                  variant="contained"
+                  startIcon={<TableChartIcon />}
+                  onClick={handleDownloadExcel}
+                  disabled={loading}
+                >
+                  Excel
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<SummarizeIcon />}
+                  onClick={handleSummaryPdf}
+                  disabled={loading}
+                >
+                  PDF summary
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} sx={{ mb: 1.5 }}>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700}>
+                Uploaded reports
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Approved report files available for download.
+              </Typography>
+            </Box>
+            <Button variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => setTab(1)}>
+              Upload report
             </Button>
           </Stack>
-          <Divider sx={{ mb: 2 }} />
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            Uploaded reports
-          </Typography>
           {uploadedReports.length === 0 ? (
             <Alert severity="info">No reports uploaded yet.</Alert>
           ) : (
@@ -281,6 +375,11 @@ export default function ReportLibraryPage() {
                   divider
                   secondaryAction={
                     <Stack direction="row" spacing={1}>
+                      {canPreviewInBrowser(row) && (
+                        <Button size="small" startIcon={<VisibilityIcon />} onClick={() => handlePreviewUploaded(row)}>
+                          Preview
+                        </Button>
+                      )}
                       <Button size="small" startIcon={<DownloadIcon />} onClick={() => handleDownloadUploaded(row.id, row.originalFileName)}>
                         Download
                       </Button>

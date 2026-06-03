@@ -18,11 +18,16 @@ import {
   FormControlLabel,
   Switch,
   Collapse,
+  Paper,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import { Link, useSearchParams } from 'react-router-dom';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -68,6 +73,7 @@ export default function PaymentCertificatesPage() {
   const [error, setError] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [workflowOpenForId, setWorkflowOpenForId] = useState(null);
+  const [searchText, setSearchText] = useState('');
 
   const focusCertificate = searchParams.get('focusCertificate') || searchParams.get('certificateId');
   const approvalStatusRaw = searchParams.get('approvalStatus') || '';
@@ -107,11 +113,32 @@ export default function PaymentCertificatesPage() {
 
   const filteredRows = useMemo(() => {
     const a = approvalStatus.toLowerCase();
-    if (a && a !== 'all') {
-      return rows.filter((r) => rowMatchesApprovalFilter(r, approvalStatus));
-    }
-    return rows;
-  }, [rows, approvalStatus]);
+    const q = searchText.trim().toLowerCase();
+    return rows
+      .filter((r) => (a && a !== 'all' ? rowMatchesApprovalFilter(r, approvalStatus) : true))
+      .filter((r) => {
+        if (!q) return true;
+        return [
+          r.projectName,
+          r.certNumber,
+          r.certType,
+          r.certSubType,
+          r.originalFileName,
+          r.approvalWorkflowStatus,
+          r.applicationStatus,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(q));
+      });
+  }, [rows, approvalStatus, searchText]);
+
+  const stats = useMemo(() => {
+    const pending = rows.filter((r) => String(r.approvalWorkflowStatus || '').toLowerCase() === 'pending').length;
+    const approved = rows.filter((r) => String(r.approvalWorkflowStatus || '').toLowerCase() === 'approved').length;
+    const rejected = rows.filter((r) => String(r.approvalWorkflowStatus || '').toLowerCase() === 'rejected').length;
+    const projectIds = new Set(rows.map((r) => r.projectId).filter((value) => value !== undefined && value !== null));
+    return { total: rows.length, pending, approved, rejected, projects: projectIds.size };
+  }, [rows]);
 
   const groups = useMemo(() => {
     const map = new Map();
@@ -146,6 +173,13 @@ export default function PaymentCertificatesPage() {
 
   const certificateFilePath = (doc) => doc.documentPath || doc.path || doc.document_path;
   const hasCertificateFile = (doc) => Boolean(String(certificateFilePath(doc) || '').trim());
+
+  const setApprovalFilter = (status) => {
+    const next = new URLSearchParams(searchParams);
+    if (status) next.set('approvalStatus', status);
+    else next.delete('approvalStatus');
+    setSearchParams(next, { replace: true });
+  };
 
   const handleDownload = async (doc) => {
     const id = doc.id ?? doc.certificateId;
@@ -224,39 +258,110 @@ export default function PaymentCertificatesPage() {
   }
 
   return (
-    <Box sx={{ p: 2, maxWidth: 960, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 1, fontWeight: 600 }}>
-        Payment certificates
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        {pendingMeFilter
-          ? 'Showing only payment certificates whose current approval step is waiting for your role (same rule as “My workflow approvals” on the dashboard). Turn off the option below to load every payment certificate you can access.'
-          : 'All payment certificates you can access. Turn on the option below to show only items waiting for your approval step.'}{' '}
-        Use the checklist icon on a row to <strong>approve or reject</strong> (or track the workflow).
-      </Typography>
-      <FormControlLabel
-        sx={{ mb: 2, alignItems: 'flex-start', ml: 0 }}
-        control={
-          <Switch
-            checked={pendingMeFilter}
-            onChange={(_, checked) => {
-              const next = new URLSearchParams(searchParams);
-              if (checked) next.set('pendingMe', '1');
-              else next.delete('pendingMe');
-              setSearchParams(next, { replace: true });
-            }}
-            color="primary"
-          />
-        }
-        label={
-          <Box>
-            <Typography variant="body2">Only certificates waiting for my approval step</Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Matches the dashboard pending list. Off = full finance list for your role.
+    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1180, mx: 'auto' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.25, md: 3 },
+          mb: 2,
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={2.5}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', md: 'flex-start' }}
+          sx={{ mb: 2 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
+              Payment certificates
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 820, lineHeight: 1.6 }}>
+              {pendingMeFilter
+                ? 'Showing certificates whose current approval step is waiting for your role.'
+                : 'All payment certificates you can access. Use workflow actions to approve, reject, or track progress.'}
             </Typography>
           </Box>
-        }
-      />
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
+            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+          </Stack>
+        </Stack>
+
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+          <Chip label={`${stats.total} certificates`} />
+          <Chip label={`${stats.projects} projects`} variant="outlined" />
+          <Chip label={`${stats.pending} pending`} color={stats.pending ? 'warning' : 'default'} variant={stats.pending ? 'filled' : 'outlined'} />
+          <Chip label={`${stats.approved} approved`} color="success" variant="outlined" />
+          <Chip label={`${stats.rejected} rejected`} color="error" variant="outlined" />
+        </Stack>
+
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Search certificates"
+            placeholder="Project, certificate number, file name..."
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ flexShrink: 0 }}>
+            {[
+              ['', 'All'],
+              ['pending', 'Pending'],
+              ['approved', 'Approved'],
+              ['rejected', 'Rejected'],
+              ['none', 'No workflow'],
+            ].map(([value, label]) => (
+              <Chip
+                key={label}
+                label={label}
+                clickable
+                color={(approvalStatus || '') === value || (!approvalStatus && !value) ? 'primary' : 'default'}
+                variant={(approvalStatus || '') === value || (!approvalStatus && !value) ? 'filled' : 'outlined'}
+                onClick={() => setApprovalFilter(value)}
+              />
+            ))}
+          </Stack>
+        </Stack>
+
+        <FormControlLabel
+          sx={{ mt: 1.5, alignItems: 'flex-start', ml: 0 }}
+          control={
+            <Switch
+              checked={pendingMeFilter}
+              onChange={(_, checked) => {
+                const next = new URLSearchParams(searchParams);
+                if (checked) next.set('pendingMe', '1');
+                else next.delete('pendingMe');
+                setSearchParams(next, { replace: true });
+              }}
+              color="primary"
+            />
+          }
+          label={
+            <Box>
+              <Typography variant="body2">Only certificates waiting for my approval step</Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Matches the dashboard pending list. Off = full finance list for your role.
+              </Typography>
+            </Box>
+          }
+        />
+      </Paper>
 
       {(focusCertificate || approvalStatus || pendingMeFilter) && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -295,18 +400,38 @@ export default function PaymentCertificatesPage() {
       )}
 
       {groups.map((g) => (
-        <Accordion key={g.projectId} defaultExpanded disableGutters sx={{ mb: 1, '&:before': { display: 'none' } }}>
+        <Accordion
+          key={g.projectId}
+          defaultExpanded
+          disableGutters
+          sx={{
+            mb: 1.25,
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            overflow: 'hidden',
+            '&:before': { display: 'none' },
+          }}
+        >
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
-              <Typography fontWeight={600}>{g.projectName}</Typography>
-              <MuiLink
-                component={Link}
-                to={`/projects/${g.projectId}`}
-                variant="body2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Open project
-              </MuiLink>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography fontWeight={700} noWrap>{g.projectName}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {g.documents.length} certificate{g.documents.length === 1 ? '' : 's'}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+                <Chip size="small" label={g.documents.length} />
+                <MuiLink
+                  component={Link}
+                  to={`/projects/${g.projectId}`}
+                  variant="body2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Open project
+                </MuiLink>
+              </Stack>
             </Box>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>

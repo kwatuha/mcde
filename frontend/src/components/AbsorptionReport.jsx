@@ -33,6 +33,7 @@ import { formatCurrency } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
+import * as XLSX from 'xlsx';
 
 const AbsorptionReport = () => {
     const [isLoading, setIsLoading] = useState(true);
@@ -195,15 +196,54 @@ const AbsorptionReport = () => {
     const handleExportExcel = async () => {
         setExportingExcel(true);
         try {
-            const { blob, fileName } = await apiService.reports.downloadAbsorptionReport(filters);
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = fileName || `absorption-report-${new Date().toISOString().split('T')[0]}.xlsx`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
+            const activeFilters = Object.entries(filters)
+                .filter(([, value]) => String(value || '').trim() !== '')
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ');
+            const rows = [
+                ['Absorption Report'],
+                [`Generated: ${new Date().toLocaleString()}`],
+                [`Filters: ${activeFilters || 'All scoped records'}`],
+                [],
+                ['Department', 'Sub-county', 'Status', 'Projects', '% Complete', 'Budget', 'Contract Sum', 'Paid Amount', 'Absorption %'],
+                ...reportData.map((row) => [
+                    row.department || 'Unassigned',
+                    row.subCounty || 'Countywide/Unassigned',
+                    row.status || 'Unspecified',
+                    Number(row.projectCount || 0),
+                    Number(row.completionPercentage || 0),
+                    Number(row.budget || 0),
+                    Number(row.contractSum || 0),
+                    Number(row.paidAmount || 0),
+                    Number(row.absorptionPercentage || 0),
+                ]),
+                [
+                    'TOTAL',
+                    '',
+                    '',
+                    Number(totals.count || 0),
+                    Number(totals.averageCompletion || 0),
+                    Number(totals.totalBudget || 0),
+                    Number(totals.totalContractSum || 0),
+                    Number(totals.totalPaidAmount || 0),
+                    Number(totals.absorbedPercentage || 0),
+                ],
+            ];
+            const workbook = XLSX.utils.book_new();
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            worksheet['!cols'] = [
+                { wch: 34 },
+                { wch: 22 },
+                { wch: 18 },
+                { wch: 10 },
+                { wch: 12 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 14 },
+            ];
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Absorption Report');
+            XLSX.writeFile(workbook, `absorption-report-${new Date().toISOString().split('T')[0]}.xlsx`);
         } catch (error) {
             console.error('Error exporting to Excel:', error);
             alert('Failed to export to Excel. Please try again.');

@@ -4,12 +4,9 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   Grid,
-  LinearProgress,
   MenuItem,
   Paper,
   Stack,
@@ -24,7 +21,6 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import reportsService from '../api/reportsService';
-import Header from './dashboard/Header';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const fmtCurrency = (value) =>
@@ -84,20 +80,6 @@ export default function PaymentListPage() {
     load();
   }, [load]);
 
-  const byDepartment = useMemo(() => {
-    const map = new Map();
-    rows.forEach((row) => {
-      const key = row.department || 'Unassigned';
-      map.set(key, (map.get(key) || 0) + Number(row.amount || 0));
-    });
-    return [...map.entries()]
-      .map(([department, amount]) => ({ department, amount }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5);
-  }, [rows]);
-
-  const maxDepartmentAmount = Math.max(...byDepartment.map((row) => row.amount), 0);
-
   const filterDescription = useMemo(() => {
     const parts = [];
     if (filters.startDate) parts.push(`From: ${filters.startDate}`);
@@ -108,17 +90,9 @@ export default function PaymentListPage() {
     return parts.length ? parts.join(' | ') : 'All payment records';
   }, [filters]);
 
-  const summaryCards = useMemo(() => ([
-    { label: 'Payment Rows', value: fmtNumber(summary.rowCount), sub: `${fmtNumber(summary.projectCount)} projects` },
-    { label: 'Total Paid', value: fmtCurrency(summary.totalPaid), sub: `${fmtPercent(summary.absorptionPercentage)} absorption` },
-    { label: 'Total Budget', value: fmtCurrency(summary.totalBudget), sub: `Contracted: ${fmtCurrency(summary.totalContracted)}` },
-    { label: 'Funding Context', value: fmtCurrency(summary.totalFunding), sub: `${fmtPercent(summary.fundingCoveragePercentage)} coverage` },
-    { label: 'Certified Amount', value: fmtCurrency(summary.totalCertified), sub: 'From payment certificates where available' },
-  ]), [summary]);
-
   const exportRows = useMemo(() => rows.map((row) => ({
     'Payment Date': row.paymentDate || '',
-    'Project Code': row.projectCode || '',
+    'Tender Number': row.tenderNumber || '',
     'Project Name': row.projectName || '',
     Department: row.department || '',
     Status: row.status || '',
@@ -208,10 +182,10 @@ export default function PaymentListPage() {
       y = doc.lastAutoTable.finalY + 14;
       autoTable(doc, {
         startY: y,
-        head: [['Date', 'Code', 'Project', 'Department', 'Narration', 'Amount', 'Source']],
+        head: [['Date', 'Tender No.', 'Project', 'Department', 'Narration', 'Amount', 'Source']],
         body: rows.map((row) => [
           fmtDate(row.paymentDate),
-          row.projectCode || '',
+          row.tenderNumber || '-',
           row.projectName || '',
           row.department || '',
           row.narration || '',
@@ -243,7 +217,7 @@ export default function PaymentListPage() {
       width: 130,
       valueFormatter: (value) => fmtDate(value),
     },
-    { field: 'projectCode', headerName: 'Project Code', width: 130 },
+    { field: 'tenderNumber', headerName: 'Tender Number', width: 150, valueGetter: (value) => value || '-' },
     {
       field: 'projectName',
       headerName: 'Project Name',
@@ -307,33 +281,60 @@ export default function PaymentListPage() {
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 2.5 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5} sx={{ mb: 2 }}>
-        <Header
-          title="Payment List"
-          subtitle="Payments contextualized with project budgets, funding sources, certificates, and absorption"
-        />
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExportExcel} disabled={!rows.length}>
-            Export Excel
-          </Button>
-          <Button variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={handleExportPdf} disabled={!rows.length}>
-            Export PDF
-          </Button>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.25, md: 3 },
+          mb: 2,
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', md: 'flex-start' }}
+          spacing={2.5}
+          sx={{ mb: 2 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0, pr: { md: 2 } }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
+              Payment List
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 820, lineHeight: 1.6 }}>
+              Payments contextualized with project budgets, funding sources, certificates, and absorption.
+            </Typography>
+          </Box>
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            flexWrap={{ xs: 'wrap', md: 'nowrap' }}
+            justifyContent={{ xs: 'flex-start', md: 'flex-end' }}
+            sx={{ flexShrink: 0 }}
+          >
+            <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExportExcel} disabled={!rows.length}>
+              Excel
+            </Button>
+            <Button variant="contained" startIcon={<PictureAsPdfIcon />} onClick={handleExportPdf} disabled={!rows.length}>
+              PDF
+            </Button>
+          </Stack>
         </Stack>
-      </Stack>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-      {notice && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice('')}>
-          {notice}
-        </Alert>
-      )}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+        )}
+        {notice && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice('')}>
+            {notice}
+          </Alert>
+        )}
 
-      <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} sm={6} md={2}>
             <TextField
@@ -404,77 +405,12 @@ export default function PaymentListPage() {
             />
           </Grid>
           <Grid item xs={12} sm={4} md={1}>
-            <Button fullWidth variant="contained" onClick={load}>
-              Apply
+            <Button fullWidth variant="contained" onClick={load} disabled={loading} sx={{ minWidth: 104 }}>
+              {loading ? 'Loading...' : 'Apply'}
             </Button>
           </Grid>
         </Grid>
       </Paper>
-
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {summaryCards.map((card) => (
-          <Grid item xs={12} sm={6} md={2.4} key={card.label}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">
-                  {card.label}
-                </Typography>
-                <Typography variant="h6" fontWeight={800}>
-                  {card.value}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {card.sub}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-              Payment Concentration by Department
-            </Typography>
-            <Stack spacing={1.25}>
-              {byDepartment.length ? byDepartment.map((item) => (
-                <Box key={item.department}>
-                  <Stack direction="row" justifyContent="space-between" spacing={2}>
-                    <Typography variant="body2" noWrap>
-                      {item.department}
-                    </Typography>
-                    <Typography variant="body2" fontWeight={700}>
-                      {fmtCurrency(item.amount)}
-                    </Typography>
-                  </Stack>
-                  <LinearProgress
-                    variant="determinate"
-                    value={maxDepartmentAmount ? (item.amount / maxDepartmentAmount) * 100 : 0}
-                    sx={{ height: 8, borderRadius: 999, mt: 0.5 }}
-                  />
-                </Box>
-              )) : (
-                <Typography variant="body2" color="text.secondary">
-                  No payment rows match the current filters.
-                </Typography>
-              )}
-            </Stack>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-              Data Context
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              This list uses actual payment rows where available. If no payment ledger rows exist, it uses the project
-              registry paid amount so the report still reflects the financial tracking data already captured in project
-              details, certificates, and funding source reports.
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
 
       <Paper sx={{ p: 2 }}>
         {loading ? (

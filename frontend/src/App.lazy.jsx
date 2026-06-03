@@ -81,6 +81,7 @@ const DepartmentalReportsPage = lazy(() => import('./pages/DepartmentalReportsPa
 const ProcurementPage = lazy(() => import('./pages/ProcurementPage'));
 const ProcurementProcuredProjectsPage = lazy(() => import('./pages/ProcurementProcuredProjectsPage'));
 const ProcurementStagesPage = lazy(() => import('./pages/ProcurementStagesPage'));
+const OperationsDashboardPage = lazy(() => import('./pages/OperationsDashboardPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -152,6 +153,10 @@ const router = createBrowserRouter([
       {
         path: 'finance/funding-sources-report',
         element: <LazyRoute component={FundingSourcesReportPage} />,
+      },
+      {
+        path: 'operations-dashboard',
+        element: <LazyRoute component={OperationsDashboardPage} />,
       },
       {
         path: 'projects',

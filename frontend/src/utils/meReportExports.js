@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from './countyOfficialPdfHeader';
 
 const num = (v) => {
   const n = Number(v);
@@ -733,18 +734,23 @@ export async function exportMEReportExcel(rows) {
   XLSX.writeFile(wb, fileName);
 }
 
-export function exportMESummaryPdf(rows) {
+export async function exportMESummaryPdf(rows) {
   const { statusRows, yearlyRows, covSub, covWard } = buildSummaryTables(rows);
   const doc = new jsPDF('landscape', 'pt', 'a4');
-  doc.setFontSize(14);
-  doc.text('M&E Report - Summary, yearly & coverage', 36, 30);
+  const logoDataUrl = await getCountyLogoDataUrl();
+  let y = drawCountyOfficialHeader(doc, {
+    unit: 'pt',
+    logoDataUrl,
+    title: 'M&E Report - Summary, Yearly & Coverage',
+  });
   doc.setFontSize(9);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 36, 46);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 36, y);
+  y += 16;
 
   autoTable(doc, {
     head: [['Indicator', 'Value']],
     body: [...statusRows, ['Total', statusRows.reduce((s, r) => s + num(r[1]), 0)]],
-    startY: 62,
+    startY: y,
     styles: { fontSize: 9, cellPadding: 3 },
     headStyles: { fillColor: [41, 128, 185], textColor: 255 },
   });

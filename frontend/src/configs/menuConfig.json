@@ -21,6 +21,11 @@
           "route": "FINANCE_DASHBOARD"
         },
         {
+          "title": "Operations Dashboard",
+          "icon": "InsightsIcon",
+          "route": "OPERATIONS_DASHBOARD"
+        },
+        {
           "title": "Jobs & Impact",
           "icon": "WorkIcon",
           "route": "JOBS_DASHBOARD"

@@ -37,6 +37,7 @@ const routeTitles = {
   '/project-analytics': { title: 'Project Analytics', subtitle: 'Performance Metrics & Statistics' },
   '/project-by-status-dashboard': { title: 'Project By Status', subtitle: 'Status distribution & filters' },
   '/project-by-sector-dashboard': { title: 'Project By Sector', subtitle: 'Sector spread & registry alignment' },
+  '/operations-dashboard': { title: 'County Operational Dashboard', subtitle: 'Departments, regional KPIs, activities, evaluations, and risks' },
   '/finance/payment-certificates': { title: 'Payment Certificates', subtitle: 'All projects' },
   '/finance/payment-list': { title: 'Payment List', subtitle: 'Project payments with budget and funding context' },
   '/finance/funding-sources-report': { title: 'Funding Sources Report', subtitle: 'Projects grouped by funding source' },

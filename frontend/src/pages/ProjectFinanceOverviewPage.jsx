@@ -17,7 +17,11 @@ import {
   Typography,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import apiService from '../api';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const fmtCurrency = (v) =>
   `KES ${Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -58,6 +62,7 @@ export default function ProjectFinanceOverviewPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [departments, setDepartments] = useState([]);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const load = useCallback(async () => {
     const q = filtersRef.current;
@@ -95,6 +100,97 @@ export default function ProjectFinanceOverviewPage() {
       downloadBlob(blob, fileName);
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to export project financial statement.');
+    }
+  };
+
+  const exportPdf = async () => {
+    setExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const logoDataUrl = await getCountyLogoDataUrl();
+      let y = drawCountyOfficialHeader(doc, {
+        unit: 'pt',
+        logoDataUrl,
+        title: 'Project Finance Overview',
+        departmentName: filters.department || '',
+      });
+      const activeFilters = Object.entries(filters)
+        .filter(([, value]) => String(value ?? '').trim() !== '' && value !== 500)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ');
+
+      doc.setFontSize(9);
+      doc.text(`Generated: ${new Date().toLocaleString()} | Filters: ${activeFilters || 'All scoped records'}`, 40, y);
+      y += 16;
+
+      if (summary) {
+        autoTable(doc, {
+          startY: y,
+          head: [['Projects', 'Budget', 'Paid', 'Partner Funding', 'Certified', 'Pending Bills']],
+          body: [[
+            Number(summary.count || 0).toLocaleString(),
+            fmtCurrency(summary.totalBudget),
+            fmtCurrency(summary.totalPaid),
+            fmtCurrency(summary.totalPartnerFunding),
+            fmtCurrency(summary.totalCertified),
+            fmtCurrency(summary.totalPendingBills),
+          ]],
+          styles: { fontSize: 8, cellPadding: 4 },
+          headStyles: { fillColor: [22, 96, 136] },
+        });
+        y = doc.lastAutoTable.finalY + 16;
+      }
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Project', 'Department', 'Status', 'Budget', 'Paid', 'Partner Funding', 'Certified', 'Pending Bills', 'Absorption %']],
+        body: rows.map((r) => [
+          r.projectName || '-',
+          r.department || '-',
+          r.status || '-',
+          fmtCurrency(r.budgetAmount),
+          fmtCurrency(r.paidAmount),
+          fmtCurrency(r.partnerFundingAmount),
+          fmtCurrency(r.certifiedAmount),
+          fmtCurrency(r.pendingBillAmount),
+          `${Number(r.absorptionPercentage || 0).toFixed(1)}%`,
+        ]),
+        styles: { fontSize: 6.5, cellPadding: 3, overflow: 'linebreak' },
+        headStyles: { fillColor: [22, 96, 136] },
+        columnStyles: {
+          3: { halign: 'right' },
+          4: { halign: 'right' },
+          5: { halign: 'right' },
+          6: { halign: 'right' },
+          7: { halign: 'right' },
+          8: { halign: 'right' },
+        },
+        margin: { top: 40, left: 40, right: 40 },
+      });
+
+      if (topPartners.length) {
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY + 16,
+          head: [['Partner', 'Projects Supported', 'Total Contribution']],
+          body: topPartners.map((p) => [
+            p.partnerName || '-',
+            Number(p.projectsSupported || 0).toLocaleString(),
+            fmtCurrency(p.totalContribution),
+          ]),
+          styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
+          headStyles: { fillColor: [22, 96, 136] },
+          columnStyles: {
+            1: { halign: 'right' },
+            2: { halign: 'right' },
+          },
+        });
+      }
+
+      doc.save(`project-finance-overview-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e) {
+      setError(e?.message || 'Failed to export project finance overview PDF.');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -142,6 +238,15 @@ export default function ProjectFinanceOverviewPage() {
             })}
           </TextField>
           <Button type="button" variant="contained" onClick={load} disabled={loading}>Apply</Button>
+          <Button
+            type="button"
+            variant="outlined"
+            startIcon={<PictureAsPdfIcon />}
+            onClick={exportPdf}
+            disabled={loading || exportingPdf || rows.length === 0}
+          >
+            {exportingPdf ? 'Preparing...' : 'Export PDF'}
+          </Button>
         </Stack>
       </Paper>
 

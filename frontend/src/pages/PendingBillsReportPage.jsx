@@ -17,7 +17,11 @@ import {
   Typography,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import reportsService from '../api/reportsService';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const STATUS_OPTIONS = ['', 'Not Started', 'Initiated', 'In Progress', 'Completed', 'At Risk', 'Delayed', 'Stalled', 'On Hold'];
 
@@ -35,6 +39,7 @@ export default function PendingBillsReportPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -106,6 +111,71 @@ export default function PendingBillsReportPage() {
     }
   };
 
+  const handleExportPdf = async () => {
+    setExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const logoDataUrl = await getCountyLogoDataUrl();
+      let y = drawCountyOfficialHeader(doc, {
+        unit: 'pt',
+        logoDataUrl,
+        title: 'Pending Bills Report',
+        departmentName: filters.department || '',
+      });
+      const activeFilters = Object.entries(filters)
+        .filter(([, value]) => String(value ?? '').trim() !== '' && value !== 500)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ');
+
+      doc.setFontSize(9);
+      doc.text(`Generated: ${new Date().toLocaleString()} | Filters: ${activeFilters || 'All scoped records'}`, 40, y);
+      y += 16;
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Rows', 'Contract Sum', 'Paid', 'Pending']],
+        body: [[
+          rows.length.toLocaleString(),
+          totals.contract.toLocaleString(),
+          totals.paid.toLocaleString(),
+          totals.pending.toLocaleString(),
+        ]],
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [22, 96, 136] },
+      });
+
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 16,
+        head: [['Project', 'Department', 'Status', 'Contract', 'Paid', 'Pending', 'Certificates', 'Last Certificate']],
+        body: rows.map((r) => [
+          r.projectName || '-',
+          r.department || '-',
+          r.status || '-',
+          Number(r.contractSum || 0).toLocaleString(),
+          Number(r.amountPaid || 0).toLocaleString(),
+          Number(r.pendingBill || 0).toLocaleString(),
+          Number(r.certificatesGenerated || 0).toLocaleString(),
+          r.lastCertificateDate ? String(r.lastCertificateDate).slice(0, 10) : '-',
+        ]),
+        styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
+        headStyles: { fillColor: [22, 96, 136] },
+        columnStyles: {
+          3: { halign: 'right' },
+          4: { halign: 'right' },
+          5: { halign: 'right' },
+          6: { halign: 'right' },
+        },
+        margin: { top: 40, left: 40, right: 40 },
+      });
+
+      doc.save(`pending-bills-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e) {
+      setError(e?.message || 'Failed to export pending bills report PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Paper sx={{ p: { xs: 2, md: 3 } }}>
@@ -113,7 +183,7 @@ export default function PendingBillsReportPage() {
           Pending Bills Report
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Filter projects with unpaid balances and download the report as Excel.
+          Filter projects with unpaid balances and export the report as PDF or Excel.
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -208,9 +278,17 @@ export default function PendingBillsReportPage() {
                 variant="outlined"
                 startIcon={<DownloadIcon />}
                 onClick={handleDownload}
-                disabled={downloading}
+                disabled={downloading || exportingPdf}
               >
                 {downloading ? 'Preparing...' : 'Download Excel'}
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PictureAsPdfIcon />}
+                onClick={handleExportPdf}
+                disabled={loading || rows.length === 0 || downloading || exportingPdf}
+              >
+                {exportingPdf ? 'Preparing...' : 'Export PDF'}
               </Button>
             </Stack>
           </Grid>

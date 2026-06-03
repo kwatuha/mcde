@@ -2226,10 +2226,28 @@ async function buildAbsorptionReport(query = {}, req = null) {
     const budgetExpr = isPg ? `COALESCE((p.budget->>'allocated_amount_kes')::numeric, 0)` : `COALESCE(p.costOfProject, 0)`;
     const paidExpr = isPg ? `COALESCE((p.budget->>'disbursed_amount_kes')::numeric, 0)` : `COALESCE(p.paidOut, 0)`;
     const deptExpr = isPg ? `COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')` : `COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned')`;
-    const subCountyExpr = `COALESCE(NULLIF(TRIM(sc.name), ''), 'Countywide/Unassigned')`;
+    const projectIdExpr = isPg ? 'p.project_id' : 'p.id';
+    const subCountyExpr = isPg
+        ? `COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Countywide/Unassigned')`
+        : `COALESCE(NULLIF(TRIM(sc.name), ''), 'Countywide/Unassigned')`;
     const startExpr = isPg ? `(p.timeline->>'start_date')::date` : `p.startDate`;
     const endExpr = isPg ? `(p.timeline->>'expected_completion_date')::date` : `p.endDate`;
     const fyExpr = isPg ? `COALESCE(p.timeline->>'financial_year', '')` : `COALESCE(CAST(p.finYearId AS CHAR), '')`;
+    const progressScoreCase = `CASE
+        WHEN LOWER(${statusExpr}) = 'completed' THEN 100
+        WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
+        WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
+        WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
+        WHEN LOWER(${statusExpr}) = 'initiated' THEN 20
+        WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
+        ELSE 0
+    END`;
+    const averageProgressExpr = isPg
+        ? `ROUND(AVG(${progressScoreCase})::numeric, 1)`
+        : `ROUND(AVG(${progressScoreCase}), 1)`;
+    const absorptionExpr = (digits) => isPg
+        ? `ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, ${digits})`
+        : `ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr})), ${digits})`;
 
     if (finYearId) {
         where.push(`${fyExpr} = ${isPg ? `${placeholder}${i++}` : placeholder}`);
@@ -2274,8 +2292,8 @@ async function buildAbsorptionReport(query = {}, req = null) {
     const groupedBaseSql = `
         FROM projects p
         ${projectJoinSql}
-        LEFT JOIN project_subcounties psc ON p.id = psc.projectId AND COALESCE(psc.voided, 0) = 0
-        LEFT JOIN subcounties sc ON psc.subcountyId = sc.subcountyId AND COALESCE(sc.voided, 0) = 0
+        ${isPg ? '' : 'LEFT JOIN project_subcounties psc ON p.id = psc.projectId AND COALESCE(psc.voided, 0) = 0'}
+        ${isPg ? '' : 'LEFT JOIN subcounties sc ON psc.subcountyId = sc.subcountyId AND COALESCE(sc.voided, 0) = 0'}
         WHERE ${where.join(' AND ')}
     `;
     const groupedSql = `
@@ -2283,23 +2301,15 @@ async function buildAbsorptionReport(query = {}, req = null) {
             ${deptExpr} AS "department",
             ${subCountyExpr} AS "subCounty",
             COALESCE(NULLIF(${statusExpr}, ''), 'Unspecified') AS "status",
-            COUNT(DISTINCT p.id)::int AS "projectCount",
-            CASE WHEN COUNT(DISTINCT p.id) > 0
-                 THEN ROUND(AVG(CASE
-                    WHEN LOWER(${statusExpr}) = 'completed' THEN 100
-                    WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
-                    WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
-                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
-                    WHEN LOWER(${statusExpr}) = 'initiated' THEN 20
-                    WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
-                    ELSE 0
-                 END)::numeric, 1)
+            COUNT(DISTINCT ${projectIdExpr})${isPg ? '::int' : ''} AS "projectCount",
+            CASE WHEN COUNT(DISTINCT ${projectIdExpr}) > 0
+                 THEN ${averageProgressExpr}
                  ELSE 0 END AS "completionPercentage",
             SUM(${budgetExpr}) AS "budget",
             SUM(${budgetExpr}) AS "contractSum",
             SUM(${paidExpr}) AS "paidAmount",
             CASE WHEN SUM(${budgetExpr}) > 0
-                 THEN ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, 2)
+                 THEN ${absorptionExpr(2)}
                  ELSE 0 END AS "absorptionPercentage"
         ${groupedBaseSql}
         GROUP BY ${deptExpr}, ${subCountyExpr}, COALESCE(NULLIF(${statusExpr}, ''), 'Unspecified')
@@ -2327,23 +2337,15 @@ async function buildAbsorptionReport(query = {}, req = null) {
 
     const summarySql = `
         SELECT
-            COUNT(*)::int AS "count",
+            COUNT(*)${isPg ? '::int' : ''} AS "count",
             CASE WHEN COUNT(*) > 0
-                 THEN ROUND(AVG(CASE
-                    WHEN LOWER(${statusExpr}) = 'completed' THEN 100
-                    WHEN LOWER(${statusExpr}) = 'in progress' THEN 75
-                    WHEN LOWER(${statusExpr}) = 'delayed' THEN 50
-                    WHEN LOWER(${statusExpr}) = 'at risk' THEN 25
-                    WHEN LOWER(${statusExpr}) = 'initiated' THEN 20
-                    WHEN LOWER(${statusExpr}) = 'stalled' THEN 10
-                    ELSE 0
-                 END)::numeric, 1)
+                 THEN ${averageProgressExpr}
                  ELSE 0 END AS "averageCompletion",
             SUM(${budgetExpr}) AS "totalBudget",
             SUM(${budgetExpr}) AS "totalContractSum",
             SUM(${paidExpr}) AS "totalPaidAmount",
             CASE WHEN SUM(${budgetExpr}) > 0
-                 THEN ROUND((SUM(${paidExpr}) * 100.0 / SUM(${budgetExpr}))::numeric, 1)
+                 THEN ${absorptionExpr(1)}
                  ELSE 0 END AS "absorbedPercentage"
         ${baseSql}
     `;
@@ -3617,6 +3619,8 @@ function rowMatchesDateRange(rowDate, startDate, endDate) {
 
 async function getPaymentListProjectRows(isPg) {
     const hasProjectRef = await columnExistsInDb('projects', 'ProjectRefNum').catch(() => false);
+    const hasTenderContractNo = await columnExistsInDb('projects', 'TenderContractNo').catch(() => false);
+    const hasTenderContractNoCamel = await columnExistsInDb('projects', 'tenderContractNo').catch(() => false);
     const hasUpdatedAt = await columnExistsInDb('projects', 'updatedAt').catch(() => false);
     const hasUpdatedAtSnake = await columnExistsInDb('projects', 'updated_at').catch(() => false);
     const hasContracted = await columnExistsInDb('projects', 'Contracted').catch(() => false);
@@ -3627,6 +3631,20 @@ async function getPaymentListProjectRows(isPg) {
     const projectCodeExpr = isPg
         ? `COALESCE(NULLIF(TRIM(p.data_sources->>'project_ref_num'), ''), CONCAT('Project #', p.project_id))`
         : (hasProjectRef ? `COALESCE(NULLIF(TRIM(p.ProjectRefNum), ''), CONCAT('Project #', p.id))` : `CONCAT('Project #', p.id)`);
+    const tenderNumberExpr = isPg
+        ? `COALESCE(
+            NULLIF(TRIM(p.data_sources->>'tender_contract_no'), ''),
+            NULLIF(TRIM(p.data_sources->>'tenderContractNo'), ''),
+            NULLIF(TRIM(p.data_sources->>'TenderContractNo'), ''),
+            ''
+          )`
+        : (hasTenderContractNo && hasTenderContractNoCamel
+            ? `COALESCE(NULLIF(TRIM(p.TenderContractNo), ''), NULLIF(TRIM(p.tenderContractNo), ''), '')`
+            : hasTenderContractNo
+                ? `COALESCE(NULLIF(TRIM(p.TenderContractNo), ''), '')`
+                : hasTenderContractNoCamel
+                    ? `COALESCE(NULLIF(TRIM(p.tenderContractNo), ''), '')`
+                    : `''`);
     const contractedExpr = !isPg
         ? (hasContracted && hasContractSum
             ? `COALESCE(p.Contracted, p.contractSum, 0)`
@@ -3641,6 +3659,7 @@ async function getPaymentListProjectRows(isPg) {
             SELECT
                 p.project_id AS "projectId",
                 ${projectCodeExpr} AS "projectCode",
+                ${tenderNumberExpr} AS "tenderNumber",
                 COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Project #', p.project_id)) AS "projectName",
                 COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS "department",
                 COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS "status",
@@ -3658,6 +3677,7 @@ async function getPaymentListProjectRows(isPg) {
             SELECT
                 p.id AS projectId,
                 ${projectCodeExpr} AS projectCode,
+                ${tenderNumberExpr} AS tenderNumber,
                 COALESCE(NULLIF(TRIM(p.projectName), ''), CONCAT('Project #', p.id)) AS projectName,
                 COALESCE(NULLIF(TRIM(d.name), ''), 'Unassigned') AS department,
                 COALESCE(NULLIF(TRIM(p.status), ''), 'Unknown') AS status,
@@ -3674,6 +3694,7 @@ async function getPaymentListProjectRows(isPg) {
     return rows.map((row) => ({
         projectId: row.projectId ?? row.projectid,
         projectCode: row.projectCode ?? row.projectcode,
+        tenderNumber: row.tenderNumber ?? row.tendernumber ?? '',
         projectName: row.projectName ?? row.projectname,
         department: row.department || 'Unassigned',
         status: row.status || 'Unknown',
@@ -3778,6 +3799,7 @@ router.get('/payment-list', async (req, res) => {
                         paymentDate: toIsoDateOnly(firstPresent(row, ['paymentDate', 'payment_date', 'paidAt', 'paid_at', 'paidDate', 'createdAt', 'created_at'])),
                         projectId: project?.projectId ?? projectId ?? null,
                         projectCode: project?.projectCode ?? projectCode ?? `Project #${id}`,
+                        tenderNumber: project?.tenderNumber ?? firstPresent(row, ['tenderNumber', 'tender_number', 'TenderContractNo', 'tenderContractNo']) ?? '',
                         projectName: project?.projectName ?? projectName ?? `Project #${id}`,
                         department: project?.department || firstPresent(row, ['department', 'ministry']) || 'Unassigned',
                         status: project?.status || firstPresent(row, ['status']) || 'Unknown',
@@ -3802,6 +3824,7 @@ router.get('/payment-list', async (req, res) => {
                     paymentDate: toIsoDateOnly(project.updatedAt),
                     projectId: project.projectId,
                     projectCode: project.projectCode || `Project #${project.projectId}`,
+                    tenderNumber: project.tenderNumber || '',
                     projectName: project.projectName || `Project #${project.projectId}`,
                     department: project.department || 'Unassigned',
                     status: project.status || 'Unknown',
@@ -3828,7 +3851,7 @@ router.get('/payment-list', async (req, res) => {
             .filter((row) => !sourceFilter || row.dataSource === sourceFilter)
             .filter((row) => {
                 if (!search) return true;
-                return [row.projectCode, row.projectName, row.department, row.status, row.narration, row.dataSource]
+                return [row.tenderNumber, row.projectCode, row.projectName, row.department, row.status, row.narration, row.dataSource]
                     .filter(Boolean)
                     .some((value) => String(value).toLowerCase().includes(search));
             })
