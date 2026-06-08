@@ -1,4 +1,5 @@
 import axiosInstance from './axiosInstance';
+import { getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 /**
  * @file API service for Reporting dashboard calls.
@@ -384,6 +385,64 @@ const reportsService = {
     return { blob: response.data, fileName };
   },
   downloadBudgetJustificationTemplate: async (filters = {}) => reportsService.downloadBudgetJustificationReport(filters),
+  getAPRFinancialYears: async () => {
+    const response = await axiosInstance.get('/reports/apr/financial-years');
+    return response.data;
+  },
+  downloadAPRReport: async (financialYear) => {
+    const logoDataUrl = await getCountyLogoDataUrl();
+    const response = await axiosInstance.post('/reports/apr/download', {
+      financialYear,
+      logoDataUrl,
+    }, {
+      responseType: 'blob',
+    });
+    let fileName = `machakos-apr-${String(financialYear || 'report').replace(/[^a-zA-Z0-9_-]/g, '-')}.docx`;
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const utf8 = cd.match(/filename\*=UTF-8''([^;\s]+)/i);
+      if (utf8?.[1]) {
+        try {
+          fileName = decodeURIComponent(utf8[1]);
+        } catch {
+          // Keep the default fallback filename if the header cannot be decoded.
+        }
+      } else {
+        const m = cd.match(/filename="?([^";\n]+)"?/i);
+        if (m?.[1]) fileName = m[1].replace(/"/g, '');
+      }
+    }
+    return { blob: response.data, fileName };
+  },
+  getReportingTemplateOptions: async () => {
+    const response = await axiosInstance.get('/reports/reporting-template/options');
+    return response.data;
+  },
+  downloadReportingTemplate: async (filters = {}) => {
+    const logoDataUrl = await getCountyLogoDataUrl();
+    const response = await axiosInstance.post('/reports/reporting-template/download', {
+      ...filters,
+      logoDataUrl,
+    }, {
+      responseType: 'blob',
+    });
+    let fileName = 'machakos-reporting-template.docx';
+    const cd = response.headers?.['content-disposition'];
+    if (cd) {
+      const utf8 = cd.match(/filename\*=UTF-8''([^;\s]+)/i);
+      if (utf8?.[1]) {
+        try {
+          fileName = decodeURIComponent(utf8[1]);
+        } catch {
+          // Keep fallback filename.
+        }
+      } else {
+        const m = cd.match(/filename="?([^";\n]+)"?/i);
+        if (m?.[1]) fileName = m[1].replace(/"/g, '');
+      }
+    }
+    return { blob: response.data, fileName };
+  },
   getProjectFinanceOverview: async (filters = {}) => {
     const response = await axiosInstance.get('/reports/project-finance-overview', { params: filters });
     return response.data;

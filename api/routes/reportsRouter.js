@@ -6,12 +6,107 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
+const {
+    AlignmentType,
+    BorderStyle,
+    Document,
+    HeadingLevel,
+    ImageRun,
+    Packer,
+    PageOrientation,
+    Paragraph,
+    Table,
+    TableCell,
+    TableLayoutType,
+    TableRow,
+    TextRun,
+    WidthType,
+} = require('docx');
 const orgScope = require('../services/organizationScopeService');
 const { isSuperAdminRequester } = require('../utils/roleUtils');
 
 // Helper function to get DB type
 const getDBType = () => process.env.DB_TYPE || 'mysql';
 const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+
+let countyLogoBufferCache = undefined;
+
+function getCountyOfficialName() {
+    return process.env.CERT_COUNTY_NAME || process.env.VITE_CERT_COUNTY_NAME || 'County Government of Machakos';
+}
+
+function imageBufferFromDataUrl(dataUrl) {
+    const raw = String(dataUrl || '').trim();
+    const match = raw.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+    if (!match) return null;
+    try {
+        return {
+            data: Buffer.from(match[2], 'base64'),
+            type: match[1].toLowerCase() === 'png' ? 'png' : 'jpg',
+        };
+    } catch (error) {
+        console.warn('Unable to decode county logo data URL for Word report:', error.message);
+        return null;
+    }
+}
+
+function getCountyLogoBuffer() {
+    if (countyLogoBufferCache !== undefined) return countyLogoBufferCache;
+    const candidates = [
+        path.join(__dirname, '../../frontend/src/assets/gpris.png'),
+        path.join(process.cwd(), '../frontend/src/assets/gpris.png'),
+        path.join(process.cwd(), 'frontend/src/assets/gpris.png'),
+    ];
+    countyLogoBufferCache = null;
+    for (const candidate of candidates) {
+        try {
+            if (fs.existsSync(candidate)) {
+                countyLogoBufferCache = fs.readFileSync(candidate);
+                break;
+            }
+        } catch (error) {
+            console.warn('Unable to read county logo for Word report:', error.message);
+        }
+    }
+    return countyLogoBufferCache;
+}
+
+function resolveCountyLogoImage(logoDataUrl) {
+    const embeddedLogo = imageBufferFromDataUrl(logoDataUrl);
+    if (embeddedLogo) return embeddedLogo;
+    const diskLogo = getCountyLogoBuffer();
+    return diskLogo ? { data: diskLogo, type: 'png' } : null;
+}
+
+async function userHasProjectScopeContext(userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid)) return false;
+    try {
+        const [scopeRowsResult, profileResult] = await Promise.all([
+            orgScope.fetchOrganizationScopesForUser(uid),
+            pool.query(
+                `SELECT agency_id, ministry, state_department
+                 FROM users
+                 WHERE userid = $1 AND COALESCE(voided, false) = false
+                 LIMIT 1`,
+                [uid]
+            ),
+        ]);
+        if ((scopeRowsResult || []).length > 0) return true;
+        const profile = profileResult?.rows?.[0];
+        return Boolean(
+            profile &&
+            (
+                profile.agency_id !== null ||
+                (profile.ministry && String(profile.ministry).trim()) ||
+                (profile.state_department && String(profile.state_department).trim())
+            )
+        );
+    } catch (error) {
+        console.warn('Report scope profile lookup failed, skipping organization scope fallback:', error.message);
+        return false;
+    }
+}
 
 async function addProjectScopeWhere(req, whereConditions, queryParams, projectAlias = 'p', placeholderIndex = null) {
     const DB_TYPE = getDBType();
@@ -28,6 +123,9 @@ async function addProjectScopeWhere(req, whereConditions, queryParams, projectAl
     }
     if (!(await orgScope.organizationScopeTableExists())) {
         whereConditions.push('FALSE');
+        return placeholderIndex;
+    }
+    if (!(await userHasProjectScopeContext(authUserId))) {
         return placeholderIndex;
     }
 
@@ -5392,5 +5490,648 @@ router.get('/county-operations/summary', async (req, res) => {
         return res.status(500).json({ message: 'Error fetching county operations report', error: error.message });
     }
 });
+
+const APR_TABLE_COLUMNS = [
+    'Project Name',
+    'Ward',
+    'Village',
+    'GPS Coordinates',
+    'Outcome / output',
+    'Outcome / Output Indicators',
+    'Baseline',
+    'Target',
+    'Cost (Kshs)',
+    'Start Date',
+    'Expected Completion Date',
+    'Expenditure (Kshs)',
+    'Physical Performance (% Completion Rate)',
+    'Progress Description: (Describe the achievements)',
+];
+
+function aprText(value, fallback = '-') {
+    if (value === null || value === undefined) return fallback;
+    const text = String(value).trim();
+    return text || fallback;
+}
+
+function aprNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function aprMoney(value) {
+    const n = aprNumber(value);
+    if (!n) return '-';
+    return n.toLocaleString('en-KE', { maximumFractionDigits: 0 });
+}
+
+function aprValue(value, digits = 0) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return aprText(value);
+    return n.toLocaleString('en-KE', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    });
+}
+
+function aprDate(value) {
+    if (!value) return '-';
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return aprText(value);
+    return d.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
+}
+
+function aprProgress(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return aprText(value);
+    return `${Math.max(0, Math.min(100, n)).toFixed(0)}%`;
+}
+
+function aprParagraph(text, options = {}) {
+    return new Paragraph({
+        heading: options.heading,
+        alignment: options.alignment,
+        spacing: { after: options.after ?? 160, before: options.before ?? 0 },
+        children: [
+            new TextRun({
+                text: aprText(text, ''),
+                bold: !!options.bold,
+                size: options.size || 22,
+                color: options.color,
+            }),
+        ],
+    });
+}
+
+function officialWordReportHeader(title, details = [], options = {}) {
+    const logo = resolveCountyLogoImage(options.logoDataUrl);
+    const children = [];
+    if (logo) {
+        children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 120 },
+            children: [
+                new ImageRun({
+                    data: logo.data,
+                    transformation: { width: 78, height: 78 },
+                    type: logo.type,
+                }),
+            ],
+        }));
+    }
+    children.push(
+        aprParagraph('REPUBLIC OF KENYA', { alignment: AlignmentType.CENTER, bold: true, size: 24, after: 80 }),
+        aprParagraph(getCountyOfficialName(), { alignment: AlignmentType.CENTER, bold: true, size: 24, after: 120 }),
+        aprParagraph(title, { alignment: AlignmentType.CENTER, bold: true, size: 32, color: '1F4E79', after: 120 })
+    );
+    details.filter(Boolean).forEach((detail) => {
+        children.push(aprParagraph(detail, { alignment: AlignmentType.CENTER, size: 18, after: 80 }));
+    });
+    return children;
+}
+
+function aprCell(text, options = {}) {
+    return new TableCell({
+        width: options.width ? { size: options.width, type: WidthType.PERCENTAGE } : undefined,
+        shading: options.shading ? { fill: options.shading } : undefined,
+        margins: { top: 80, bottom: 80, left: 80, right: 80 },
+        borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: '999999' },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: '999999' },
+            left: { style: BorderStyle.SINGLE, size: 1, color: '999999' },
+            right: { style: BorderStyle.SINGLE, size: 1, color: '999999' },
+        },
+        children: [
+            new Paragraph({
+                alignment: options.align || AlignmentType.LEFT,
+                spacing: { after: 0 },
+                children: [
+                    new TextRun({
+                        text: aprText(text, ''),
+                        bold: !!options.bold,
+                        size: options.size || 16,
+                        color: options.color,
+                    }),
+                ],
+            }),
+        ],
+    });
+}
+
+function aprSimpleTable(headers, rows, columnWidths = []) {
+    return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        rows: [
+            new TableRow({
+                tableHeader: true,
+                children: headers.map((header, index) =>
+                    aprCell(header, {
+                        bold: true,
+                        color: 'FFFFFF',
+                        shading: '1F4E79',
+                        width: columnWidths[index],
+                    })
+                ),
+            }),
+            ...rows.map((row) =>
+                new TableRow({
+                    children: row.map((value, index) => aprCell(value, { width: columnWidths[index] })),
+                })
+            ),
+        ],
+    });
+}
+
+function aprProjectTable(rows, financialYear) {
+    const widths = [10, 6, 7, 8, 9, 10, 5, 5, 7, 7, 7, 7, 6, 14];
+    const headerRows = [
+        new TableRow({
+            tableHeader: true,
+            children: [
+                aprCell('Project Name', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[0] }),
+                aprCell('Location', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[1] }),
+                aprCell('Location', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[2] }),
+                aprCell('Location', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[3] }),
+                aprCell('Outcome / output', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[4] }),
+                aprCell('Outcome / Output Indicators', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[5] }),
+                aprCell('Baseline', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[6] }),
+                aprCell(`Target ${financialYear}`, { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[7] }),
+                aprCell('Cost (Kshs)', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[8] }),
+                aprCell('Time line', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[9] }),
+                aprCell('Time line', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[10] }),
+                aprCell('Actual Performance To Date', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[11] }),
+                aprCell('Actual Performance To Date', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[12] }),
+                aprCell('Progress Description: (Describe the achievements)', { bold: true, color: 'FFFFFF', shading: '1F4E79', width: widths[13] }),
+            ],
+        }),
+        new TableRow({
+            tableHeader: true,
+            children: APR_TABLE_COLUMNS.map((header, index) =>
+                aprCell(header, {
+                    bold: true,
+                    shading: 'D9EAF7',
+                    width: widths[index],
+                })
+            ),
+        }),
+    ];
+
+    const bodyRows = rows.length
+        ? rows.map((row) =>
+              new TableRow({
+                  children: APR_TABLE_COLUMNS.map((column, index) => aprCell(row[column], { width: widths[index] })),
+              })
+          )
+        : [
+              new TableRow({
+                  children: [aprCell('No APR project rows were found for the selected financial year and user scope.', { width: 100 })],
+              }),
+          ];
+
+    return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        rows: [...headerRows, ...bodyRows],
+    });
+}
+
+function buildAprDoc({ financialYear, generatedAt, rows, summary, logoDataUrl }) {
+    const children = [
+        ...officialWordReportHeader('ANNUAL PROGRESS REPORT (APR)', [
+            `Financial Year ${financialYear}`,
+            `Generated: ${generatedAt}`,
+        ], { logoDataUrl }),
+        aprParagraph('County Vision and Mission', { heading: HeadingLevel.HEADING_1, bold: true, size: 26 }),
+        aprParagraph('Vision Statement', { bold: true }),
+        aprParagraph('A model county of excellence with high quality life for citizens in a clean, secure and prosperous environment.'),
+        aprParagraph('Mission Statement', { bold: true }),
+        aprParagraph('To empower the people of Machakos and transform the county through accountable governance, inclusive development, efficient service delivery and evidence-based performance management.'),
+        aprParagraph('Foreword', { heading: HeadingLevel.HEADING_1, bold: true, size: 26 }),
+        aprParagraph(`This Annual Progress Report for FY ${financialYear} has been generated from the Machakos County Integrated Project, Performance and Reporting Management System. It consolidates project implementation, location, financial, monitoring and indicator information available in the system at the time of generation.`),
+        aprParagraph('The report is intended to support management review, departmental follow-up, evidence-based decision making and continuous improvement of county development reporting by presenting available implementation, financial, location and performance information in one consolidated view.'),
+        aprParagraph('Executive Summary', { heading: HeadingLevel.HEADING_1, bold: true, size: 26 }),
+        aprSimpleTable(
+            ['Metric', 'Value'],
+            [
+                ['Projects / APR rows', aprValue(summary.rowCount)],
+                ['Departments represented', aprValue(summary.departmentCount)],
+                ['Wards represented', aprValue(summary.wardCount)],
+                ['Total cost (Kshs)', aprMoney(summary.totalCost)],
+                ['Total expenditure (Kshs)', aprMoney(summary.totalExpenditure)],
+                ['Average physical performance', aprProgress(summary.averageProgress)],
+            ],
+            [45, 55]
+        ),
+        aprParagraph('APR Project Implementation Matrix', { heading: HeadingLevel.HEADING_1, bold: true, size: 26 }),
+        aprParagraph('The table below consolidates project location, expected outputs, indicator targets, budget allocation, expenditure, implementation timelines, physical progress, and achievement narratives recorded in the system for the selected financial year.'),
+        aprProjectTable(rows, financialYear),
+    ];
+
+    return new Document({
+        creator: 'Machakos County Integrated Project, Performance and Reporting Management System',
+        title: `APR Report ${financialYear}`,
+        description: 'Generated Annual Progress Report',
+        sections: [
+            {
+                properties: {
+                    page: {
+                        size: { orientation: PageOrientation.LANDSCAPE },
+                        margin: { top: 720, right: 480, bottom: 720, left: 480 },
+                    },
+                },
+                children,
+            },
+        ],
+    });
+}
+
+async function fetchAprRows(req, financialYear) {
+    await ensureCountyOperationsReportTables();
+    const scopedReq = { ...req, query: { ...(req.query || {}), financialYear } };
+    const scope = await buildCountyOperationsProjectWhere(scopedReq, 'p', 1);
+    return fetchProjectImplementationRows(scope);
+}
+
+async function buildReportingTemplateProjectWhere(req) {
+    const scope = await buildCountyOperationsProjectWhere(req, 'p', 1);
+    const where = [...scope.where];
+    const params = [...scope.params];
+    let idx = scope.nextIndex || (params.length + 1);
+    const { sector, subSector } = req.query || {};
+
+    if (sector) {
+        where.push(`LOWER(TRIM(COALESCE(p.sector, ''))) = LOWER(TRIM($${idx++}))`);
+        params.push(String(sector));
+    }
+    if (subSector) {
+        where.push(`LOWER(TRIM(COALESCE(p.notes->>'sub_sector', ''))) = LOWER(TRIM($${idx++}))`);
+        params.push(String(subSector));
+    }
+
+    return {
+        where,
+        params,
+        nextIndex: idx,
+        whereSql: where.join(' AND '),
+    };
+}
+
+async function fetchReportingTemplateRows(req) {
+    await ensureCountyOperationsReportTables();
+    const scope = await buildReportingTemplateProjectWhere(req);
+    return fetchProjectImplementationRows(scope);
+}
+
+async function fetchProjectImplementationRows(scope) {
+    const allocatedExpr = safeMoneyExpr('p.budget', 'allocated_amount_kes');
+    const disbursedExpr = safeMoneyExpr('p.budget', 'disbursed_amount_kes');
+    const progressExpr = safeProgressExpr('p');
+    const dateExpr = projectOperationalDateExpr('p');
+    const fyExpr = `COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), ${fiscalYearExpr(dateExpr)})`;
+    const startTimelineExpr = safeTimelineDateExpr('p', 'start_date');
+    const commencementTimelineExpr = safeTimelineDateExpr('p', 'commencement_date');
+    const expectedCompletionTimelineExpr = safeTimelineDateExpr('p', 'expected_completion_date');
+    const endTimelineExpr = safeTimelineDateExpr('p', 'end_date');
+
+    const result = await pool.query(
+        `
+        WITH latest_monitoring AS (
+            SELECT DISTINCT ON (m.project_id, COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')))
+                m.project_id,
+                COALESCE(NULLIF(TRIM(m.activity_code), ''), NULLIF(TRIM(m.activity_name), '')) AS activity_key,
+                m.achieved_value,
+                m.observation_date
+            FROM project_monitoring_records m
+            WHERE COALESCE(m.voided, false) = false
+            ORDER BY m.project_id, activity_key, COALESCE(m.observation_date, m.created_at::date) DESC, m.record_id DESC
+        ),
+        latest_eval AS (
+            SELECT DISTINCT ON (e.project_id, COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')))
+                e.project_id,
+                COALESCE(NULLIF(TRIM(e.activity_code), ''), NULLIF(TRIM(e.activity_name), '')) AS activity_key,
+                e.achieved_value,
+                e.performance_score,
+                e.evaluation_date,
+                e.milestone_value
+            FROM project_evaluations e
+            WHERE COALESCE(e.voided, false) = false
+            ORDER BY e.project_id, activity_key, COALESCE(e.evaluation_date, e.created_at::date) DESC, e.id DESC
+        )
+        SELECT
+            p.project_id AS "projectId",
+            p.name AS "projectName",
+            COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+            COALESCE(NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS section,
+            COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified') AS ward,
+            COALESCE(
+                NULLIF(TRIM(p.location->>'village'), ''),
+                NULLIF(TRIM(p.location->>'village_name'), ''),
+                NULLIF(TRIM(p.location->>'town'), ''),
+                NULLIF(TRIM(p.location->>'market'), ''),
+                ''
+            ) AS village,
+            COALESCE(
+                NULLIF(TRIM(p.location->>'gpsCoordinates'), ''),
+                NULLIF(TRIM(p.location->>'gps_coordinates'), ''),
+                NULLIF(TRIM(p.location->>'coordinates'), ''),
+                CASE
+                    WHEN NULLIF(TRIM(p.location->>'latitude'), '') IS NOT NULL
+                     AND NULLIF(TRIM(p.location->>'longitude'), '') IS NOT NULL
+                    THEN CONCAT(NULLIF(TRIM(p.location->>'latitude'), ''), ',', NULLIF(TRIM(p.location->>'longitude'), ''))
+                    ELSE ''
+                END
+            ) AS "gpsCoordinates",
+            COALESCE(NULLIF(TRIM(a.activity_name), ''), NULLIF(TRIM(a.description), ''), p.name) AS "outcomeOutput",
+            COALESCE(NULLIF(TRIM(i.name), ''), NULLIF(TRIM(le.activity_key), ''), '') AS "indicatorName",
+            COALESCE(l.baseline_value, NULL) AS "baselineValue",
+            COALESCE(l.target_value, le.milestone_value, NULL) AS "targetValue",
+            ${allocatedExpr} AS "costAmount",
+            COALESCE(l.planned_start_date, ${startTimelineExpr}, ${commencementTimelineExpr}) AS "startDate",
+            COALESCE(l.planned_end_date, ${expectedCompletionTimelineExpr}, ${endTimelineExpr}) AS "expectedCompletionDate",
+            ${disbursedExpr} AS "expenditureAmount",
+            COALESCE(le.performance_score, ${progressExpr}) AS "physicalPerformance",
+            COALESCE(
+                NULLIF(TRIM(p.progress->>'latest_update_summary'), ''),
+                NULLIF(TRIM(p.progress->>'status_reason'), ''),
+                NULLIF(TRIM(l.activity_status), ''),
+                NULLIF(TRIM(p.progress->>'status'), ''),
+                ''
+            ) AS "progressDescription",
+            ${fyExpr} AS "financialYear"
+        FROM projects p
+        LEFT JOIN project_planning_activity_links l ON l.project_id = p.project_id AND COALESCE(l.voided, false) = false
+        LEFT JOIN planning_project_activities a ON a.id = l.planning_activity_id AND COALESCE(a.voided, false) = false
+        LEFT JOIN planning_indicators i ON i.id = a.indicator_id AND COALESCE(i.voided, false) = false
+        LEFT JOIN latest_monitoring lm ON lm.project_id = p.project_id
+            AND lm.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+        LEFT JOIN latest_eval le ON le.project_id = p.project_id
+            AND le.activity_key = COALESCE(NULLIF(TRIM(a.activity_code), ''), NULLIF(TRIM(a.activity_name), ''))
+        WHERE ${scope.whereSql}
+        ORDER BY department, section, ward, p.name
+        LIMIT 1000
+        `,
+        scope.params
+    );
+    return result.rows || [];
+}
+
+function buildReportingTemplateDoc({ filters, generatedAt, rows, logoDataUrl }) {
+    const filterSummary = [
+        filters.financialYear ? `Financial year: ${filters.financialYear}` : null,
+        filters.period ? `Period: ${filters.period}` : null,
+        filters.department ? `Department: ${filters.department}` : null,
+        filters.sector ? `Sector: ${filters.sector}` : null,
+        filters.subSector ? `Sub-sector: ${filters.subSector}` : null,
+    ].filter(Boolean).join(' | ') || 'All scoped records';
+
+    const children = [
+        ...officialWordReportHeader('REPORTING TEMPLATE', [
+            `Generated: ${generatedAt}`,
+            `Filters: ${filterSummary}`,
+        ], { logoDataUrl }),
+        aprProjectTable(rows, filters.financialYear || 'Selected Period'),
+        aprParagraph('Challenges', { bold: true, size: 24, before: 240 }),
+        aprParagraph('..................................................................................................................................................................................................................................................'),
+        aprParagraph('Lessons learnt', { bold: true, size: 24, before: 180 }),
+        aprParagraph('..................................................................................................................................................................................................................................................'),
+        aprParagraph('Recommendations', { bold: true, size: 24, before: 180 }),
+        aprParagraph('..................................................................................................................................................................................................................................................'),
+    ];
+
+    return new Document({
+        creator: 'Machakos County Integrated Project, Performance and Reporting Management System',
+        title: 'Reporting Template',
+        description: 'Generated reporting template',
+        sections: [
+            {
+                properties: {
+                    page: {
+                        size: { orientation: PageOrientation.LANDSCAPE },
+                        margin: { top: 720, right: 480, bottom: 720, left: 480 },
+                    },
+                },
+                children,
+            },
+        ],
+    });
+}
+
+function mapAprRows(rows) {
+    return rows.map((row) => ({
+        Department: aprText(row.department),
+        'Project Name': aprText(row.projectName),
+        Ward: aprText(row.ward),
+        Village: aprText(row.village),
+        'GPS Coordinates': aprText(row.gpsCoordinates),
+        'Outcome / output': aprText(row.outcomeOutput),
+        'Outcome / Output Indicators': aprText(row.indicatorName),
+        Baseline: row.baselineValue === null || row.baselineValue === undefined ? '-' : aprValue(row.baselineValue, 1),
+        Target: row.targetValue === null || row.targetValue === undefined ? '-' : aprValue(row.targetValue, 1),
+        'Cost (Kshs)': aprMoney(row.costAmount),
+        'Start Date': aprDate(row.startDate),
+        'Expected Completion Date': aprDate(row.expectedCompletionDate),
+        'Expenditure (Kshs)': aprMoney(row.expenditureAmount),
+        'Physical Performance (% Completion Rate)': aprProgress(row.physicalPerformance),
+        'Progress Description: (Describe the achievements)': aprText(row.progressDescription),
+    }));
+}
+
+function summarizeAprRows(rows) {
+    const departments = new Set(rows.map((row) => row.Department).filter((value) => value && value !== '-'));
+    const wards = new Set(rows.map((row) => row.Ward).filter((value) => value && value !== '-'));
+    const progressValues = rows
+        .map((row) => Number(String(row['Physical Performance (% Completion Rate)']).replace('%', '')))
+        .filter((value) => Number.isFinite(value));
+    const totalCost = rows.reduce((sum, row) => sum + Number(String(row['Cost (Kshs)']).replace(/,/g, '')) || sum, 0);
+    const totalExpenditure = rows.reduce((sum, row) => sum + Number(String(row['Expenditure (Kshs)']).replace(/,/g, '')) || sum, 0);
+    return {
+        rowCount: rows.length,
+        departmentCount: departments.size,
+        wardCount: wards.size,
+        totalCost,
+        totalExpenditure,
+        averageProgress: progressValues.length
+            ? progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length
+            : 0,
+    };
+}
+
+function safeTimelineDateExpr(alias, key) {
+    return `CASE
+        WHEN NULLIF(TRIM(${alias}.timeline->>'${key}'), '') ~ '^\\d{4}-\\d{2}-\\d{2}'
+        THEN LEFT(NULLIF(TRIM(${alias}.timeline->>'${key}'), ''), 10)::date
+        ELSE NULL
+    END`;
+}
+
+router.get('/apr/financial-years', async (req, res) => {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'APR reports currently require PostgreSQL project storage.' });
+        }
+        await ensureCountyOperationsReportTables();
+        const scope = await buildCountyOperationsProjectWhere(req, 'p', 1);
+        const fyExpr = `COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), ${fiscalYearExpr(projectOperationalDateExpr('p'))})`;
+        const result = await pool.query(
+            `
+            SELECT ARRAY_REMOVE(ARRAY_AGG(DISTINCT ${fyExpr}), NULL) AS "financialYears"
+            FROM projects p
+            WHERE ${scope.whereSql}
+            `,
+            scope.params
+        );
+        const financialYears = (result.rows?.[0]?.financialYears || [])
+            .filter(Boolean)
+            .sort((a, b) => String(b).localeCompare(String(a)));
+        return res.json({ financialYears });
+    } catch (error) {
+        console.error('Error fetching APR financial years:', error);
+        return res.status(500).json({ message: 'Error fetching APR financial years', error: error.message });
+    }
+});
+
+async function handleAprDownload(req, res) {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'APR reports currently require PostgreSQL project storage.' });
+        }
+        const financialYear = String(req.body?.financialYear || req.query.financialYear || '').trim();
+        if (!financialYear) {
+            return res.status(400).json({ message: 'Financial year is required.' });
+        }
+        const rawRows = await fetchAprRows(req, financialYear);
+        const rows = mapAprRows(rawRows);
+        const summary = summarizeAprRows(rows);
+        const generatedAt = new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' });
+        const doc = buildAprDoc({
+            financialYear,
+            generatedAt,
+            rows,
+            summary,
+            logoDataUrl: req.body?.logoDataUrl || req.query.logoDataUrl,
+        });
+        const buffer = await Packer.toBuffer(doc);
+        const safeYear = financialYear.replace(/[^a-zA-Z0-9_-]/g, '-');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="machakos-apr-${safeYear}.docx"`);
+        return res.send(buffer);
+    } catch (error) {
+        console.error('Error generating APR report:', error);
+        return res.status(500).json({ message: 'Error generating APR report', error: error.message });
+    }
+}
+
+router.get('/apr/download', handleAprDownload);
+router.post('/apr/download', handleAprDownload);
+
+router.get('/reporting-template/options', async (req, res) => {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'Reporting template currently requires PostgreSQL project storage.' });
+        }
+        await ensureCountyOperationsReportTables();
+        const scope = await buildCountyOperationsProjectWhere(req, 'p', 1);
+        const fyExpr = `COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), ${fiscalYearExpr(projectOperationalDateExpr('p'))})`;
+        const projectOptions = await pool.query(
+            `
+            SELECT
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT ${fyExpr}), NULL) AS "financialYears",
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')), NULL) AS departments,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(p.sector), '')), NULL) AS sectors
+            FROM projects p
+            WHERE ${scope.whereSql}
+            `,
+            scope.params
+        );
+
+        const sectorRows = await pool.query(`
+            SELECT
+                s.id,
+                s.name AS "sectorName",
+                COALESCE(s.alias, '') AS alias,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', ss.id,
+                            'sectorId', ss.sector_id,
+                            'subSectorName', ss.name,
+                            'alias', COALESCE(ss.alias, '')
+                        )
+                        ORDER BY ss.name
+                    ) FILTER (WHERE ss.id IS NOT NULL),
+                    '[]'::json
+                ) AS "subSectors"
+            FROM sectors s
+            LEFT JOIN sub_sectors ss
+              ON ss.sector_id = s.id
+             AND COALESCE(ss.voided, false) = false
+            WHERE COALESCE(s.voided, false) = false
+            GROUP BY s.id, s.name, s.alias
+            ORDER BY s.name
+        `).catch(() => ({ rows: [] }));
+
+        const row = projectOptions.rows?.[0] || {};
+        const sortText = (arr) => (Array.isArray(arr) ? arr.filter(Boolean).sort((a, b) => String(a).localeCompare(String(b))) : []);
+        return res.json({
+            financialYears: sortText(row.financialYears).reverse(),
+            departments: sortText(row.departments),
+            sectors: sectorRows.rows?.length ? sectorRows.rows : sortText(row.sectors).map((name) => ({ sectorName: name, subSectors: [] })),
+            periods: [
+                { code: '', name: 'All periods' },
+                { code: 'Q1', name: 'Q1: Jul - Sep' },
+                { code: 'Q2', name: 'Q2: Oct - Dec' },
+                { code: 'Q3', name: 'Q3: Jan - Mar' },
+                { code: 'Q4', name: 'Q4: Apr - Jun' },
+                { code: 'H1', name: 'Half year: Jul - Dec' },
+                { code: 'H2', name: 'Half year: Jan - Jun' },
+                { code: 'ANNUAL', name: 'Annual: Jul - Jun' },
+            ],
+        });
+    } catch (error) {
+        console.error('Error fetching reporting template options:', error);
+        return res.status(500).json({ message: 'Error fetching reporting template options', error: error.message });
+    }
+});
+
+async function handleReportingTemplateDownload(req, res) {
+    try {
+        if (getDBType() !== 'postgresql') {
+            return res.status(501).json({ message: 'Reporting template currently requires PostgreSQL project storage.' });
+        }
+        const source = { ...(req.query || {}), ...(req.body || {}) };
+        const filters = {
+            financialYear: String(source.financialYear || '').trim(),
+            period: String(source.period || '').trim(),
+            department: String(source.department || '').trim(),
+            sector: String(source.sector || '').trim(),
+            subSector: String(source.subSector || '').trim(),
+        };
+        const rawRows = await fetchReportingTemplateRows({ ...req, query: { ...(req.query || {}), ...filters } });
+        const rows = mapAprRows(rawRows);
+        const generatedAt = new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' });
+        const doc = buildReportingTemplateDoc({
+            filters,
+            generatedAt,
+            rows,
+            logoDataUrl: source.logoDataUrl,
+        });
+        const buffer = await Packer.toBuffer(doc);
+        const suffix = (filters.financialYear || new Date().toISOString().slice(0, 10)).replace(/[^a-zA-Z0-9_-]/g, '-');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="machakos-reporting-template-${suffix}.docx"`);
+        return res.send(buffer);
+    } catch (error) {
+        console.error('Error generating reporting template:', error);
+        return res.status(500).json({ message: 'Error generating reporting template', error: error.message });
+    }
+}
+
+router.get('/reporting-template/download', handleReportingTemplateDownload);
+router.post('/reporting-template/download', handleReportingTemplateDownload);
 
 module.exports = router;

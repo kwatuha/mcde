@@ -215,6 +215,19 @@ function ProjectManagementPage() {
   // State for global search (must be declared before filteredProjects)
   const [searchQuery, setSearchQuery] = useState('');
 
+  const villageOptions = useMemo(() => {
+    const values = new Set();
+    (projects || []).forEach((project) => {
+      const rawVillage = project?.village || project?.villageName || project?.location?.village;
+      String(rawVillage || '')
+        .split(/[,;]/)
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((value) => values.add(value));
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [projects]);
+
   const appliedEditProjectFromQueryRef = useRef('');
   const appliedSubcountyFromQueryRef = useRef('');
   const appliedWardFromQueryRef = useRef('');
@@ -3507,6 +3520,7 @@ function ProjectManagementPage() {
         setSnackbar={setSnackbar}
         allMetadata={allMetadata || {}}
         user={user}
+        villageOptions={villageOptions}
       />
       
       <AssignContractorModal

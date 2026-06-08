@@ -13,6 +13,7 @@ const useProjectData = (user, authLoading, filterState, options = {}) => {
     departments: [],
     sections: [],
     financialYears: [],
+    sectors: [],
     programs: [],
     subPrograms: [],
     counties: [],
@@ -69,10 +70,11 @@ const useProjectData = (user, authLoading, filterState, options = {}) => {
     try {
       /* SCOPE_DOWN: programs/subprograms tables removed. Use empty arrays so page still loads. Re-enable when restoring. */
       const [
-        departments, financialYears, programs, counties, projectCategories
+        departments, financialYears, sectors, programs, counties, projectCategories
       ] = await Promise.all([
         apiService.metadata.departments.getAllDepartments(),
         apiService.metadata.financialYears.getAllFinancialYears(),
+        apiService.sectors.getAllSectors().catch(() => []),
         apiService.metadata.programs.getAllPrograms().catch(() => []),
         apiService.metadata.counties.getAllCounties(),
         apiService.metadata.projectCategories.getAllCategories().catch(err => {
@@ -81,7 +83,7 @@ const useProjectData = (user, authLoading, filterState, options = {}) => {
         }),
       ]);
 
-      const newMetadata = { departments, financialYears, programs, counties, projectCategories };
+      const newMetadata = { departments, financialYears, sectors, programs, counties, projectCategories };
 
       if (filterState.departmentId) {
         newMetadata.sections = await apiService.metadata.departments.getSectionsByDepartment(filterState.departmentId);
@@ -96,7 +98,7 @@ const useProjectData = (user, authLoading, filterState, options = {}) => {
       console.error("Error fetching metadata:", err);
       setSnackbar({ open: true, message: 'Failed to load some dropdown options.', severity: 'error' });
       /* SCOPE_DOWN: set safe fallback so /projects page still renders when metadata fails (e.g. missing tables). */
-      setAllMetadata(prev => ({ ...prev, departments: prev.departments || [], financialYears: prev.financialYears || [], programs: prev.programs || [], counties: prev.counties || [], projectCategories: prev.projectCategories || [], sections: [], subPrograms: [] }));
+      setAllMetadata(prev => ({ ...prev, departments: prev.departments || [], financialYears: prev.financialYears || [], sectors: prev.sectors || [], programs: prev.programs || [], counties: prev.counties || [], projectCategories: prev.projectCategories || [], sections: [], subPrograms: [] }));
     }
   }, [authLoading, user, filterState]);
 

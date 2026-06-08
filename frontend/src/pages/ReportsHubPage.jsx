@@ -50,6 +50,21 @@ const SECTIONS = [
         icon: InsightsIcon,
       },
       {
+        title: 'APR reports',
+        description: 'Annual performance Word reports by financial year using APR template columns.',
+        to: ROUTES.APR_REPORTS,
+        tags: ['apr', 'annual', 'performance', 'word'],
+        featured: true,
+        icon: AssessmentIcon,
+      },
+      {
+        title: 'Reporting template',
+        description: 'Filtered Word reporting template for departments, sectors, periods, and financial years.',
+        to: ROUTES.REPORTING_TEMPLATE,
+        tags: ['template', 'word', 'departments', 'period'],
+        icon: MenuBookIcon,
+      },
+      {
         title: 'Pending bills report',
         description: 'Outstanding project bill balances and exports.',
         to: ROUTES.PENDING_BILLS_REPORT,

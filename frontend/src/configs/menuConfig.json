@@ -431,6 +431,18 @@
           "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
         },
         {
+          "title": "APR Reports",
+          "icon": "DescriptionIcon",
+          "route": "APR_REPORTS",
+          "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
+        },
+        {
+          "title": "Reporting Template",
+          "icon": "DescriptionIcon",
+          "route": "REPORTING_TEMPLATE",
+          "permissionsAny": ["project.read_all", "project.update", "document.read_all"]
+        },
+        {
           "title": "Absorption Report",
           "icon": "AssessmentIcon",
           "route": "ABSORPTION_REPORT",

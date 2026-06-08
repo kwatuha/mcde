@@ -3,6 +3,16 @@ import apiService from '../api';
 import { DEFAULT_COUNTY } from '../configs/appConfig';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 
+function deriveFinancialYearName(dateValue) {
+  if (!dateValue) return '';
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0-based; July is 6
+  const startYear = month >= 6 ? year : year - 1;
+  return `${startYear}/${startYear + 1}`;
+}
+
 const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar) => {
   const [formData, setFormData] = useState({
     projectName: '', projectDescription: '', startDate: '', endDate: '',
@@ -10,10 +20,14 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     objective: '', expectedOutput: '', expectedOutcome: '',
     status: 'Not started',
     overallProgress: '', // Progress JSONB: percentage_complete (0-100)
-    ministry: '', stateDepartment: '', // sector / state org lines removed from UI; not collected here
+    ministry: '', stateDepartment: '',
+    finYearId: '',
+    sector: '',
+    subSector: '',
+    subSectorId: '',
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
-    county: '', subcounty: '', ward: '', // Free text fields for location
+    county: '', subcounty: '', ward: '', village: '', // Free text fields for location
     sites: [], // Array of project sites for multilocation support - REQUIRED (at least one)
     // Additional JSONB fields from original database structure
     budgetSource: '', // Budget JSONB: source
@@ -82,6 +96,10 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             overallProgress: currentProject.overallProgress !== undefined && currentProject.overallProgress !== null ? String(currentProject.overallProgress) : '',
             ministry: currentProject.ministry || '',
             stateDepartment: currentProject.stateDepartment || '',
+            finYearId: currentProject.finYearId || currentProject.financialYearName || currentProject.financialYear || '',
+            sector: currentProject.sector || currentProject.categoryName || '',
+            subSector: currentProject.subSector || currentProject.subsector || currentProject.sub_sector || '',
+            subSectorId: currentProject.subSectorId || currentProject.subsectorId || currentProject.sub_sector_id || '',
             categoryId: currentProject.categoryId ? String(currentProject.categoryId) : '',
             // Junction IDs are unused in this flow; leave arrays empty and rely on sites.
             countyIds: [],
@@ -92,6 +110,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             county: currentProject.county || '',
             subcounty: currentProject.subcounty || currentProject.subcountyNames || '',
             ward: currentProject.ward || '',
+            village: currentProject.village || '',
             // Additional JSONB fields
             budgetSource: currentProject.budgetSource || '',
             tenderContractNo: currentProject.tenderContractNo || '',
@@ -145,12 +164,17 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         status: 'Not started',
         overallProgress: '',
         ministry: '', stateDepartment: '',
+        finYearId: '',
+        sector: '',
+        subSector: '',
+        subSectorId: '',
         categoryId: '',
         countyIds: defaultCountyIds, // Default to configured default county (Kisumu)
         subcountyIds: [], wardIds: [],
         county: '',
         subcounty: '',
         ward: '',
+        village: '',
         sites: [],
         // Additional JSONB fields (keep defaults stable for controlled inputs)
         budgetSource: '',
@@ -184,6 +208,11 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         // Convert categoryId to string for consistency with dropdown values
         const processedValue = name === 'categoryId' ? String(value) : value;
         const newState = { ...prev, [name]: processedValue };
+
+        if ((name === 'startDate' || name === 'endDate') && !prev.finYearId) {
+          const derived = deriveFinancialYearName(name === 'startDate' ? value : (prev.startDate || value));
+          if (derived) newState.finYearId = derived;
+        }
 
         // Clear subcounties and wards when counties change
         if (name === 'subcountyIds' && prev.subcountyIds[0] !== value[0]) { newState.wardIds = []; }
@@ -233,6 +262,12 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     }
     if (!currentProject && (!formData.tenderContractNo || !String(formData.tenderContractNo).trim())) {
       errors.tenderContractNo = 'Tender/Contract No is required.';
+    }
+    if (!formData.finYearId || !String(formData.finYearId).trim()) {
+      errors.finYearId = 'Financial Year is required.';
+    }
+    if (!formData.sector || !String(formData.sector).trim()) {
+      errors.sector = 'Sector is required.';
     }
     // Implementing Agency (directorate) is optional
     // Project category is optional
@@ -331,8 +366,9 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     // Sites are no longer handled during project creation - they will be managed on project details page
     delete dataToSubmit.countyIds; delete dataToSubmit.subcountyIds; delete dataToSubmit.wardIds; delete dataToSubmit.sites;
 
-    // County-focused form: do not send national sector registry or state-department / agency line
-    dataToSubmit.sector = null;
+    dataToSubmit.sector = dataToSubmit.sector ? String(dataToSubmit.sector).trim() : null;
+    dataToSubmit.subSector = dataToSubmit.subSector ? String(dataToSubmit.subSector).trim() : null;
+    dataToSubmit.subSectorId = dataToSubmit.subSectorId ? parseInt(dataToSubmit.subSectorId, 10) || null : null;
     dataToSubmit.stateDepartment = null;
 
     console.log('=== FORM SUBMISSION DEBUG ===');

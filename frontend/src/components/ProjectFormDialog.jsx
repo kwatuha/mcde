@@ -9,7 +9,6 @@ import useProjectForm from '../hooks/useProjectForm';
 import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/projectStatusColors';
 import { tokens } from '../pages/dashboard/theme';
 import { DEFAULT_COUNTY } from '../configs/appConfig';
-import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import apiService from '../api';
 import axiosInstance from '../api/axiosInstance';
 
@@ -21,6 +20,7 @@ const ProjectFormDialog = ({
   setSnackbar,
   allMetadata, // Now includes projectCategories
   user,
+  villageOptions = [],
 }) => {
   const theme = useTheme();
   // Get the color mode more robustly, defaulting to 'dark' if not available
@@ -32,10 +32,7 @@ const ProjectFormDialog = ({
     formErrors,
     loading,
     handleChange,
-    handleMultiSelectChange,
     handleSubmit,
-    formSubcounties,
-    formWards,
   } = useProjectForm(currentProject, allMetadata, onFormSuccess, setSnackbar, user);
 
   // State for Kenya wards dropdowns
@@ -50,32 +47,60 @@ const ProjectFormDialog = ({
   const [ministryNameOptions, setMinistryNameOptions] = useState([]);
   const [loadingMinistries, setLoadingMinistries] = useState(false);
 
-  // Fallback: fetch project categories when dialog opens if not in allMetadata (same source as /project-types)
-  const [projectCategoriesFallback, setProjectCategoriesFallback] = useState([]);
-  const [loadingProjectCategories, setLoadingProjectCategories] = useState(false);
+  const [sectorsFallback, setSectorsFallback] = useState([]);
+  const [loadingSectorsFallback, setLoadingSectorsFallback] = useState(false);
+  const [financialYearsFallback, setFinancialYearsFallback] = useState([]);
+
   useEffect(() => {
     if (!open) return;
-    const fromMetadata = allMetadata?.projectCategories;
-    if (fromMetadata && Array.isArray(fromMetadata) && fromMetadata.length > 0) {
-      setProjectCategoriesFallback([]);
+    const sectorsFromMetadata = allMetadata?.sectors;
+    const financialYearsFromMetadata = allMetadata?.financialYears;
+    if (Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0) {
+      setSectorsFallback([]);
+    }
+    if (Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0) {
+      setFinancialYearsFallback([]);
+    }
+    if (
+      Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0 &&
+      Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0
+    ) {
       return;
     }
+
     let cancelled = false;
-    const fetchCategories = async () => {
-      setLoadingProjectCategories(true);
+    const fetchFormMetadataFallbacks = async () => {
+      setLoadingSectorsFallback(true);
       try {
-        const list = await apiService.metadata.projectCategories.getAllCategories();
-        if (!cancelled) setProjectCategoriesFallback(Array.isArray(list) ? list : []);
-      } catch (err) {
-        console.error('ProjectFormDialog: fallback fetch project categories failed', err);
-        if (!cancelled) setProjectCategoriesFallback([]);
+        const [sectors, financialYears] = await Promise.all([
+          Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0
+            ? Promise.resolve([])
+            : apiService.sectors.getAllSectors().catch((err) => {
+                console.error('ProjectFormDialog: fallback fetch sectors failed', err);
+                return [];
+              }),
+          Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0
+            ? Promise.resolve([])
+            : apiService.metadata.financialYears.getAllFinancialYears().catch((err) => {
+                console.error('ProjectFormDialog: fallback fetch financial years failed', err);
+                return [];
+              }),
+        ]);
+        if (!cancelled) {
+          if (!(Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0)) {
+            setSectorsFallback(Array.isArray(sectors) ? sectors : []);
+          }
+          if (!(Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0)) {
+            setFinancialYearsFallback(Array.isArray(financialYears) ? financialYears : []);
+          }
+        }
       } finally {
-        if (!cancelled) setLoadingProjectCategories(false);
+        if (!cancelled) setLoadingSectorsFallback(false);
       }
     };
-    fetchCategories();
+    fetchFormMetadataFallbacks();
     return () => { cancelled = true; };
-  }, [open, allMetadata?.projectCategories]);
+  }, [open, allMetadata?.sectors, allMetadata?.financialYears]);
 
   // Fetch counties on mount - only if dialog is open
   useEffect(() => {
@@ -203,16 +228,6 @@ const ProjectFormDialog = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.subcounty, open]);
 
-  // Format currency
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
   // Use normalized status options for consistency across the application
   const projectStatuses = [
     'Completed',
@@ -223,6 +238,26 @@ const ProjectFormDialog = ({
     'Suspended',
     'Other'
   ];
+
+  const financialYearOptions = (allMetadata?.financialYears?.length ? allMetadata.financialYears : financialYearsFallback) || [];
+  const currentFinancialYearName = formData.finYearId || '';
+  const financialYearNames = [
+    ...new Set([
+      ...financialYearOptions.map((fy) => fy.finYearName || fy.name).filter(Boolean),
+      currentFinancialYearName,
+    ].filter(Boolean)),
+  ];
+  const sectorOptions = (allMetadata?.sectors?.length ? allMetadata.sectors : sectorsFallback) || [];
+  const selectedSector = sectorOptions.find((sector) => {
+    const sectorName = sector.sectorName || sector.name || '';
+    return sectorName === formData.sector || sector.alias === formData.sector;
+  }) || (formData.sector ? { sectorName: formData.sector, subSectors: [] } : null);
+  const subSectorOptions = selectedSector?.subSectors || [];
+  const selectedSubSector = subSectorOptions.find((subSector) => {
+    const subSectorName = subSector.subSectorName || subSector.name || '';
+    return String(subSector.id || '') === String(formData.subSectorId || '')
+      || subSectorName === formData.subSector;
+  }) || (formData.subSector ? { id: formData.subSectorId || '', subSectorName: formData.subSector } : null);
 
   return (
     <Dialog 
@@ -474,6 +509,31 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                select
+                name="finYearId"
+                label="Financial Year"
+                fullWidth
+                required
+                variant="outlined"
+                size="small"
+                value={formData.finYearId || ''}
+                onChange={handleChange}
+                error={!!formErrors.finYearId}
+                helperText={formErrors.finYearId || 'Financial year runs from July 1 to June 30'}
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="">
+                  <em>Select financial year</em>
+                </MenuItem>
+                {financialYearNames.map((name) => (
+                  <MenuItem key={name} value={name}>
+                    {name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
             <Grid item xs={12}>
               <TextField 
                 name="projectDescription" 
@@ -600,6 +660,86 @@ const ProjectFormDialog = ({
             Organizational Details
           </Typography>
           <Grid container spacing={1.5}>
+            <Grid item xs={12} sm={6}>
+              <Autocomplete
+                options={sectorOptions}
+                value={selectedSector}
+                loading={loadingSectorsFallback}
+                onChange={(event, newValue) => {
+                  const sectorName = newValue ? (newValue.sectorName || newValue.name || '') : '';
+                  handleChange({ target: { name: 'sector', value: sectorName } });
+                  handleChange({ target: { name: 'subSector', value: '' } });
+                  handleChange({ target: { name: 'subSectorId', value: '' } });
+                }}
+                getOptionLabel={(option) => {
+                  if (!option) return '';
+                  if (typeof option === 'string') return option;
+                  return option.sectorName || option.name || '';
+                }}
+                isOptionEqualToValue={(option, value) => {
+                  const optionName = option?.sectorName || option?.name || '';
+                  const valueName = value?.sectorName || value?.name || value || '';
+                  return optionName === valueName;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="sector"
+                    label="Sector"
+                    required
+                    variant="outlined"
+                    size="small"
+                    error={!!formErrors.sector}
+                    helperText={formErrors.sector || (loadingSectorsFallback ? 'Loading sectors...' : 'Required; sourced from Sectors metadata')}
+                    sx={{ minWidth: 200 }}
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Autocomplete
+                options={subSectorOptions}
+                value={selectedSubSector}
+                onChange={(event, newValue) => {
+                  handleChange({
+                    target: {
+                      name: 'subSector',
+                      value: newValue ? (newValue.subSectorName || newValue.name || '') : '',
+                    },
+                  });
+                  handleChange({
+                    target: {
+                      name: 'subSectorId',
+                      value: newValue ? (newValue.id || '') : '',
+                    },
+                  });
+                }}
+                disabled={!selectedSector}
+                getOptionLabel={(option) => {
+                  if (!option) return '';
+                  if (typeof option === 'string') return option;
+                  return option.subSectorName || option.name || '';
+                }}
+                isOptionEqualToValue={(option, value) => {
+                  const optionId = option?.id ? String(option.id) : '';
+                  const valueId = value?.id ? String(value.id) : '';
+                  const optionName = option?.subSectorName || option?.name || '';
+                  const valueName = value?.subSectorName || value?.name || value || '';
+                  return (optionId && optionId === valueId) || optionName === valueName;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="subSector"
+                    label="Sub-sector"
+                    variant="outlined"
+                    size="small"
+                    helperText={selectedSector ? 'Optional' : 'Select sector first'}
+                    sx={{ minWidth: 200 }}
+                  />
+                )}
+              />
+            </Grid>
             <Grid item xs={12} sm={8}>
               <Autocomplete
                 options={ministryNameOptions}
@@ -662,8 +802,8 @@ const ProjectFormDialog = ({
             Geographical Coverage
           </Typography>
           <Grid container spacing={1.5}>
-            {/* Searchable dropdowns for County, Sub-county, Ward */}
-            <Grid item xs={12} sm={4}>
+            {/* Searchable dropdowns for County, Sub-county, Ward, and Village */}
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
                 options={counties}
                 value={formData.county || null}
@@ -717,7 +857,7 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
                 options={subcounties}
                 value={formData.subcounty || null}
@@ -767,7 +907,7 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
                 options={wards}
                 getOptionLabel={(option) => {
@@ -827,6 +967,52 @@ const ProjectFormDialog = ({
                   const optionName = typeof option === 'string' ? option : (option.name || '');
                   const valueName = typeof value === 'string' ? value : (value.name || '');
                   return optionName === valueName;
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Autocomplete
+                options={villageOptions}
+                value={formData.village || ''}
+                inputValue={formData.village || ''}
+                onInputChange={(event, newInputValue) => {
+                  handleChange({ target: { name: 'village', value: newInputValue || '' } });
+                }}
+                onChange={(event, newValue) => {
+                  handleChange({ target: { name: 'village', value: newValue || '' } });
+                }}
+                freeSolo
+                sx={{ minWidth: 200 }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="village"
+                    label="Village"
+                    variant="outlined"
+                    size="small"
+                    placeholder="Type village name"
+                    helperText="Free text; existing villages are suggested"
+                    sx={{
+                      minWidth: 200,
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400],
+                          borderWidth: '2px',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300],
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400],
+                          borderWidth: '2px',
+                        },
+                      },
+                    }}
+                  />
+                )}
+                filterOptions={(options, params) => {
+                  const input = String(params.inputValue || '').toLowerCase();
+                  return options.filter((option) => String(option || '').toLowerCase().includes(input));
                 }}
               />
             </Grid>

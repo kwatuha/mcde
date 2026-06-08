@@ -95,6 +95,8 @@ export const ROUTES = {
     REPORTS: '/reports',
     REPORT_LIBRARY: '/report-library',
     COUNTY_OPERATIONS_REPORT: '/county-operations-report',
+    APR_REPORTS: '/apr-reports',
+    REPORTING_TEMPLATE: '/reporting-template',
     PENDING_BILLS_REPORT: '/pending-bills-report',
     BUDGET_JUSTIFICATION_REPORT: '/budget-justification-report',
     PROJECT_FINANCE_OVERVIEW_REPORT: '/project-finance-overview',

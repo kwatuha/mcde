@@ -311,6 +311,12 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.notes->>'expected_output' AS "expectedOutput",
                 NULL AS "principalInvestigator",
                 p.notes->>'expected_outcome' AS "expectedOutcome",
+                p.notes->>'sub_sector' AS "subSector",
+                CASE
+                    WHEN (p.notes->>'sub_sector_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'sub_sector_id')::integer
+                    ELSE NULL
+                END AS "subSectorId",
                 p.progress->>'status' AS "status",
                 p.progress->>'status_reason' AS "statusReason",
                 p.progress->>'latest_update_summary' AS "progressSummary",
@@ -362,6 +368,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.location->>'subcounty' AS "subcounty",
                 p.location->>'constituency' AS "constituency",
                 p.location->>'ward' AS "ward",
+                p.location->>'village' AS "village",
                 (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
                 (p.location->'geocoordinates'->>'lng')::numeric AS "longitude",
                 (p.public_engagement->>'feedback_enabled')::boolean AS "feedbackEnabled",
@@ -373,7 +380,8 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
                 COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
-                p.location->>'ward' AS "wardNames"
+                p.location->>'ward' AS "wardNames",
+                p.location->>'village' AS "villageName"
             FROM projects p
             ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
             LEFT JOIN departments cd
@@ -402,7 +410,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
 
 // --- Validation Middleware ---
 const validateProject = (req, res, next) => {
-    const { projectName, name, tenderContractNo } = req.body;
+    const { projectName, name, tenderContractNo, sector } = req.body;
     // Accept either projectName (frontend) or name (API)
     const projectNameValue = projectName || name;
     // Only enforce required project name on CREATE.
@@ -413,6 +421,9 @@ const validateProject = (req, res, next) => {
         }
         if (!tenderContractNo || !String(tenderContractNo).trim()) {
             return res.status(400).json({ message: 'Missing required field: tenderContractNo' });
+        }
+        if (!sector || !String(sector).trim()) {
+            return res.status(400).json({ message: 'Missing required field: sector' });
         }
         // Normalize to projectName for consistency
         if (name && !projectName) {
@@ -426,6 +437,23 @@ const validateProject = (req, res, next) => {
     }
     next();
 };
+
+function deriveFinancialYearNameFromDates(startDate, endDate) {
+    const raw = startDate || endDate;
+    if (!raw) return null;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    const year = date.getFullYear();
+    const startYear = date.getMonth() >= 6 ? year : year - 1;
+    return `${startYear}/${startYear + 1}`;
+}
+
+function normalizeFinancialYearValue(value, startDate, endDate) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim();
+    }
+    return deriveFinancialYearNameFromDates(startDate, endDate);
+}
 
 // Utility function to check if project exists
 const checkProjectExists = async (projectId) => {
@@ -4488,6 +4516,12 @@ router.get('/', async (req, res) => {
                 p.notes->>'expected_output' AS "expectedOutput",
                 NULL AS "principalInvestigator",
                 p.notes->>'expected_outcome' AS "expectedOutcome",
+                p.notes->>'sub_sector' AS "subSector",
+                CASE
+                    WHEN (p.notes->>'sub_sector_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'sub_sector_id')::integer
+                    ELSE NULL
+                END AS "subSectorId",
                 p.progress->>'status' AS status,
                 p.progress->>'status_reason' AS "statusReason",
                 p.progress->>'latest_update_summary' AS "progressSummary",
@@ -4553,6 +4587,8 @@ router.get('/', async (req, res) => {
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
                 p.location->>'ward' AS "wardNames",
+                p.location->>'village' AS "village",
+                p.location->>'village' AS "villageName",
                 COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                 COALESCE(site_counts.site_count, 0) AS "coverageCount",
                 COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
@@ -6121,6 +6157,9 @@ router.post('/', validateProject, async (req, res) => {
                     stateDepartment,
                     sector,
                     finYearId,
+                    financialYear,
+                    subSector,
+                    subSectorId,
                     programId,
                     subProgramId,
                     overallProgress,
@@ -6128,6 +6167,7 @@ router.post('/', validateProject, async (req, res) => {
                     subcounty,
                     constituency,
                     ward,
+                    village,
                     budgetSource,
                     tenderContractNo,
                     progressSummary,
@@ -6138,6 +6178,7 @@ router.post('/', validateProject, async (req, res) => {
                 const countyDepartment = departmentName || department || stateDepartment || null;
                 const countySection = sectionName || implementingAgency || directorate || null;
                 const parentMinistry = ministry || (countyDepartment ? 'Machakos County Executive' : null);
+                const normalizedFinancialYear = normalizeFinancialYearValue(finYearId ?? financialYear, startDate, endDate);
                 
                 // categoryId was extracted separately from req.body, use it here
 
@@ -6145,7 +6186,7 @@ router.post('/', validateProject, async (req, res) => {
                 const timeline = JSON.stringify({
                     start_date: startDate || null,
                     expected_completion_date: endDate || null,
-                    financial_year: finYearId ? String(finYearId) : null
+                    financial_year: normalizedFinancialYear
                 });
 
                 const budget = JSON.stringify({
@@ -6167,6 +6208,8 @@ router.post('/', validateProject, async (req, res) => {
                     objective: objective || null,
                     expected_output: expectedOutput || null,
                     expected_outcome: expectedOutcome || null,
+                    sub_sector: subSector && String(subSector).trim() !== '' ? String(subSector).trim() : null,
+                    sub_sector_id: subSectorId || null,
                     program_id: programId || null,
                     subprogram_id: subProgramId || null
                 });
@@ -6199,6 +6242,7 @@ router.post('/', validateProject, async (req, res) => {
                     subcounty: subcounty && subcounty.trim() !== '' ? subcounty.trim() : null,
                     constituency: constituency && constituency.trim() !== '' ? constituency.trim() : null,
                     ward: ward && ward.trim() !== '' ? ward.trim() : null,
+                    village: village && String(village).trim() !== '' ? String(village).trim() : null,
                     geocoordinates: {
                         lat: latitude && latitude !== '' ? parseFloat(latitude) : null,
                         lng: longitude && longitude !== '' ? parseFloat(longitude) : null
@@ -6441,6 +6485,9 @@ router.put('/:id', validateProject, async (req, res) => {
                 sector,
                 categoryId,
                 finYearId,
+                financialYear,
+                subSector,
+                subSectorId,
                 programId,
                 subProgramId,
                 overallProgress,
@@ -6448,6 +6495,7 @@ router.put('/:id', validateProject, async (req, res) => {
                 subcounty,
                 constituency,
                 ward,
+                village,
                 budgetSource,
                 tenderContractNo,
                 progressSummary,
@@ -6509,11 +6557,15 @@ router.put('/:id', validateProject, async (req, res) => {
             const normalizedEndDate = endDate !== undefined 
                 ? (endDate === '' || endDate === null ? null : endDate)
                 : (existingTimeline.expected_completion_date || null);
+            const requestedFinancialYear = finYearId !== undefined ? finYearId : financialYear;
+            const normalizedFinancialYear = requestedFinancialYear !== undefined
+                ? normalizeFinancialYearValue(requestedFinancialYear, normalizedStartDate, normalizedEndDate)
+                : (existingTimeline.financial_year || deriveFinancialYearNameFromDates(normalizedStartDate, normalizedEndDate));
 
             const timeline = JSON.stringify({
                 start_date: normalizedStartDate,
                 expected_completion_date: normalizedEndDate,
-                financial_year: finYearId !== undefined ? (finYearId ? String(finYearId) : null) : (existingTimeline.financial_year || null)
+                financial_year: normalizedFinancialYear || null
             });
 
             const budget = JSON.stringify({
@@ -6539,6 +6591,8 @@ router.put('/:id', validateProject, async (req, res) => {
                 objective: objective !== undefined ? objective : (existingNotes.objective || null),
                 expected_output: expectedOutput !== undefined ? expectedOutput : (existingNotes.expected_output || null),
                 expected_outcome: expectedOutcome !== undefined ? expectedOutcome : (existingNotes.expected_outcome || null),
+                sub_sector: subSector !== undefined ? normalizeOptionalText(subSector) : (existingNotes.sub_sector || null),
+                sub_sector_id: subSectorId !== undefined ? (subSectorId || null) : (existingNotes.sub_sector_id || null),
                 program_id: programId !== undefined ? programId : (existingNotes.program_id || null),
                 subprogram_id: subProgramId !== undefined ? subProgramId : (existingNotes.subprogram_id || null)
             });
@@ -6577,6 +6631,7 @@ router.put('/:id', validateProject, async (req, res) => {
                 subcounty: subcounty !== undefined ? normalizeOptionalText(subcounty) : (existingLocation.subcounty || null),
                 constituency: constituency !== undefined ? normalizeOptionalText(constituency) : (existingLocation.constituency || null),
                 ward: ward !== undefined ? normalizeOptionalText(ward) : (existingLocation.ward || null),
+                village: village !== undefined ? normalizeOptionalText(village) : (existingLocation.village || null),
                 geocoordinates: {
                     lat: latitude !== undefined 
                         ? (latitude && latitude !== '' ? parseFloat(latitude) : null)

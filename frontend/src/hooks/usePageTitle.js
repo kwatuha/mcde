@@ -46,6 +46,8 @@ const routeTitles = {
   '/reports-hub': { title: 'Reports hub', subtitle: 'Find reports & analytics' },
   '/reports': { title: 'Project status charts', subtitle: 'Status & directorate distribution' },
   '/county-operations-report': { title: 'County Operations Report', subtitle: 'Department, region, KPI, and evaluation tracking' },
+  '/apr-reports': { title: 'APR Reports', subtitle: 'Annual performance Word reports by financial year' },
+  '/reporting-template': { title: 'Reporting Template', subtitle: 'Filtered departmental Word reporting template' },
   '/pending-bills-report': { title: 'Pending Bills Report', subtitle: 'Filter and download outstanding project bill balances' },
   '/budget-justification-report': { title: 'Budget Justification', subtitle: 'Filter projects and download justification report' },
   '/project-finance-overview': { title: 'Project Finance Overview', subtitle: 'Comprehensive financing and partner contribution analysis' },
