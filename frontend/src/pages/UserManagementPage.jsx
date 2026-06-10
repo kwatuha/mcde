@@ -1993,7 +1993,19 @@ function UserManagementPage() {
 
   const validateRoleForm = () => {
     let errors = {};
-    if (!roleFormData.roleName.trim()) errors.roleName = 'Role Name is required.';
+    const nextRoleName = String(roleFormData.roleName || '').trim();
+    if (!nextRoleName) {
+      errors.roleName = 'Role Name is required.';
+    } else {
+      const duplicateRole = roles.find((role) => {
+        const sameName = String(role.roleName || '').trim().toLowerCase() === nextRoleName.toLowerCase();
+        const sameRole = currentRoleToEdit && String(role.roleId) === String(currentRoleToEdit.roleId);
+        return sameName && !sameRole;
+      });
+      if (duplicateRole) {
+        errors.roleName = 'Another role with this name already exists.';
+      }
+    }
     setRoleFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -2038,7 +2050,10 @@ function UserManagementPage() {
 
     setLoading(true);
     let roleId = currentRoleToEdit ? currentRoleToEdit.roleId : null;
-    const roleDataToSubmit = { ...roleFormData };
+    const roleDataToSubmit = {
+      ...roleFormData,
+      roleName: String(roleFormData.roleName || '').trim(),
+    };
     const privilegeIdsToAssign = roleDataToSubmit.privilegeIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     delete roleDataToSubmit.privilegeIds;
 
@@ -5005,7 +5020,20 @@ function UserManagementPage() {
           {currentRoleToEdit ? 'Edit Role' : 'Add New Role'}
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: colors.primary[400] }}>
-          <TextField autoFocus={!currentRoleToEdit} margin="dense" name="roleName" label="Role Name" type="text" fullWidth variant="outlined" value={roleFormData.roleName} onChange={handleRoleFormChange} error={!!roleFormErrors.roleName} helperText={roleFormErrors.roleName} disabled={!!currentRoleToEdit} sx={{ mb: 2 }} />
+          <TextField
+            autoFocus
+            margin="dense"
+            name="roleName"
+            label="Role Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={roleFormData.roleName}
+            onChange={handleRoleFormChange}
+            error={!!roleFormErrors.roleName}
+            helperText={roleFormErrors.roleName || (currentRoleToEdit ? 'Role name can be changed, but duplicates are not allowed.' : '')}
+            sx={{ mb: 2 }}
+          />
           <TextField margin="dense" name="description" label="Description" type="text" fullWidth variant="outlined" value={roleFormData.description} onChange={handleRoleFormChange} sx={{ mb: 2 }} />
           <Autocomplete
             multiple

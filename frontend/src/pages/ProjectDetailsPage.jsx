@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link as RouterLink } from 'react-router-dom';
 import {
     Box, Typography, CircularProgress, Alert, Button, Paper,
     List, ListItem, ListItemText, IconButton,
@@ -69,6 +69,7 @@ import ProjectSitesModal from '../components/ProjectSitesModal';
 import ChecklistFormFields, { checklistAnswersToRows } from '../components/ChecklistFormFields';
 import ProjectTaskOutputPanel from '../components/ProjectTaskOutputPanel';
 import AssignContractorModal from '../components/AssignContractorModal.jsx';
+import ProjectFormDialog from '../components/ProjectFormDialog';
 
 // Helper function to map milestone activity status to project status colors
 const getMilestoneStatusColors = (status) => {
@@ -130,15 +131,48 @@ const getPublicApprovalStatus = (project) => {
 import { alpha } from '@mui/material/styles';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
 import MilestoneAttachments from '../components/MilestoneAttachments.jsx';
-import ProjectMonitoringComponent from '../components/ProjectMonitoringComponent.jsx';
+import ProjectMonitoringDialog from '../components/ProjectMonitoringDialog.jsx';
 import AddEditActivityForm from '../components/modals/AddEditActivityForm';
 import AddEditMilestoneModal from '../components/modals/AddEditMilestoneModal';
 import PaymentRequestForm from '../components/PaymentRequestForm';
 import PaymentRequestDocumentUploader from '../components/PaymentRequestDocumentUploader';
 import ProjectGanttChart from '../components/ProjectGanttChart';
+import {
+    ProjectPlanningActivityLinksPage,
+    ProjectPlanningRiskLinksPage,
+} from './ProjectPlanningCatalogLinksPages';
+import ProjectEvaluationPage from './ProjectEvaluationPage';
 
 const checkUserPrivilege = (user, privilegeName) => {
     return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
+};
+
+const PROJECT_DETAIL_TAB_ALIASES = {
+    overview: 0,
+    financials: 1,
+    sites: 2,
+    jobs: 3,
+    inspection: 4,
+    schedule: 5,
+    milestones: 5,
+    bq: 6,
+    certificates: 7,
+    map: 8,
+    'implementation-plan': 9,
+    implementation: 9,
+};
+
+const PROJECT_DETAIL_TAB_KEYS = {
+    0: 'overview',
+    1: 'financials',
+    2: 'sites',
+    3: 'jobs',
+    4: 'inspection',
+    5: 'schedule',
+    6: 'bq',
+    7: 'certificates',
+    8: 'map',
+    9: 'implementation-plan',
 };
 
 const snakeToCamelCase = (obj) => {
@@ -213,6 +247,7 @@ const getWarningColor = (level) => {
 function ProjectDetailsPage() {
     const { projectId } = useParams();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { user, logout, authLoading, hasPrivilege } = useAuth();
     const theme = useTheme();
     const colors = tokens(theme.palette.mode); // Initialize colors
@@ -233,6 +268,20 @@ function ProjectDetailsPage() {
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
     const [deleteProjectConfirmOpen, setDeleteProjectConfirmOpen] = useState(false);
     const [deletingProject, setDeletingProject] = useState(false);
+    const [openProjectEditDialog, setOpenProjectEditDialog] = useState(false);
+    const [projectEditMetadataLoaded, setProjectEditMetadataLoaded] = useState(false);
+    const [projectEditMetadata, setProjectEditMetadata] = useState({
+        departments: [],
+        sections: [],
+        financialYears: [],
+        sectors: [],
+        programs: [],
+        subPrograms: [],
+        counties: [],
+        subcounties: [],
+        wards: [],
+        projectCategories: [],
+    });
 
     const [openMilestoneDialog, setOpenMilestoneDialog] = useState(false);
     const [currentMilestone, setCurrentMilestone] = useState(null);
@@ -445,10 +494,18 @@ function ProjectDetailsPage() {
     }, []);
 
     // NEW: State for Tabs and Photos
-    const [activeTab, setActiveTab] = useState(0);
+    const [activeTab, setActiveTab] = useState(() => {
+        const tabKey = String(searchParams.get('tab') || '').trim().toLowerCase();
+        return PROJECT_DETAIL_TAB_ALIASES[tabKey] ?? 0;
+    });
     const [projectPhotos, setProjectPhotos] = useState([]);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
-    const [planningSnapshot, setPlanningSnapshot] = useState({ activities: [], risks: [] });
+    const [planningSnapshot, setPlanningSnapshot] = useState({
+        activities: [],
+        risks: [],
+        bqItems: [],
+        evaluations: [],
+    });
     const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
     const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
     const [planningSnapshotError, setPlanningSnapshotError] = useState(null);
@@ -456,6 +513,28 @@ function ProjectDetailsPage() {
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
 
     const [scheduleGanttVisible, setScheduleGanttVisible] = useState(false);
+    const [implementationModal, setImplementationModal] = useState(null);
+
+    useEffect(() => {
+        const tabKey = String(searchParams.get('tab') || '').trim().toLowerCase();
+        if (!tabKey) return;
+        const nextTab = PROJECT_DETAIL_TAB_ALIASES[tabKey];
+        if (typeof nextTab === 'number' && nextTab !== activeTab) {
+            setActiveTab(nextTab);
+        }
+    }, [activeTab, searchParams]);
+
+    const handleProjectDetailTabChange = useCallback((event, newValue) => {
+        setActiveTab(newValue);
+        const next = new URLSearchParams(searchParams);
+        const tabKey = PROJECT_DETAIL_TAB_KEYS[newValue];
+        if (tabKey && tabKey !== 'overview') {
+            next.set('tab', tabKey);
+        } else {
+            next.delete('tab');
+        }
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams]);
 
     // Load jobs & categories when Jobs tab is active
     useEffect(() => {
@@ -465,47 +544,59 @@ function ProjectDetailsPage() {
         }
     }, [activeTab, fetchJobCategories, fetchProjectJobs]);
 
-    useEffect(() => {
-        if (activeTab !== 0 || !projectId) return;
-        let mounted = true;
-        const loadPlanningSnapshot = async () => {
-            setLoadingPlanningSnapshot(true);
-            setPlanningSnapshotError(null);
+    const loadPlanningSnapshot = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingPlanningSnapshot(true);
+        setPlanningSnapshotError(null);
+
+        const errors = [];
+        const toRows = (value) => {
+            if (Array.isArray(value)) return value;
+            if (Array.isArray(value?.documents)) return value.documents;
+            if (Array.isArray(value?.rows)) return value.rows;
+            return [];
+        };
+        const loadRows = async (label, promise) => {
             try {
-                const [activities, risks, documents] = await Promise.all([
-                    projectService.projects.getPlanningCatalogActivityLinks(projectId),
-                    projectService.projects.getPlanningCatalogRiskLinks(projectId),
-                    canViewProjectDocuments
-                        ? projectService.documents.getProjectDocuments(projectId)
-                        : Promise.resolve([]),
-                ]);
-                if (!mounted) return;
-                setPlanningSnapshot({
-                    activities: Array.isArray(activities) ? activities : [],
-                    risks: Array.isArray(risks) ? risks : [],
-                });
-                const documentRows = Array.isArray(documents)
-                    ? documents
-                    : Array.isArray(documents?.documents)
-                        ? documents.documents
-                        : Array.isArray(documents?.rows)
-                            ? documents.rows
-                            : [];
-                setPlanningDocumentsCount(documentRows.length);
+                return toRows(await promise);
             } catch (err) {
-                if (!mounted) return;
-                setPlanningSnapshot({ activities: [], risks: [] });
-                setPlanningDocumentsCount(0);
-                setPlanningSnapshotError(err?.response?.data?.message || err?.message || 'Failed to load planning snapshot.');
-            } finally {
-                if (mounted) setLoadingPlanningSnapshot(false);
+                errors.push(label);
+                return [];
             }
         };
+
+        try {
+            const [activities, risks, documents, bqItems, evaluations] = await Promise.all([
+                loadRows('activities', projectService.projects.getPlanningCatalogActivityLinks(projectId)),
+                loadRows('risks', projectService.projects.getPlanningCatalogRiskLinks(projectId)),
+                canViewProjectDocuments
+                    ? loadRows('documents', projectService.documents.getProjectDocuments(projectId))
+                    : Promise.resolve([]),
+                loadRows('BQ items', projectService.bq.getItems(projectId)),
+                loadRows('evaluations', projectService.projects.getProjectEvaluations(projectId)),
+            ]);
+
+            setPlanningSnapshot({ activities, risks, bqItems, evaluations });
+            setPlanningDocumentsCount(documents.length);
+            if (errors.length > 0) {
+                setPlanningSnapshotError(`Some implementation plan data could not be loaded: ${errors.join(', ')}.`);
+            }
+        } finally {
+            setLoadingPlanningSnapshot(false);
+        }
+    }, [projectId, canViewProjectDocuments]);
+
+    useEffect(() => {
+        if (![0, 9].includes(activeTab) || !projectId) return;
         loadPlanningSnapshot();
-        return () => {
-            mounted = false;
-        };
-    }, [activeTab, projectId, canViewProjectDocuments]);
+    }, [activeTab, projectId, loadPlanningSnapshot]);
+
+    const handleCloseImplementationModal = useCallback(() => {
+        setImplementationModal(null);
+        if (activeTab === 9) {
+            loadPlanningSnapshot();
+        }
+    }, [activeTab, loadPlanningSnapshot]);
 
 
     const getTeamMemberRef = useCallback((member) => {
@@ -1021,6 +1112,63 @@ function ProjectDetailsPage() {
             setLoading(false);
         }
     }, [projectId, logout, user]);
+
+    const projectForEdit = useMemo(() => {
+        if (!project) return null;
+        const normalizedId = project.id ?? project.projectId ?? project.project_id ?? Number(projectId);
+        return { ...project, id: normalizedId };
+    }, [project, projectId]);
+
+    const loadProjectEditMetadata = useCallback(async () => {
+        if (projectEditMetadataLoaded) return;
+
+        try {
+            const [
+                departments,
+                financialYears,
+                sectors,
+                counties,
+                projectCategories,
+            ] = await Promise.all([
+                apiService.metadata.departments.getAllDepartments().catch(() => []),
+                apiService.metadata.financialYears.getAllFinancialYears().catch(() => []),
+                apiService.sectors.getAllSectors().catch(() => []),
+                apiService.metadata.counties.getAllCounties().catch(() => []),
+                apiService.metadata.projectCategories.getAllCategories().catch(() => []),
+            ]);
+
+            setProjectEditMetadata((prev) => ({
+                ...prev,
+                departments: Array.isArray(departments) ? departments : [],
+                financialYears: Array.isArray(financialYears) ? financialYears : [],
+                sectors: Array.isArray(sectors) ? sectors : [],
+                counties: Array.isArray(counties) ? counties : [],
+                projectCategories: Array.isArray(projectCategories) ? projectCategories : [],
+            }));
+            setProjectEditMetadataLoaded(true);
+        } catch (err) {
+            console.error('Error loading project edit metadata:', err);
+            setSnackbar({ open: true, message: 'Some project edit dropdowns could not be loaded.', severity: 'warning' });
+        }
+    }, [projectEditMetadataLoaded]);
+
+    const handleOpenProjectEditDialog = useCallback(() => {
+        if (!checkUserPrivilege(user, 'project.update')) {
+            setSnackbar({ open: true, message: 'You do not have permission to edit projects.', severity: 'error' });
+            return;
+        }
+        setOpenProjectEditDialog(true);
+        loadProjectEditMetadata();
+    }, [loadProjectEditMetadata, user]);
+
+    const handleCloseProjectEditDialog = useCallback(() => {
+        setOpenProjectEditDialog(false);
+    }, []);
+
+    const handleProjectEditSuccess = useCallback(() => {
+        setOpenProjectEditDialog(false);
+        fetchProjectDetails();
+    }, [fetchProjectDetails]);
 
     // NEW: Function to fetch monitoring records
     const fetchMonitoringRecords = useCallback(async () => {
@@ -2550,7 +2698,7 @@ function ProjectDetailsPage() {
                                     size="small"
                                     variant="contained"
                                     startIcon={<EditIcon sx={{ fontSize: 16 }} />}
-                                    onClick={() => navigate(`/projects?editProject=${encodeURIComponent(projectId)}`)}
+                                    onClick={handleOpenProjectEditDialog}
                                     sx={{ minHeight: 28, py: 0.25 }}
                                 >
                                     Edit Project
@@ -2752,7 +2900,7 @@ function ProjectDetailsPage() {
             >
                 <Tabs
                     value={activeTab}
-                    onChange={(e, newValue) => setActiveTab(newValue)}
+                    onChange={handleProjectDetailTabChange}
                     variant="scrollable"
                     scrollButtons="auto"
                     sx={{
@@ -2805,16 +2953,17 @@ function ProjectDetailsPage() {
                         },
                     }}
                 >
-                    {/* Tab indices: 0=Overview, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Inspection, 5=Schedule (milestones + Gantt), 6=BQ, 7=Certificates, 8=Map */}
-                    <Tab label="Overview" icon={<InfoIcon />} iconPosition="start" />
-                    <Tab label="Financials" icon={<MoneyIcon />} iconPosition="start" />
-                    <Tab label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
-                    <Tab label="Jobs" icon={<WorkIcon />} iconPosition="start" />
-                    <Tab label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
-                    <Tab label="Schedule" icon={<ScheduleIcon />} iconPosition="start" />
-                    <Tab label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
-                    <Tab label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
-                    <Tab label="Map" icon={<LocationOnIcon />} iconPosition="start" />
+                    {/* Tab values: 0=Overview, 9=Implementation Plan, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Inspection, 5=Schedule, 6=BQ, 7=Certificates, 8=Map */}
+                    <Tab value={0} label="Overview" icon={<InfoIcon />} iconPosition="start" />
+                    <Tab value={9} label="Plan" icon={<AccountTreeIcon />} iconPosition="start" />
+                    <Tab value={1} label="Financials" icon={<MoneyIcon />} iconPosition="start" />
+                    <Tab value={2} label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
+                    <Tab value={3} label="Jobs" icon={<WorkIcon />} iconPosition="start" />
+                    <Tab value={4} label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
+                    <Tab value={5} label="Schedule" icon={<ScheduleIcon />} iconPosition="start" />
+                    <Tab value={6} label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
+                    <Tab value={7} label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
+                    <Tab value={8} label="Map" icon={<LocationOnIcon />} iconPosition="start" />
                 </Tabs>
             </Box>
 
@@ -3228,6 +3377,248 @@ function ProjectDetailsPage() {
 
                 </Grid>
             </Paper>
+                    </Box>
+                )}
+
+                {activeTab === 9 && (
+                    <Box>
+                        <Paper elevation={0} sx={{
+                            p: 2,
+                            mb: 2,
+                            borderRadius: 2,
+                            border: `1px solid ${theme.palette.divider}`,
+                            backgroundColor: theme.palette.background.paper,
+                        }}>
+                            <Stack
+                                direction={{ xs: 'column', md: 'row' }}
+                                spacing={2}
+                                alignItems={{ xs: 'stretch', md: 'center' }}
+                                justifyContent="space-between"
+                            >
+                                <Box>
+                                    <Typography variant="h5" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <AccountTreeIcon color="primary" />
+                                        Project Implementation Plan
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
+                                        This brings the project delivery chain into one place: assigned activities, risks,
+                                        schedule, milestones, BQ, monitoring evidence, evaluation, and reporting follow-up.
+                                    </Typography>
+                                </Box>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<FactCheckIcon />}
+                                        onClick={() => setImplementationModal('evaluation')}
+                                    >
+                                        Evaluate Project
+                                    </Button>
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<AssessmentIcon />}
+                                        component={RouterLink}
+                                        to={ROUTES.PROJECT_IMPLEMENTATION_PLANS}
+                                    >
+                                        All Implementation Plans
+                                    </Button>
+                                </Stack>
+                            </Stack>
+                        </Paper>
+
+                        <Grid container spacing={2} sx={{ mb: 2 }}>
+                            {[
+                                {
+                                    title: 'Assigned Activities',
+                                    value: loadingPlanningSnapshot ? '...' : planningSnapshot.activities.length,
+                                    helper: 'Project-specific activities selected from the activity catalogue.',
+                                    action: 'Manage Activities',
+                                    onClick: () => setImplementationModal('activities'),
+                                    icon: <AccountTreeIcon />,
+                                },
+                                {
+                                    title: 'Linked Risks',
+                                    value: loadingPlanningSnapshot ? '...' : planningSnapshot.risks.length,
+                                    helper: 'Risks assigned from the planning risk catalogue.',
+                                    action: 'Manage Risks',
+                                    onClick: () => setImplementationModal('risks'),
+                                    icon: <WarningIcon />,
+                                },
+                                {
+                                    title: 'Milestones',
+                                    value: milestones.length,
+                                    helper: 'Schedule targets and delivery checkpoints.',
+                                    action: 'Open Schedule',
+                                    onClick: () => handleProjectDetailTabChange(null, 5),
+                                    icon: <ScheduleIcon />,
+                                },
+                                {
+                                    title: 'BQ Items',
+                                    value: loadingPlanningSnapshot ? '...' : planningSnapshot.bqItems.length,
+                                    helper: 'Bill of Quantities lines attached to this project.',
+                                    action: 'Open BQ',
+                                    onClick: () => handleProjectDetailTabChange(null, 6),
+                                    icon: <AssessmentIcon />,
+                                },
+                                {
+                                    title: 'Monitoring Records',
+                                    value: monitoringRecords.length,
+                                    helper: 'Field evidence, progress observations, and implementation notes.',
+                                    action: 'Add / Review Monitoring',
+                                    onClick: handleOpenMonitoringModal,
+                                    icon: <FactCheckIcon />,
+                                },
+                                {
+                                    title: 'Evaluation Rows',
+                                    value: loadingPlanningSnapshot ? '...' : planningSnapshot.evaluations.length,
+                                    helper: 'Stored evaluation lines for achieved values and performance scores.',
+                                    action: 'Evaluate Project',
+                                    onClick: () => setImplementationModal('evaluation'),
+                                    icon: <TrendingUpIcon />,
+                                },
+                            ].map((item) => (
+                                <Grid item xs={12} sm={6} lg={4} xl={2} key={item.title}>
+                                    <Card variant="outlined" sx={{ height: '100%' }}>
+                                        <CardContent>
+                                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                                                <Box sx={{ color: 'primary.main', display: 'flex' }}>{item.icon}</Box>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    {item.title}
+                                                </Typography>
+                                            </Stack>
+                                            <Typography variant="h4" sx={{ fontWeight: 800 }}>
+                                                {item.value}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary" sx={{ minHeight: 42, mt: 0.5 }}>
+                                                {item.helper}
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                sx={{ mt: 1 }}
+                                                onClick={item.onClick}
+                                            >
+                                                {item.action}
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            ))}
+                        </Grid>
+
+                        <Grid container spacing={2}>
+                            <Grid item xs={12} md={6}>
+                                <Card variant="outlined" sx={{ height: '100%' }}>
+                                    <CardContent>
+                                        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                                            1. Plan the Work
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            Start by assigning project activities and risks from the planning catalogues.
+                                            These assignments should become the reference point for milestones, monitoring,
+                                            BQ attribution, and evaluation.
+                                        </Typography>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                onClick={() => setImplementationModal('activities')}
+                                            >
+                                                Activity Assignments
+                                            </Button>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                onClick={() => setImplementationModal('risks')}
+                                            >
+                                                Risk Assignments
+                                            </Button>
+                                        </Stack>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <Card variant="outlined" sx={{ height: '100%' }}>
+                                    <CardContent>
+                                        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                                            2. Schedule and Cost the Work
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            Use milestones for delivery dates and the BQ for quantities, rates,
+                                            certified quantities, and contractor work attribution.
+                                        </Typography>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 5)}>
+                                                Schedule &amp; Milestones
+                                            </Button>
+                                            <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 6)}>
+                                                Bill of Quantities
+                                            </Button>
+                                        </Stack>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <Card variant="outlined" sx={{ height: '100%' }}>
+                                    <CardContent>
+                                        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                                            3. Monitor and Verify
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            Capture monitoring evidence, inspection findings, photos, and documents
+                                            against the project delivery plan before evaluation and reporting.
+                                        </Typography>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Button size="small" variant="outlined" onClick={handleOpenMonitoringModal}>
+                                                Monitoring Evidence
+                                            </Button>
+                                            <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 4)}>
+                                                Inspection
+                                            </Button>
+                                            {canViewProjectDocuments && (
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    component={RouterLink}
+                                                    to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}
+                                                >
+                                                    Documents
+                                                </Button>
+                                            )}
+                                        </Stack>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <Card variant="outlined" sx={{ height: '100%' }}>
+                                    <CardContent>
+                                        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                                            4. Evaluate and Report
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            Evaluation should compare planned activities, indicators, milestones, BQ
+                                            delivery, monitoring evidence, achieved values, and recommended actions.
+                                        </Typography>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                onClick={() => setImplementationModal('evaluation')}
+                                            >
+                                                Project Evaluation
+                                            </Button>
+                                            <Button size="small" variant="outlined" component={RouterLink} to={ROUTES.REPORTS_HUB}>
+                                                Reports Hub
+                                            </Button>
+                                        </Stack>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        </Grid>
+
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                            Phase 3 data linking should make activities the common reference for milestones, BQ lines,
+                            monitoring records, risks, and evaluation rows. This tab provides the user-facing structure
+                            while preserving the existing screens during transition.
+                        </Alert>
                     </Box>
                 )}
 
@@ -5978,6 +6369,46 @@ function ProjectDetailsPage() {
 
             </Box>
 
+            <Dialog
+                open={Boolean(implementationModal)}
+                onClose={handleCloseImplementationModal}
+                fullWidth
+                maxWidth="xl"
+            >
+                <DialogTitle>
+                    {implementationModal === 'activities'
+                        ? 'Project Activity Assignments'
+                        : implementationModal === 'risks'
+                            ? 'Project Risk Assignments'
+                            : 'Project Evaluation'}
+                </DialogTitle>
+                <DialogContent dividers>
+                    {implementationModal === 'activities' && (
+                        <ProjectPlanningActivityLinksPage
+                            projectId={projectId}
+                            embedded
+                        />
+                    )}
+                    {implementationModal === 'risks' && (
+                        <ProjectPlanningRiskLinksPage
+                            projectId={projectId}
+                            embedded
+                        />
+                    )}
+                    {implementationModal === 'evaluation' && (
+                        <ProjectEvaluationPage
+                            projectId={projectId}
+                            embedded
+                        />
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseImplementationModal}>
+                        Close
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
             {/* Modals for Milestones and Monitoring */}
             <MilestoneAttachments
                 open={openAttachmentsModal}
@@ -5987,12 +6418,13 @@ function ProjectDetailsPage() {
                 onUploadSuccess={fetchProjectDetails}
                 projectId={projectId}
             />
-            <ProjectMonitoringComponent
+            <ProjectMonitoringDialog
                 open={openMonitoringModal}
                 onClose={handleCloseMonitoringModal}
                 projectId={projectId}
                 editRecord={editingMonitoringRecord}
                 onEditComplete={handleMonitoringEditComplete}
+                onSaved={loadPlanningSnapshot}
             />
             <AddEditMilestoneModal
                 isOpen={openMilestoneDialog}
@@ -6215,6 +6647,19 @@ function ProjectDetailsPage() {
                             .join(' · ') || undefined,
                 }}
             />
+
+            {openProjectEditDialog && (
+                <ProjectFormDialog
+                    open={openProjectEditDialog}
+                    handleClose={handleCloseProjectEditDialog}
+                    currentProject={projectForEdit}
+                    onFormSuccess={handleProjectEditSuccess}
+                    setSnackbar={setSnackbar}
+                    allMetadata={projectEditMetadata}
+                    user={user}
+                    villageOptions={[]}
+                />
+            )}
 
             <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
                 <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>

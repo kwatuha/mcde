@@ -68,6 +68,44 @@ async function getUserRoleNameByUserId(userId, DB_TYPE) {
     return rows?.[0]?.roleName || null;
 }
 
+async function findActiveRoleByName(roleName, DB_TYPE, excludeRoleId = null) {
+    const normalizedName = String(roleName || '').trim();
+    if (!normalizedName) return null;
+
+    if (DB_TYPE === 'postgresql') {
+        const params = [normalizedName];
+        let query = `
+            SELECT roleid AS "roleId", name AS "roleName"
+            FROM roles
+            WHERE voided = false
+              AND LOWER(TRIM(name)) = LOWER(TRIM($1))
+        `;
+        if (excludeRoleId != null) {
+            params.push(excludeRoleId);
+            query += ` AND roleid <> $2`;
+        }
+        query += ' LIMIT 1';
+        const result = await pool.query(query, params);
+        return result.rows?.[0] || null;
+    }
+
+    const params = [normalizedName];
+    let query = `
+        SELECT roleId, roleName
+        FROM roles
+        WHERE voided = 0
+          AND LOWER(TRIM(roleName)) = LOWER(TRIM(?))
+    `;
+    if (excludeRoleId != null) {
+        params.push(excludeRoleId);
+        query += ' AND roleId <> ?';
+    }
+    query += ' LIMIT 1';
+    const result = await pool.query(query, params);
+    const rows = Array.isArray(result) ? result[0] : result;
+    return rows?.[0] || null;
+}
+
 async function enforceRoleAssignmentPermission(reqUser, targetRoleId, DB_TYPE) {
     const roleIdNum = parseInt(String(targetRoleId), 10);
     if (!Number.isFinite(roleIdNum)) {
@@ -1254,7 +1292,7 @@ router.post('/roles', async (req, res) => {
     }
 
     const { roleName, name, description } = req.body;
-    const roleNameValue = roleName || name; // Support both field names
+    const roleNameValue = String(roleName || name || '').trim(); // Support both field names
 
     if (!roleNameValue) {
         return res.status(400).json({ error: 'Role name is required' });
@@ -1263,6 +1301,13 @@ router.post('/roles', async (req, res) => {
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
         let insertedRoleId;
+        const duplicateRole = await findActiveRoleByName(roleNameValue, DB_TYPE);
+        if (duplicateRole) {
+            return res.status(400).json({
+                error: 'Role with that name already exists.',
+                code: 'ROLE_NAME_DUPLICATE',
+            });
+        }
         
         if (DB_TYPE === 'postgresql') {
             const insertSql = 'INSERT INTO roles (name, description, createdat, updatedat, voided) VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false) RETURNING roleid';
@@ -1350,11 +1395,26 @@ router.post('/roles', async (req, res) => {
 router.put('/roles/:id', async (req, res) => {
     const { id } = req.params;
     const { roleName, name, description } = req.body;
-    const roleNameValue = roleName || name; // Support both field names
+    const roleNameValue = roleName !== undefined || name !== undefined
+        ? String(roleName ?? name ?? '').trim()
+        : undefined; // Support both field names
 
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
         let result;
+
+        if (roleNameValue !== undefined) {
+            if (!roleNameValue) {
+                return res.status(400).json({ error: 'Role name is required' });
+            }
+            const duplicateRole = await findActiveRoleByName(roleNameValue, DB_TYPE, id);
+            if (duplicateRole) {
+                return res.status(400).json({
+                    error: 'Another role with that name already exists.',
+                    code: 'ROLE_NAME_DUPLICATE',
+                });
+            }
+        }
         
         if (DB_TYPE === 'postgresql') {
             const updateFields = [];
@@ -1379,6 +1439,10 @@ router.put('/roles/:id', async (req, res) => {
             result = await pool.query(updateQuery, values);
         } else {
             const fieldsToUpdate = { ...req.body, updatedAt: new Date() };
+            if (roleNameValue !== undefined) {
+                fieldsToUpdate.roleName = roleNameValue;
+                delete fieldsToUpdate.name;
+            }
             delete fieldsToUpdate.roleId;
             const [mysqlResult] = await pool.query('UPDATE roles SET ? WHERE roleId = ?', [fieldsToUpdate, id]);
             result = mysqlResult;

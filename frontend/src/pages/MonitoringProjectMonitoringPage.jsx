@@ -338,13 +338,13 @@ const MonitoringProjectMonitoringPage = () => {
       filterable: false,
       renderCell: ({ row }) => (
         <Stack direction="row" spacing={0.5}>
-          <Tooltip title="View project">
-            <IconButton size="small" color="primary" onClick={() => navigate(`/projects/${row.projectId}`)}>
+          <Tooltip title="Open project implementation plan">
+            <IconButton size="small" color="primary" onClick={() => navigate(`/projects/${row.projectId}?tab=implementation-plan`)}>
               <VisibilityIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Upload evidence on project documents">
-            <IconButton size="small" color="info" onClick={() => navigate(`/projects/${row.projectId}`)}>
+          <Tooltip title="Open implementation plan documents area">
+            <IconButton size="small" color="info" onClick={() => navigate(`/projects/${row.projectId}?tab=implementation-plan`)}>
               <UploadFileIcon fontSize="small" />
             </IconButton>
           </Tooltip>

@@ -107,7 +107,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             wardIds: [],
             sites,
             // Location fields from location JSONB
-            county: currentProject.county || '',
+            county: currentProject.county || DEFAULT_COUNTY.name,
             subcounty: currentProject.subcounty || currentProject.subcountyNames || '',
             ward: currentProject.ward || '',
             village: currentProject.village || '',
@@ -136,7 +136,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
       fetchAssociations();
     } else if (!currentProject) {
       // Reset form when no project (new project mode)
-      // For new projects, default to the configured default county (Kisumu)
+      // For new projects, default to the configured deployment county.
       let defaultCountyIds = [];
       if (allMetadata?.counties) {
         // First try to find by countyId if specified in DEFAULT_COUNTY
@@ -169,9 +169,9 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         subSector: '',
         subSectorId: '',
         categoryId: '',
-        countyIds: defaultCountyIds, // Default to configured default county (Kisumu)
+        countyIds: defaultCountyIds,
         subcountyIds: [], wardIds: [],
-        county: '',
+        county: DEFAULT_COUNTY.name,
         subcounty: '',
         ward: '',
         village: '',
@@ -321,7 +321,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     
     // Note: Budget values are entered manually during project creation
     // Sites will be added later on the project details page
-    // Note: Geographical coverage (counties) is optional and will default to Kisumu if not provided
+    // Note: geographical coverage defaults to the configured deployment county if not provided.
     for (const key of ['costOfProject', 'Contracted', 'paidOut']) {
       if (dataToSubmit[key] === '' || dataToSubmit[key] === null) { dataToSubmit[key] = null; } else if (typeof dataToSubmit[key] === 'string') { const parsed = parseFloat(dataToSubmit[key]); dataToSubmit[key] = isNaN(parsed) ? null : parsed; }
     }
@@ -336,7 +336,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     const subcountyIdsToSave = (dataToSubmit.subcountyIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const wardIdsToSave = (dataToSubmit.wardIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     
-    // If no counties selected, default to the configured default county (Kisumu)
+    // If no counties selected, default to the configured deployment county.
     // This ensures projects always have at least one county
     if (countyIdsToSave.length === 0 && allMetadata?.counties) {
       let defaultCounty = null;

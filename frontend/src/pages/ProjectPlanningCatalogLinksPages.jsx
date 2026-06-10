@@ -56,7 +56,7 @@ function riskLevelColor(level) {
   return 'default';
 }
 
-function CatalogLinksPage({ kind }) {
+function CatalogLinksPage({ kind, projectId: fixedProjectId = null, embedded = false }) {
   const isActivities = kind === 'activities';
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -73,7 +73,7 @@ function CatalogLinksPage({ kind }) {
   const canLoadCatalog = hasPrivilege && hasPrivilege('strategic_plan.read_all');
 
   const [searchParams] = useSearchParams();
-  const queryProjectId = searchParams.get('projectId');
+  const queryProjectId = fixedProjectId != null ? String(fixedProjectId) : searchParams.get('projectId');
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [links, setLinks] = useState([]);
@@ -500,22 +500,24 @@ function CatalogLinksPage({ kind }) {
   return (
     <Box
       sx={{
-        minHeight: '100vh',
-        bgcolor: isDark ? colors.primary[500] : theme.palette.background.default,
+        minHeight: embedded ? 'auto' : '100vh',
+        bgcolor: embedded ? 'transparent' : isDark ? colors.primary[500] : theme.palette.background.default,
       }}
     >
-      <Box
-        sx={{
-          px: { xs: 1.5, sm: 2 },
-          py: 1.5,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: isDark ? 'transparent' : theme.palette.background.paper,
-        }}
-      >
-        <Header title={title} subtitle={subtitle} />
-      </Box>
-      <Box sx={{ p: 2, maxWidth: 1400, mx: 'auto' }}>
+      {!embedded && (
+        <Box
+          sx={{
+            px: { xs: 1.5, sm: 2 },
+            py: 1.5,
+            borderBottom: 1,
+            borderColor: 'divider',
+            bgcolor: isDark ? 'transparent' : theme.palette.background.paper,
+          }}
+        >
+          <Header title={title} subtitle={subtitle} />
+        </Box>
+      )}
+      <Box sx={{ p: embedded ? 0 : 2, maxWidth: 1400, mx: 'auto' }}>
         <Paper sx={{ p: 2, borderRadius: 2 }}>
           {loadingProjects ? (
             <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>
@@ -534,12 +536,24 @@ function CatalogLinksPage({ kind }) {
                 </Alert>
               )}
               <Alert severity="info" sx={{ mb: 2 }}>
-                Choose a project, then link rows from the{' '}
-                <MuiLink component={Link} to={planningRoute} fontWeight={600}>
-                  {planningLabel}
-                </MuiLink>{' '}
-                catalog. This is separate from the Planning screens: here you associate catalog entries with a specific
-                project.
+                {embedded ? (
+                  <>
+                    Link rows from the{' '}
+                    <MuiLink component={Link} to={planningRoute} fontWeight={600}>
+                      {planningLabel}
+                    </MuiLink>{' '}
+                    catalog to this project. Close this dialog to return to the implementation plan.
+                  </>
+                ) : (
+                  <>
+                    Choose a project, then link rows from the{' '}
+                    <MuiLink component={Link} to={planningRoute} fontWeight={600}>
+                      {planningLabel}
+                    </MuiLink>{' '}
+                    catalog. This is separate from the Planning screens: here you associate catalog entries with a specific
+                    project.
+                  </>
+                )}
               </Alert>
               {!canLoadCatalog && canView && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
@@ -548,18 +562,24 @@ function CatalogLinksPage({ kind }) {
                 </Alert>
               )}
               <Stack spacing={2} sx={{ mb: 2 }}>
-                <Autocomplete
-                  options={projects}
-                  getOptionLabel={(o) => `${getProjectDisplayName(o)} (ID ${getProjectId(o)})`}
-                  value={selectedProject}
-                  onChange={(_, v) => setSelectedProject(v)}
-                  renderInput={(params) => (
-                    <TextField {...params} label="Project" placeholder="Search by name or ID" />
-                  )}
-                  sx={{ maxWidth: 720 }}
-                />
+                {embedded ? (
+                  <Alert severity="success" variant="outlined">
+                    Project: <strong>{selectedProject ? getProjectDisplayName(selectedProject) : `ID ${queryProjectId}`}</strong>
+                  </Alert>
+                ) : (
+                  <Autocomplete
+                    options={projects}
+                    getOptionLabel={(o) => `${getProjectDisplayName(o)} (ID ${getProjectId(o)})`}
+                    value={selectedProject}
+                    onChange={(_, v) => setSelectedProject(v)}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Project" placeholder="Search by name or ID" />
+                    )}
+                    sx={{ maxWidth: 720 }}
+                  />
+                )}
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                  {selectedPid != null && (
+                  {!embedded && selectedPid != null && (
                     <Button
                       component={Link}
                       to={`/projects/${selectedPid}`}
@@ -828,10 +848,10 @@ function CatalogLinksPage({ kind }) {
   );
 }
 
-export function ProjectPlanningActivityLinksPage() {
-  return <CatalogLinksPage kind="activities" />;
+export function ProjectPlanningActivityLinksPage(props) {
+  return <CatalogLinksPage kind="activities" {...props} />;
 }
 
-export function ProjectPlanningRiskLinksPage() {
-  return <CatalogLinksPage kind="risks" />;
+export function ProjectPlanningRiskLinksPage(props) {
+  return <CatalogLinksPage kind="risks" {...props} />;
 }

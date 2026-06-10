@@ -36,10 +36,8 @@ const ProjectFormDialog = ({
   } = useProjectForm(currentProject, allMetadata, onFormSuccess, setSnackbar, user);
 
   // State for Kenya wards dropdowns
-  const [counties, setCounties] = useState([]);
   const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
-  const [loadingCounties, setLoadingCounties] = useState(false);
   const [loadingSubcounties, setLoadingSubcounties] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
 
@@ -102,30 +100,6 @@ const ProjectFormDialog = ({
     return () => { cancelled = true; };
   }, [open, allMetadata?.sectors, allMetadata?.financialYears]);
 
-  // Fetch counties on mount - only if dialog is open
-  useEffect(() => {
-    if (!open) return;
-    
-    const fetchCounties = async () => {
-      setLoadingCounties(true);
-      try {
-        const data = await apiService.kenyaWards.getCounties();
-        setCounties(data);
-      } catch (error) {
-        console.error('Error fetching counties:', error);
-        // Don't show snackbar on mount - might be too aggressive
-        // setSnackbar({ 
-        //   open: true, 
-        //   message: 'Failed to load counties. Please try again.', 
-        //   severity: 'error' 
-        // });
-      } finally {
-        setLoadingCounties(false);
-      }
-    };
-    fetchCounties();
-  }, [open]);
-
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -157,7 +131,8 @@ const ProjectFormDialog = ({
     if (!open) return;
     
     const fetchSubcounties = async () => {
-      if (!formData.county) {
+      const countyName = formData.county || DEFAULT_COUNTY.name;
+      if (!countyName) {
         setSubcounties([]);
         setWards([]);
         // Clear sub-county and ward when county is cleared
@@ -169,7 +144,7 @@ const ProjectFormDialog = ({
       }
       setLoadingSubcounties(true);
       try {
-        const data = await apiService.kenyaWards.getSubcounties(formData.county);
+        const data = await apiService.kenyaWards.getSubcounties(countyName);
         setSubcounties(data);
         // Clear sub-county and ward when county changes - use a flag to prevent re-triggering
         const hadSubcounty = formData.subcounty;
@@ -802,62 +777,12 @@ const ProjectFormDialog = ({
             Geographical Coverage
           </Typography>
           <Grid container spacing={1.5}>
-            {/* Searchable dropdowns for County, Sub-county, Ward, and Village */}
-            <Grid item xs={12} sm={6} md={3}>
-              <Autocomplete
-                options={counties}
-                value={formData.county || null}
-                onChange={(event, newValue) => {
-                  const newCounty = newValue || '';
-                  handleChange({ target: { name: 'county', value: newCounty } });
-                  // Clear sub-county and ward if county changes
-                  if (newCounty !== formData.county) {
-                    if (formData.subcounty) {
-                      handleChange({ target: { name: 'subcounty', value: '' } });
-                    }
-                    if (formData.ward) {
-                      handleChange({ target: { name: 'ward', value: '' } });
-                    }
-                  }
-                }}
-                loading={loadingCounties}
-                freeSolo
-                sx={{ minWidth: 200 }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    name="county"
-                    label="County"
-                    variant="outlined"
-                    size="small"
-                    placeholder="Search or select county"
-                    sx={{
-                      minWidth: 200,
-                      '& .MuiOutlinedInput-root': {
-                        '& fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400],
-                          borderWidth: '2px',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300],
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400],
-                          borderWidth: '2px',
-                        },
-                      },
-                    }}
-                  />
-                )}
-                filterOptions={(options, params) => {
-                  const filtered = options.filter((option) =>
-                    option.toLowerCase().includes(params.inputValue.toLowerCase())
-                  );
-                  return filtered;
-                }}
-              />
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                County is fixed to <strong>{DEFAULT_COUNTY.name}</strong>. Select only the project sub-county and ward.
+              </Typography>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={4}>
               <Autocomplete
                 options={subcounties}
                 value={formData.subcounty || null}
@@ -870,7 +795,6 @@ const ProjectFormDialog = ({
                   }
                 }}
                 loading={loadingSubcounties}
-                disabled={!formData.county}
                 freeSolo
                 sx={{ minWidth: 200 }}
                 renderInput={(params) => (
@@ -880,7 +804,7 @@ const ProjectFormDialog = ({
                     label="Sub-county"
                     variant="outlined"
                     size="small"
-                    placeholder={formData.county ? "Search or select sub-county" : "Select county first"}
+                    placeholder="Search or select sub-county"
                     sx={{
                       minWidth: 200,
                       '& .MuiOutlinedInput-root': {
@@ -907,7 +831,7 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={4}>
               <Autocomplete
                 options={wards}
                 getOptionLabel={(option) => {
@@ -970,7 +894,7 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={4}>
               <Autocomplete
                 options={villageOptions}
                 value={formData.village || ''}

@@ -62,6 +62,37 @@ const EMPTY_REGISTRY_FILTERS = {
   wardNames: '',
 };
 
+const IMPLEMENTATION_READINESS_LABELS = {
+  complete: 'Implementation readiness: complete basics',
+  partial: 'Implementation readiness: partially ready',
+  missing: 'Implementation readiness: needs setup',
+};
+
+const getProjectBudgetValue = (project) => Number(
+  project?.costOfProject
+    ?? project?.cost_of_project
+    ?? project?.allocatedAmountKes
+    ?? project?.allocated_amount_kes
+    ?? project?.totalBudget
+    ?? project?.budget
+    ?? project?.approvedBudget
+    ?? 0
+);
+
+const getImplementationReadiness = (project) => {
+  const checks = [
+    Boolean(project?.startDate || project?.start_date) && Boolean(project?.endDate || project?.end_date),
+    getProjectBudgetValue(project) > 0,
+    Boolean(project?.subcountyNames || project?.subcounty || project?.wardNames || project?.ward),
+    Boolean(project?.departmentName || project?.departmentAlias || project?.directorate),
+    Boolean(project?.status || project?.projectStatus),
+  ];
+  const readyCount = checks.filter(Boolean).length;
+  if (readyCount === checks.length) return 'complete';
+  if (readyCount === 0) return 'missing';
+  return 'partial';
+};
+
 /** Split comma/semicolon-separated location labels for registry filters. */
 function splitLocationTokens(value) {
   return String(value || '')
@@ -413,6 +444,10 @@ function ProjectManagementPage() {
     () => Object.values(registryFilters).some((v) => String(v || '').trim() !== ''),
     [registryFilters]
   );
+  const implementationReadinessFilter = useMemo(() => {
+    const value = String(searchParams.get('implementationReadiness') || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(IMPLEMENTATION_READINESS_LABELS, value) ? value : '';
+  }, [searchParams]);
 
   useEffect(() => {
     if (!statusOverviewExpanded || distributionView !== 'registry') return;
@@ -433,6 +468,20 @@ function ProjectManagementPage() {
         setLoadingAll(false);
       });
   }, [statusOverviewExpanded, distributionView, allProjectsLoaded, loadingAll, loading, authLoading, fetchProjects]);
+
+  useEffect(() => {
+    if (!implementationReadinessFilter) return;
+    if (allProjectsLoaded || loadingAll || loading || authLoading) return;
+
+    setLoadingAll(true);
+    fetchProjects(true)
+      .then(() => {
+        setAllProjectsLoaded(true);
+      })
+      .finally(() => {
+        setLoadingAll(false);
+      });
+  }, [implementationReadinessFilter, allProjectsLoaded, loadingAll, loading, authLoading, fetchProjects]);
 
   useEffect(() => {
     const raw = searchParams.get('subcounty');
@@ -935,9 +984,13 @@ function ProjectManagementPage() {
       return true;
     });
 
+    const implementationFilteredBase = implementationReadinessFilter
+      ? registryFilteredBase.filter((project) => getImplementationReadiness(project) === implementationReadinessFilter)
+      : registryFilteredBase;
+
     // If no column filters are applied, return registry slice as-is
     if (!filterModel.items || filterModel.items.length === 0) {
-      return registryFilteredBase;
+      return implementationFilteredBase;
     }
 
     // Helper function to check if a filter matches
@@ -1045,7 +1098,7 @@ function ProjectManagementPage() {
     };
 
     // Apply column filters (status / progress KPI filters)
-    const filtered = registryFilteredBase.filter(project => {
+    const filtered = implementationFilteredBase.filter(project => {
       // Group filters by field to handle OR logic for status filters
       const filtersByField = {};
       filterModel.items.forEach(filterItem => {
@@ -1077,7 +1130,7 @@ function ProjectManagementPage() {
     
     // Debug logging
     return filtered;
-  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup, registryFilters]);
+  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup, registryFilters, implementationReadinessFilter]);
 
   // Calculate summary statistics from filtered projects (respects search and column filters)
   const summaryStats = useMemo(() => {
@@ -2404,6 +2457,7 @@ function ProjectManagementPage() {
             (filterModel.items && filterModel.items.length > 0) ||
             sectorRegistryClientFilter ||
             wardGisFilterKey ||
+            implementationReadinessFilter ||
             hasActiveRegistryFilters) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
               <Chip
@@ -2452,6 +2506,18 @@ function ProjectManagementPage() {
                     setWardGisFilterKey(null);
                     setWardGisFilterLabel('');
                     appliedWardFromQueryRef.current = '';
+                  }}
+                  size="small"
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              )}
+              {implementationReadinessFilter && (
+                <Chip
+                  label={IMPLEMENTATION_READINESS_LABELS[implementationReadinessFilter]}
+                  onDelete={() => {
+                    const nextParams = new URLSearchParams(searchParams);
+                    nextParams.delete('implementationReadiness');
+                    setSearchParams(nextParams, { replace: true });
                   }}
                   size="small"
                   sx={{ fontSize: '0.7rem' }}

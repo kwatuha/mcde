@@ -52,15 +52,6 @@ function baselineFromLinkRow(activity) {
   return String(v);
 }
 
-let nextRowId = 1;
-function newRow(overrides = {}) {
-  return {
-    id: nextRowId++,
-    ...emptyForm(),
-    ...overrides,
-  };
-}
-
 function previewScore(milestoneValue, achievedValue, override) {
   if (override !== '' && override != null && String(override).trim() !== '') {
     const o = Number(override);
@@ -109,7 +100,7 @@ function getProjectId(p) {
   return p.projectId ?? p.project_id ?? p.id ?? null;
 }
 
-export default function ProjectEvaluationPage() {
+export default function ProjectEvaluationPage({ projectId: fixedProjectId = null, embedded = false }) {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const { user, loading: authLoading } = useAuth();
@@ -158,6 +149,14 @@ export default function ProjectEvaluationPage() {
       cancelled = true;
     };
   }, [authLoading, canAccess]);
+
+  useEffect(() => {
+    if (fixedProjectId == null || projects.length === 0) return;
+    const match = projects.find((project) => String(getProjectId(project)) === String(fixedProjectId));
+    if (!match) return;
+    if (selectedProject && String(getProjectId(selectedProject)) === String(fixedProjectId)) return;
+    setSelectedProject(match);
+  }, [fixedProjectId, projects, selectedProject]);
 
   useEffect(() => {
     if (!canAccess || selectedPid == null) {
@@ -612,25 +611,27 @@ export default function ProjectEvaluationPage() {
   return (
     <Box
       sx={{
-        minHeight: '100vh',
-        bgcolor: isDark ? colors.primary[500] : theme.palette.background.default,
+        minHeight: embedded ? 'auto' : '100vh',
+        bgcolor: embedded ? 'transparent' : isDark ? colors.primary[500] : theme.palette.background.default,
       }}
     >
-      <Box
-        sx={{
-          px: { xs: 1.5, sm: 2 },
-          py: 1.5,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: isDark ? 'transparent' : theme.palette.background.paper,
-        }}
-      >
-        <Header
-          title="Project evaluation"
-          subtitle="Capture project evaluation lines in the database and export a formatted Excel report"
-        />
-      </Box>
-      <Box sx={{ p: 2, maxWidth: 1600, mx: 'auto' }}>
+      {!embedded && (
+        <Box
+          sx={{
+            px: { xs: 1.5, sm: 2 },
+            py: 1.5,
+            borderBottom: 1,
+            borderColor: 'divider',
+            bgcolor: isDark ? 'transparent' : theme.palette.background.paper,
+          }}
+        >
+          <Header
+            title="Project evaluation"
+            subtitle="Capture project evaluation lines in the database and export a formatted Excel report"
+          />
+        </Box>
+      )}
+      <Box sx={{ p: embedded ? 0 : 2, maxWidth: 1600, mx: 'auto' }}>
         <Paper sx={{ p: 2, borderRadius: 2 }}>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -648,19 +649,25 @@ export default function ProjectEvaluationPage() {
             </Alert>
           )}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} alignItems={{ sm: 'center' }}>
-            <Autocomplete
-              sx={{ minWidth: 280, flex: 1 }}
-              options={projects}
-              loading={loadingProjects}
-              value={selectedProject}
-              onChange={(_, v) => setSelectedProject(v)}
-              getOptionLabel={(p) =>
-                p ? `${p.projectName || p.name || 'Project'}${p.ProjectRefNum || p.projectRefNum ? ` (${p.ProjectRefNum || p.projectRefNum})` : p.id ? ` (#${p.id})` : ''}` : ''
-              }
-              renderInput={(params) => (
-                <TextField {...params} label="Prefill for new row (optional)" placeholder="Search registry…" />
-              )}
-            />
+            {embedded ? (
+              <Alert severity="success" variant="outlined" sx={{ flex: 1 }}>
+                Project: <strong>{selectedProject?.projectName || selectedProject?.name || `ID ${fixedProjectId}`}</strong>
+              </Alert>
+            ) : (
+              <Autocomplete
+                sx={{ minWidth: 280, flex: 1 }}
+                options={projects}
+                loading={loadingProjects}
+                value={selectedProject}
+                onChange={(_, v) => setSelectedProject(v)}
+                getOptionLabel={(p) =>
+                  p ? `${p.projectName || p.name || 'Project'}${p.ProjectRefNum || p.projectRefNum ? ` (${p.ProjectRefNum || p.projectRefNum})` : p.id ? ` (#${p.id})` : ''}` : ''
+                }
+                renderInput={(params) => (
+                  <TextField {...params} label="Prefill for new row (optional)" placeholder="Search registry…" />
+                )}
+              />
+            )}
             <Button
               startIcon={<AddIcon />}
               variant="outlined"

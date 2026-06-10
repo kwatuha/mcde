@@ -31,21 +31,6 @@ import { tokens } from './dashboard/theme';
 const checkUserPrivilege = (user, privilegeName) =>
   user && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
 
-const formatDate = (value) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
-const statusColor = (status) => {
-  const s = String(status || '').toUpperCase();
-  if (s === 'COMPLETED') return 'success';
-  if (s === 'ONGOING') return 'warning';
-  if (s === 'PLANNED') return 'info';
-  return 'default';
-};
-
 export default function PlanningProjectActivitiesPage() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -178,72 +163,17 @@ export default function PlanningProjectActivitiesPage() {
   const isDark = theme.palette.mode === 'dark';
 
   const columns = [
-    { field: 'activityCode', headerName: 'Project Activity Code', width: 170 },
-    { field: 'activityName', headerName: 'Project Activity Name', flex: 1, minWidth: 200 },
-    { field: 'description', headerName: 'Project Activity Description', flex: 1.2, minWidth: 260 },
+    { field: 'activityCode', headerName: 'Activity Code', width: 160 },
+    { field: 'activityName', headerName: 'Activity Name', flex: 1, minWidth: 220 },
+    { field: 'description', headerName: 'Description / Verification Guidance', flex: 1.2, minWidth: 280 },
     {
-      field: 'sampleProjectCode',
-      headerName: 'Project Code',
-      width: 130,
-      valueGetter: (value, row) => row.sampleProjectCode || '—',
-    },
-    {
-      field: 'sampleProjectName',
-      headerName: 'Project Name',
-      flex: 1,
-      minWidth: 220,
-      valueGetter: (value, row) => row.sampleProjectName || 'Not linked',
-    },
-    {
-      field: 'startDate',
-      headerName: 'Start Date',
-      width: 130,
-      valueGetter: (value, row) => row.startDate,
-      valueFormatter: (value) => formatDate(value),
-    },
-    {
-      field: 'endDate',
-      headerName: 'End Date',
-      width: 130,
-      valueGetter: (value, row) => row.endDate,
-      valueFormatter: (value) => formatDate(value),
-    },
-    {
-      field: 'indicatorCount',
-      headerName: 'Indicators',
-      width: 110,
-      type: 'number',
-      valueGetter: (value, row) => Number(row.indicatorCount ?? row.linkedProjectCount ?? 0),
-    },
-    {
-      field: 'baselineCount',
-      headerName: 'Baselines',
-      width: 110,
-      type: 'number',
-      valueGetter: (value, row) => Number(row.baselineCount ?? 0),
-    },
-    {
-      field: 'milestoneCount',
-      headerName: 'Milestones',
-      width: 120,
-      type: 'number',
-      valueGetter: (value, row) => Number(row.milestoneCount ?? 0),
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      width: 140,
+      field: 'linkedProjectCount',
+      headerName: 'Assigned Projects',
+      width: 150,
       renderCell: (params) => {
-        const label = params.row?.status || 'CATALOG';
-        return <Chip size="small" label={label} color={statusColor(label)} variant="outlined" />;
+        const count = Number(params.row?.linkedProjectCount ?? 0);
+        return <Chip size="small" label={count} color={count > 0 ? 'primary' : 'default'} variant="outlined" />;
       },
-    },
-    {
-      field: 'completedAt',
-      headerName: 'Completed At',
-      width: 130,
-      valueGetter: (value, row) => row.completedAt,
-      valueFormatter: (value) => formatDate(value),
     },
     { field: 'indicatorName', headerName: 'Indicator (KPI)', flex: 1, minWidth: 200 },
     {
@@ -300,8 +230,8 @@ export default function PlanningProjectActivitiesPage() {
         }}
       >
         <Header
-          title="Project Activity List"
-          subtitle="CIMES-style activity catalog with linked project context, dates, status, indicators and baselines"
+          title="Activity Catalogue"
+          subtitle="Reusable standard activities linked to indicators. Project-specific dates, milestones, BQ items and status belong under Project Activity Assignments and the Implementation Plan."
         />
       </Box>
       <Box sx={{ p: 2, maxWidth: 1400, mx: 'auto' }}>
@@ -330,10 +260,10 @@ export default function PlanningProjectActivitiesPage() {
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
                 <Box>
                   <Typography variant="h6" fontWeight={700}>
-                    Project activities
+                    Standard activities
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Seeded CIMES activities are linked to sample projects; unlinked rows remain available as catalog activities.
+                    Maintain the reusable activity master list here. Assign activities to specific projects from Project Activity Assignments or a project&apos;s Implementation Plan.
                   </Typography>
                 </Box>
                 {canWrite && (
@@ -363,7 +293,7 @@ export default function PlanningProjectActivitiesPage() {
       </Box>
 
       <Dialog open={dialog.open} onClose={() => setDialog({ open: false, editing: null })} fullWidth maxWidth="sm">
-        <DialogTitle>{dialog.editing ? 'Edit project activity' : 'New project activity'}</DialogTitle>
+        <DialogTitle>{dialog.editing ? 'Edit catalogue activity' : 'New catalogue activity'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField

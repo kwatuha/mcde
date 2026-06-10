@@ -33,6 +33,7 @@ const projectBqRoutes = require('./projectBqRoutes');
 const projectTaxRateRoutes = require('./projectTaxRateRoutes');
 
 const PROJECT_IMPORT_LOG_DIR = path.join(__dirname, '..', 'uploads', 'project-import-logs');
+const DEFAULT_PROJECT_COUNTY = process.env.DEFAULT_PROJECT_COUNTY || 'Machakos';
 
 const ensureProjectImportLogTable = async () => {
     const runSafeDdl = async (sql) => {
@@ -727,7 +728,8 @@ const projectHeaderMap = {
     Constituency: ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county', 'constituency', 'constituencyname', 'constituency name'],
     'sub-county': ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county'],
     ward: ['ward', 'wardname', 'wardid', 'ward name'],
-    Contracted: ['contracted', 'contractamount', 'contractedamount', 'contractsum', 'contract value', 'contract value (kes)'],
+    Village: ['village', 'villagename', 'village name', 'site village', 'sitevillage'],
+    Contracted: ['contracted', 'contractamount', 'contractedamount', 'contractsum', 'contractvalue', 'contractvaluekes', 'contract value', 'contract value (kes)'],
     TenderContractNo: ['tendercontractno', 'tendercontractnumber', 'tenderno', 'tendernumber', 'contractno', 'contractnumber', 'tender contract no', 'tender/contract no', 'tender / contract no'],
     StartDate: ['startdate', 'projectstartdate', 'commencementdate', 'start', 'start date', 'start date yyyymmdd', 'startdateyyyymmdd'],
     EndDate: ['enddate', 'projectenddate', 'completiondate', 'end', 'end date', 'expected completion date yyyymmdd', 'expectedcompletiondate', 'expectedcompletiondateyyyymmdd'],
@@ -1105,6 +1107,10 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
                 'ward name (iebc)': 'ward',
                 'iebc ward name': 'ward',
                 'iebc_ward_name': 'ward',
+                'village': 'village',
+                'village name': 'village',
+                'village_name': 'village',
+                'villagename': 'village',
                 'sector': 'sector',
                 'ministry': 'ministry',
                 'state department': 'stateDepartment',
@@ -2423,9 +2429,11 @@ router.post('/confirm-import-data', async (req, res) => {
         let location = null;
         if (locationData) {
             const locationObj = {
-                county: locationData.county && locationData.county.trim() !== '' ? locationData.county.trim() : null,
+                county: locationData.county && locationData.county.trim() !== '' ? locationData.county.trim() : DEFAULT_PROJECT_COUNTY,
+                subcounty: locationData.subcounty && locationData.subcounty.trim() !== '' ? locationData.subcounty.trim() : null,
                 constituency: locationData.constituency && locationData.constituency.trim() !== '' ? locationData.constituency.trim() : null,
-                ward: locationData.ward && locationData.ward.trim() !== '' ? locationData.ward.trim() : null
+                ward: locationData.ward && locationData.ward.trim() !== '' ? locationData.ward.trim() : null,
+                village: locationData.village && String(locationData.village).trim() !== '' ? String(locationData.village).trim() : null
             };
             // Add geocoordinates if provided
             if (locationData.geocoordinates && (locationData.geocoordinates.lat != null || locationData.geocoordinates.lng != null)) {
@@ -2809,13 +2817,16 @@ router.post('/confirm-import-data', async (req, res) => {
                 }
 
                 // Extract location data from row (county, sub-county, ward, latitude, longitude) for updates
-                const countyName = normalizeStr(row.County || row.county || row['County Name']);
+                const countyName = normalizeStr(row.County || row.county || row['County Name']) || DEFAULT_PROJECT_COUNTY;
                 const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                 const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
+                const villageName = normalizeStr(row.Village || row.village || row['Village Name']);
                 const locationData = {
                     county: countyName,
                     subcounty: subcountyName,
+                    constituency: subcountyName,
                     ward: wardName,
+                    village: villageName,
                     geocoordinates: {
                         lat: projectPayload.latitude,
                         lng: projectPayload.longitude
@@ -2867,9 +2878,10 @@ router.post('/confirm-import-data', async (req, res) => {
                     }
                     try {
                         // Extract location data from row (county, sub-county, ward)
-                        const countyName = normalizeStr(row.County || row.county || row['County Name']);
+                        const countyName = normalizeStr(row.County || row.county || row['County Name']) || DEFAULT_PROJECT_COUNTY;
                         const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                         const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
+                        const villageName = normalizeStr(row.Village || row.village || row['Village Name']);
 
                         // Build JSONB objects for PostgreSQL projects table
                         const timeline = JSON.stringify({
@@ -2920,7 +2932,9 @@ router.post('/confirm-import-data', async (req, res) => {
                         const locationObj = {
                             county: countyName && countyName.trim() !== '' ? countyName.trim() : null,
                             subcounty: subcountyName && subcountyName.trim() !== '' ? subcountyName.trim() : null,
-                            ward: wardName && wardName.trim() !== '' ? wardName.trim() : null
+                            constituency: subcountyName && subcountyName.trim() !== '' ? subcountyName.trim() : null,
+                            ward: wardName && wardName.trim() !== '' ? wardName.trim() : null,
+                            village: villageName && String(villageName).trim() !== '' ? String(villageName).trim() : null
                         };
                         // Add geocoordinates if latitude and longitude are provided
                         if (projectPayload.latitude != null && projectPayload.longitude != null) {

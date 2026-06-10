@@ -124,13 +124,19 @@
           "route": "PROJECTS"
         },
         {
+          "title": "Implementation Plans",
+          "icon": "AccountTreeIcon",
+          "route": "PROJECT_IMPLEMENTATION_PLANS",
+          "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
           "title": "Project Documents",
           "icon": "DescriptionIcon",
           "route": "PROJECT_DOCUMENTS_BY_PROJECT",
           "permissionsAny": ["document.read_all", "document.create"]
         },
         {
-          "title": "Project Milestones",
+          "title": "Schedule & Milestones",
           "icon": "EventNoteIcon",
           "route": "PROJECT_MILESTONES",
           "permissionsAny": ["project.read_all", "project.update"]
@@ -154,7 +160,7 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
-          "title": "Project evaluation",
+          "title": "Project Evaluation Workbench",
           "icon": "FactCheckIcon",
           "route": "PROJECT_EVALUATION",
           "permissionsAny": ["project.read_all", "project.update"]
@@ -255,38 +261,38 @@
           "route": "PLANNING_BUDGET_ALLOCATION"
         },
         {
-          "title": "Measurement types",
+          "title": "Measurement Types",
           "icon": "StraightenIcon",
           "to": "/planning/indicators?section=measurement-types"
         },
         {
-          "title": "Indicators & KPIs",
+          "title": "Indicator Catalogue",
           "icon": "ShowChartIcon",
           "route": "PLANNING_INDICATORS"
         },
         {
-          "title": "Project Activities",
+          "title": "Activity Catalogue",
           "icon": "TaskAltIcon",
           "route": "PLANNING_PROJECT_ACTIVITIES"
         },
         {
-          "title": "Project Risks",
+          "title": "Risk Catalogue",
           "icon": "ReportProblemIcon",
           "route": "PLANNING_PROJECT_RISKS"
         },
         {
-          "title": "Reporting frequency",
+          "title": "Reporting Frequency",
           "icon": "RepeatIcon",
           "route": "PLANNING_REPORTING_FREQUENCY"
         },
         {
-          "title": "Project Activity Links",
+          "title": "Project Activity Assignments",
           "icon": "TaskAltIcon",
           "route": "PROJECT_PLANNING_ACTIVITY_LINKS",
           "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
         },
         {
-          "title": "Project Risk Links",
+          "title": "Project Risk Assignments",
           "icon": "ReportProblemIcon",
           "route": "PROJECT_PLANNING_RISK_LINKS",
           "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
@@ -367,7 +373,7 @@
       "icon": "SpeedIcon",
       "submenus": [
         {
-          "title": "Project Monitoring",
+          "title": "Monitoring Visits",
           "icon": "ChecklistIcon",
           "route": "MONITORING_PROJECT_MONITORING",
           "permissionsAny": ["project_monitoring.read", "project_monitoring.create", "project_monitoring.update"]
@@ -391,7 +397,7 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
-          "title": "Project evaluation",
+          "title": "Evaluation Workbench",
           "icon": "FactCheckIcon",
           "route": "PROJECT_EVALUATION",
           "permissionsAny": ["project.read_all", "project.update"]

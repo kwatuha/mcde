@@ -9,9 +9,9 @@ export const INITIAL_MAP_POSITION = [-1.286389, 36.817223];
 
 // Default county configuration for hierarchical filtering
 export const DEFAULT_COUNTY = {
-    countyId: null, // Will be resolved by name if not set - defaults to Kisumu
-    name: 'Kisumu',
-    code: 'KSM'
+    countyId: null, // Resolved by name where an ID is still needed.
+    name: 'Machakos',
+    code: 'MKS'
 };
 
 // Default sub-county configuration for initial chart loading
@@ -62,6 +62,8 @@ export const ROUTES = {
     // Main layout routes
     RAW_DATA: '/raw-data',
     PROJECTS: '/projects',
+    /** Cross-project implementation readiness workbench; drills into Project Details > Implementation Plan. */
+    PROJECT_IMPLEMENTATION_PLANS: '/projects/implementation-plans',
     /** Cross-project registry: documents grouped by project (sidebar under Projects). */
     PROJECT_DOCUMENTS_BY_PROJECT: '/projects/documents-by-project',
     /** CIMES-style cross-project milestone target list. */

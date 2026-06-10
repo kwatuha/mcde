@@ -50,6 +50,7 @@ function KenyaWardsPage() {
     constituency: '',
     subcounty: '',
   });
+  const [cascadeProjectLocations, setCascadeProjectLocations] = useState(true);
   const [formErrors, setFormErrors] = useState({});
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [wardToDelete, setWardToDelete] = useState(null);
@@ -171,6 +172,7 @@ function KenyaWardsPage() {
         iebc_ward_name: formData.iebc_ward_name,
         subcounty: formData.subcounty,
         constituency: formData.constituency,
+        cascadeProjectLocations: Boolean(currentWard && cascadeProjectLocations),
       };
       delete payload.id;
       delete payload.created_at;
@@ -178,10 +180,14 @@ function KenyaWardsPage() {
 
       if (currentWard) {
         // Update
-        await axiosInstance.put(`/kenya-wards/${currentWard.id}`, payload);
+        const response = await axiosInstance.put(`/kenya-wards/${currentWard.id}`, payload);
+        const cascade = response.data?.cascade;
+        const cascadeText = cascade && cascadeProjectLocations
+          ? ` Updated ${cascade.projectsUpdated || 0} project location(s) and ${cascade.projectSitesUpdated || 0} project site(s).`
+          : '';
         setSnackbar({
           open: true,
-          message: 'Ward updated successfully',
+          message: `Ward updated successfully.${cascadeText}`,
           severity: 'success'
         });
       } else {
@@ -324,6 +330,7 @@ function KenyaWardsPage() {
   const handleCreate = () => {
     setCurrentWard(null);
     resetForm();
+    setCascadeProjectLocations(false);
     setOpenDialog(true);
   };
 
@@ -336,6 +343,7 @@ function KenyaWardsPage() {
       subcounty: ward.subcounty || '',
     });
     setFormErrors({});
+    setCascadeProjectLocations(true);
     setOpenDialog(true);
   };
 
@@ -347,6 +355,7 @@ function KenyaWardsPage() {
       subcounty: '',
     });
     setFormErrors({});
+    setCascadeProjectLocations(true);
     setCurrentWard(null);
   };
 
@@ -882,6 +891,23 @@ function KenyaWardsPage() {
                   sx={{ mb: 2 }}
                 />
               </Grid>
+              {currentWard && (
+                <Grid item xs={12}>
+                  <Alert severity="info" sx={{ mb: 1 }}>
+                    Keep this enabled when renaming or moving a ward so project records and project sites do not keep
+                    the old geography text.
+                  </Alert>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={cascadeProjectLocations}
+                        onChange={(e) => setCascadeProjectLocations(e.target.checked)}
+                      />
+                    }
+                    label="Also update matching project and project-site geography"
+                  />
+                </Grid>
+              )}
             </Grid>
           </Stack>
         </DialogContent>

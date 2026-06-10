@@ -116,59 +116,40 @@ const uniqueCount = (rows, key, excluded = new Set(['', 'Unspecified', 'Unassign
 const chartPalette = ['#2563eb', '#16a34a', '#f97316', '#7c3aed', '#0891b2', '#dc2626', '#65a30d', '#9333ea'];
 const filterSelectSx = { minWidth: { xs: '100%', sm: 160 } };
 
-function MetricCard({ title, value, subtitle, icon, color = '#2563eb', progress }) {
+function MetricCard({ title, value, subtitle, icon, color = '#2563eb' }) {
   return (
     <Card
       elevation={0}
       sx={{
         height: '100%',
-        borderRadius: 2.25,
-        border: '1px solid',
-        borderColor: 'divider',
-        background: `linear-gradient(135deg, ${color}18 0%, rgba(255,255,255,0.88) 100%)`,
+        borderRadius: '8px',
+        bgcolor: color,
+        color: '#fff',
+        borderTop: '2px solid rgba(255,255,255,0.42)',
+        boxShadow: `0 1px 6px ${color}24`,
+        transition: 'all 0.2s ease-in-out',
         overflow: 'hidden',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: `0 4px 12px ${color}33`,
+        },
       }}
     >
-      <CardContent sx={{ p: 1.1, '&:last-child': { pb: 1.1 } }}>
-        <Stack direction="row" spacing={1} alignItems="flex-start">
-          <Box
-            sx={{
-              width: 32,
-              height: 32,
-              borderRadius: 1.5,
-              display: 'grid',
-              placeItems: 'center',
-              color: '#fff',
-              bgcolor: color,
-              boxShadow: `0 10px 20px ${color}33`,
-              flexShrink: 0,
-            }}
-          >
-            {icon}
-          </Box>
+      <CardContent sx={{ p: 0.75, pt: 0.75, '&:last-child': { pb: 0.75 } }}>
+        <Stack direction="row" spacing={0.75} alignItems="center">
           <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800, textTransform: 'uppercase', fontSize: '0.66rem' }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 700, fontSize: '0.65rem', display: 'block' }} noWrap title={title}>
               {title}
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.05, mt: 0.15 }} noWrap title={String(value)}>
+            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 800, fontSize: '1.75rem', lineHeight: 1.1 }} noWrap title={String(value)}>
               {value}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, fontSize: '0.68rem' }} noWrap title={subtitle}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.88)', display: 'block', mt: 0.125, fontSize: '0.68rem', fontWeight: 600 }} noWrap title={subtitle}>
               {subtitle}
             </Typography>
-            {progress !== undefined ? (
-              <LinearProgress
-                variant="determinate"
-                value={clampPct(progress)}
-                sx={{
-                  mt: 0.65,
-                  height: 5,
-                  borderRadius: 99,
-                  bgcolor: `${color}22`,
-                  '& .MuiLinearProgress-bar': { bgcolor: color, borderRadius: 99 },
-                }}
-              />
-            ) : null}
+          </Box>
+          <Box sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '2rem', display: 'flex', flexShrink: 0 }}>
+            {icon}
           </Box>
         </Stack>
       </CardContent>

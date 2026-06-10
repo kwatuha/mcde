@@ -55,6 +55,60 @@ function rowWithSubcounty(row, hasDbColumn) {
     return { ...row, subcounty: derived };
 }
 
+function normalizeName(value) {
+    return String(value || '').trim();
+}
+
+function preferredSubcounty(row) {
+    return normalizeName(row?.subcounty || row?.constituency || row?.division);
+}
+
+async function cascadeWardGeography(client, previousWard, updatedWard) {
+    const oldWardName = normalizeName(previousWard?.iebc_ward_name);
+    const nextWardName = normalizeName(updatedWard?.iebc_ward_name || previousWard?.iebc_ward_name);
+    const nextSubcounty = preferredSubcounty(updatedWard) || preferredSubcounty(previousWard);
+    const nextCounty = normalizeName(updatedWard?.county || previousWard?.county);
+
+    if (!oldWardName || !nextWardName) {
+        return { projectsUpdated: 0, projectSitesUpdated: 0 };
+    }
+
+    const projectsResult = await client.query(
+        `
+        UPDATE projects
+        SET location = jsonb_set(
+                jsonb_set(
+                    jsonb_set(COALESCE(location, '{}'::jsonb), '{ward}', to_jsonb($2::text), true),
+                    '{constituency}', to_jsonb($3::text),
+                    true
+                ),
+                '{county}', to_jsonb($4::text),
+                true
+            )
+        WHERE COALESCE(voided, false) = false
+          AND location IS NOT NULL
+          AND LOWER(TRIM(location->>'ward')) = LOWER(TRIM($1))
+        `,
+        [oldWardName, nextWardName, nextSubcounty, nextCounty]
+    );
+
+    const projectSitesResult = await client.query(
+        `
+        UPDATE project_sites
+        SET ward = $2,
+            constituency = $3,
+            county = $4
+        WHERE LOWER(TRIM(COALESCE(ward, ''))) = LOWER(TRIM($1))
+        `,
+        [oldWardName, nextWardName, nextSubcounty, nextCounty]
+    ).catch(() => ({ rowCount: 0 }));
+
+    return {
+        projectsUpdated: projectsResult.rowCount || 0,
+        projectSitesUpdated: projectSitesResult.rowCount || 0,
+    };
+}
+
 // Configure multer for file uploads
 const upload = multer({ 
     dest: 'uploads/',
@@ -550,7 +604,8 @@ router.put('/:id', async (req, res) => {
             status,
             no,
             shape_type,
-            status_1
+            status_1,
+            cascadeProjectLocations
         } = req.body;
 
         const resolvedSubcounty = resolveKenyaWardSubcounty({
@@ -567,8 +622,14 @@ router.put('/:id', async (req, res) => {
             existingCounty = ' AND county ILIKE $2';
             existingParams.push(`%${WARDS_COUNTY_SCOPE}%`);
         }
+        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        const existingSelectList = hasSubcountyCol
+            ? `id, iebc_ward_name, count, province, district, division, county, constituency, subcounty,
+               pcode, status, no, shape_type, status_1, created_at, updated_at`
+            : `id, iebc_ward_name, count, province, district, division, county, constituency,
+               pcode, status, no, shape_type, status_1, created_at, updated_at`;
         const existing = await pool.query(
-            `SELECT id FROM kenya_wards WHERE id = $1 AND voided = false${existingCounty}`,
+            `SELECT ${existingSelectList} FROM kenya_wards WHERE id = $1 AND voided = false${existingCounty}`,
             existingParams
         );
 
@@ -587,7 +648,7 @@ router.put('/:id', async (req, res) => {
             }
         }
 
-        const hasSubcountyCol = await getKenyaWardsSubcountyColumnExists();
+        const previousWard = rowWithSubcounty(existing.rows[0], hasSubcountyCol);
         let result;
         if (hasSubcountyCol) {
             const updateParams = [iebc_ward_name, count || null, province || null, district || null, division || null,
@@ -654,9 +715,15 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ message: 'Ward not found' });
         }
 
+        const updatedWard = rowWithSubcounty(result.rows[0], hasSubcountyCol);
+        const cascadeSummary = cascadeProjectLocations
+            ? await cascadeWardGeography(pool, previousWard, updatedWard)
+            : { projectsUpdated: 0, projectSitesUpdated: 0 };
+
         res.status(200).json({
             message: 'Ward updated successfully',
-            data: rowWithSubcounty(result.rows[0], hasSubcountyCol)
+            data: updatedWard,
+            cascade: cascadeSummary
         });
     } catch (error) {
         console.error('Error updating ward:', error);
