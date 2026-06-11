@@ -171,6 +171,13 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fmtCurrency = (v) =>
   `KES ${Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtOptionalCurrency = (v) => (v === null || v === undefined || v === '' ? '-' : fmtCurrency(v));
+const fmtMeasure = (value, unit) => {
+  const hasValue = value !== null && value !== undefined && value !== '';
+  const hasUnit = Boolean(unit);
+  if (!hasValue && !hasUnit) return '-';
+  return [hasValue ? value : null, unit].filter((part) => part !== null && part !== undefined && part !== '').join(' ');
+};
 
 const fmtDate = (v) => (v ? new Date(v).toLocaleString() : 'N/A');
 
@@ -212,6 +219,7 @@ export default function ProcurementPage() {
     stage: PROCUREMENT_STAGE_FALLBACK[0],
   });
   const [saving, setSaving] = useState(false);
+  const [preparingScopeProjectId, setPreparingScopeProjectId] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [stageDocumentsOpen, setStageDocumentsOpen] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
@@ -239,11 +247,18 @@ export default function ProcurementPage() {
   const [templateStage, setTemplateStage] = useState('');
   const [templateSuccess, setTemplateSuccess] = useState('');
   const [overview, setOverview] = useState(null);
-  const [completedHistory, setCompletedHistory] = useState([]);
   const [workbookViewerOpen, setWorkbookViewerOpen] = useState(false);
   const [workbookViewerHtml, setWorkbookViewerHtml] = useState('');
   const [workbookViewerLoading, setWorkbookViewerLoading] = useState(false);
   const [workbookViewerProjectLabel, setWorkbookViewerProjectLabel] = useState('');
+  const [scopePreviewModal, setScopePreviewModal] = useState({
+    open: false,
+    loading: false,
+    confirming: false,
+    error: '',
+    project: null,
+    preview: null,
+  });
   /** Small acknowledgment modal after successful saves (above scroll area so always noticed). */
   const [saveAckModal, setSaveAckModal] = useState({
     open: false,
@@ -251,6 +266,8 @@ export default function ProcurementPage() {
     body: '',
     extra: '',
     severity: 'success',
+    projectTypeName: '',
+    preparedScope: null,
   });
   /** Set when opening from procured / deep link so UI explains why the project is not on the main table. */
   const [workflowEntryMode, setWorkflowEntryMode] = useState(null);
@@ -1165,6 +1182,105 @@ export default function ProcurementPage() {
     setWorkbookViewerHtml('');
   };
 
+  const openScopePreview = async (project) => {
+    const pid = project?.projectId || selectedProject?.projectId;
+    if (!pid) return;
+    setPreparingScopeProjectId(String(pid));
+    setScopePreviewModal({
+      open: true,
+      loading: true,
+      confirming: false,
+      error: '',
+      project: project || selectedProject,
+      preview: null,
+    });
+    setError('');
+    try {
+      const preview = await apiService.procurement.previewProjectScope(pid);
+      setScopePreviewModal((prev) => ({
+        ...prev,
+        loading: false,
+        preview,
+        error: '',
+      }));
+    } catch (e) {
+      const message = e?.response?.data?.message || e?.message || 'Failed to preview project scope and BQ.';
+      setScopePreviewModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: message,
+      }));
+      setError(message);
+    } finally {
+      setPreparingScopeProjectId('');
+    }
+  };
+
+  const closeScopePreview = () => {
+    setScopePreviewModal({
+      open: false,
+      loading: false,
+      confirming: false,
+      error: '',
+      project: null,
+      preview: null,
+    });
+  };
+
+  const confirmPrepareProjectScope = async () => {
+    const project = scopePreviewModal.project || selectedProject;
+    const pid = project?.projectId;
+    if (!pid) return;
+    setPreparingScopeProjectId(String(pid));
+    setScopePreviewModal((prev) => ({ ...prev, confirming: true, error: '' }));
+    setError('');
+    try {
+      const res = await apiService.procurement.prepareProjectScope(pid);
+      const templateCount = Number(res?.templateMilestones || 0) + Number(res?.templateBqItems || 0);
+      const createdCount = Number(res?.milestonesCreated || 0) + Number(res?.bqItemsCreated || 0);
+      const severity = templateCount === 0 ? 'info' : createdCount === 0 ? 'warning' : 'success';
+      closeScopePreview();
+      setSaveAckModal({
+        open: true,
+        title: templateCount === 0 ? 'No project type templates found' : 'Scope & BQ prepared',
+        body: res?.message || 'Procurement scope was prepared from the project type.',
+        extra: `Created ${res?.milestonesCreated || 0} milestone(s) and ${res?.bqItemsCreated || 0} BQ item(s). Existing generated items were left unchanged.`,
+        severity,
+        projectTypeName: res?.categoryName || project?.categoryName || '',
+        preparedScope: res?.preparedScope || null,
+      });
+      if (selectedProject?.projectId && String(selectedProject.projectId) === String(pid)) {
+        const refreshed = await apiService.procurement.getWorkflowHistory(pid).catch(() => []);
+        setHistory(Array.isArray(refreshed) ? refreshed : []);
+      }
+      await loadProjects();
+    } catch (e) {
+      const message = e?.response?.data?.message || e?.message || 'Failed to prepare project scope and BQ.';
+      setScopePreviewModal((prev) => ({ ...prev, confirming: false, error: message }));
+      setError(message);
+    } finally {
+      setPreparingScopeProjectId('');
+      setScopePreviewModal((prev) => (prev.open ? { ...prev, confirming: false } : prev));
+    }
+  };
+
+  const ackPreparedMilestones = Array.isArray(saveAckModal.preparedScope?.milestones)
+    ? saveAckModal.preparedScope.milestones
+    : [];
+  const ackPreparedBqItems = Array.isArray(saveAckModal.preparedScope?.bqItems)
+    ? saveAckModal.preparedScope.bqItems
+    : [];
+  const previewMilestones = Array.isArray(scopePreviewModal.preview?.preparedScope?.milestones)
+    ? scopePreviewModal.preview.preparedScope.milestones
+    : [];
+  const previewBqItems = Array.isArray(scopePreviewModal.preview?.preparedScope?.bqItems)
+    ? scopePreviewModal.preview.preparedScope.bqItems
+    : [];
+  const previewWouldCreateCount = previewMilestones.filter((m) => m.status === 'will_create').length
+    + previewBqItems.filter((bq) => bq.status === 'will_create').length;
+  const previewTemplateCount = Number(scopePreviewModal.preview?.templateMilestones || 0)
+    + Number(scopePreviewModal.preview?.templateBqItems || 0);
+
   return (
     <Box sx={{ p: 2 }}>
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
@@ -1207,10 +1323,12 @@ export default function ProcurementPage() {
             <TableHead>
               <TableRow>
                 <TableCell><strong>Project</strong></TableCell>
+                <TableCell><strong>Project Type</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
                 <TableCell><strong>Stage</strong></TableCell>
                 <TableCell><strong>Latest Decision</strong></TableCell>
                 <TableCell align="right"><strong>Budget</strong></TableCell>
+                <TableCell><strong>BQ Scope</strong></TableCell>
                 <TableCell align="center"><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
@@ -1218,12 +1336,33 @@ export default function ProcurementPage() {
               {!loading && rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell>{r.projectName || `Project ${r.projectId}`}</TableCell>
+                  <TableCell>{r.categoryName || r.projectType || '-'}</TableCell>
                   <TableCell>
                     <Chip size="small" label={r.projectStatus || 'Under Procurement'} />
                   </TableCell>
                   <TableCell>{r.procurementStage || 'Not started'}</TableCell>
                   <TableCell>{r.latestDecision || 'Pending'}</TableCell>
                   <TableCell align="right">{fmtCurrency(r.budget)}</TableCell>
+                  <TableCell>
+                    <Stack spacing={0.5}>
+                      <Chip
+                        size="small"
+                        color={r.hasPreparedBq ? 'success' : 'warning'}
+                        variant={r.hasPreparedBq ? 'filled' : 'outlined'}
+                        label={r.hasPreparedBq ? `Prepared: ${r.bqItemCount || 0} BQ line(s)` : 'BQ not prepared'}
+                        sx={{ alignSelf: 'flex-start' }}
+                      />
+                      {r.hasPreparedBq ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {Number(r.completedBqItemCount || 0)}/{Number(r.bqItemCount || 0)} complete · {Number(r.averageBqProgress || 0).toFixed(1)}%
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          Preview templates before creating BQ.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </TableCell>
                   <TableCell align="center">
                     <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
                       <Tooltip title="View procurement workbook (summary, workflow, assessments, attachments…)">
@@ -1239,13 +1378,25 @@ export default function ProcurementPage() {
                       <Button size="small" variant="outlined" onClick={() => openWorkflow(r)}>
                         Open Workflow
                       </Button>
+                      <Button
+                        size="small"
+                        variant={r.hasPreparedBq ? 'outlined' : 'contained'}
+                        onClick={() => openScopePreview(r)}
+                        disabled={preparingScopeProjectId === String(r.projectId)}
+                      >
+                        {preparingScopeProjectId === String(r.projectId)
+                          ? 'Checking...'
+                          : r.hasPreparedBq
+                            ? 'Review Scope & BQ'
+                            : 'Prepare Scope & BQ'}
+                      </Button>
                     </Stack>
                   </TableCell>
                 </TableRow>
               ))}
               {!loading && rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center">
+                  <TableCell colSpan={8} align="center">
                     No projects are currently marked under procurement.
                   </TableCell>
                 </TableRow>
@@ -1329,6 +1480,14 @@ export default function ProcurementPage() {
               This project has completed procurement <strong>handoff</strong> and does not appear in the main under-procurement table. Use the workflow history below and the <strong>Stage</strong> selector to browse steps, assessments, and attachments.
               Open the <strong>workbook</strong> (eye icon above) for the full HTML summary—same as on active procurement projects.
             </Alert>
+          ) : null}
+          {selectedProject?.categoryName ? (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`Project Type: ${selectedProject.categoryName}`}
+              sx={{ mb: 1 }}
+            />
           ) : null}
           <Box
             sx={{
@@ -1822,6 +1981,13 @@ export default function ProcurementPage() {
           <Button variant="outlined" onClick={() => exportComprehensive('project')} disabled={!selectedProject?.projectId}>
             Export Project Workbook
           </Button>
+          <Button
+            variant="outlined"
+            onClick={() => openScopePreview(selectedProject)}
+            disabled={!selectedProject?.projectId || preparingScopeProjectId === String(selectedProject?.projectId)}
+          >
+            {preparingScopeProjectId === String(selectedProject?.projectId) ? 'Checking...' : 'Preview Scope & BQ'}
+          </Button>
           <Button variant="contained" onClick={saveStep} disabled={saving}>
             Save Workflow Step
           </Button>
@@ -1829,9 +1995,156 @@ export default function ProcurementPage() {
       </Dialog>
 
       <Dialog
+        open={scopePreviewModal.open}
+        onClose={scopePreviewModal.confirming ? undefined : closeScopePreview}
+        maxWidth="md"
+        fullWidth
+        disableScrollLock
+      >
+        <DialogTitle sx={{ pb: 0.5, fontWeight: 700 }}>
+          Preview Scope &amp; BQ Creation
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.5 }}>
+          <Stack spacing={2}>
+            <Typography variant="body1">
+              {scopePreviewModal.project?.projectName || selectedProject?.projectName || 'This project'}
+            </Typography>
+            <Alert severity={previewWouldCreateCount > 0 ? 'warning' : 'info'} variant="outlined">
+              {scopePreviewModal.loading
+                ? 'Loading the project type template preview...'
+                : scopePreviewModal.preview?.message || 'Review the scope and BQ lines before confirming.'}
+              {previewWouldCreateCount > 0 ? (
+                <Typography variant="body2" sx={{ mt: 0.75 }}>
+                  Confirming will create project schedule milestone(s) and BQ line(s). This is an important setup step for progress tracking, certification, and reporting.
+                </Typography>
+              ) : null}
+            </Alert>
+            {scopePreviewModal.error ? <Alert severity="error">{scopePreviewModal.error}</Alert> : null}
+
+            {scopePreviewModal.loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : (
+              <>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`Project type: ${scopePreviewModal.preview?.categoryName || scopePreviewModal.project?.categoryName || 'Not set'}`} />
+                  <Chip size="small" label={`Template milestones: ${scopePreviewModal.preview?.templateMilestones || 0}`} />
+                  <Chip size="small" label={`Template BQ lines: ${scopePreviewModal.preview?.templateBqItems || 0}`} />
+                  <Chip
+                    size="small"
+                    color={previewWouldCreateCount > 0 ? 'warning' : 'success'}
+                    variant={previewWouldCreateCount > 0 ? 'filled' : 'outlined'}
+                    label={previewWouldCreateCount > 0 ? `${previewWouldCreateCount} item(s) will be created` : 'Already prepared'}
+                  />
+                </Stack>
+
+                {previewMilestones.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                      Milestones Preview
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>#</strong></TableCell>
+                            <TableCell><strong>Milestone</strong></TableCell>
+                            <TableCell><strong>Target</strong></TableCell>
+                            <TableCell><strong>Action</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {previewMilestones.map((m, idx) => (
+                            <TableRow key={`${m.templateId || m.name}-${idx}`}>
+                              <TableCell>{m.sequenceOrder || idx + 1}</TableCell>
+                              <TableCell>{m.name}</TableCell>
+                              <TableCell>{fmtMeasure(m.achievementValue, m.unitOfMeasure)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={m.status === 'will_create' ? 'Will create' : 'Already exists'}
+                                  color={m.status === 'will_create' ? 'warning' : 'default'}
+                                  variant={m.status === 'will_create' ? 'filled' : 'outlined'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                ) : null}
+
+                {previewBqItems.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                      BQ Lines Preview
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>Activity</strong></TableCell>
+                            <TableCell><strong>Milestone</strong></TableCell>
+                            <TableCell><strong>Qty</strong></TableCell>
+                            <TableCell align="right"><strong>Unit Cost</strong></TableCell>
+                            <TableCell align="right"><strong>Budget</strong></TableCell>
+                            <TableCell><strong>Action</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {previewBqItems.map((bq, idx) => (
+                            <TableRow key={`${bq.templateId || bq.activityName}-${idx}`}>
+                              <TableCell>{bq.activityName}</TableCell>
+                              <TableCell>{bq.milestoneName || '-'}</TableCell>
+                              <TableCell>{fmtMeasure(bq.quantity, bq.unitOfMeasure)}</TableCell>
+                              <TableCell align="right">{fmtOptionalCurrency(bq.unitCost)}</TableCell>
+                              <TableCell align="right">{fmtOptionalCurrency(bq.budgetAmount)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={bq.status === 'will_create' ? 'Will create' : 'Already exists'}
+                                  color={bq.status === 'will_create' ? 'warning' : 'default'}
+                                  variant={bq.status === 'will_create' ? 'filled' : 'outlined'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                ) : null}
+
+                {!previewTemplateCount ? (
+                  <Alert severity="info" variant="outlined">
+                    No milestone or BQ templates are configured for this project type.
+                  </Alert>
+                ) : null}
+              </>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, pb: 2 }}>
+          <Button onClick={closeScopePreview} disabled={scopePreviewModal.confirming}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={confirmPrepareProjectScope}
+            disabled={scopePreviewModal.loading || scopePreviewModal.confirming || previewWouldCreateCount === 0}
+          >
+            {scopePreviewModal.confirming ? 'Creating Scope & BQ...' : 'Confirm Create Scope & BQ'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={saveAckModal.open}
         onClose={closeSaveAckModal}
-        maxWidth="xs"
+        maxWidth={ackPreparedMilestones.length || ackPreparedBqItems.length ? 'md' : 'xs'}
         fullWidth
         disableScrollLock
         aria-labelledby="procurement-save-ack-title"
@@ -1852,6 +2165,96 @@ export default function ProcurementPage() {
             >
               {saveAckModal.extra}
             </Alert>
+          ) : null}
+          {saveAckModal.projectTypeName ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+              Project Type used: <strong>{saveAckModal.projectTypeName}</strong>
+            </Typography>
+          ) : null}
+          {ackPreparedMilestones.length || ackPreparedBqItems.length ? (
+            <Stack spacing={2} sx={{ mt: 2 }}>
+              {ackPreparedMilestones.length ? (
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                    Milestones Applied
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell><strong>#</strong></TableCell>
+                          <TableCell><strong>Milestone</strong></TableCell>
+                          <TableCell><strong>Target</strong></TableCell>
+                          <TableCell><strong>Status</strong></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {ackPreparedMilestones.map((m, idx) => (
+                          <TableRow key={`${m.templateId || m.name}-${idx}`}>
+                            <TableCell>{m.sequenceOrder || idx + 1}</TableCell>
+                            <TableCell>{m.name}</TableCell>
+                            <TableCell>
+                              {fmtMeasure(m.achievementValue, m.unitOfMeasure)}
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={m.status === 'created' ? 'Created' : 'Already existed'}
+                                color={m.status === 'created' ? 'success' : 'default'}
+                                variant={m.status === 'created' ? 'filled' : 'outlined'}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ) : null}
+
+              {ackPreparedBqItems.length ? (
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                    BQ Lines Applied
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell><strong>Activity</strong></TableCell>
+                          <TableCell><strong>Milestone</strong></TableCell>
+                          <TableCell><strong>Qty</strong></TableCell>
+                          <TableCell align="right"><strong>Unit Cost</strong></TableCell>
+                          <TableCell align="right"><strong>Budget</strong></TableCell>
+                          <TableCell><strong>Status</strong></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {ackPreparedBqItems.map((bq, idx) => (
+                          <TableRow key={`${bq.templateId || bq.activityName}-${idx}`}>
+                            <TableCell>{bq.activityName}</TableCell>
+                            <TableCell>{bq.milestoneName || '-'}</TableCell>
+                            <TableCell>
+                              {fmtMeasure(bq.quantity, bq.unitOfMeasure)}
+                            </TableCell>
+                            <TableCell align="right">{fmtOptionalCurrency(bq.unitCost)}</TableCell>
+                            <TableCell align="right">{fmtOptionalCurrency(bq.budgetAmount)}</TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={bq.status === 'created' ? 'Created' : 'Already existed'}
+                                color={bq.status === 'created' ? 'success' : 'default'}
+                                variant={bq.status === 'created' ? 'filled' : 'outlined'}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ) : null}
+            </Stack>
           ) : null}
         </DialogContent>
         <DialogActions sx={{ px: 2.5, pb: 2, pt: 0 }}>

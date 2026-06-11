@@ -57,6 +57,7 @@ import ProjectJobsModal from '../components/ProjectJobsModal';
 
 const EMPTY_REGISTRY_FILTERS = {
   departmentName: '',
+  projectTypeName: '',
   financialYearName: '',
   subcountyNames: '',
   wardNames: '',
@@ -168,6 +169,54 @@ function ProjectManagementPage() {
     projects, loading, error, snackbar,
     setSnackbar, allMetadata, fetchProjects,
   } = useProjectData(user, authLoading, emptyFilterState, { fetchMetadata: false });
+  const [projectCategoryLookup, setProjectCategoryLookup] = useState([]);
+
+  useEffect(() => {
+    if (authLoading || !user) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const categories = await apiService.metadata.projectCategories.getAllCategories();
+        if (!cancelled) {
+          setProjectCategoryLookup(Array.isArray(categories) ? categories : []);
+        }
+      } catch (err) {
+        console.error('ProjectManagementPage: failed to load project types', err);
+        if (!cancelled) setProjectCategoryLookup([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
+
+  const projectCategoryNameMap = useMemo(() => {
+    const map = new Map();
+    const categories = [
+      ...(Array.isArray(allMetadata?.projectCategories) ? allMetadata.projectCategories : []),
+      ...projectCategoryLookup,
+    ];
+    categories.forEach((category) => {
+      const id = category?.categoryId ?? category?.id;
+      const name = category?.categoryName ?? category?.name;
+      if (id !== undefined && id !== null && name) {
+        map.set(String(id), name);
+      }
+    });
+    return map;
+  }, [allMetadata?.projectCategories, projectCategoryLookup]);
+
+  const getProjectTypeName = useCallback((project) => {
+    const directName =
+      project?.categoryName ||
+      project?.projectType ||
+      project?.project_type ||
+      project?.category_name;
+    if (directName) return directName;
+    const categoryId = project?.categoryId ?? project?.category_id;
+    if (categoryId === undefined || categoryId === null || categoryId === '') return '';
+    return projectCategoryNameMap.get(String(categoryId)) || '';
+  }, [projectCategoryNameMap]);
 
   useEffect(() => {
     const rid = searchParams.get('focusPaymentRequest');
@@ -236,6 +285,12 @@ function ProjectManagementPage() {
       localStorage.setItem('projectTableSubcountyVisibilityMigrated', 'true');
       needsUpdate = true;
     }
+
+    if (localStorage.getItem('projectTableProjectTypeVisibilityMigrated') !== 'true') {
+      currentModel['projectType'] = true;
+      localStorage.setItem('projectTableProjectTypeVisibilityMigrated', 'true');
+      needsUpdate = true;
+    }
     
     if (needsUpdate) {
       setColumnVisibilityModel(currentModel);
@@ -282,6 +337,7 @@ function ProjectManagementPage() {
           project.financialYearName || '',
           project.programName || '',
           project.subProgramName || '',
+          getProjectTypeName(project),
           project.countyNames || '',
           project.subcountyNames || '',
           project.wardNames || '',
@@ -307,7 +363,7 @@ function ProjectManagementPage() {
     }
 
     return next;
-  }, [projects, searchQuery, wardGisFilterKey]);
+  }, [projects, searchQuery, wardGisFilterKey, getProjectTypeName]);
 
   // Custom hook for table sorting
   const { order, orderBy, handleRequestSort, sortedData: sortedProjects } = useTableSort(
@@ -324,6 +380,7 @@ function ProjectManagementPage() {
     // Default columns: Project Name, Tender/Contract No, Status, Sub-county, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
+      'projectType',
       'tenderContractNo',
       'status',
       'subcountyNames',
@@ -525,6 +582,7 @@ function ProjectManagementPage() {
   const registryFilterSelectOptions = useMemo(() => {
     const src = Array.isArray(filteredProjects) ? filteredProjects : [];
     const dept = new Set();
+    const projectType = new Set();
     const fy = new Set();
     const subcounty = new Set();
     const ward = new Set();
@@ -537,17 +595,24 @@ function ProjectManagementPage() {
         p.financialYearName || p.financialyearname || p.financialYear || p.finYearName || ''
       ).trim();
       if (f) fy.add(f);
+      const t = String(getProjectTypeName(p) || '').trim();
+      if (t) projectType.add(t);
       splitLocationTokens(p.subcountyNames).forEach((x) => subcounty.add(x));
       splitLocationTokens(p.wardNames).forEach((x) => ward.add(x));
+    });
+    projectCategoryLookup.forEach((category) => {
+      const name = String(category?.categoryName || category?.name || '').trim();
+      if (name) projectType.add(name);
     });
     const sort = (s) => [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     return {
       departments: sort(dept),
+      projectTypes: sort(projectType),
       financialYears: sort(fy),
       subcounties: sort(subcounty),
       wards: sort(ward),
     };
-  }, [filteredProjects]);
+  }, [filteredProjects, getProjectTypeName, projectCategoryLookup]);
 
   /** kenya_wards reference lists for Fields tab (sub-county → wards cascade) */
   const [registryKenyaSubcounties, setRegistryKenyaSubcounties] = useState([]);
@@ -962,6 +1027,9 @@ function ProjectManagementPage() {
       if (registryFilters.departmentName && !departmentMatches(project, registryFilters.departmentName)) {
         return false;
       }
+      if (registryFilters.projectTypeName && getProjectTypeName(project) !== registryFilters.projectTypeName) {
+        return false;
+      }
       if (registryFilters.financialYearName) {
         const projectFinancialYear = String(
           project.financialYearName ||
@@ -1130,7 +1198,7 @@ function ProjectManagementPage() {
     
     // Debug logging
     return filtered;
-  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup, registryFilters, implementationReadinessFilter]);
+  }, [filteredProjects, filterModel, sectorRegistryClientFilter, sectorCanonicalLookup, registryFilters, implementationReadinessFilter, getProjectTypeName]);
 
   // Calculate summary statistics from filtered projects (respects search and column filters)
   const summaryStats = useMemo(() => {
@@ -1801,6 +1869,35 @@ function ProjectManagementPage() {
           dataGridColumn.width = 250; // Set a reasonable width for wrapping
         }
         dataGridColumn.flex = 0; // Prevent flex from interfering with wrapping
+        break;
+      case 'projectType':
+        dataGridColumn.valueGetter = (params) => getProjectTypeName(params?.row) || '';
+        dataGridColumn.renderCell = (params) => {
+          const projectType = getProjectTypeName(params?.row);
+          if (!projectType) {
+            return (
+              <Typography variant="caption" color="text.secondary">
+                Not set
+              </Typography>
+            );
+          }
+          return (
+            <Chip
+              label={projectType}
+              size="small"
+              variant="outlined"
+              title={projectType}
+              sx={{
+                maxWidth: '100%',
+                fontWeight: 600,
+                '& .MuiChip-label': {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                },
+              }}
+            />
+          );
+        };
         break;
       case 'status':
         dataGridColumn.renderCell = (params) => {
@@ -2681,6 +2778,28 @@ function ProjectManagementPage() {
                           </MenuItem>
                           {registryFilterSelectOptions.financialYears.map((name) => (
                             <MenuItem key={`fy-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-project-type">Project Type</InputLabel>
+                        <Select
+                          labelId="rf-project-type"
+                          label="Project Type"
+                          value={registryFilters.projectTypeName}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, projectTypeName: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registryFilterSelectOptions.projectTypes.map((name) => (
+                            <MenuItem key={`ptype-${name}`} value={name}>
                               {name}
                             </MenuItem>
                           ))}

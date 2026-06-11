@@ -124,6 +124,8 @@ setup-ssh-key.sh
 
 # Migration and dump files
 scripts/migration/*.sql
+!scripts/migration/2026-06-11-seed-cidp-sectors-subsectors-and-project-links.sql
+!scripts/migration/2026-06-11-seed-project-types-milestones-and-bq-templates.sql
 *.dump
 *.sql.gz
 

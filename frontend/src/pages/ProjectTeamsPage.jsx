@@ -21,6 +21,7 @@ import {
   Chip,
   Divider,
   Autocomplete,
+  createFilterOptions,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import {
@@ -51,6 +52,37 @@ const INITIAL_FORM = {
   notes: '',
 };
 
+const getProjectOptionId = (project) => project?.projectId || project?.id || '';
+
+const getProjectOptionLabel = (project) => {
+  const projectId = getProjectOptionId(project);
+  const projectName = project?.projectName || project?.name || `Project ${projectId || ''}`;
+  const projectCode = project?.projectCode || project?.project_code || project?.code || '';
+  return projectCode ? `${projectName} (${projectCode})` : projectName;
+};
+
+const filterProjectOptions = createFilterOptions({
+  stringify: (project) => [
+    getProjectOptionLabel(project),
+    project?.projectName,
+    project?.name,
+    project?.projectCode,
+    project?.project_code,
+    project?.code,
+    project?.sector,
+    project?.subSector,
+    project?.sub_sector,
+    project?.departmentName,
+    project?.department,
+    project?.ministry,
+    project?.ward,
+    project?.wardName,
+    project?.subcounty,
+    project?.subCounty,
+    project?.subCountyName,
+  ].filter(Boolean).join(' '),
+});
+
 export default function ProjectTeamsPage() {
   const { hasPrivilege } = useAuth();
   const canRead = hasPrivilege('project.read_all');
@@ -75,6 +107,50 @@ export default function ProjectTeamsPage() {
     () => projects.find((p) => String(p.projectId || p.id) === String(selectedProjectId)),
     [projects, selectedProjectId]
   );
+  const teamNameOptions = useMemo(() => {
+    const names = new Set();
+    const addName = (value) => {
+      const normalized = String(value || '').trim();
+      if (normalized) names.add(normalized);
+    };
+    const addRows = (rows) => {
+      if (!Array.isArray(rows)) return;
+      rows.forEach((row) => addName(row?.teamName || row?.team_name));
+    };
+
+    addRows(teams);
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const projectIds = new Set(
+        (projects || [])
+          .map((project) => project?.projectId || project?.id)
+          .filter((id) => id != null && id !== '')
+          .map(String)
+      );
+
+      for (const projectKey of projectIds) {
+        try {
+          const stored = window.localStorage.getItem(`project-teams-${projectKey}`);
+          if (stored) addRows(JSON.parse(stored));
+        } catch {
+          // Ignore malformed legacy cache entries.
+        }
+      }
+
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (!key || !key.startsWith('project-teams-')) continue;
+        try {
+          const stored = window.localStorage.getItem(key);
+          if (stored) addRows(JSON.parse(stored));
+        } catch {
+          // Ignore malformed legacy cache entries.
+        }
+      }
+    }
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [projects, teams]);
   const normalizeEmail = useCallback((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''), []);
   const getEmployeeNumber = useCallback((value) => (
     value?.employeeNumber ||
@@ -446,20 +522,39 @@ export default function ProjectTeamsPage() {
         <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, mb: 1.5 }}>
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.25} alignItems={{ lg: 'center' }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ flex: 1 }}>
-              <TextField
-                select
+              <Autocomplete
                 size="small"
-                label="Project"
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
+                options={projects}
+                loading={loadingProjects}
+                value={selectedProject || null}
+                onChange={(_, value) => setSelectedProjectId(value ? String(value.projectId || value.id) : '')}
+                isOptionEqualToValue={(option, value) =>
+                  String(option.projectId || option.id) === String(value.projectId || value.id)
+                }
+                getOptionLabel={getProjectOptionLabel}
+                filterOptions={filterProjectOptions}
+                autoHighlight
+                openOnFocus
+                clearOnEscape
+                noOptionsText="No matching projects"
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Project"
+                    placeholder="Search by project name or code"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {loadingProjects ? <CircularProgress color="inherit" size={18} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
                 sx={{ minWidth: 320, maxWidth: 700, flex: 1 }}
-              >
-                {projects.map((p) => (
-                  <MenuItem key={p.projectId || p.id} value={String(p.projectId || p.id)}>
-                    {p.projectName || p.name || `Project ${p.projectId || p.id}`}
-                  </MenuItem>
-                ))}
-              </TextField>
+              />
               <Chip
                 size="small"
                 label={`${teams.length} member${teams.length === 1 ? '' : 's'}`}
@@ -613,7 +708,26 @@ export default function ProjectTeamsPage() {
                 />
               )}
             />
-            <TextField label="Team Name" value={form.teamName} onChange={(e) => setForm((p) => ({ ...p, teamName: e.target.value }))} />
+            <Autocomplete
+              freeSolo
+              options={teamNameOptions}
+              value={form.teamName || ''}
+              inputValue={form.teamName || ''}
+              onInputChange={(_, value) => setForm((p) => ({ ...p, teamName: value }))}
+              onChange={(_, value) => setForm((p) => ({ ...p, teamName: value || '' }))}
+              autoHighlight
+              openOnFocus
+              clearOnEscape
+              noOptionsText="No existing team names"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Team Name"
+                  placeholder="Type or select team name"
+                  helperText="Suggestions come from team names already used on other projects."
+                />
+              )}
+            />
             <TextField label="Name" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
             <TextField label="Employee No." value={form.employeeNumber} onChange={(e) => setForm((p) => ({ ...p, employeeNumber: e.target.value }))} />
             <FormControl fullWidth>

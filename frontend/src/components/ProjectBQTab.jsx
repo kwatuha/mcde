@@ -21,9 +21,11 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Chip,
 } from '@mui/material';
 import {
   Add as AddIcon,
+  CheckCircle as CheckCircleIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   Timeline as TimelineIcon,
@@ -36,6 +38,9 @@ const defaultForm = {
   startDate: '',
   endDate: '',
   budgetAmount: '',
+  quantity: '',
+  unitOfMeasure: '',
+  unitCost: '',
   progressPercent: '',
   completed: false,
   remarks: '',
@@ -55,6 +60,8 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [quickCompletingId, setQuickCompletingId] = useState(null);
+  const [completeConfirmItem, setCompleteConfirmItem] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [form, setForm] = useState(defaultForm);
@@ -111,6 +118,9 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
       startDate: item.startDate ? String(item.startDate).slice(0, 10) : '',
       endDate: item.endDate ? String(item.endDate).slice(0, 10) : '',
       budgetAmount: item.budgetAmount ?? '',
+      quantity: item.quantity ?? '',
+      unitOfMeasure: item.unitOfMeasure || '',
+      unitCost: item.unitCost ?? '',
       progressPercent: item.progressPercent ?? '',
       completed: Boolean(item.completed),
       remarks: item.remarks || '',
@@ -128,6 +138,8 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
       const payload = {
         ...form,
         budgetAmount: form.budgetAmount === '' ? null : Number(String(form.budgetAmount).replace(/,/g, '')),
+        quantity: form.quantity === '' ? null : Number(form.quantity),
+        unitCost: form.unitCost === '' ? null : Number(form.unitCost),
         progressPercent: form.progressPercent === '' ? 0 : Number(form.progressPercent),
         completionDate: form.completionDate || null,
         sortOrder: form.sortOrder === '' ? 0 : Number(form.sortOrder),
@@ -160,6 +172,35 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
       await loadItems();
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to delete BQ item.');
+    }
+  };
+
+  const handleOpenCompleteConfirm = (item) => {
+    if (!item?.itemId) return;
+    setError('');
+    setMessage('');
+    setCompleteConfirmItem(item);
+  };
+
+  const handleConfirmMarkComplete = async () => {
+    const item = completeConfirmItem;
+    if (!item?.itemId) return;
+    setQuickCompletingId(item.itemId);
+    setError('');
+    setMessage('');
+    try {
+      await projectService.bq.addProgressLog(projectId, item.itemId, {
+        progressDate: new Date().toISOString().slice(0, 10),
+        progressPercent: 100,
+        remarks: 'Marked complete',
+      });
+      setMessage('BQ item marked complete.');
+      setCompleteConfirmItem(null);
+      await loadItems();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to mark BQ item complete.');
+    } finally {
+      setQuickCompletingId(null);
     }
   };
 
@@ -200,6 +241,9 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
       setProgressLogs(Array.isArray(logs) ? logs : []);
       await loadItems();
       setProgressForm((prev) => ({ ...prev, remarks: '' }));
+      if (Number(progressForm.progressPercent) >= 100) {
+        setMessage('Progress saved at 100%. The item has been marked complete.');
+      }
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to save progress update.');
     } finally {
@@ -250,6 +294,9 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
                   <TableCell>Milestone Label</TableCell>
                   <TableCell>Start Date</TableCell>
                   <TableCell>End Date</TableCell>
+                  <TableCell>Unit</TableCell>
+                  <TableCell align="right">Qty</TableCell>
+                  <TableCell align="right">Unit Cost</TableCell>
                   <TableCell align="right">Budget (Ksh)</TableCell>
                   <TableCell align="right">% Complete</TableCell>
                   <TableCell>Completed</TableCell>
@@ -263,12 +310,35 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
                     <TableCell>{item.milestoneName || '-'}</TableCell>
                     <TableCell>{item.startDate ? String(item.startDate).slice(0, 10) : '-'}</TableCell>
                     <TableCell>{item.endDate ? String(item.endDate).slice(0, 10) : '-'}</TableCell>
+                    <TableCell>{item.unitOfMeasure || '-'}</TableCell>
+                    <TableCell align="right">{item.quantity != null ? Number(item.quantity).toLocaleString() : '-'}</TableCell>
+                    <TableCell align="right">{item.unitCost != null ? Number(item.unitCost).toLocaleString() : '-'}</TableCell>
                     <TableCell align="right">{Number(item.budgetAmount || 0).toLocaleString()}</TableCell>
                     <TableCell align="right">{Number(item.progressPercent || 0).toFixed(2)}%</TableCell>
-                    <TableCell>{item.completed ? 'Yes' : 'No'}</TableCell>
+                    <TableCell>
+                      {item.completed ? (
+                        <Chip size="small" color="success" label="Complete" />
+                      ) : (
+                        <Chip size="small" variant="outlined" label="Pending" />
+                      )}
+                    </TableCell>
                     <TableCell align="right">
                       {canModify && (
                         <>
+                          {!item.completed && (
+                            <Tooltip title="Mark complete now">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => handleOpenCompleteConfirm(item)}
+                                  disabled={quickCompletingId === item.itemId}
+                                >
+                                  {quickCompletingId === item.itemId ? <CircularProgress size={16} /> : <CheckCircleIcon fontSize="small" />}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          )}
                           <Tooltip title="Update progress">
                             <IconButton size="small" color="primary" onClick={() => openProgress(item)}>
                               <TimelineIcon fontSize="small" />
@@ -333,6 +403,33 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
               />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <TextField
+                label="Unit"
+                value={form.unitOfMeasure}
+                onChange={(e) => setForm((p) => ({ ...p, unitOfMeasure: e.target.value }))}
+                disabled={Boolean(editingItem)}
+                fullWidth
+              />
+              <TextField
+                label="Quantity"
+                type="number"
+                value={form.quantity}
+                onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))}
+                inputProps={{ min: 0, step: '0.01' }}
+                disabled={Boolean(editingItem)}
+                fullWidth
+              />
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <TextField
+                label="Unit Cost (Ksh)"
+                type="number"
+                value={form.unitCost}
+                onChange={(e) => setForm((p) => ({ ...p, unitCost: e.target.value }))}
+                inputProps={{ min: 0, step: '0.01' }}
+                disabled={Boolean(editingItem)}
+                fullWidth
+              />
               <TextField
                 label="Budget Amount (Ksh)"
                 value={formatAmountInput(form.budgetAmount)}
@@ -472,6 +569,94 @@ const ProjectBQTab = ({ projectId, canModify = true }) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenProgressDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(completeConfirmItem)}
+        onClose={() => {
+          if (!quickCompletingId) setCompleteConfirmItem(null);
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CheckCircleIcon color="success" />
+            <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>
+              Confirm BQ Item Completion
+            </Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers>
+          {completeConfirmItem ? (
+            <Stack spacing={1.5}>
+              <Alert severity="info" variant="outlined">
+                This action will mark the selected BQ/activity item as complete and record a 100% progress update for today.
+              </Alert>
+
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                <Stack spacing={0.75}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {completeConfirmItem.activityName || completeConfirmItem.milestoneName || 'BQ item'}
+                  </Typography>
+                  {completeConfirmItem.milestoneName ? (
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Milestone:</strong> {completeConfirmItem.milestoneName}
+                    </Typography>
+                  ) : null}
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip
+                      size="small"
+                      label={`Current progress: ${Number(completeConfirmItem.progressPercent || 0).toFixed(2)}%`}
+                      variant="outlined"
+                    />
+                    <Chip
+                      size="small"
+                      label={`Budget: Ksh ${Number(completeConfirmItem.budgetAmount || 0).toLocaleString()}`}
+                      variant="outlined"
+                    />
+                    {completeConfirmItem.endDate ? (
+                      <Chip
+                        size="small"
+                        label={`Planned end: ${String(completeConfirmItem.endDate).slice(0, 10)}`}
+                        variant="outlined"
+                      />
+                    ) : null}
+                  </Stack>
+                </Stack>
+              </Paper>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
+                  Completion effect
+                </Typography>
+                <Stack spacing={0.5}>
+                  <Typography variant="body2">- Progress will be set to 100%.</Typography>
+                  <Typography variant="body2">- The item status will become Complete.</Typography>
+                  <Typography variant="body2">- Completion date will be recorded as today.</Typography>
+                  <Typography variant="body2">- A progress history entry will be added with remarks: Marked complete.</Typography>
+                </Stack>
+              </Box>
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            onClick={() => setCompleteConfirmItem(null)}
+            disabled={Boolean(quickCompletingId)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={quickCompletingId ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+            onClick={handleConfirmMarkComplete}
+            disabled={Boolean(quickCompletingId)}
+          >
+            {quickCompletingId ? 'Marking Complete...' : 'Confirm Completion'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Table, TableBody, TableCell,
@@ -26,6 +26,29 @@ const DeleteConfirmDialog = ({ open, onClose, onConfirm, itemToDeleteName, itemT
   </Dialog>
 );
 
+const parseFormattedNumber = (value) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const numberValue = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const formatNumberInput = (value) => {
+  const numberValue = parseFormattedNumber(value);
+  return numberValue === null ? '' : numberValue.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+};
+
+const formatTableNumber = (value) => {
+  const numberValue = parseFormattedNumber(value);
+  return numberValue === null ? '-' : numberValue.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+};
+
+const formatKes = (value) => {
+  const numberValue = parseFormattedNumber(value);
+  return numberValue === null
+    ? '-'
+    : `KES ${numberValue.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
 const ProjectCategoryPage = () => {
   const { hasPrivilege } = useAuth();
   const theme = useTheme();
@@ -43,6 +66,7 @@ const ProjectCategoryPage = () => {
   // Calculate statistics
   const totalCategories = projectCategories.length;
   const totalMilestones = projectCategories.reduce((sum, cat) => sum + (cat.milestones?.length || 0), 0);
+  const totalBqTemplates = projectCategories.reduce((sum, cat) => sum + (cat.bqTemplates?.length || 0), 0);
   
   // Filter categories based on search query
   const filteredCategories = projectCategories.filter(category => 
@@ -54,21 +78,42 @@ const ProjectCategoryPage = () => {
   const [dialogState, setDialogState] = useState({
     openCategoryDialog: false,
     openMilestoneDialog: false,
+    openBqTemplateDialog: false,
     openDeleteConfirmDialog: false,
     currentCategoryToEdit: null,
     currentMilestoneToEdit: null,
+    currentBqTemplateToEdit: null,
     categoryFormData: { categoryName: '', description: '' },
     milestoneFormData: { categoryId: null, milestoneName: '', description: '', sequenceOrder: '', unitOfMeasure: '', achievementValue: '' },
+    bqTemplateFormData: {
+      categoryId: null,
+      milestoneId: '',
+      activityName: '',
+      description: '',
+      unitOfMeasure: '',
+      quantity: '',
+      unitCost: '',
+      budgetAmount: '',
+      sortOrder: '',
+    },
     itemToDelete: null, // { id, name, type: 'category' | 'milestone' }
     categoryFormErrors: {},
-    milestoneFormErrors: {}
+    milestoneFormErrors: {},
+    bqTemplateFormErrors: {}
+  });
+  const [bqTemplateErrorDialog, setBqTemplateErrorDialog] = useState({
+    open: false,
+    title: '',
+    message: '',
+    detail: '',
+    line: null,
   });
 
   const {
-    openCategoryDialog, openMilestoneDialog, openDeleteConfirmDialog,
-    currentCategoryToEdit, currentMilestoneToEdit,
-    categoryFormData, milestoneFormData, itemToDelete,
-    categoryFormErrors, milestoneFormErrors
+    openCategoryDialog, openMilestoneDialog, openBqTemplateDialog, openDeleteConfirmDialog,
+    currentCategoryToEdit, currentMilestoneToEdit, currentBqTemplateToEdit,
+    categoryFormData, milestoneFormData, bqTemplateFormData, itemToDelete,
+    categoryFormErrors, milestoneFormErrors, bqTemplateFormErrors
   } = dialogState;
 
   const setDialogStateValue = (key, value) => {
@@ -117,10 +162,10 @@ const ProjectCategoryPage = () => {
     setLoading(true);
     try {
       if (currentCategoryToEdit) {
-        await apiService.metadata.projectCategories.updateCategory(currentCategoryToEdit.categoryId, categoryFormData);
+        await apiService.projectCategories.updateCategory(currentCategoryToEdit.categoryId, categoryFormData);
         setSnackbar({ open: true, message: 'Category updated successfully!', severity: 'success' });
       } else {
-        await apiService.metadata.projectCategories.createCategory(categoryFormData);
+        await apiService.projectCategories.createCategory(categoryFormData);
         setSnackbar({ open: true, message: 'Category created successfully!', severity: 'success' });
       }
       setDialogStateValue('openCategoryDialog', false);
@@ -194,10 +239,10 @@ const ProjectCategoryPage = () => {
       console.log('Category ID:', categoryId);
       
       if (currentMilestoneToEdit) {
-        await apiService.metadata.projectCategories.updateMilestone(categoryId, currentMilestoneToEdit.milestoneId, milestoneDataToSubmit);
+        await apiService.projectCategories.updateMilestone(categoryId, currentMilestoneToEdit.milestoneId, milestoneDataToSubmit);
         setSnackbar({ open: true, message: 'Milestone updated successfully!', severity: 'success' });
       } else {
-        await apiService.metadata.projectCategories.createMilestone(categoryId, milestoneDataToSubmit);
+        await apiService.projectCategories.createMilestone(categoryId, milestoneDataToSubmit);
         setSnackbar({ open: true, message: 'Milestone created successfully!', severity: 'success' });
       }
       handleCloseMilestoneDialog();
@@ -205,6 +250,153 @@ const ProjectCategoryPage = () => {
     } catch (error) {
       console.error('Error saving milestone:', error);
       setSnackbar({ open: true, message: error.response?.data?.message || 'Failed to save milestone.', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- BQ Template Handlers ---
+  const emptyBqTemplateForm = (categoryId, sortOrder = '') => ({
+    categoryId,
+    milestoneId: '',
+    activityName: '',
+    description: '',
+    unitOfMeasure: '',
+    quantity: '',
+    unitCost: '',
+    budgetAmount: '',
+    sortOrder,
+  });
+
+  const handleOpenCreateBqTemplateDialog = (categoryId) => {
+    if (!hasPrivilege('categorymilestone.create')) {
+      setSnackbar({ open: true, message: "Permission denied to create BQ templates.", severity: 'error' });
+      return;
+    }
+    const category = projectCategories.find((cat) => String(cat.categoryId) === String(categoryId));
+    const nextSortOrder = Math.max(
+      0,
+      ...(category?.bqTemplates || []).map((template) => Number(template.sortOrder) || 0)
+    ) + 1;
+    setDialogStateValue('currentBqTemplateToEdit', null);
+    setDialogStateValue('bqTemplateFormData', emptyBqTemplateForm(categoryId, String(nextSortOrder)));
+    setDialogStateValue('bqTemplateFormErrors', {});
+    setBqTemplateErrorDialog((prev) => ({ ...prev, open: false }));
+    setDialogStateValue('openBqTemplateDialog', true);
+  };
+
+  const handleOpenEditBqTemplateDialog = (categoryId, template) => {
+    if (!hasPrivilege('categorymilestone.update')) {
+      setSnackbar({ open: true, message: "Permission denied to update BQ templates.", severity: 'error' });
+      return;
+    }
+    setDialogStateValue('currentBqTemplateToEdit', template);
+    setDialogStateValue('bqTemplateFormData', {
+      categoryId,
+      milestoneId: template.milestoneId ? String(template.milestoneId) : '',
+      activityName: template.activityName || '',
+      description: template.description || '',
+      unitOfMeasure: template.unitOfMeasure || '',
+      quantity: formatNumberInput(template.quantity),
+      unitCost: formatNumberInput(template.unitCost),
+      budgetAmount: formatNumberInput(template.budgetAmount),
+      sortOrder: template.sortOrder ?? '',
+    });
+    setDialogStateValue('bqTemplateFormErrors', {});
+    setBqTemplateErrorDialog((prev) => ({ ...prev, open: false }));
+    setDialogStateValue('openBqTemplateDialog', true);
+  };
+
+  const handleCloseBqTemplateDialog = () => {
+    setDialogStateValue('openBqTemplateDialog', false);
+    setDialogStateValue('currentBqTemplateToEdit', null);
+    setDialogStateValue('bqTemplateFormErrors', {});
+  };
+
+  const handleBqTemplateFormChange = (e) => {
+    const { name, value } = e.target;
+    const nextFormData = { ...bqTemplateFormData, [name]: value };
+    if (name === 'quantity' || name === 'unitCost') {
+      const quantity = parseFormattedNumber(name === 'quantity' ? value : nextFormData.quantity);
+      const unitCost = parseFormattedNumber(name === 'unitCost' ? value : nextFormData.unitCost);
+      nextFormData.budgetAmount = quantity !== null && unitCost !== null ? formatNumberInput(quantity * unitCost) : '';
+    }
+    setDialogStateValue('bqTemplateFormData', nextFormData);
+  };
+
+  const handleBqTemplateNumberFocus = (e) => {
+    const { name, value } = e.target;
+    setDialogStateValue('bqTemplateFormData', {
+      ...bqTemplateFormData,
+      [name]: String(value || '').replace(/,/g, ''),
+    });
+  };
+
+  const handleBqTemplateNumberBlur = (e) => {
+    const { name, value } = e.target;
+    setDialogStateValue('bqTemplateFormData', {
+      ...bqTemplateFormData,
+      [name]: formatNumberInput(value),
+    });
+  };
+
+  const validateBqTemplateForm = () => {
+    let errors = {};
+    if (!String(bqTemplateFormData.activityName || '').trim()) errors.activityName = 'Activity name is required.';
+    setDialogStateValue('bqTemplateFormErrors', errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const openBqTemplateErrorDialog = ({ title = 'Could not save BQ template line', message, detail, line } = {}) => {
+    setBqTemplateErrorDialog({
+      open: true,
+      title,
+      message: message || 'The BQ template line could not be saved. Please review the details below and try again.',
+      detail: detail || '',
+      line: line || bqTemplateFormData,
+    });
+  };
+
+  const handleBqTemplateSubmit = async () => {
+    if (!validateBqTemplateForm()) {
+      openBqTemplateErrorDialog({
+        title: 'Please correct the BQ line',
+        message: 'Activity / BQ Line is required before saving.',
+      });
+      return;
+    }
+    setLoading(true);
+    try {
+      const { categoryId, ...payload } = bqTemplateFormData;
+      const dataToSubmit = {
+        ...payload,
+        milestoneId: payload.milestoneId || null,
+        quantity: parseFormattedNumber(payload.quantity),
+        unitCost: parseFormattedNumber(payload.unitCost),
+        budgetAmount: parseFormattedNumber(payload.budgetAmount),
+        sortOrder: parseFormattedNumber(payload.sortOrder) ?? 0,
+      };
+
+      if (currentBqTemplateToEdit) {
+        await apiService.projectCategories.updateBqTemplate(
+          categoryId,
+          currentBqTemplateToEdit.templateId,
+          dataToSubmit
+        );
+        setSnackbar({ open: true, message: 'BQ template updated successfully!', severity: 'success' });
+      } else {
+        await apiService.projectCategories.createBqTemplate(categoryId, dataToSubmit);
+        setSnackbar({ open: true, message: 'BQ template created successfully!', severity: 'success' });
+      }
+      handleCloseBqTemplateDialog();
+      fetchCategoriesAndMilestones();
+    } catch (error) {
+      console.error('Error saving BQ template:', error);
+      openBqTemplateErrorDialog({
+        message: error.response?.data?.message || 'Failed to save BQ template line.',
+        detail: error.response?.data?.error || error.message || '',
+        line: bqTemplateFormData,
+      });
     } finally {
       setLoading(false);
     }
@@ -220,7 +412,16 @@ const ProjectCategoryPage = () => {
       setSnackbar({ open: true, message: "Permission denied to delete milestones.", severity: 'error' });
       return;
     }
-    setDialogStateValue('itemToDelete', { id: item.categoryId || item.milestoneId, name: item.categoryName || item.milestoneName, type });
+    if (type === 'bq template' && !hasPrivilege('categorymilestone.delete')) {
+      setSnackbar({ open: true, message: "Permission denied to delete BQ templates.", severity: 'error' });
+      return;
+    }
+    setDialogStateValue('itemToDelete', {
+      id: item.categoryId || item.milestoneId || item.templateId,
+      categoryId: item.categoryId,
+      name: item.categoryName || item.milestoneName || item.activityName,
+      type
+    });
     setDialogStateValue('openDeleteConfirmDialog', true);
   };
   
@@ -230,11 +431,14 @@ const ProjectCategoryPage = () => {
     setDialogStateValue('openDeleteConfirmDialog', false);
     try {
       if (itemToDelete.type === 'category') {
-        await apiService.metadata.projectCategories.deleteCategory(itemToDelete.id);
+        await apiService.projectCategories.deleteCategory(itemToDelete.id);
         setSnackbar({ open: true, message: 'Category deleted successfully!', severity: 'success' });
       } else if (itemToDelete.type === 'milestone') {
-        await apiService.metadata.projectCategories.deleteMilestone(currentMilestoneToEdit.categoryId, itemToDelete.id);
+        await apiService.projectCategories.deleteMilestone(itemToDelete.categoryId, itemToDelete.id);
         setSnackbar({ open: true, message: 'Milestone deleted successfully!', severity: 'success' });
+      } else if (itemToDelete.type === 'bq template') {
+        await apiService.projectCategories.deleteBqTemplate(itemToDelete.categoryId, itemToDelete.id);
+        setSnackbar({ open: true, message: 'BQ template deleted successfully!', severity: 'success' });
       }
       fetchCategoriesAndMilestones();
     } catch (error) {
@@ -373,10 +577,10 @@ const ProjectCategoryPage = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
-                      Avg/Category
+                      BQ Templates
                     </Typography>
                     <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
-                      {totalCategories > 0 ? Math.round((totalMilestones / totalCategories) * 10) / 10 : 0}
+                      {totalBqTemplates}
                     </Typography>
                   </Box>
                   <ChecklistIcon sx={{ fontSize: 28, opacity: 0.8 }} />
@@ -551,6 +755,81 @@ const ProjectCategoryPage = () => {
                               </TableBody>
                             </Table>
                           </TableContainer>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, mt: 3 }}>
+                            <Box>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Procurement BQ Templates</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                These lines are applied during procurement to create the project BQ and progress-tracking activities.
+                              </Typography>
+                            </Box>
+                            {hasPrivilege('categorymilestone.create') && (
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<AddIcon />}
+                                onClick={() => handleOpenCreateBqTemplateDialog(category.categoryId)}
+                              >
+                                Add BQ Line
+                              </Button>
+                            )}
+                          </Box>
+                          <TableContainer component={Paper} sx={{ boxShadow: theme.shadows[1] }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ backgroundColor: theme.palette.secondary.dark || theme.palette.secondary.main }}>
+                                  <TableCell sx={{ fontWeight: 'bold', color: 'white' }}>Order</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', color: 'white' }}>Activity / BQ Line</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', color: 'white' }}>Milestone</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', color: 'white' }}>Unit</TableCell>
+                                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'white' }}>Qty</TableCell>
+                                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'white' }}>Unit Cost</TableCell>
+                                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'white' }}>Budget</TableCell>
+                                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'white' }}>Actions</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(category.bqTemplates || []).length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={8} align="center">No BQ template lines yet.</TableCell>
+                                  </TableRow>
+                                ) : (
+                                  (category.bqTemplates || []).map((template) => (
+                                    <TableRow key={template.templateId}>
+                                      <TableCell>{template.sortOrder ?? '-'}</TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{template.activityName}</Typography>
+                                        {template.description ? (
+                                          <Typography variant="caption" color="text.secondary">{template.description}</Typography>
+                                        ) : null}
+                                      </TableCell>
+                                      <TableCell>{template.milestoneName || '-'}</TableCell>
+                                      <TableCell>{template.unitOfMeasure || '-'}</TableCell>
+                                      <TableCell align="right">{formatTableNumber(template.quantity)}</TableCell>
+                                      <TableCell align="right">{formatKes(template.unitCost)}</TableCell>
+                                      <TableCell align="right">{formatKes(template.budgetAmount)}</TableCell>
+                                      <TableCell align="right">
+                                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                          {hasPrivilege('categorymilestone.update') && (
+                                            <IconButton onClick={() => handleOpenEditBqTemplateDialog(category.categoryId, template)} color="primary">
+                                              <EditIcon fontSize="small" />
+                                            </IconButton>
+                                          )}
+                                          {hasPrivilege('categorymilestone.delete') && (
+                                            <IconButton
+                                              onClick={() => handleOpenDeleteConfirm({ ...template, categoryId: category.categoryId }, 'bq template')}
+                                              color="error"
+                                            >
+                                              <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                          )}
+                                        </Stack>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                )}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
                         </Box>
                       </AccordionDetails>
                     </Accordion>
@@ -694,6 +973,206 @@ const ProjectCategoryPage = () => {
         <DialogActions sx={{ padding: '16px 24px' }}>
           <Button onClick={handleCloseMilestoneDialog} color="primary" variant="outlined">Cancel</Button>
           <Button onClick={handleMilestoneSubmit} color="primary" variant="contained">{currentMilestoneToEdit ? 'Update Milestone' : 'Create Milestone'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add/Edit BQ Template Dialog */}
+      <Dialog open={openBqTemplateDialog} onClose={handleCloseBqTemplateDialog} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white' }}>
+          {currentBqTemplateToEdit ? 'Edit BQ Template Line' : 'Add BQ Template Line'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default }}>
+          <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+            <InputLabel>Linked Milestone</InputLabel>
+            <Select
+              name="milestoneId"
+              value={bqTemplateFormData.milestoneId || ''}
+              label="Linked Milestone"
+              onChange={handleBqTemplateFormChange}
+            >
+              <MenuItem value="">None / general scope item</MenuItem>
+              {(projectCategories.find((cat) => String(cat.categoryId) === String(bqTemplateFormData.categoryId))?.milestones || []).map((milestone) => (
+                <MenuItem key={milestone.milestoneId} value={String(milestone.milestoneId)}>
+                  {milestone.sequenceOrder ? `${milestone.sequenceOrder}. ` : ''}{milestone.milestoneName}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            autoFocus
+            margin="dense"
+            name="activityName"
+            label="Activity / BQ Line"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={bqTemplateFormData.activityName}
+            onChange={handleBqTemplateFormChange}
+            error={!!bqTemplateFormErrors.activityName}
+            helperText={bqTemplateFormErrors.activityName}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
+            name="description"
+            label="Description / Specification"
+            type="text"
+            fullWidth
+            multiline
+            rows={2}
+            variant="outlined"
+            value={bqTemplateFormData.description}
+            onChange={handleBqTemplateFormChange}
+            sx={{ mb: 2 }}
+          />
+          <Grid container spacing={1.5}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                margin="dense"
+                name="unitOfMeasure"
+                label="Unit of Measure"
+                type="text"
+                fullWidth
+                variant="outlined"
+                value={bqTemplateFormData.unitOfMeasure}
+                onChange={handleBqTemplateFormChange}
+                placeholder="e.g. m, m², item, lot"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                margin="dense"
+                name="quantity"
+                label="Quantity"
+                type="text"
+                fullWidth
+                variant="outlined"
+                value={bqTemplateFormData.quantity}
+                onChange={handleBqTemplateFormChange}
+                onFocus={handleBqTemplateNumberFocus}
+                onBlur={handleBqTemplateNumberBlur}
+                inputProps={{ inputMode: 'decimal' }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                margin="dense"
+                name="unitCost"
+                label="Unit Cost (KES)"
+                type="text"
+                fullWidth
+                variant="outlined"
+                value={bqTemplateFormData.unitCost}
+                onChange={handleBqTemplateFormChange}
+                onFocus={handleBqTemplateNumberFocus}
+                onBlur={handleBqTemplateNumberBlur}
+                InputProps={{ startAdornment: <InputAdornment position="start">KES</InputAdornment> }}
+                inputProps={{ inputMode: 'decimal' }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                margin="dense"
+                name="budgetAmount"
+                label="Budget Amount (KES)"
+                type="text"
+                fullWidth
+                variant="outlined"
+                value={bqTemplateFormData.budgetAmount}
+                onChange={handleBqTemplateFormChange}
+                onFocus={handleBqTemplateNumberFocus}
+                onBlur={handleBqTemplateNumberBlur}
+                helperText="Auto-calculated from Quantity x Unit Cost. You may edit it if needed."
+                InputProps={{ startAdornment: <InputAdornment position="start">KES</InputAdornment> }}
+                inputProps={{ inputMode: 'decimal' }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                margin="dense"
+                name="sortOrder"
+                label="BQ Line Order"
+                type="number"
+                fullWidth
+                variant="outlined"
+                value={bqTemplateFormData.sortOrder}
+                onChange={handleBqTemplateFormChange}
+                helperText="Controls the display order of BQ lines within this project type. Milestone order still controls the project phase order."
+                inputProps={{ min: 0 }}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ padding: '16px 24px' }}>
+          <Button onClick={handleCloseBqTemplateDialog} color="primary" variant="outlined">Cancel</Button>
+          <Button onClick={handleBqTemplateSubmit} color="primary" variant="contained" disabled={loading}>
+            {loading ? 'Saving...' : currentBqTemplateToEdit ? 'Update BQ Line' : 'Create BQ Line'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={bqTemplateErrorDialog.open}
+        onClose={() => setBqTemplateErrorDialog((prev) => ({ ...prev, open: false }))}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="bq-template-error-title"
+        slotProps={{ root: { sx: { zIndex: (t) => t.zIndex.modal + 2 } } }}
+      >
+        <DialogTitle id="bq-template-error-title" sx={{ pb: 1 }}>
+          {bqTemplateErrorDialog.title || 'Could not save BQ template line'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="error" variant="outlined" sx={{ mb: 2 }}>
+            {bqTemplateErrorDialog.message}
+          </Alert>
+          {bqTemplateErrorDialog.line ? (
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+              <Table size="small">
+                <TableBody>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, width: 150 }}>Activity</TableCell>
+                    <TableCell>{bqTemplateErrorDialog.line.activityName || '-'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Quantity</TableCell>
+                    <TableCell>{formatTableNumber(bqTemplateErrorDialog.line.quantity)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Unit Cost</TableCell>
+                    <TableCell>{formatKes(bqTemplateErrorDialog.line.unitCost)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Budget</TableCell>
+                    <TableCell>{formatKes(bqTemplateErrorDialog.line.budgetAmount)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>BQ Line Order</TableCell>
+                    <TableCell>{bqTemplateErrorDialog.line.sortOrder || '-'}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : null}
+          {bqTemplateErrorDialog.detail ? (
+            <Alert severity="info" variant="outlined">
+              <Typography variant="caption" component="div" sx={{ fontWeight: 700, mb: 0.5 }}>
+                Technical detail
+              </Typography>
+              <Typography variant="caption" component="div" sx={{ wordBreak: 'break-word' }}>
+                {bqTemplateErrorDialog.detail}
+              </Typography>
+            </Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="contained"
+            onClick={() => setBqTemplateErrorDialog((prev) => ({ ...prev, open: false }))}
+            autoFocus
+          >
+            Review BQ Line
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -4,6 +4,7 @@ const projectTableColumns = [
   { id: 'rowNumber', label: '#', minWidth: 30, width: 40, show: false, sortable: false, sticky: 'left' },
   { id: 'id', label: 'ID', minWidth: 20, show: false, sortable: true },
   { id: 'projectName', label: 'Project Name', minWidth: 260, width: 320, show: true, sticky: 'left', sortable: true },
+  { id: 'projectType', label: 'Project Type', minWidth: 170, width: 190, show: true, sortable: true },
   { id: 'status', label: 'Status', minWidth: 120, width: 130, show: true, sortable: true },
   { id: 'directorate', label: 'Directorate', minWidth: 150, show: false, sortable: true },
   { id: 'startDate', label: 'Start Date', minWidth: 120, show: false, sortable: true },

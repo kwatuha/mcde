@@ -20,7 +20,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     objective: '', expectedOutput: '', expectedOutcome: '',
     status: 'Not started',
     overallProgress: '', // Progress JSONB: percentage_complete (0-100)
-    ministry: '', stateDepartment: '',
+    stateDepartment: '',
     finYearId: '',
     sector: '',
     subSector: '',
@@ -41,11 +41,8 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
   const [formErrors, setFormErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
-  const [formSections, setFormSections] = useState([]);
-  const [formSubPrograms, setFormSubPrograms] = useState([]);
   const [formSubcounties, setFormSubcounties] = useState([]);
   const [formWards, setFormWards] = useState([]);
-  const [missingFinancialYear, setMissingFinancialYear] = useState(null); // For financial years not in metadata
 
   const [initialAssociations, setInitialAssociations] = useState({
     // Junction IDs (county/subcounty/ward) are not used in the new flow; location comes from project_sites.
@@ -80,6 +77,9 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             console.warn('getProjectSites is not available on apiService.projects');
           }
 
+          const currentDepartmentName = currentProject.departmentName && currentProject.departmentName !== 'Unassigned'
+            ? currentProject.departmentName
+            : '';
           const formDataToSet = {
             projectName: currentProject.projectName || '',
             projectDescription: currentProject.projectDescription || '',
@@ -94,8 +94,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
             expectedOutcome: currentProject.expectedOutcome || '',
             status: currentProject.status ? normalizeProjectStatus(currentProject.status) : 'Not started',
             overallProgress: currentProject.overallProgress !== undefined && currentProject.overallProgress !== null ? String(currentProject.overallProgress) : '',
-            ministry: currentProject.ministry || '',
-            stateDepartment: currentProject.stateDepartment || '',
+            stateDepartment: currentProject.stateDepartment || currentDepartmentName,
             finYearId: currentProject.finYearId || currentProject.financialYearName || currentProject.financialYear || '',
             sector: currentProject.sector || currentProject.categoryName || '',
             subSector: currentProject.subSector || currentProject.subsector || currentProject.sub_sector || '',
@@ -163,7 +162,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         objective: '', expectedOutput: '', expectedOutcome: '',
         status: 'Not started',
         overallProgress: '',
-        ministry: '', stateDepartment: '',
+        stateDepartment: '',
         finYearId: '',
         sector: '',
         subSector: '',
@@ -272,9 +271,11 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     // Implementing Agency (directorate) is optional
     // Project category is optional
     // Sites are no longer required during project creation - they will be added later on project details page
-    // Validate date range only if both dates are provided
-    if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) {
-      errors.date_range = 'End Date cannot be before Start Date.';
+    if (formData.endDate && !formData.startDate) {
+      errors.startDate = 'Start Date is required when End Date is provided.';
+    }
+    if (formData.startDate && formData.endDate && new Date(formData.startDate) >= new Date(formData.endDate)) {
+      errors.date_range = 'Start Date must be before End Date.';
     }
     // Validate percentage complete (0-100)
     if (formData.overallProgress && formData.overallProgress !== '') {
@@ -369,10 +370,11 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     dataToSubmit.sector = dataToSubmit.sector ? String(dataToSubmit.sector).trim() : null;
     dataToSubmit.subSector = dataToSubmit.subSector ? String(dataToSubmit.subSector).trim() : null;
     dataToSubmit.subSectorId = dataToSubmit.subSectorId ? parseInt(dataToSubmit.subSectorId, 10) || null : null;
-    dataToSubmit.stateDepartment = null;
+    dataToSubmit.stateDepartment = dataToSubmit.stateDepartment ? String(dataToSubmit.stateDepartment).trim() : null;
+    dataToSubmit.directorate = dataToSubmit.directorate ? String(dataToSubmit.directorate).trim() : null;
+    delete dataToSubmit.ministry;
 
     console.log('=== FORM SUBMISSION DEBUG ===');
-    console.log('Ministry value in formData:', formData.ministry, 'in dataToSubmit:', dataToSubmit.ministry);
     console.log('Full dataToSubmit keys:', Object.keys(dataToSubmit));
     console.log('Full dataToSubmit:', JSON.stringify(dataToSubmit, null, 2));
 
@@ -409,10 +411,6 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
       setLoading(false);
     }
   }, [formData, formErrors, currentProject, initialAssociations, onFormSuccess, setSnackbar, synchronizeAssociations, allMetadata]);
-
-  const handleSitesChange = (sites) => {
-    setFormData(prev => ({ ...prev, sites }));
-  };
 
   return {
     formData, formErrors, loading, handleChange, handleMultiSelectChange, handleSubmit,

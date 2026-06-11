@@ -298,6 +298,24 @@ const metaDataService = {
       const response = await axiosInstance.delete(`/metadata/projectcategories/${categoryId}/milestones/${milestoneId}`);
       return response.data;
     },
+
+    // --- Procurement/BQ Template Lines for Project Types ---
+    getBqTemplatesByCategory: async (categoryId) => {
+      const response = await axiosInstance.get(`/metadata/projectcategories/${categoryId}/bq-templates`);
+      return response.data;
+    },
+    createBqTemplate: async (categoryId, templateData) => {
+      const response = await axiosInstance.post(`/metadata/projectcategories/${categoryId}/bq-templates`, templateData);
+      return response.data;
+    },
+    updateBqTemplate: async (categoryId, templateId, templateData) => {
+      const response = await axiosInstance.put(`/metadata/projectcategories/${categoryId}/bq-templates/${templateId}`, templateData);
+      return response.data;
+    },
+    deleteBqTemplate: async (categoryId, templateId) => {
+      const response = await axiosInstance.delete(`/metadata/projectcategories/${categoryId}/bq-templates/${templateId}`);
+      return response.data;
+    },
   },
     
   // --- NEW: Master metadata function for reports dashboard ---

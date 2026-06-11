@@ -4,13 +4,32 @@ import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel,
   Stack, useTheme, Paper, Grid, OutlinedInput, Chip, Autocomplete,
+  Alert, CircularProgress, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow,
 } from '@mui/material';
 import useProjectForm from '../hooks/useProjectForm';
 import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/projectStatusColors';
 import { tokens } from '../pages/dashboard/theme';
 import { DEFAULT_COUNTY } from '../configs/appConfig';
 import apiService from '../api';
-import axiosInstance from '../api/axiosInstance';
+
+const parseMoney = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const fmtKes = (value) => {
+  const parsed = parseMoney(value);
+  return parsed === null
+    ? '-'
+    : `KES ${parsed.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const fmtNumber = (value) => {
+  const parsed = parseMoney(value);
+  return parsed === null ? '-' : parsed.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+};
 
 const ProjectFormDialog = ({
   open,
@@ -41,27 +60,40 @@ const ProjectFormDialog = ({
   const [loadingSubcounties, setLoadingSubcounties] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
 
-  /** GET /ministries — cabinet / parent org names for projects */
-  const [ministryNameOptions, setMinistryNameOptions] = useState([]);
-  const [loadingMinistries, setLoadingMinistries] = useState(false);
+  const [departmentCatalog, setDepartmentCatalog] = useState([]);
+  const [sectionCatalog, setSectionCatalog] = useState([]);
+  const [loadingOrgCatalog, setLoadingOrgCatalog] = useState(false);
 
   const [sectorsFallback, setSectorsFallback] = useState([]);
   const [loadingSectorsFallback, setLoadingSectorsFallback] = useState(false);
   const [financialYearsFallback, setFinancialYearsFallback] = useState([]);
+  const [projectTypesFallback, setProjectTypesFallback] = useState([]);
+  const [projectTypeScopePreview, setProjectTypeScopePreview] = useState({
+    loading: false,
+    error: '',
+    milestones: [],
+    bqTemplates: [],
+  });
+  const [scopePreviewOpen, setScopePreviewOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const sectorsFromMetadata = allMetadata?.sectors;
     const financialYearsFromMetadata = allMetadata?.financialYears;
+    const projectTypesFromMetadata = allMetadata?.projectCategories;
     if (Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0) {
       setSectorsFallback([]);
     }
     if (Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0) {
       setFinancialYearsFallback([]);
     }
+    if (Array.isArray(projectTypesFromMetadata) && projectTypesFromMetadata.length > 0) {
+      setProjectTypesFallback([]);
+    }
     if (
       Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0 &&
-      Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0
+      Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0 &&
+      Array.isArray(projectTypesFromMetadata) && projectTypesFromMetadata.length > 0
     ) {
       return;
     }
@@ -70,7 +102,7 @@ const ProjectFormDialog = ({
     const fetchFormMetadataFallbacks = async () => {
       setLoadingSectorsFallback(true);
       try {
-        const [sectors, financialYears] = await Promise.all([
+        const [sectors, financialYears, projectTypes] = await Promise.all([
           Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0
             ? Promise.resolve([])
             : apiService.sectors.getAllSectors().catch((err) => {
@@ -83,6 +115,12 @@ const ProjectFormDialog = ({
                 console.error('ProjectFormDialog: fallback fetch financial years failed', err);
                 return [];
               }),
+          Array.isArray(projectTypesFromMetadata) && projectTypesFromMetadata.length > 0
+            ? Promise.resolve([])
+            : apiService.metadata.projectCategories.getAllCategories().catch((err) => {
+                console.error('ProjectFormDialog: fallback fetch project types failed', err);
+                return [];
+              }),
         ]);
         if (!cancelled) {
           if (!(Array.isArray(sectorsFromMetadata) && sectorsFromMetadata.length > 0)) {
@@ -91,6 +129,9 @@ const ProjectFormDialog = ({
           if (!(Array.isArray(financialYearsFromMetadata) && financialYearsFromMetadata.length > 0)) {
             setFinancialYearsFallback(Array.isArray(financialYears) ? financialYears : []);
           }
+          if (!(Array.isArray(projectTypesFromMetadata) && projectTypesFromMetadata.length > 0)) {
+            setProjectTypesFallback(Array.isArray(projectTypes) ? projectTypes : []);
+          }
         }
       } finally {
         if (!cancelled) setLoadingSectorsFallback(false);
@@ -98,33 +139,56 @@ const ProjectFormDialog = ({
     };
     fetchFormMetadataFallbacks();
     return () => { cancelled = true; };
-  }, [open, allMetadata?.sectors, allMetadata?.financialYears]);
+  }, [open, allMetadata?.sectors, allMetadata?.financialYears, allMetadata?.projectCategories]);
 
   useEffect(() => {
     if (!open) return;
+    const departmentsFromMetadata = allMetadata?.departments;
+    const sectionsFromMetadata = allMetadata?.sections;
+    if (Array.isArray(departmentsFromMetadata) && departmentsFromMetadata.length > 0) {
+      setDepartmentCatalog(departmentsFromMetadata);
+    }
+    if (Array.isArray(sectionsFromMetadata) && sectionsFromMetadata.length > 0) {
+      setSectionCatalog(sectionsFromMetadata);
+    }
+    if (
+      Array.isArray(departmentsFromMetadata) && departmentsFromMetadata.length > 0 &&
+      Array.isArray(sectionsFromMetadata) && sectionsFromMetadata.length > 0
+    ) {
+      return;
+    }
+
     let cancelled = false;
-    const load = async () => {
-      setLoadingMinistries(true);
+    const loadCountyOrgCatalog = async () => {
+      setLoadingOrgCatalog(true);
       try {
-        const { data } = await axiosInstance.get('/ministries', { params: { withDepartments: '0' } });
-        const list = Array.isArray(data) ? data : [];
+        const [departments, sections] = await Promise.all([
+          Array.isArray(departmentsFromMetadata) && departmentsFromMetadata.length > 0
+            ? Promise.resolve(departmentsFromMetadata)
+            : apiService.metadata.departments.getAllDepartments().catch((err) => {
+                console.error('ProjectFormDialog: departments fetch failed', err);
+                return [];
+              }),
+          Array.isArray(sectionsFromMetadata) && sectionsFromMetadata.length > 0
+            ? Promise.resolve(sectionsFromMetadata)
+            : apiService.metadata.sections.getAllSections().catch((err) => {
+                console.error('ProjectFormDialog: directorates fetch failed', err);
+                return [];
+              }),
+        ]);
         if (!cancelled) {
-          setMinistryNameOptions(list.map((m) => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)));
-        }
-      } catch (e) {
-        console.error('ProjectFormDialog: ministries fetch failed', e);
-        if (!cancelled) {
-          setMinistryNameOptions([]);
+          setDepartmentCatalog(Array.isArray(departments) ? departments : []);
+          setSectionCatalog(Array.isArray(sections) ? sections : []);
         }
       } finally {
-        if (!cancelled) setLoadingMinistries(false);
+        if (!cancelled) setLoadingOrgCatalog(false);
       }
     };
-    load();
+    loadCountyOrgCatalog();
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, allMetadata?.departments, allMetadata?.sections]);
 
   // Fetch sub-counties when county changes
   useEffect(() => {
@@ -223,6 +287,9 @@ const ProjectFormDialog = ({
     ].filter(Boolean)),
   ];
   const sectorOptions = (allMetadata?.sectors?.length ? allMetadata.sectors : sectorsFallback) || [];
+  const projectTypeOptions = (Array.isArray(allMetadata?.projectCategories) && allMetadata.projectCategories.length > 0
+    ? allMetadata.projectCategories
+    : projectTypesFallback) || [];
   const selectedSector = sectorOptions.find((sector) => {
     const sectorName = sector.sectorName || sector.name || '';
     return sectorName === formData.sector || sector.alias === formData.sector;
@@ -233,8 +300,81 @@ const ProjectFormDialog = ({
     return String(subSector.id || '') === String(formData.subSectorId || '')
       || subSectorName === formData.subSector;
   }) || (formData.subSector ? { id: formData.subSectorId || '', subSectorName: formData.subSector } : null);
+  const selectedProjectType = projectTypeOptions.find((category) =>
+    String(category.categoryId) === String(formData.categoryId || '')
+  );
+  const departmentOptions = departmentCatalog;
+  const selectedDepartment = departmentOptions.find((department) => {
+    const departmentName = department?.name || '';
+    const departmentAlias = department?.alias || '';
+    return departmentName === formData.stateDepartment || departmentAlias === formData.stateDepartment;
+  }) || (formData.stateDepartment ? { name: formData.stateDepartment } : null);
+  const selectedDepartmentId = selectedDepartment?.departmentId || selectedDepartment?.id || '';
+  const directorateOptions = selectedDepartmentId
+    ? sectionCatalog.filter((section) => String(section.departmentId || section.department_id || '') === String(selectedDepartmentId))
+    : sectionCatalog;
+  const selectedDirectorate = directorateOptions.find((section) => {
+    const sectionName = section?.name || '';
+    const sectionAlias = section?.alias || '';
+    return sectionName === formData.directorate || sectionAlias === formData.directorate;
+  }) || (formData.directorate ? { name: formData.directorate } : null);
+  const templateBudgetTotal = projectTypeScopePreview.bqTemplates.reduce((sum, line) => {
+    const amount = parseMoney(line.budgetAmount ?? line.budget_amount);
+    return sum + (amount || 0);
+  }, 0);
+  const projectBudgetAmount = parseMoney(formData.costOfProject);
+  const hasTemplateBudget = templateBudgetTotal > 0;
+  const isBudgetBelowTemplate = hasTemplateBudget
+    && projectBudgetAmount !== null
+    && projectBudgetAmount < templateBudgetTotal;
+
+  useEffect(() => {
+    if (!open || !formData.categoryId) {
+      setProjectTypeScopePreview({ loading: false, error: '', milestones: [], bqTemplates: [] });
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadProjectTypeScope = async () => {
+      setProjectTypeScopePreview((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const [milestones, bqTemplates] = await Promise.all([
+          apiService.metadata.projectCategories.getMilestonesByCategory(formData.categoryId).catch((err) => {
+            console.error('ProjectFormDialog: project type milestones preview failed', err);
+            return [];
+          }),
+          apiService.metadata.projectCategories.getBqTemplatesByCategory(formData.categoryId).catch((err) => {
+            console.error('ProjectFormDialog: project type BQ preview failed', err);
+            return [];
+          }),
+        ]);
+        if (!cancelled) {
+          setProjectTypeScopePreview({
+            loading: false,
+            error: '',
+            milestones: Array.isArray(milestones) ? milestones : [],
+            bqTemplates: Array.isArray(bqTemplates) ? bqTemplates : [],
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setProjectTypeScopePreview({
+            loading: false,
+            error: err?.response?.data?.message || err?.message || 'Failed to load project type scope preview.',
+            milestones: [],
+            bqTemplates: [],
+          });
+        }
+      }
+    };
+    loadProjectTypeScope();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, formData.categoryId]);
 
   return (
+    <>
     <Dialog 
       open={open} 
       onClose={handleClose} 
@@ -255,7 +395,7 @@ const ProjectFormDialog = ({
         <Typography variant="caption" sx={{ display: 'block', color: colors.grey[500], mb: 1, fontStyle: 'italic' }}>
           Fields marked with * are required.
         </Typography>
-        {/* Project Details Section */}
+        {/* Project Basics Section */}
         <Paper 
           elevation={0} 
           sx={{ 
@@ -267,7 +407,7 @@ const ProjectFormDialog = ({
           }}
         >
           <Typography variant="subtitle1" sx={{ color: colors.blueAccent[600], mb: 1, fontWeight: 700, fontSize: '0.9rem' }}>
-            Project Details
+            Project Basics
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6}>
@@ -310,6 +450,51 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                select
+                name="categoryId"
+                label="Project Type"
+                fullWidth
+                variant="outlined"
+                size="small"
+                value={formData.categoryId || ''}
+                onChange={handleChange}
+                helperText="Used later to prepare procurement milestones and BQ scope."
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="">
+                  <em>No project type selected</em>
+                </MenuItem>
+                {projectTypeOptions.map((category) => (
+                  <MenuItem key={category.categoryId} value={String(category.categoryId)}>
+                    {category.categoryName}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            {formData.categoryId ? (
+              <Grid item xs={12}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  {projectTypeScopePreview.loading ? (
+                    <Chip size="small" icon={<CircularProgress size={14} />} label="Loading scope..." />
+                  ) : (
+                    <>
+                      <Chip size="small" label={`${projectTypeScopePreview.milestones.length} milestone(s)`} />
+                      <Chip size="small" label={`${projectTypeScopePreview.bqTemplates.length} BQ line(s)`} />
+                    </>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setScopePreviewOpen(true)}
+                    disabled={projectTypeScopePreview.loading}
+                  >
+                    View Milestones & BQ
+                  </Button>
+                </Stack>
+              </Grid>
+            ) : null}
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth variant="outlined" size="small" sx={{ minWidth: 200 }}>
                 <InputLabel sx={{ color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200], fontWeight: 'bold' }}>Status</InputLabel>
@@ -545,82 +730,10 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12}>
-              <TextField 
-                name="objective" 
-                label="Objective" 
-                type="text" 
-                fullWidth 
-                multiline 
-                rows={2} 
-                variant="outlined" 
-                size="small"
-                value={formData.objective} 
-                onChange={handleChange}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                                     '& .MuiInputLabel-root': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                     fontWeight: 'bold',
-                   },
-                   '& .MuiInputBase-input': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                   },
-                }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField 
-                name="expectedOutcome" 
-                label="Expected Outcome" 
-                type="text" 
-                fullWidth 
-                multiline 
-                rows={2} 
-                variant="outlined" 
-                size="small"
-                value={formData.expectedOutcome} 
-                onChange={handleChange}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                                     '& .MuiInputLabel-root': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                     fontWeight: 'bold',
-                   },
-                   '& .MuiInputBase-input': {
-                     color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                   },
-                }}
-              />
-            </Grid>
           </Grid>
         </Paper>
 
-        {/* Organizational Details Section */}
+        {/* Classification & Ownership Section */}
         <Paper 
           elevation={0} 
           sx={{ 
@@ -632,7 +745,7 @@ const ProjectFormDialog = ({
           }}
         >
           <Typography variant="subtitle1" sx={{ color: colors.blueAccent[600], mb: 1, fontWeight: 700, fontSize: '0.9rem' }}>
-            Organizational Details
+            Classification & Ownership
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6}>
@@ -715,35 +828,106 @@ const ProjectFormDialog = ({
                 )}
               />
             </Grid>
-            <Grid item xs={12} sm={8}>
+            <Grid item xs={12} sm={6}>
               <Autocomplete
-                options={ministryNameOptions}
-                value={formData.ministry || null}
+                options={departmentOptions}
+                value={selectedDepartment}
                 onChange={(event, newValue) => {
-                  handleChange({ target: { name: 'ministry', value: newValue || '' } });
+                  handleChange({ target: { name: 'stateDepartment', value: newValue ? (newValue.name || '') : '' } });
+                  const nextDepartmentId = newValue?.departmentId || newValue?.id || '';
+                  const currentDirectorateStillValid = !formData.directorate || sectionCatalog.some((section) => (
+                    String(section.departmentId || section.department_id || '') === String(nextDepartmentId) &&
+                    (section.name === formData.directorate || section.alias === formData.directorate)
+                  ));
+                  if (!currentDirectorateStillValid) {
+                    handleChange({ target: { name: 'directorate', value: '' } });
+                  }
                 }}
-                loading={loadingMinistries}
-                disabled={loadingMinistries && ministryNameOptions.length === 0}
+                loading={loadingOrgCatalog}
+                disabled={loadingOrgCatalog && departmentOptions.length === 0}
+                getOptionLabel={(option) => {
+                  if (!option) return '';
+                  if (typeof option === 'string') return option;
+                  return option.name || '';
+                }}
+                isOptionEqualToValue={(option, value) => {
+                  const optionName = option?.name || option || '';
+                  const valueName = value?.name || value || '';
+                  return optionName === valueName;
+                }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    name="ministry"
-                    label="Ministry"
+                    name="stateDepartment"
+                    label="Department"
                     variant="outlined"
                     size="small"
-                    helperText={formErrors.ministry || 'Select ministry from directory'}
-                    error={!!formErrors.ministry}
+                    helperText={formErrors.stateDepartment || 'Select the responsible county department'}
+                    error={!!formErrors.stateDepartment}
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         '& fieldset': {
-                          borderColor: formErrors.ministry ? colors.redAccent[500] : colors.blueAccent[600],
+                          borderColor: formErrors.stateDepartment ? colors.redAccent[500] : colors.blueAccent[600],
                           borderWidth: '2px',
                         },
                         '&:hover fieldset': {
-                          borderColor: formErrors.ministry ? colors.redAccent[600] : colors.blueAccent[500],
+                          borderColor: formErrors.stateDepartment ? colors.redAccent[600] : colors.blueAccent[500],
                         },
                         '&.Mui-focused fieldset': {
-                          borderColor: formErrors.ministry ? colors.redAccent[500] : colors.greenAccent[500],
+                          borderColor: formErrors.stateDepartment ? colors.redAccent[500] : colors.greenAccent[500],
+                          borderWidth: '2px',
+                        },
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                        fontWeight: 'bold',
+                      },
+                      '& .MuiInputBase-input': {
+                        color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
+                      },
+                    }}
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Autocomplete
+                options={directorateOptions}
+                value={selectedDirectorate}
+                onChange={(event, newValue) => {
+                  handleChange({ target: { name: 'directorate', value: newValue ? (newValue.name || '') : '' } });
+                }}
+                loading={loadingOrgCatalog}
+                disabled={loadingOrgCatalog && directorateOptions.length === 0}
+                getOptionLabel={(option) => {
+                  if (!option) return '';
+                  if (typeof option === 'string') return option;
+                  return option.name || '';
+                }}
+                isOptionEqualToValue={(option, value) => {
+                  const optionName = option?.name || option || '';
+                  const valueName = value?.name || value || '';
+                  return optionName === valueName;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="directorate"
+                    label="Directorate"
+                    variant="outlined"
+                    size="small"
+                    helperText={selectedDepartment ? 'Select directorate/section under the department' : 'Select department first, or choose from all directorates'}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: colors.blueAccent[600],
+                          borderWidth: '2px',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: colors.blueAccent[500],
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: colors.greenAccent[500],
                           borderWidth: '2px',
                         },
                       },
@@ -774,14 +958,9 @@ const ProjectFormDialog = ({
           }}
         >
           <Typography variant="subtitle1" sx={{ color: colors.blueAccent[600], mb: 1, fontWeight: 700, fontSize: '0.9rem' }}>
-            Geographical Coverage
+            Location
           </Typography>
           <Grid container spacing={1.5}>
-            <Grid item xs={12}>
-              <Typography variant="caption" color="text.secondary">
-                County is fixed to <strong>{DEFAULT_COUNTY.name}</strong>. Select only the project sub-county and ward.
-              </Typography>
-            </Grid>
             <Grid item xs={12} sm={6} md={4}>
               <Autocomplete
                 options={subcounties}
@@ -944,7 +1123,7 @@ const ProjectFormDialog = ({
         </Paper>
 
 
-        {/* Additional Details Section */}
+        {/* Budget & Procurement Section */}
         <Paper 
           elevation={0} 
           sx={{ 
@@ -956,10 +1135,9 @@ const ProjectFormDialog = ({
           }}
         >
           <Typography variant="subtitle1" sx={{ color: colors.blueAccent[600], mb: 1, fontWeight: 700, fontSize: '0.9rem' }}>
-            Additional Details
+            Budget & Procurement
           </Typography>
           <Grid container spacing={1.5}>
-            {/* Budget Details */}
             <Grid item xs={12} sm={4}>
               <TextField
                 name="costOfProject"
@@ -971,7 +1149,7 @@ const ProjectFormDialog = ({
                 value={formData.costOfProject ?? ''}
                 onChange={handleChange}
                 placeholder="e.g., 70000000"
-                helperText="Maps to budget.allocated_amount_kes"
+                helperText="Total budget approved for the project"
                 inputProps={{ min: 0, step: 'any' }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -1009,7 +1187,7 @@ const ProjectFormDialog = ({
                 value={formData.Contracted ?? ''}
                 onChange={handleChange}
                 placeholder="e.g., 65000000"
-                helperText="Maps to budget.contracted"
+                helperText="Contract value, if already awarded"
                 inputProps={{ min: 0, step: 'any' }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -1074,42 +1252,68 @@ const ProjectFormDialog = ({
               />
             </Grid>
 
-            {/* Budget Source */}
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="budgetSource" 
-                label="Budget Source" 
-                type="text" 
-                fullWidth 
-                variant="outlined" 
-                size="small"
-                value={formData.budgetSource || ''} 
-                onChange={handleChange}
-                placeholder="e.g., Government of Kenya, Private Sector Investment"
-                helperText="Source of project funding"
+            <Grid item xs={12}>
+              <Paper
+                variant="outlined"
                 sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                    fontWeight: 'bold',
-                  },
-                  '& .MuiInputBase-input': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                  },
+                  p: 1.25,
+                  borderRadius: 2,
+                  bgcolor: colorMode === 'dark' ? colors.primary[500] : '#fbfdff',
+                  borderColor: isBudgetBelowTemplate ? theme.palette.warning.main : 'divider',
                 }}
-              />
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', md: 'center' }}
+                  justifyContent="space-between"
+                >
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Project Type BQ Estimate
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {selectedProjectType
+                        ? `${selectedProjectType.categoryName} template estimate. Actual scope is prepared later in Procurement Management.`
+                        : 'Select a Project Type to see its estimated BQ budget.'}
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip
+                      size="small"
+                      color={isBudgetBelowTemplate ? 'warning' : 'default'}
+                      label={`BQ Estimate: ${selectedProjectType ? fmtKes(templateBudgetTotal) : '-'}`}
+                    />
+                    {selectedProjectType ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setScopePreviewOpen(true)}
+                        disabled={projectTypeScopePreview.loading}
+                      >
+                        View Milestones & BQ
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Stack>
+                {selectedProjectType && projectTypeScopePreview.error ? (
+                  <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                    {projectTypeScopePreview.error}
+                  </Alert>
+                ) : selectedProjectType && projectBudgetAmount === null ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Enter the allocated budget above to compare it against this template estimate.
+                  </Typography>
+                ) : selectedProjectType && isBudgetBelowTemplate ? (
+                  <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                    The allocated project budget ({fmtKes(projectBudgetAmount)}) is below the project type BQ estimate ({fmtKes(templateBudgetTotal)}).
+                  </Alert>
+                ) : selectedProjectType && hasTemplateBudget ? (
+                  <Alert severity="success" variant="outlined" sx={{ mt: 1 }}>
+                    The allocated project budget can cover the current project type BQ estimate.
+                  </Alert>
+                ) : null}
+              </Paper>
             </Grid>
 
             <Grid item xs={12} sm={6}>
@@ -1125,7 +1329,7 @@ const ProjectFormDialog = ({
                 onChange={handleChange}
                 error={Boolean(formErrors.tenderContractNo)}
                 placeholder="e.g., KSM/FIN/ONT/001/2026"
-                helperText={formErrors.tenderContractNo || (currentProject ? 'Tender or contract reference number' : 'Required for new projects')}
+                helperText={formErrors.tenderContractNo || 'Tender or contract reference number'}
                 inputProps={{ maxLength: 120 }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -1150,166 +1354,6 @@ const ProjectFormDialog = ({
                   },
                 }}
               />
-            </Grid>
-
-            {/* Progress Summary */}
-            <Grid item xs={12}>
-              <TextField 
-                name="progressSummary" 
-                label="Progress Summary / Latest Update" 
-                type="text" 
-                fullWidth 
-                multiline 
-                rows={2} 
-                variant="outlined" 
-                size="small"
-                value={formData.progressSummary || ''} 
-                onChange={handleChange}
-                placeholder="Provide a summary of the latest project progress and updates..."
-                helperText="Detailed summary of project progress and current status"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                    fontWeight: 'bold',
-                  },
-                  '& .MuiInputBase-input': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                  },
-                }}
-              />
-            </Grid>
-
-            {/* Geocoordinates */}
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold', color: colors.blueAccent[300] }}>
-                📍 Project Location Coordinates (Optional)
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="latitude" 
-                label="Latitude" 
-                type="number" 
-                fullWidth 
-                variant="outlined" 
-                size="small"
-                value={formData.latitude || ''} 
-                onChange={handleChange}
-                placeholder="e.g., -1.2921"
-                inputProps={{ step: "0.0001" }}
-                helperText="Decimal degrees (e.g., -1.2921)"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                    fontWeight: 'bold',
-                  },
-                  '& .MuiInputBase-input': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                  },
-                }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="longitude" 
-                label="Longitude" 
-                type="number" 
-                fullWidth 
-                variant="outlined" 
-                size="small"
-                value={formData.longitude || ''} 
-                onChange={handleChange}
-                placeholder="e.g., 36.8219"
-                inputProps={{ step: "0.0001" }}
-                helperText="Decimal degrees (e.g., 36.8219)"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                    fontWeight: 'bold',
-                  },
-                  '& .MuiInputBase-input': {
-                    color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                  },
-                }}
-              />
-            </Grid>
-
-            {/* Public Engagement */}
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" sx={{ mb: 1, mt: 1, fontWeight: 'bold', color: colors.blueAccent[300] }}>
-                💬 Public Engagement
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel sx={{ color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200], fontWeight: 'bold' }}>
-                  Feedback Enabled
-                </InputLabel>
-                <Select
-                  name="feedbackEnabled"
-                  value={formData.feedbackEnabled !== undefined ? formData.feedbackEnabled : true}
-                  onChange={handleChange}
-                  sx={{
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      borderColor: colors.blueAccent[600],
-                      borderWidth: '2px',
-                    },
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: colors.blueAccent[500],
-                    },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                      borderColor: colors.greenAccent[500],
-                      borderWidth: '2px',
-                    },
-                    '& .MuiSelect-select': {
-                      color: colorMode === 'dark' ? colors.grey[100] : colors.grey[200],
-                    },
-                    minWidth: 200,
-                  }}
-                >
-                  <MenuItem value={true}>Yes</MenuItem>
-                  <MenuItem value={false}>No</MenuItem>
-                </Select>
-              </FormControl>
             </Grid>
           </Grid>
         </Paper>
@@ -1403,6 +1447,128 @@ const ProjectFormDialog = ({
         </Button>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={scopePreviewOpen}
+      onClose={() => setScopePreviewOpen(false)}
+      fullWidth
+      maxWidth="md"
+      scroll="paper"
+      aria-labelledby="project-type-scope-preview-title"
+    >
+      <DialogTitle id="project-type-scope-preview-title">
+        {selectedProjectType?.categoryName || 'Project Type'} Milestones & BQ Preview
+      </DialogTitle>
+      <DialogContent dividers>
+        {projectTypeScopePreview.loading ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 2 }}>
+            <CircularProgress size={20} />
+            <Typography variant="body2" color="text.secondary">
+              Loading milestone and BQ templates...
+            </Typography>
+          </Stack>
+        ) : projectTypeScopePreview.error ? (
+          <Alert severity="warning" variant="outlined">
+            {projectTypeScopePreview.error}
+          </Alert>
+        ) : (
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={`Milestones: ${projectTypeScopePreview.milestones.length}`} />
+              <Chip size="small" label={`BQ Lines: ${projectTypeScopePreview.bqTemplates.length}`} />
+              <Chip size="small" label={`BQ Estimate: ${fmtKes(templateBudgetTotal)}`} />
+            </Stack>
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
+                Milestone Templates
+              </Typography>
+              <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 260 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>#</strong></TableCell>
+                      <TableCell><strong>Milestone</strong></TableCell>
+                      <TableCell><strong>Description</strong></TableCell>
+                      <TableCell align="right"><strong>Target</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {projectTypeScopePreview.milestones.length ? (
+                      projectTypeScopePreview.milestones.map((milestone, index) => (
+                        <TableRow key={milestone.milestoneId || `${milestone.milestoneName}-${index}`}>
+                          <TableCell>{milestone.sequenceOrder || index + 1}</TableCell>
+                          <TableCell>{milestone.milestoneName}</TableCell>
+                          <TableCell>{milestone.description || '-'}</TableCell>
+                          <TableCell align="right">
+                            {[fmtNumber(milestone.achievement_value ?? milestone.achievementValue), milestone.unit_of_measure ?? milestone.unitOfMeasure]
+                              .filter((part) => part && part !== '-')
+                              .join(' ') || '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">No milestones configured.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
+                BQ Template Estimate
+              </Typography>
+              <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 300 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Activity</strong></TableCell>
+                      <TableCell><strong>Milestone</strong></TableCell>
+                      <TableCell align="right"><strong>Qty</strong></TableCell>
+                      <TableCell align="right"><strong>Unit Cost</strong></TableCell>
+                      <TableCell align="right"><strong>Budget</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {projectTypeScopePreview.bqTemplates.length ? (
+                      projectTypeScopePreview.bqTemplates.map((line, index) => (
+                        <TableRow key={line.templateId || `${line.activityName}-${index}`}>
+                          <TableCell>{line.activityName}</TableCell>
+                          <TableCell>{line.milestoneName || '-'}</TableCell>
+                          <TableCell align="right">
+                            {[fmtNumber(line.quantity), line.unitOfMeasure ?? line.unit_of_measure]
+                              .filter((part) => part && part !== '-')
+                              .join(' ') || '-'}
+                          </TableCell>
+                          <TableCell align="right">{fmtKes(line.unitCost ?? line.unit_cost)}</TableCell>
+                          <TableCell align="right">{fmtKes(line.budgetAmount ?? line.budget_amount)}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} align="center">No BQ template lines configured.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+
+            <Typography variant="caption" color="text.secondary">
+              This is a read-only template preview. Procurement will create the actual project scope and BQ from this project type when the project reaches Procurement Management.
+            </Typography>
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button variant="contained" onClick={() => setScopePreviewOpen(false)}>
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 

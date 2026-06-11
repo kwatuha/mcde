@@ -30,6 +30,14 @@ const procurementService = {
     const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/workflow`);
     return data;
   },
+  previewProjectScope: async (projectId) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/prepare-scope/preview`);
+    return data;
+  },
+  prepareProjectScope: async (projectId) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/prepare-scope`);
+    return data;
+  },
   addWorkflowStep: async (projectId, payload) => {
     const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/workflow`, payload);
     return data;

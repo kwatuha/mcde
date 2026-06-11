@@ -6,13 +6,15 @@ import {
   Chip, Divider,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
+import * as XLSX from 'xlsx';
 import { 
   Add as AddIcon, 
   Edit as EditIcon, 
   Delete as DeleteIcon, 
   Category as CategoryIcon,
   Search as SearchIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  TableChart as ExcelIcon,
 } from '@mui/icons-material';
 import axiosInstance from '../api/axiosInstance';
 import { tokens } from "./dashboard/theme";
@@ -36,6 +38,7 @@ function SectorsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   // Dialog states
   const [openDialog, setOpenDialog] = useState(false);
@@ -144,6 +147,97 @@ function SectorsPage() {
       ...prev,
       subSectors: prev.subSectors.filter((_, i) => i !== index),
     }));
+  };
+
+  const handleExportToExcel = () => {
+    setExportingExcel(true);
+    try {
+      const sectorsToExport = filteredSectors;
+      if (!sectorsToExport.length) {
+        setSnackbar({
+          open: true,
+          message: 'No sectors available to export.',
+          severity: 'warning',
+        });
+        return;
+      }
+
+      const summaryRows = sectorsToExport.map((sector, index) => {
+        const subSectors = sector.subSectors || [];
+        return {
+          '#': index + 1,
+          'Sector Name': sector.sectorName || '',
+          'Sector Chart Label': sector.alias || '',
+          Description: sector.description || '',
+          'Sub-sector Count': subSectors.length,
+          'Sub-sectors': subSectors.map((subSector) => subSector.subSectorName || subSector.name || '').filter(Boolean).join(', '),
+        };
+      });
+
+      const subSectorRows = sectorsToExport.flatMap((sector) => {
+        const subSectors = sector.subSectors || [];
+        if (!subSectors.length) {
+          return [{
+            'Sector Name': sector.sectorName || '',
+            'Sector Chart Label': sector.alias || '',
+            'Sub-sector Name': '',
+            'Sub-sector Chart Label': '',
+            'Sub-sector Description': '',
+          }];
+        }
+        return subSectors.map((subSector) => ({
+          'Sector Name': sector.sectorName || '',
+          'Sector Chart Label': sector.alias || '',
+          'Sub-sector Name': subSector.subSectorName || subSector.name || '',
+          'Sub-sector Chart Label': subSector.alias || '',
+          'Sub-sector Description': subSector.description || '',
+        }));
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+      const subSectorsSheet = XLSX.utils.json_to_sheet(subSectorRows);
+
+      summarySheet['!cols'] = [
+        { wch: 6 },
+        { wch: 42 },
+        { wch: 36 },
+        { wch: 70 },
+        { wch: 18 },
+        { wch: 90 },
+      ];
+      subSectorsSheet['!cols'] = [
+        { wch: 42 },
+        { wch: 36 },
+        { wch: 36 },
+        { wch: 36 },
+        { wch: 80 },
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Sectors');
+      XLSX.utils.book_append_sheet(workbook, subSectorsSheet, 'Sub-sectors');
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = searchQuery.trim()
+        ? `sectors_management_filtered_${dateStr}.xlsx`
+        : `sectors_management_${dateStr}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+
+      setSnackbar({
+        open: true,
+        message: `Exported ${sectorsToExport.length} sector${sectorsToExport.length !== 1 ? 's' : ''} to Excel.`,
+        severity: 'success',
+      });
+    } catch (err) {
+      console.error('Error exporting sectors to Excel:', err);
+      setSnackbar({
+        open: true,
+        message: 'Failed to export sectors to Excel. Please try again.',
+        severity: 'error',
+      });
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   // Handle save (create or update)
@@ -268,7 +362,7 @@ function SectorsPage() {
     },
     {
       field: 'alias',
-      headerName: 'Sector Alias',
+      headerName: 'Chart Label',
       flex: 1,
       minWidth: 150,
       editable: false,
@@ -404,7 +498,7 @@ function SectorsPage() {
       {/* Actions Bar */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <TextField
-          placeholder="Search sectors, aliases, or sub-sectors..."
+          placeholder="Search sectors, chart labels, or sub-sectors..."
           variant="outlined"
           size="small"
           value={searchQuery}
@@ -423,19 +517,29 @@ function SectorsPage() {
           }}
           sx={{ width: { xs: '100%', sm: 420 } }}
         />
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleCreate}
-          sx={{
-            backgroundColor: colors.blueAccent[500],
-            '&:hover': {
-              backgroundColor: colors.blueAccent[600],
-            },
-          }}
-        >
-          Add Sector
-        </Button>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Button
+            variant="outlined"
+            startIcon={exportingExcel ? <CircularProgress size={16} color="inherit" /> : <ExcelIcon />}
+            onClick={handleExportToExcel}
+            disabled={exportingExcel || loading || filteredSectors.length === 0}
+          >
+            {exportingExcel ? 'Exporting...' : 'Export Excel'}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleCreate}
+            sx={{
+              backgroundColor: colors.blueAccent[500],
+              '&:hover': {
+                backgroundColor: colors.blueAccent[600],
+              },
+            }}
+          >
+            Add Sector
+          </Button>
+        </Stack>
       </Box>
 
       {/* DataGrid */}
@@ -495,12 +599,12 @@ function SectorsPage() {
             />
             <TextField
               margin="dense"
-              label="Sector Aliases"
+              label="Sector Chart Label"
               fullWidth
               variant="outlined"
               value={formData.alias}
               onChange={(e) => handleInputChange('alias', e.target.value)}
-              helperText="Optional: comma-separated aliases or abbreviations used in imports, dashboards, and reports"
+              helperText="Optional short display name used in dashboard charts and reports"
               sx={{ mb: 2 }}
             />
             <TextField
@@ -522,7 +626,7 @@ function SectorsPage() {
                     Sub-sectors
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Add sub-sectors under this sector. Each sub-sector can also have comma-separated aliases.
+                    Add sub-sectors under this sector. Each sub-sector can also have a short chart label.
                   </Typography>
                 </Box>
                 <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={handleAddSubSector}>
@@ -547,12 +651,12 @@ function SectorsPage() {
                       </Grid>
                       <Grid item xs={12} md={3}>
                         <TextField
-                          label="Aliases"
+                          label="Chart Label"
                           size="small"
                           fullWidth
                           value={subSector.alias}
                           onChange={(e) => handleSubSectorChange(index, 'alias', e.target.value)}
-                          helperText="Comma-separated"
+                          helperText="Short display name"
                         />
                       </Grid>
                       <Grid item xs={12} md={4}>

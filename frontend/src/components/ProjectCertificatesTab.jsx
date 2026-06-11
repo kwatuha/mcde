@@ -111,16 +111,27 @@ function parseStoredCertificateData(cert) {
 }
 
 /**
- * BQ lines included on a payment certificate: prefer an explicit id list saved on the certificate,
- * then the contractor's assigned BQ scope (milestones/activities), otherwise all project BQ rows.
+ * BQ lines included on a payment certificate: only completed rows are payable.
+ * Prefer an explicit id list saved on the certificate, then the contractor's assigned BQ scope,
+ * otherwise all completed project BQ rows.
  */
+function isCompletedBqItem(item) {
+  return (
+    item?.completed === true ||
+    item?.completed === 1 ||
+    item?.completed === '1' ||
+    String(item?.completed || '').toLowerCase() === 'true'
+  );
+}
+
 function resolveBqItemsForCertificate(allBqItems, draftSnapshot, assignedContractors = []) {
   if (!Array.isArray(allBqItems) || allBqItems.length === 0) return [];
+  const completedBqItems = allBqItems.filter(isCompletedBqItem);
 
   const storedIds = draftSnapshot?.certificateBqItemIds;
   if (Array.isArray(storedIds) && storedIds.length > 0) {
     const set = new Set(storedIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
-    return allBqItems.filter((it) => set.has(Number(it.itemId)));
+    return completedBqItems.filter((it) => set.has(Number(it.itemId)));
   }
 
   const cid = draftSnapshot?.contractorId;
@@ -128,11 +139,11 @@ function resolveBqItemsForCertificate(allBqItems, draftSnapshot, assignedContrac
     const contractor = assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(cid));
     if (contractor && Array.isArray(contractor.bqItemIds) && contractor.bqItemIds.length > 0) {
       const set = new Set(contractor.bqItemIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
-      return allBqItems.filter((it) => set.has(Number(it.itemId)));
+      return completedBqItems.filter((it) => set.has(Number(it.itemId)));
     }
   }
 
-  return allBqItems;
+  return completedBqItems;
 }
 
 function formFieldsFromCertificateRow(cert) {
@@ -352,6 +363,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       ),
     [bqItems, bqItemsAsOf, draft, assignedContractors]
   );
+
+  const completedBqSourceCount = useMemo(() => {
+    const source = bqItemsAsOf.length ? bqItemsAsOf : bqItems;
+    return source.filter(isCompletedBqItem).length;
+  }, [bqItems, bqItemsAsOf]);
 
   /** Default new certificates to the first assigned contractor so contractor details are not omitted. */
   useEffect(() => {
@@ -632,7 +648,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     } else {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text('No BQ activities available for this project.', margin, y + 10);
+      doc.text('No completed BQ activities available for this payment certificate.', margin, y + 10);
       y += 24;
     }
 
@@ -846,6 +862,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       } catch {
         /* non-blocking */
       }
+      const bqSource = bqItemsOverride || (bqItemsAsOf.length ? bqItemsAsOf : bqItems);
+      if (resolveBqItemsForCertificate(bqSource, draft, assignedContractors).length === 0) {
+        setError('No completed BQ items are available for this payment certificate. Mark eligible BQ items complete first.');
+        return;
+      }
       const generated = await createCertificatePdfFile({
         workflowDetail: null,
         bqProgressAttribution,
@@ -958,9 +979,12 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
         }
       }
       const bqSourceSubmit = linesForSubmit.length ? linesForSubmit : bqItems;
-      const idsForCert = resolveBqItemsForCertificate(bqSourceSubmit, draft, assignedContractors).map((it) =>
-        Number(it.itemId)
-      );
+      const completedItemsForCert = resolveBqItemsForCertificate(bqSourceSubmit, draft, assignedContractors);
+      if (completedItemsForCert.length === 0) {
+        setError('No completed BQ items are available for this payment certificate. Mark eligible BQ items complete first.');
+        return;
+      }
+      const idsForCert = completedItemsForCert.map((it) => Number(it.itemId));
       const patchDraftBase = {
         ...draft,
         tenderNo: draft.tenderNo || resolveProjectTenderNo(projectDetails),
@@ -1333,7 +1357,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
                 helperText={
                   assignedContractors.length === 0
                     ? 'Assign contractors on the project details tab to scope BQ lines by milestone.'
-                    : 'Payment totals and the BQ summary use only BQ lines linked to this contractor.'
+                    : 'Payment totals and the BQ summary use only completed BQ lines linked to this contractor.'
                 }
               >
                 <MenuItem value="">
@@ -1394,10 +1418,16 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
-                BQ-based payable summary uses {certificateBqItems.length} of {bqItems.length} bill lines
+                BQ-based payable summary uses {certificateBqItems.length} completed bill line{certificateBqItems.length === 1 ? '' : 's'}
+                {' '}from {completedBqSourceCount} completed of {bqItems.length} total bill lines
                 {draft.contractorId != null && draft.contractorId !== '' ? ' for the selected contractor' : ''}. Amount
                 per row = Budget × % complete.
               </Typography>
+              {completedBqSourceCount === 0 ? (
+                <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                  No BQ item is currently marked complete for the selected certificate date. Mark completed work in the BQ tab before generating a payment certificate.
+                </Alert>
+              ) : null}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                 Applied rates for {form.requestDate || 'today'}
                 {' '}

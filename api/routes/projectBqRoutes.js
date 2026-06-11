@@ -41,6 +41,10 @@ async function ensureTable() {
         `);
         await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_project_bq_items_project ON project_bq_items (project_id)`);
         await runSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS completion_date DATE NULL`);
+        await runSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(18,4) NULL`);
+        await runSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS unit_of_measure TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(18,2) NULL`);
+        await runSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS category_bq_template_id BIGINT NULL`);
         await runSafeDdl(`
             CREATE TABLE IF NOT EXISTS project_bq_progress_logs (
                 id BIGSERIAL PRIMARY KEY,
@@ -92,6 +96,18 @@ async function ensureTable() {
         } catch (e) {
             if (!/Duplicate column name/i.test(String(e.message))) throw e;
         }
+        for (const sql of [
+            `ALTER TABLE project_bq_items ADD COLUMN quantity DECIMAL(18,4) NULL`,
+            `ALTER TABLE project_bq_items ADD COLUMN unit_of_measure VARCHAR(100) NULL`,
+            `ALTER TABLE project_bq_items ADD COLUMN unit_cost DECIMAL(18,2) NULL`,
+            `ALTER TABLE project_bq_items ADD COLUMN category_bq_template_id BIGINT NULL`,
+        ]) {
+            try {
+                await pool.query(sql);
+            } catch (e) {
+                if (!/Duplicate column name/i.test(String(e.message))) throw e;
+            }
+        }
     }
 }
 
@@ -113,6 +129,9 @@ function sanitizePayload(body = {}) {
     const progressRaw = body.progressPercent ?? body.progress_percent ?? 0;
     const remarks = String(body.remarks || '').trim();
     const sortOrderRaw = body.sortOrder ?? body.sort_order ?? 0;
+    const quantityRaw = body.quantity;
+    const unitOfMeasure = String(body.unitOfMeasure || body.unit_of_measure || '').trim();
+    const unitCostRaw = body.unitCost ?? body.unit_cost;
     const completed = Boolean(body.completed);
     const completionDate = body.completionDate || body.completion_date || null;
 
@@ -121,6 +140,12 @@ function sanitizePayload(body = {}) {
         : Number(budgetAmountRaw);
     const progressPercent = Number(progressRaw);
     const sortOrder = Number(sortOrderRaw);
+    const quantity = quantityRaw === '' || quantityRaw === null || quantityRaw === undefined
+        ? null
+        : Number(quantityRaw);
+    const unitCost = unitCostRaw === '' || unitCostRaw === null || unitCostRaw === undefined
+        ? null
+        : Number(unitCostRaw);
 
     if (!activityName) {
         return { error: 'Activity / milestone name is required.' };
@@ -130,6 +155,12 @@ function sanitizePayload(body = {}) {
     }
     if (budgetAmount !== null && !Number.isFinite(budgetAmount)) {
         return { error: 'Budget amount must be a valid number.' };
+    }
+    if (quantity !== null && !Number.isFinite(quantity)) {
+        return { error: 'Quantity must be a valid number.' };
+    }
+    if (unitCost !== null && !Number.isFinite(unitCost)) {
+        return { error: 'Unit cost must be a valid number.' };
     }
     if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
         return { error: 'End date must be on or after start date.' };
@@ -142,6 +173,9 @@ function sanitizePayload(body = {}) {
             startDate,
             endDate,
             budgetAmount,
+            quantity,
+            unitOfMeasure: unitOfMeasure || null,
+            unitCost,
             progressPercent,
             remarks: remarks || null,
             completed,
@@ -170,6 +204,9 @@ router.get('/', async (req, res) => {
                     start_date AS "startDate",
                     end_date AS "endDate",
                     budget_amount AS "budgetAmount",
+                    quantity,
+                    unit_of_measure AS "unitOfMeasure",
+                    unit_cost AS "unitCost",
                     progress_percent AS "progressPercent",
                     remarks,
                     completed,
@@ -193,6 +230,9 @@ router.get('/', async (req, res) => {
                     start_date AS startDate,
                     end_date AS endDate,
                     budget_amount AS budgetAmount,
+                    quantity,
+                    unit_of_measure AS unitOfMeasure,
+                    unit_cost AS unitCost,
                     progress_percent AS progressPercent,
                     remarks,
                     completed,
@@ -293,6 +333,9 @@ router.get('/items-as-of', async (req, res) => {
                     i.start_date AS "startDate",
                     i.end_date AS "endDate",
                     i.budget_amount AS "budgetAmount",
+                    i.quantity,
+                    i.unit_of_measure AS "unitOfMeasure",
+                    i.unit_cost AS "unitCost",
                     COALESCE(
                         (
                             SELECT l.progress_percent
@@ -309,7 +352,12 @@ router.get('/items-as-of', async (req, res) => {
                         END
                     ) AS "progressPercent",
                     i.remarks,
-                    i.completed,
+                    CASE
+                        WHEN COALESCE(i.completed, false) = true
+                         AND (i.completion_date IS NULL OR i.completion_date <= $2::date)
+                        THEN true
+                        ELSE false
+                    END AS completed,
                     i.completion_date AS "completionDate",
                     i.sort_order AS "sortOrder",
                     i.created_at AS "createdAt",
@@ -330,6 +378,9 @@ router.get('/items-as-of', async (req, res) => {
                 i.start_date AS startDate,
                 i.end_date AS endDate,
                 i.budget_amount AS budgetAmount,
+                i.quantity,
+                i.unit_of_measure AS unitOfMeasure,
+                i.unit_cost AS unitCost,
                 COALESCE(
                     (
                         SELECT l.progress_percent
@@ -346,7 +397,12 @@ router.get('/items-as-of', async (req, res) => {
                     END
                 ) AS progressPercent,
                 i.remarks,
-                i.completed,
+                CASE
+                    WHEN COALESCE(i.completed, 0) = 1
+                     AND (i.completion_date IS NULL OR i.completion_date <= ?)
+                    THEN 1
+                    ELSE 0
+                END AS completed,
                 i.completion_date AS completionDate,
                 i.sort_order AS sortOrder,
                 i.created_at AS createdAt,
@@ -354,7 +410,7 @@ router.get('/items-as-of', async (req, res) => {
              FROM project_bq_items i
              WHERE i.project_id = ? AND i.voided = 0
              ORDER BY i.sort_order ASC, i.id ASC`,
-            [asOfRaw, projectId]
+            [asOfRaw, asOfRaw, projectId]
         );
         return res.status(200).json(rows || []);
     } catch (error) {
@@ -437,8 +493,9 @@ router.post('/', async (req, res) => {
             const result = await pool.query(
                 `INSERT INTO project_bq_items (
                     project_id, activity_name, milestone_name, start_date, end_date,
-                    budget_amount, progress_percent, remarks, completed, completion_date, sort_order
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    budget_amount, quantity, unit_of_measure, unit_cost,
+                    progress_percent, remarks, completed, completion_date, sort_order
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                 RETURNING
                     id AS "itemId",
                     project_id AS "projectId",
@@ -447,6 +504,9 @@ router.post('/', async (req, res) => {
                     start_date AS "startDate",
                     end_date AS "endDate",
                     budget_amount AS "budgetAmount",
+                    quantity,
+                    unit_of_measure AS "unitOfMeasure",
+                    unit_cost AS "unitCost",
                     progress_percent AS "progressPercent",
                     remarks,
                     completed,
@@ -456,7 +516,8 @@ router.post('/', async (req, res) => {
                     updated_at AS "updatedAt"`,
                 [
                     projectId, p.activityName, p.milestoneName, p.startDate, p.endDate,
-                    p.budgetAmount, p.progressPercent, p.remarks, p.completed, p.completionDate, p.sortOrder
+                    p.budgetAmount, p.quantity, p.unitOfMeasure, p.unitCost,
+                    p.progressPercent, p.remarks, p.completed, p.completionDate, p.sortOrder
                 ]
             );
             return res.status(201).json(result.rows?.[0] || null);
@@ -465,11 +526,13 @@ router.post('/', async (req, res) => {
         const [insert] = await pool.query(
             `INSERT INTO project_bq_items (
                 project_id, activity_name, milestone_name, start_date, end_date,
-                budget_amount, progress_percent, remarks, completed, completion_date, sort_order
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+                budget_amount, quantity, unit_of_measure, unit_cost,
+                progress_percent, remarks, completed, completion_date, sort_order
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             [
                 projectId, p.activityName, p.milestoneName, p.startDate, p.endDate,
-                p.budgetAmount, p.progressPercent, p.remarks, p.completed ? 1 : 0, p.completionDate, p.sortOrder
+                p.budgetAmount, p.quantity, p.unitOfMeasure, p.unitCost,
+                p.progressPercent, p.remarks, p.completed ? 1 : 0, p.completionDate, p.sortOrder
             ]
         );
         const [rows] = await pool.query(
@@ -481,6 +544,9 @@ router.post('/', async (req, res) => {
                 start_date AS startDate,
                 end_date AS endDate,
                 budget_amount AS budgetAmount,
+                quantity,
+                unit_of_measure AS unitOfMeasure,
+                unit_cost AS unitCost,
                 progress_percent AS progressPercent,
                 remarks,
                 completed,
@@ -547,6 +613,9 @@ router.put('/:itemId', async (req, res) => {
                     start_date AS "startDate",
                     end_date AS "endDate",
                     budget_amount AS "budgetAmount",
+                    quantity,
+                    unit_of_measure AS "unitOfMeasure",
+                    unit_cost AS "unitCost",
                     progress_percent AS "progressPercent",
                     remarks,
                     completed,
@@ -618,6 +687,9 @@ router.put('/:itemId', async (req, res) => {
                 start_date AS startDate,
                 end_date AS endDate,
                 budget_amount AS budgetAmount,
+                quantity,
+                unit_of_measure AS unitOfMeasure,
+                unit_cost AS unitCost,
                 progress_percent AS progressPercent,
                 remarks,
                 completed,

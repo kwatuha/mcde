@@ -128,6 +128,12 @@ const getPublicApprovalStatus = (project) => {
     };
 };
 
+const inspectionOutcomeLabels = {
+    passed: 'Passed',
+    passed_with_issues: 'Passed with issues',
+    failed: 'Failed / needs correction',
+};
+
 import { alpha } from '@mui/material/styles';
 import { tokens } from "./dashboard/theme"; // Import tokens for color styling
 import MilestoneAttachments from '../components/MilestoneAttachments.jsx';
@@ -464,6 +470,7 @@ function ProjectDetailsPage() {
     const [editingInspection, setEditingInspection] = useState(null);
     const [inspectionFormData, setInspectionFormData] = useState({
         inspectionDate: '',
+        bqObservations: [],
         findings: '',
         warnings: '',
         recommendations: '',
@@ -473,6 +480,8 @@ function ProjectDetailsPage() {
     });
     const [inspectionTemplates, setInspectionTemplates] = useState([]);
     const [inspectionTemplateDetail, setInspectionTemplateDetail] = useState(null);
+    const [inspectionBqItems, setInspectionBqItems] = useState([]);
+    const [loadingInspectionBqItems, setLoadingInspectionBqItems] = useState(false);
     const [uploadingInspectionFiles, setUploadingInspectionFiles] = useState(false);
     const [partners, setPartners] = useState([]);
     const [projectFundingEntries, setProjectFundingEntries] = useState([]);
@@ -513,6 +522,9 @@ function ProjectDetailsPage() {
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
 
     const [scheduleGanttVisible, setScheduleGanttVisible] = useState(false);
+    const [scheduleBqItems, setScheduleBqItems] = useState([]);
+    const [loadingScheduleBqItems, setLoadingScheduleBqItems] = useState(false);
+    const [syncingScheduleFromBq, setSyncingScheduleFromBq] = useState(false);
     const [implementationModal, setImplementationModal] = useState(null);
 
     useEffect(() => {
@@ -622,6 +634,109 @@ function ProjectDetailsPage() {
         })).filter((m) => m.ref);
     }, [projectTeams, getTeamMemberRef, teamMemberLabel]);
 
+    const inspectionTeamGroups = useMemo(() => {
+        const groups = new Map();
+        teamMemberOptions.forEach((option) => {
+            const groupName = String(option.raw?.teamName || 'Project Team').trim() || 'Project Team';
+            const list = groups.get(groupName) || [];
+            list.push(option);
+            groups.set(groupName, list);
+        });
+        return Array.from(groups.entries())
+            .map(([teamName, options]) => ({ teamName, options }))
+            .sort((a, b) => {
+                const aInspection = /inspection/i.test(a.teamName) ? 0 : 1;
+                const bInspection = /inspection/i.test(b.teamName) ? 0 : 1;
+                return aInspection - bInspection || a.teamName.localeCompare(b.teamName);
+            });
+    }, [teamMemberOptions]);
+
+    const applyInspectionTeamSelection = useCallback((refs) => {
+        const normalizedRefs = Array.from(new Set((refs || []).filter(Boolean)));
+        setInspectionFormData((prev) => ({
+            ...prev,
+            teamMemberRefs: normalizedRefs,
+        }));
+    }, []);
+
+    const makeInspectionBqObservation = useCallback((source = {}) => ({
+        bqItemId: source.bqItemId || source.itemId || '',
+        outcome: source.outcome || source.inspectionOutcome || '',
+        observation: source.observation || '',
+        recommendation: source.recommendation || '',
+    }), []);
+
+    const bqItemLabelById = useMemo(() => {
+        const map = new Map();
+        inspectionBqItems.forEach((item) => {
+            map.set(String(item.itemId), item.activityName || item.milestoneName || `Item #${item.itemId}`);
+        });
+        return map;
+    }, [inspectionBqItems]);
+
+    const loadScheduleBqItems = useCallback(async () => {
+        if (!projectId) return;
+        setLoadingScheduleBqItems(true);
+        try {
+            const rows = await projectService.bq.getItems(projectId);
+            setScheduleBqItems(Array.isArray(rows) ? rows : []);
+        } catch (err) {
+            console.warn('Error loading BQ activities for schedule:', err);
+            setScheduleBqItems([]);
+        } finally {
+            setLoadingScheduleBqItems(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        if (activeTab === 5 && projectId) {
+            loadScheduleBqItems();
+        }
+    }, [activeTab, projectId, loadScheduleBqItems]);
+
+    const scheduleBqGroups = useMemo(() => {
+        const groups = new Map();
+        scheduleBqItems.forEach((item) => {
+            const key = String(item.milestoneName || 'BQ Activities').trim() || 'BQ Activities';
+            const list = groups.get(key) || [];
+            list.push(item);
+            groups.set(key, list);
+        });
+        return Array.from(groups.entries()).map(([milestoneName, items]) => {
+            const endDates = items
+                .map((item) => item.endDate ? String(item.endDate).slice(0, 10) : '')
+                .filter(Boolean)
+                .sort();
+            const startDates = items
+                .map((item) => item.startDate ? String(item.startDate).slice(0, 10) : '')
+                .filter(Boolean)
+                .sort();
+            const totalBudget = items.reduce((sum, item) => sum + (Number(item.budgetAmount) || 0), 0);
+            const avgProgress = items.length
+                ? items.reduce((sum, item) => sum + (Number(item.progressPercent) || 0), 0) / items.length
+                : 0;
+            const completedCount = items.filter((item) => (
+                item.completed === true ||
+                item.completed === 1 ||
+                item.completed === '1' ||
+                String(item.completed || '').toLowerCase() === 'true'
+            )).length;
+            return {
+                milestoneName,
+                items: items.slice().sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)),
+                startDate: startDates[0] || '',
+                endDate: endDates[endDates.length - 1] || '',
+                totalBudget,
+                avgProgress,
+                completedCount,
+            };
+        }).sort((a, b) => {
+            const aOrder = Number(a.items[0]?.sortOrder) || 0;
+            const bOrder = Number(b.items[0]?.sortOrder) || 0;
+            return aOrder - bOrder || a.milestoneName.localeCompare(b.milestoneName);
+        });
+    }, [scheduleBqItems]);
+
     const fetchProjectInspections = useCallback(async () => {
         if (!projectId) return;
         setLoadingInspections(true);
@@ -669,6 +784,25 @@ function ProjectDetailsPage() {
     }, [openInspectionDialog]);
 
     useEffect(() => {
+        if (!openInspectionDialog || !projectId) return;
+        let cancelled = false;
+        setLoadingInspectionBqItems(true);
+        (async () => {
+            try {
+                const rows = await projectService.bq.getItems(projectId);
+                if (!cancelled) setInspectionBqItems(Array.isArray(rows) ? rows : []);
+            } catch {
+                if (!cancelled) setInspectionBqItems([]);
+            } finally {
+                if (!cancelled) setLoadingInspectionBqItems(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [openInspectionDialog, projectId]);
+
+    useEffect(() => {
         const id = inspectionFormData.checklistTemplateId;
         if (!id) {
             setInspectionTemplateDetail(null);
@@ -688,11 +822,22 @@ function ProjectDetailsPage() {
         };
     }, [inspectionFormData.checklistTemplateId]);
 
-    const handleOpenInspectionDialog = (inspection = null) => {
+    const handleOpenInspectionDialog = (inspection = null, defaults = {}) => {
         if (inspection) {
             setEditingInspection(inspection);
+            const observationRows = Array.isArray(inspection.bqObservations) && inspection.bqObservations.length > 0
+                ? inspection.bqObservations.map((row) => makeInspectionBqObservation(row))
+                : inspection.bqItemId
+                    ? [makeInspectionBqObservation({
+                        bqItemId: inspection.bqItemId,
+                        outcome: inspection.inspectionOutcome,
+                        observation: inspection.findings || '',
+                        recommendation: inspection.recommendations || '',
+                    })]
+                    : [];
             setInspectionFormData({
                 inspectionDate: inspection.inspectionDate ? String(inspection.inspectionDate).slice(0, 10) : '',
+                bqObservations: observationRows,
                 findings: inspection.findings || '',
                 warnings: inspection.warnings || '',
                 recommendations: inspection.recommendations || '',
@@ -706,16 +851,44 @@ function ProjectDetailsPage() {
         } else {
             setEditingInspection(null);
             setInspectionFormData({
-                inspectionDate: new Date().toISOString().slice(0, 10),
-                findings: '',
+                inspectionDate: defaults.inspectionDate || new Date().toISOString().slice(0, 10),
+                bqObservations: Array.isArray(defaults.bqObservations)
+                    ? defaults.bqObservations.map((row) => makeInspectionBqObservation(row))
+                    : defaults.bqItemId
+                        ? [makeInspectionBqObservation(defaults)]
+                        : [],
+                findings: defaults.findings || '',
                 warnings: '',
-                recommendations: '',
+                recommendations: defaults.recommendations || '',
                 teamMemberRefs: [],
                 checklistTemplateId: '',
                 checklistAnswers: {},
             });
         }
         setOpenInspectionDialog(true);
+    };
+
+    const handleAddInspectionBqObservation = () => {
+        setInspectionFormData((prev) => ({
+            ...prev,
+            bqObservations: [...(prev.bqObservations || []), makeInspectionBqObservation()],
+        }));
+    };
+
+    const handleUpdateInspectionBqObservation = (index, field, value) => {
+        setInspectionFormData((prev) => ({
+            ...prev,
+            bqObservations: (prev.bqObservations || []).map((row, rowIndex) => (
+                rowIndex === index ? { ...row, [field]: value } : row
+            )),
+        }));
+    };
+
+    const handleRemoveInspectionBqObservation = (index) => {
+        setInspectionFormData((prev) => ({
+            ...prev,
+            bqObservations: (prev.bqObservations || []).filter((_, rowIndex) => rowIndex !== index),
+        }));
     };
 
     const handleSaveInspection = async () => {
@@ -725,8 +898,21 @@ function ProjectDetailsPage() {
         }
         try {
             setLoading(true);
+            const bqObservations = (inspectionFormData.bqObservations || [])
+                .filter((row) => row.bqItemId)
+                .map((row, index) => ({
+                    bqItemId: Number(row.bqItemId),
+                    outcome: row.outcome || null,
+                    observation: row.observation || '',
+                    recommendation: row.recommendation || '',
+                    sortOrder: index,
+                }));
+            const firstObservation = bqObservations[0] || null;
             const payload = {
                 inspectionDate: inspectionFormData.inspectionDate,
+                bqItemId: firstObservation?.bqItemId || null,
+                inspectionOutcome: firstObservation?.outcome || null,
+                bqObservations,
                 findings: inspectionFormData.findings,
                 warnings: inspectionFormData.warnings,
                 recommendations: inspectionFormData.recommendations,
@@ -879,6 +1065,29 @@ function ProjectDetailsPage() {
             writeSection('Findings', inspection?.findings);
             writeSection('Warnings', inspection?.warnings);
             writeSection('Recommendations', inspection?.recommendations);
+
+            const observationRows = Array.isArray(inspection?.bqObservations) ? inspection.bqObservations : [];
+            if (observationRows.length > 0) {
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('BQ observations', margin, y);
+                y += 10;
+                autoTable(doc, {
+                    startY: y,
+                    head: [['BQ / Activity', 'Outcome', 'Observation', 'Recommendation']],
+                    body: observationRows.map((row) => [
+                        row.bqActivityName || row.bqMilestoneName || `Item #${row.bqItemId}`,
+                        inspectionOutcomeLabels[row.outcome] || row.outcome || 'No outcome',
+                        row.observation || 'N/A',
+                        row.recommendation || 'N/A',
+                    ]),
+                    theme: 'striped',
+                    styles: { fontSize: 8, cellPadding: 4 },
+                    headStyles: { fillColor: [47, 84, 150] },
+                    margin: { left: margin, right: margin },
+                });
+                y = (doc.lastAutoTable?.finalY || y) + 20;
+            }
 
             let checklistRows = [];
             if (inspection?.checklistTemplateId && inspection?.checklistAnswers) {
@@ -2314,6 +2523,71 @@ function ProjectDetailsPage() {
         }
     };
 
+    const handleSyncScheduleFromBq = async () => {
+        if (!checkUserPrivilege(user, 'milestone.create')) {
+            setSnackbar({ open: true, message: 'You do not have permission to create schedule milestones.', severity: 'error' });
+            return;
+        }
+        if (!scheduleBqGroups.length) {
+            setSnackbar({ open: true, message: 'No BQ activities are available to sync into the schedule.', severity: 'info' });
+            return;
+        }
+
+        setSyncingScheduleFromBq(true);
+        try {
+            const existingNames = new Set(
+                (milestones || [])
+                    .map((milestone) => String(milestone.milestoneName || '').trim().toLowerCase())
+                    .filter(Boolean)
+            );
+            const nextSequence = (milestones || []).reduce(
+                (max, milestone) => Math.max(max, Number(milestone.sequenceOrder) || 0),
+                0
+            );
+            const projectEndDate = project?.endDate || project?.end_date || project?.expectedEndDate || '';
+            const today = new Date().toISOString().slice(0, 10);
+            const groupsToCreate = scheduleBqGroups.filter(
+                (group) => !existingNames.has(String(group.milestoneName || '').trim().toLowerCase())
+            );
+
+            if (!groupsToCreate.length) {
+                setSnackbar({ open: true, message: 'Schedule milestones already match the BQ milestone groups.', severity: 'info' });
+                return;
+            }
+
+            await Promise.all(groupsToCreate.map((group, index) => (
+                apiService.milestones.createMilestone({
+                    projectId,
+                    milestoneName: group.milestoneName,
+                    description: `Synced from BQ: ${group.items.length} activity item${group.items.length === 1 ? '' : 's'}, estimated budget ${formatCurrency(group.totalBudget)}.`,
+                    dueDate: group.endDate || projectEndDate || today,
+                    sequenceOrder: nextSequence + index + 1,
+                    progress: Number(group.avgProgress.toFixed(2)),
+                    weight: 1,
+                    status: group.completedCount === group.items.length ? 'completed' : group.avgProgress > 0 ? 'in_progress' : 'pending',
+                    milestoneSource: 'BQ',
+                    remarks: 'Created from Bill of Quantities activity grouping.',
+                })
+            )));
+
+            setSnackbar({
+                open: true,
+                message: `Created ${groupsToCreate.length} schedule milestone${groupsToCreate.length === 1 ? '' : 's'} from BQ activities.`,
+                severity: 'success',
+            });
+            await fetchProjectDetails();
+        } catch (err) {
+            console.error('Error syncing schedule from BQ:', err);
+            setSnackbar({
+                open: true,
+                message: err?.response?.data?.message || err?.message || 'Failed to sync schedule from BQ activities.',
+                severity: 'error',
+            });
+        } finally {
+            setSyncingScheduleFromBq(false);
+        }
+    };
+
     const handleCloseSnackbar = (event, reason) => {
         if (reason === 'clickaway') {
             return;
@@ -3401,8 +3675,8 @@ function ProjectDetailsPage() {
                                         Project Implementation Plan
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
-                                        This brings the project delivery chain into one place: assigned activities, risks,
-                                        schedule, milestones, BQ, monitoring evidence, evaluation, and reporting follow-up.
+                                        Use the BQ activity list as the delivery backbone, then align schedule milestones,
+                                        inspections, monitoring evidence, outputs, and follow-up actions to that same structure.
                                     </Typography>
                                 </Box>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -3428,9 +3702,9 @@ function ProjectDetailsPage() {
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                             {[
                                 {
-                                    title: 'Assigned Activities',
+                                    title: 'Planning Activities',
                                     value: loadingPlanningSnapshot ? '...' : planningSnapshot.activities.length,
-                                    helper: 'Project-specific activities selected from the activity catalogue.',
+                                    helper: 'Catalogue activities selected for this project before costing and scheduling.',
                                     action: 'Manage Activities',
                                     onClick: () => setImplementationModal('activities'),
                                     icon: <AccountTreeIcon />,
@@ -3446,7 +3720,7 @@ function ProjectDetailsPage() {
                                 {
                                     title: 'Milestones',
                                     value: milestones.length,
-                                    helper: 'Schedule targets and delivery checkpoints.',
+                                    helper: 'Delivery checkpoints synced or aligned with BQ activity groups.',
                                     action: 'Open Schedule',
                                     onClick: () => handleProjectDetailTabChange(null, 5),
                                     icon: <ScheduleIcon />,
@@ -3454,7 +3728,7 @@ function ProjectDetailsPage() {
                                 {
                                     title: 'BQ Items',
                                     value: loadingPlanningSnapshot ? '...' : planningSnapshot.bqItems.length,
-                                    helper: 'Bill of Quantities lines attached to this project.',
+                                    helper: 'Costed activity lines that anchor schedule, inspections, outputs, and payments.',
                                     action: 'Open BQ',
                                     onClick: () => handleProjectDetailTabChange(null, 6),
                                     icon: <AssessmentIcon />,
@@ -3512,9 +3786,9 @@ function ProjectDetailsPage() {
                                             1. Plan the Work
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                            Start by assigning project activities and risks from the planning catalogues.
-                                            These assignments should become the reference point for milestones, monitoring,
-                                            BQ attribution, and evaluation.
+                                            Start by assigning project activities and risks from the planning catalogues,
+                                            then use those choices to prepare BQ lines instead of creating disconnected
+                                            schedule or reporting records.
                                         </Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             <Button
@@ -3542,8 +3816,8 @@ function ProjectDetailsPage() {
                                             2. Schedule and Cost the Work
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                            Use milestones for delivery dates and the BQ for quantities, rates,
-                                            certified quantities, and contractor work attribution.
+                                            Use the BQ as the activity backbone, then sync or align milestones so dates,
+                                            quantities, certified work, and contractor attribution tell the same story.
                                         </Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 5)}>
@@ -3564,7 +3838,7 @@ function ProjectDetailsPage() {
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                             Capture monitoring evidence, inspection findings, photos, and documents
-                                            against the project delivery plan before evaluation and reporting.
+                                            against the BQ activity or milestone that the evidence verifies.
                                         </Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             <Button size="small" variant="outlined" onClick={handleOpenMonitoringModal}>
@@ -3572,6 +3846,9 @@ function ProjectDetailsPage() {
                                             </Button>
                                             <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 4)}>
                                                 Inspection
+                                            </Button>
+                                            <Button size="small" variant="outlined" onClick={() => handleProjectDetailTabChange(null, 5)}>
+                                                Outputs &amp; Actions
                                             </Button>
                                             {canViewProjectDocuments && (
                                                 <Button
@@ -3594,8 +3871,8 @@ function ProjectDetailsPage() {
                                             4. Evaluate and Report
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                            Evaluation should compare planned activities, indicators, milestones, BQ
-                                            delivery, monitoring evidence, achieved values, and recommended actions.
+                                            Evaluation should compare planned activities, BQ delivery, linked outputs,
+                                            milestone progress, monitoring evidence, achieved values, and follow-up actions.
                                         </Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             <Button
@@ -3615,9 +3892,8 @@ function ProjectDetailsPage() {
                         </Grid>
 
                         <Alert severity="info" sx={{ mt: 2 }}>
-                            Phase 3 data linking should make activities the common reference for milestones, BQ lines,
-                            monitoring records, risks, and evaluation rows. This tab provides the user-facing structure
-                            while preserving the existing screens during transition.
+                            Keep the BQ activity group, schedule milestone, project output, and evidence source aligned.
+                            The schedule tab now includes the action/follow-up register and output register for that linkage.
                         </Alert>
                     </Box>
                 )}
@@ -3954,15 +4230,104 @@ function ProjectDetailsPage() {
                                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                                     Schedule &amp; milestones
                                 </Typography>
-                                <Button
-                                    variant={scheduleGanttVisible ? 'outlined' : 'contained'}
-                                    color="primary"
-                                    startIcon={scheduleGanttVisible ? <ExpandLessIcon /> : <TimelineIcon />}
-                                    onClick={() => setScheduleGanttVisible((v) => !v)}
-                                    sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
-                                >
-                                    {scheduleGanttVisible ? 'Hide Gantt chart' : 'Show Gantt chart'}
-                                </Button>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexShrink: 0 }}>
+                                    {checkUserPrivilege(user, 'milestone.create') && (
+                                        <Button
+                                            variant="outlined"
+                                            color="secondary"
+                                            startIcon={syncingScheduleFromBq ? <CircularProgress size={16} color="inherit" /> : <AssessmentIcon />}
+                                            onClick={handleSyncScheduleFromBq}
+                                            disabled={syncingScheduleFromBq || loadingScheduleBqItems || scheduleBqGroups.length === 0}
+                                        >
+                                            {syncingScheduleFromBq ? 'Syncing...' : 'Sync from BQ'}
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant={scheduleGanttVisible ? 'outlined' : 'contained'}
+                                        color="primary"
+                                        startIcon={scheduleGanttVisible ? <ExpandLessIcon /> : <TimelineIcon />}
+                                        onClick={() => setScheduleGanttVisible((v) => !v)}
+                                    >
+                                        {scheduleGanttVisible ? 'Hide Gantt chart' : 'Show Gantt chart'}
+                                    </Button>
+                                </Stack>
+                            </Stack>
+                        </Paper>
+                        <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+                            <Stack spacing={1.5}>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1}>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                            BQ activity schedule backbone
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            Procurement BQ activities are shown here so the schedule, inspections, progress, and payments use the same activity list.
+                                        </Typography>
+                                    </Box>
+                                    <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={`${scheduleBqItems.length} BQ item${scheduleBqItems.length === 1 ? '' : 's'} in ${scheduleBqGroups.length} group${scheduleBqGroups.length === 1 ? '' : 's'}`}
+                                    />
+                                </Stack>
+                                {loadingScheduleBqItems ? (
+                                    <Box sx={{ py: 2, display: 'flex', justifyContent: 'center' }}>
+                                        <CircularProgress size={22} />
+                                    </Box>
+                                ) : scheduleBqGroups.length === 0 ? (
+                                    <Alert severity="info" variant="outlined">
+                                        No BQ activities are available yet. Prepare the BQ under Procurement or add BQ items before building the schedule.
+                                    </Alert>
+                                ) : (
+                                    <TableContainer component={Paper} variant="outlined">
+                                        <Table size="small">
+                                            <TableHead>
+                                                <TableRow>
+                                                    <TableCell>BQ Milestone / Group</TableCell>
+                                                    <TableCell align="right">Activities</TableCell>
+                                                    <TableCell>Date Range</TableCell>
+                                                    <TableCell align="right">Budget</TableCell>
+                                                    <TableCell align="right">Progress</TableCell>
+                                                    <TableCell align="right">Complete</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {scheduleBqGroups.map((group) => (
+                                                    <TableRow key={group.milestoneName}>
+                                                        <TableCell>
+                                                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                                                {group.milestoneName}
+                                                            </Typography>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                {group.items.slice(0, 3).map((item) => item.activityName || `Item #${item.itemId}`).join(', ')}
+                                                                {group.items.length > 3 ? ` +${group.items.length - 3} more` : ''}
+                                                            </Typography>
+                                                        </TableCell>
+                                                        <TableCell align="right">{group.items.length}</TableCell>
+                                                        <TableCell>
+                                                            {group.startDate || group.endDate
+                                                                ? `${group.startDate || 'TBD'} - ${group.endDate || 'TBD'}`
+                                                                : 'Dates not set'}
+                                                        </TableCell>
+                                                        <TableCell align="right">{formatCurrency(group.totalBudget)}</TableCell>
+                                                        <TableCell align="right">{group.avgProgress.toFixed(1)}%</TableCell>
+                                                        <TableCell align="right">
+                                                            <Chip
+                                                                size="small"
+                                                                color={group.completedCount === group.items.length ? 'success' : 'default'}
+                                                                variant={group.completedCount === group.items.length ? 'filled' : 'outlined'}
+                                                                label={`${group.completedCount}/${group.items.length}`}
+                                                            />
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </TableContainer>
+                                )}
+                                <Typography variant="caption" color="text.secondary">
+                                    Sync from BQ creates missing schedule milestones from these BQ groups. Existing milestones with the same name are left unchanged.
+                                </Typography>
                             </Stack>
                         </Paper>
                         {scheduleGanttVisible && (
@@ -3974,7 +4339,7 @@ function ProjectDetailsPage() {
                                 />
                             </Paper>
                         )}
-                        <ProjectTaskOutputPanel projectId={projectId} />
+                        <ProjectTaskOutputPanel projectId={projectId} bqGroups={scheduleBqGroups} milestones={milestones} />
                         {/* Timeline & Milestones Tab */}
                         {/* Work Plans and Milestones Section (Refactored) */}
             <Box sx={{ mt: 1 }}>
@@ -5239,6 +5604,7 @@ function ProjectDetailsPage() {
                                             const found = teamMemberOptions.find((m) => m.ref === ref);
                                             return found ? found.label : String(ref);
                                         });
+                                        const observations = Array.isArray(inspection.bqObservations) ? inspection.bqObservations : [];
                                         return (
                                             <Paper key={inspection.inspectionId} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
@@ -5249,11 +5615,58 @@ function ProjectDetailsPage() {
                                                         {inspection.checklistTemplateId ? (
                                                             <Chip size="small" label="Checklist" color="primary" variant="outlined" />
                                                         ) : null}
+                                                        {observations.length > 0 ? (
+                                                            <Chip
+                                                                size="small"
+                                                                label={`${observations.length} BQ observation${observations.length !== 1 ? 's' : ''}`}
+                                                                color="secondary"
+                                                                variant="outlined"
+                                                            />
+                                                        ) : null}
+                                                        {observations.some((row) => row.outcome === 'failed') ? (
+                                                            <Chip
+                                                                size="small"
+                                                                label="Has failed observations"
+                                                                color="warning"
+                                                                variant="outlined"
+                                                            />
+                                                        ) : null}
                                                     </Stack>
                                                     <Button size="small" variant="text" onClick={() => handleOpenInspectionDialog(inspection)} disabled={!canModifyOrCreateProjects}>
                                                         Edit
                                                     </Button>
                                                 </Stack>
+                                                {observations.length > 0 ? (
+                                                    <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
+                                                        <Table size="small">
+                                                            <TableHead>
+                                                                <TableRow>
+                                                                    <TableCell>BQ / Activity</TableCell>
+                                                                    <TableCell>Outcome</TableCell>
+                                                                    <TableCell>Observation</TableCell>
+                                                                    <TableCell>Recommendation</TableCell>
+                                                                </TableRow>
+                                                            </TableHead>
+                                                            <TableBody>
+                                                                {observations.map((row, index) => (
+                                                                    <TableRow key={row.observationId || `${row.bqItemId}-${index}`}>
+                                                                        <TableCell>{row.bqActivityName || row.bqMilestoneName || `Item #${row.bqItemId}`}</TableCell>
+                                                                        <TableCell>
+                                                                            <Chip
+                                                                                size="small"
+                                                                                label={inspectionOutcomeLabels[row.outcome] || row.outcome || 'No outcome'}
+                                                                                color={row.outcome === 'failed' ? 'warning' : row.outcome ? 'success' : 'default'}
+                                                                                variant={row.outcome === 'passed_with_issues' ? 'outlined' : 'filled'}
+                                                                            />
+                                                                        </TableCell>
+                                                                        <TableCell>{row.observation || '-'}</TableCell>
+                                                                        <TableCell>{row.recommendation || '-'}</TableCell>
+                                                                    </TableRow>
+                                                                ))}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </TableContainer>
+                                                ) : null}
                                                 <Typography variant="body2" sx={{ mt: 0.75 }}><strong>Findings:</strong> {inspection.findings || 'N/A'}</Typography>
                                                 <Typography variant="body2" sx={{ mt: 0.5 }}><strong>Warnings:</strong> {inspection.warnings || 'N/A'}</Typography>
                                                 <Typography variant="body2" sx={{ mt: 0.5 }}><strong>Recommendations:</strong> {inspection.recommendations || 'N/A'}</Typography>
@@ -5312,6 +5725,117 @@ function ProjectDetailsPage() {
                                         InputLabelProps={{ shrink: true }}
                                         required
                                     />
+                                    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} sx={{ mb: 1 }}>
+                                            <Box>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    BQ Observations
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Add every BQ/activity item observed during this inspection. Passed observations can mark their item complete.
+                                                </Typography>
+                                            </Box>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                startIcon={<AddIcon />}
+                                                onClick={handleAddInspectionBqObservation}
+                                                disabled={loadingInspectionBqItems}
+                                            >
+                                                Add BQ Observation
+                                            </Button>
+                                        </Stack>
+                                        {(inspectionFormData.bqObservations || []).length === 0 ? (
+                                            <Alert severity="info" variant="outlined">
+                                                No BQ observations added. Use this for a general inspection, or add BQ observations to inspect specific scope items.
+                                            </Alert>
+                                        ) : (
+                                            <Stack spacing={1.25}>
+                                                {(inspectionFormData.bqObservations || []).map((row, index) => (
+                                                    <Paper key={`obs-${index}`} variant="outlined" sx={{ p: 1.25, borderRadius: 1.25 }}>
+                                                        <Stack spacing={1.25}>
+                                                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                                                                <FormControl fullWidth size="small">
+                                                                    <InputLabel id={`insp-bq-item-lbl-${index}`}>BQ / Activity item</InputLabel>
+                                                                    <Select
+                                                                        labelId={`insp-bq-item-lbl-${index}`}
+                                                                        label="BQ / Activity item"
+                                                                        value={row.bqItemId === '' ? '' : String(row.bqItemId)}
+                                                                        onChange={(e) => {
+                                                                            const v = e.target.value;
+                                                                            handleUpdateInspectionBqObservation(index, 'bqItemId', v === '' ? '' : Number(v));
+                                                                        }}
+                                                                        disabled={loadingInspectionBqItems}
+                                                                    >
+                                                                        <MenuItem value="">
+                                                                            <em>Select BQ item</em>
+                                                                        </MenuItem>
+                                                                        {inspectionBqItems.map((item) => (
+                                                                            <MenuItem key={item.itemId} value={String(item.itemId)}>
+                                                                                {(item.activityName || item.milestoneName || `Item #${item.itemId}`)}
+                                                                                {item.progressPercent != null ? ` (${Number(item.progressPercent || 0).toFixed(0)}%)` : ''}
+                                                                            </MenuItem>
+                                                                        ))}
+                                                                    </Select>
+                                                                </FormControl>
+                                                                <FormControl fullWidth size="small">
+                                                                    <InputLabel id={`insp-outcome-lbl-${index}`}>Outcome for this item</InputLabel>
+                                                                    <Select
+                                                                        labelId={`insp-outcome-lbl-${index}`}
+                                                                        label="Outcome for this item"
+                                                                        value={row.outcome || ''}
+                                                                        onChange={(e) => handleUpdateInspectionBqObservation(index, 'outcome', e.target.value)}
+                                                                    >
+                                                                        <MenuItem value="">
+                                                                            <em>No outcome yet</em>
+                                                                        </MenuItem>
+                                                                        <MenuItem value="passed">Passed - mark item complete</MenuItem>
+                                                                        <MenuItem value="passed_with_issues">Passed with issues - mark complete and retain observations</MenuItem>
+                                                                        <MenuItem value="failed">Failed / needs correction - keep item open</MenuItem>
+                                                                    </Select>
+                                                                </FormControl>
+                                                                <Button
+                                                                    color="error"
+                                                                    variant="text"
+                                                                    onClick={() => handleRemoveInspectionBqObservation(index)}
+                                                                    sx={{ alignSelf: { xs: 'stretch', md: 'center' }, flexShrink: 0 }}
+                                                                >
+                                                                    Remove
+                                                                </Button>
+                                                            </Stack>
+                                                            {row.bqItemId && ['passed', 'passed_with_issues'].includes(row.outcome) ? (
+                                                                <Alert severity="success" variant="outlined" sx={{ py: 0.5 }}>
+                                                                    Saving this observation will set {bqItemLabelById.get(String(row.bqItemId)) || 'the linked item'} to 100% complete.
+                                                                </Alert>
+                                                            ) : row.bqItemId && row.outcome === 'failed' ? (
+                                                                <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+                                                                    This item will remain open for correction.
+                                                                </Alert>
+                                                            ) : null}
+                                                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                                                                <TextField
+                                                                    label="Observation for this item"
+                                                                    value={row.observation || ''}
+                                                                    onChange={(e) => handleUpdateInspectionBqObservation(index, 'observation', e.target.value)}
+                                                                    multiline
+                                                                    minRows={2}
+                                                                    fullWidth
+                                                                />
+                                                                <TextField
+                                                                    label="Recommendation / action required"
+                                                                    value={row.recommendation || ''}
+                                                                    onChange={(e) => handleUpdateInspectionBqObservation(index, 'recommendation', e.target.value)}
+                                                                    multiline
+                                                                    minRows={2}
+                                                                    fullWidth
+                                                                />
+                                                            </Stack>
+                                                        </Stack>
+                                                    </Paper>
+                                                ))}
+                                            </Stack>
+                                        )}
+                                    </Paper>
                                     <FormControl fullWidth size="small">
                                         <InputLabel id="insp-checklist-template-lbl">Checklist template (optional)</InputLabel>
                                         <Select
@@ -5380,6 +5904,53 @@ function ProjectDetailsPage() {
                                         multiline
                                         rows={2}
                                     />
+                                    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                                        <Stack spacing={1}>
+                                            <Box>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    Inspection team
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Use project team definitions to quickly populate inspection members, then adjust the selection if needed.
+                                                </Typography>
+                                            </Box>
+                                            {inspectionTeamGroups.length > 0 ? (
+                                                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                                    {inspectionTeamGroups.map((group) => (
+                                                        <Button
+                                                            key={group.teamName}
+                                                            size="small"
+                                                            variant={/inspection/i.test(group.teamName) ? 'contained' : 'outlined'}
+                                                            startIcon={<GroupIcon />}
+                                                            onClick={() => applyInspectionTeamSelection(group.options.map((option) => option.ref))}
+                                                        >
+                                                            Use {group.teamName} ({group.options.length})
+                                                        </Button>
+                                                    ))}
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() => applyInspectionTeamSelection(teamMemberOptions.map((option) => option.ref))}
+                                                    >
+                                                        Select all ({teamMemberOptions.length})
+                                                    </Button>
+                                                    {(inspectionFormData.teamMemberRefs || []).length > 0 ? (
+                                                        <Button
+                                                            size="small"
+                                                            color="inherit"
+                                                            onClick={() => applyInspectionTeamSelection([])}
+                                                        >
+                                                            Clear
+                                                        </Button>
+                                                    ) : null}
+                                                </Stack>
+                                            ) : (
+                                                <Alert severity="info" variant="outlined">
+                                                    No project team members have been defined yet. Add them under Project Teams to reuse them during inspections.
+                                                </Alert>
+                                            )}
+                                        </Stack>
+                                    </Paper>
                                     <Autocomplete
                                         multiple
                                         options={teamMemberOptions}
@@ -5391,7 +5962,7 @@ function ProjectDetailsPage() {
                                                 teamMemberRefs: values.map((v) => v.ref),
                                             }));
                                         }}
-                                        renderInput={(params) => <TextField {...params} label="Inspection Team Members" placeholder="Select team members" />}
+                                        renderInput={(params) => <TextField {...params} label="Inspection Team Members" placeholder="Search or adjust selected members" />}
                                     />
                                 </Stack>
                             </DialogContent>

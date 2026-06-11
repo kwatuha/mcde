@@ -349,7 +349,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 (p.notes->>'subprogram_id')::integer AS "subProgramId",
                 NULL AS "subProgramName",
                 p.category_id AS "categoryId",
-                p.sector AS "categoryName",
+                proj_cat."categoryName" AS "categoryName",
                 p.sector AS "sector",
                 (p.data_sources->>'created_by_user_id')::integer AS "userId",
                 NULL AS "creatorFirstName",
@@ -398,6 +398,9 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                     LOWER(TRIM(COALESCE(ds.name, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
                     OR LOWER(TRIM(COALESCE(ds.alias, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
                  )
+            LEFT JOIN categories proj_cat
+              ON proj_cat."categoryId" = p.category_id
+             AND COALESCE(proj_cat.voided, false) = false
             WHERE p.project_id = $1 AND p.voided = false
         `;
     } else {
@@ -411,9 +414,11 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
 
 // --- Validation Middleware ---
 const validateProject = (req, res, next) => {
-    const { projectName, name, tenderContractNo, sector } = req.body;
+    const { projectName, name, tenderContractNo, sector, startDate, endDate } = req.body;
     // Accept either projectName (frontend) or name (API)
     const projectNameValue = projectName || name;
+    const hasStartDate = startDate !== undefined && startDate !== null && String(startDate).trim() !== '';
+    const hasEndDate = endDate !== undefined && endDate !== null && String(endDate).trim() !== '';
     // Only enforce required project name on CREATE.
     // Updates may legitimately patch only a subset of fields (e.g. progressSummary / overallProgress).
     if (req.method === 'POST') {
@@ -426,6 +431,9 @@ const validateProject = (req, res, next) => {
         if (!sector || !String(sector).trim()) {
             return res.status(400).json({ message: 'Missing required field: sector' });
         }
+        if (hasEndDate && !hasStartDate) {
+            return res.status(400).json({ message: 'Start Date is required when End Date is provided.' });
+        }
         // Normalize to projectName for consistency
         if (name && !projectName) {
             req.body.projectName = name;
@@ -434,6 +442,16 @@ const validateProject = (req, res, next) => {
         // Normalize if provided, but don't require
         if (name && !projectName) {
             req.body.projectName = name;
+        }
+    }
+    if (hasStartDate && hasEndDate) {
+        const parsedStartDate = new Date(startDate);
+        const parsedEndDate = new Date(endDate);
+        if (Number.isNaN(parsedStartDate.getTime()) || Number.isNaN(parsedEndDate.getTime())) {
+            return res.status(400).json({ message: 'Start Date and End Date must be valid dates.' });
+        }
+        if (parsedStartDate >= parsedEndDate) {
+            return res.status(400).json({ message: 'Start Date must be before End Date.' });
         }
     }
     next();
@@ -4567,7 +4585,7 @@ router.get('/', async (req, res) => {
                 (p.notes->>'subprogram_id')::integer AS "subProgramId",
                 NULL AS subProgramName,
                 p.category_id AS "categoryId",
-                p.sector AS categoryName,
+                proj_cat."categoryName" AS "categoryName",
                 p.sector AS "sector",
                 (p.data_sources->>'created_by_user_id')::integer AS "userId",
                 NULL AS creatorFirstName,
@@ -4684,6 +4702,9 @@ router.get('/', async (req, res) => {
                     LOWER(TRIM(COALESCE(ds.name, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
                     OR LOWER(TRIM(COALESCE(ds.alias, ''))) = LOWER(TRIM(COALESCE(p.implementing_agency, '')))
                  )
+            LEFT JOIN categories proj_cat
+              ON proj_cat."categoryId" = p.category_id
+             AND COALESCE(proj_cat.voided, false) = false
             LEFT JOIN (
                 SELECT project_id, COUNT(*) AS site_count
                 FROM project_sites
@@ -4845,10 +4866,9 @@ router.get('/', async (req, res) => {
             }
         }
         if (categoryId) { 
-            // Category is now sector text field
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push('p.sector ILIKE ?');
-                queryParams.push(`%${categoryId}%`);
+                whereConditions.push('p.category_id = ?');
+                queryParams.push(parseInt(categoryId));
             } else {
                 whereConditions.push('p.categoryId = ?'); 
                 queryParams.push(parseInt(categoryId)); 

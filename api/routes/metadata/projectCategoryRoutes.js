@@ -4,6 +4,106 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db'); // Correct path for the new folder structure
 
+async function runSafeDdl(sql) {
+    try {
+        await pool.query(sql);
+    } catch (err) {
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '').toLowerCase();
+        if (
+            code === '42P07' ||
+            code === '42710' ||
+            code === '23505' ||
+            code === 'ER_DUP_FIELDNAME' ||
+            msg.includes('duplicate column') ||
+            msg.includes('already exists')
+        ) {
+            return;
+        }
+        throw err;
+    }
+}
+
+async function ensureCategoryBqTemplateTable(DB_TYPE = process.env.DB_TYPE || 'mysql') {
+    if (DB_TYPE === 'postgresql') {
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS category_bq_templates (
+                id BIGSERIAL PRIMARY KEY,
+                category_id BIGINT NOT NULL,
+                milestone_id BIGINT NULL,
+                activity_name TEXT NOT NULL,
+                description TEXT NULL,
+                unit_of_measure TEXT NULL,
+                quantity NUMERIC(18,4) NULL,
+                unit_cost NUMERIC(18,2) NULL,
+                budget_amount NUMERIC(18,2) NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                voided BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        `);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_category_bq_templates_category ON category_bq_templates (category_id, voided, sort_order)`);
+        return;
+    }
+
+    await runSafeDdl(`
+        CREATE TABLE IF NOT EXISTS category_bq_templates (
+            id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            category_id BIGINT NOT NULL,
+            milestone_id BIGINT NULL,
+            activity_name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            unit_of_measure VARCHAR(100) NULL,
+            quantity DECIMAL(18,4) NULL,
+            unit_cost DECIMAL(18,2) NULL,
+            budget_amount DECIMAL(18,2) NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            voided TINYINT(1) NOT NULL DEFAULT 0,
+            INDEX idx_category_bq_templates_category (category_id, voided, sort_order)
+        )
+    `);
+}
+
+function toNullableNumber(value) {
+    if (value === '' || value === null || value === undefined) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+function parseBqTemplatePayload(body = {}) {
+    const activityName = String(body.activityName || body.activity_name || '').trim();
+    const description = String(body.description || '').trim();
+    const unitOfMeasure = String(body.unitOfMeasure || body.unit_of_measure || '').trim();
+    const milestoneId = toNullableNumber(body.milestoneId ?? body.milestone_id);
+    const quantity = toNullableNumber(body.quantity);
+    const unitCost = toNullableNumber(body.unitCost ?? body.unit_cost);
+    const budgetRaw = toNullableNumber(body.budgetAmount ?? body.budget_amount);
+    const budgetAmount = budgetRaw !== null
+        ? budgetRaw
+        : (quantity !== null && unitCost !== null ? quantity * unitCost : null);
+    const sortOrderRaw = toNullableNumber(body.sortOrder ?? body.sort_order);
+
+    if (!activityName) {
+        return { error: 'Activity name is required.' };
+    }
+
+    return {
+        value: {
+            activityName,
+            description: description || null,
+            unitOfMeasure: unitOfMeasure || null,
+            milestoneId,
+            quantity,
+            unitCost,
+            budgetAmount,
+            sortOrder: sortOrderRaw !== null ? sortOrderRaw : 0,
+        }
+    };
+}
+
 // --- Project Categories CRUD ---
 
 /**
@@ -312,22 +412,217 @@ router.put('/:categoryId/milestones/:milestoneId', async (req, res) => {
  * @access Private (requires authentication and privilege)
  */
 router.delete('/:categoryId/milestones/:milestoneId', async (req, res) => {
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
     const { milestoneId } = req.params;
     // TODO: Get userId from authenticated user (e.g., req.user.userId)
     const userId = 1; // Placeholder for now
 
     try {
-        const [result] = await pool.query(
-            'UPDATE category_milestones SET voided = 1, voidedBy = ? WHERE milestoneId = ? AND voided = 0',
-            [userId, milestoneId]
-        );
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Milestone template not found or already deleted' });
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                'UPDATE category_milestones SET voided = true, "voidedBy" = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE "milestoneId" = $2 AND voided = false',
+                [String(userId), milestoneId]
+            );
+            if (result.rowCount === 0) {
+                return res.status(404).json({ message: 'Milestone template not found or already deleted' });
+            }
+        } else {
+            const [result] = await pool.query(
+                'UPDATE category_milestones SET voided = 1, voidedBy = ? WHERE milestoneId = ? AND voided = 0',
+                [userId, milestoneId]
+            );
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ message: 'Milestone template not found or already deleted' });
+            }
         }
         res.status(200).json({ message: 'Milestone template soft-deleted successfully' });
     } catch (error) {
         console.error('Error deleting milestone template:', error);
         res.status(500).json({ message: 'Error deleting milestone template', error: error.message });
+    }
+});
+
+// --- Category BQ Template CRUD ---
+
+router.get('/:categoryId/bq-templates', async (req, res) => {
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    const { categoryId } = req.params;
+    try {
+        await ensureCategoryBqTemplateTable(DB_TYPE);
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `SELECT
+                    b.id AS "templateId",
+                    b.category_id AS "categoryId",
+                    b.milestone_id AS "milestoneId",
+                    cm."milestoneName" AS "milestoneName",
+                    b.activity_name AS "activityName",
+                    b.description,
+                    b.unit_of_measure AS "unitOfMeasure",
+                    b.quantity,
+                    b.unit_cost AS "unitCost",
+                    b.budget_amount AS "budgetAmount",
+                    b.sort_order AS "sortOrder",
+                    b.created_at AS "createdAt",
+                    b.updated_at AS "updatedAt"
+                 FROM category_bq_templates b
+                 LEFT JOIN category_milestones cm
+                   ON cm."milestoneId" = b.milestone_id
+                  AND COALESCE(cm.voided, false) = false
+                 WHERE b.category_id = $1 AND COALESCE(b.voided, false) = false
+                 ORDER BY b.sort_order ASC, b.id ASC`,
+                [categoryId]
+            );
+            return res.status(200).json(result.rows || []);
+        }
+
+        const [rows] = await pool.query(
+            `SELECT
+                b.id AS templateId,
+                b.category_id AS categoryId,
+                b.milestone_id AS milestoneId,
+                cm.milestoneName AS milestoneName,
+                b.activity_name AS activityName,
+                b.description,
+                b.unit_of_measure AS unitOfMeasure,
+                b.quantity,
+                b.unit_cost AS unitCost,
+                b.budget_amount AS budgetAmount,
+                b.sort_order AS sortOrder,
+                b.created_at AS createdAt,
+                b.updated_at AS updatedAt
+             FROM category_bq_templates b
+             LEFT JOIN category_milestones cm
+               ON cm.milestoneId = b.milestone_id
+              AND COALESCE(cm.voided, 0) = 0
+             WHERE b.category_id = ? AND COALESCE(b.voided, 0) = 0
+             ORDER BY b.sort_order ASC, b.id ASC`,
+            [categoryId]
+        );
+        return res.status(200).json(rows || []);
+    } catch (error) {
+        console.error(`Error fetching BQ templates for category ${categoryId}:`, error);
+        return res.status(500).json({ message: 'Error fetching category BQ templates', error: error.message });
+    }
+});
+
+router.post('/:categoryId/bq-templates', async (req, res) => {
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    const { categoryId } = req.params;
+    const parsed = parseBqTemplatePayload(req.body);
+    if (parsed.error) {
+        return res.status(400).json({ message: parsed.error });
+    }
+    const p = parsed.value;
+
+    try {
+        await ensureCategoryBqTemplateTable(DB_TYPE);
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `INSERT INTO category_bq_templates (
+                    category_id, milestone_id, activity_name, description, unit_of_measure,
+                    quantity, unit_cost, budget_amount, sort_order, created_at, updated_at, voided
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,false)
+                RETURNING id AS "templateId"`,
+                [categoryId, p.milestoneId, p.activityName, p.description, p.unitOfMeasure, p.quantity, p.unitCost, p.budgetAmount, p.sortOrder]
+            );
+            return res.status(201).json({ message: 'BQ template created successfully', templateId: result.rows?.[0]?.templateId });
+        }
+
+        const [result] = await pool.query(
+            `INSERT INTO category_bq_templates (
+                category_id, milestone_id, activity_name, description, unit_of_measure,
+                quantity, unit_cost, budget_amount, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [categoryId, p.milestoneId, p.activityName, p.description, p.unitOfMeasure, p.quantity, p.unitCost, p.budgetAmount, p.sortOrder]
+        );
+        return res.status(201).json({ message: 'BQ template created successfully', templateId: result.insertId });
+    } catch (error) {
+        console.error('Error creating BQ template:', error);
+        return res.status(500).json({ message: 'Error creating BQ template', error: error.message });
+    }
+});
+
+router.put('/:categoryId/bq-templates/:templateId', async (req, res) => {
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    const { categoryId, templateId } = req.params;
+    const parsed = parseBqTemplatePayload(req.body);
+    if (parsed.error) {
+        return res.status(400).json({ message: parsed.error });
+    }
+    const p = parsed.value;
+
+    try {
+        await ensureCategoryBqTemplateTable(DB_TYPE);
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `UPDATE category_bq_templates
+                 SET milestone_id = $1,
+                     activity_name = $2,
+                     description = $3,
+                     unit_of_measure = $4,
+                     quantity = $5,
+                     unit_cost = $6,
+                     budget_amount = $7,
+                     sort_order = $8,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $9 AND category_id = $10 AND COALESCE(voided, false) = false`,
+                [p.milestoneId, p.activityName, p.description, p.unitOfMeasure, p.quantity, p.unitCost, p.budgetAmount, p.sortOrder, templateId, categoryId]
+            );
+            if (result.rowCount === 0) {
+                return res.status(404).json({ message: 'BQ template not found or already deleted' });
+            }
+            return res.status(200).json({ message: 'BQ template updated successfully' });
+        }
+
+        const [result] = await pool.query(
+            `UPDATE category_bq_templates
+             SET milestone_id = ?, activity_name = ?, description = ?, unit_of_measure = ?,
+                 quantity = ?, unit_cost = ?, budget_amount = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND category_id = ? AND COALESCE(voided, 0) = 0`,
+            [p.milestoneId, p.activityName, p.description, p.unitOfMeasure, p.quantity, p.unitCost, p.budgetAmount, p.sortOrder, templateId, categoryId]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'BQ template not found or already deleted' });
+        }
+        return res.status(200).json({ message: 'BQ template updated successfully' });
+    } catch (error) {
+        console.error('Error updating BQ template:', error);
+        return res.status(500).json({ message: 'Error updating BQ template', error: error.message });
+    }
+});
+
+router.delete('/:categoryId/bq-templates/:templateId', async (req, res) => {
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    const { categoryId, templateId } = req.params;
+    try {
+        await ensureCategoryBqTemplateTable(DB_TYPE);
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(
+                `UPDATE category_bq_templates
+                 SET voided = true, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1 AND category_id = $2 AND COALESCE(voided, false) = false`,
+                [templateId, categoryId]
+            );
+            if (result.rowCount === 0) {
+                return res.status(404).json({ message: 'BQ template not found or already deleted' });
+            }
+            return res.status(200).json({ message: 'BQ template deleted successfully' });
+        }
+
+        const [result] = await pool.query(
+            `UPDATE category_bq_templates
+             SET voided = 1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND category_id = ? AND COALESCE(voided, 0) = 0`,
+            [templateId, categoryId]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'BQ template not found or already deleted' });
+        }
+        return res.status(200).json({ message: 'BQ template deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting BQ template:', error);
+        return res.status(500).json({ message: 'Error deleting BQ template', error: error.message });
     }
 });
 

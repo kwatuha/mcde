@@ -410,6 +410,25 @@ const rowsOf = (result) => {
   if (result && Array.isArray(result.rows)) return result.rows;
   return [];
 };
+const runProcurementSafeDdl = async (sql) => {
+  try {
+    await pool.query(sql);
+  } catch (err) {
+    const code = String(err?.code || '');
+    const msg = String(err?.message || '').toLowerCase();
+    if (
+      code === '42P07' ||
+      code === '42710' ||
+      code === '23505' ||
+      code === 'ER_DUP_FIELDNAME' ||
+      msg.includes('duplicate column') ||
+      msg.includes('already exists')
+    ) {
+      return;
+    }
+    throw err;
+  }
+};
 const isSchemaError = (error) => {
   const msg = String(error?.message || '').toLowerCase();
   return (
@@ -2036,6 +2055,568 @@ async function finalizeProcurementContractClosure(projectId, stage, decision) {
   };
 }
 
+async function ensureProcurementScopeTables() {
+  if (isPostgres) {
+    await runProcurementSafeDdl(`
+      CREATE TABLE IF NOT EXISTS category_bq_templates (
+        id BIGSERIAL PRIMARY KEY,
+        category_id BIGINT NOT NULL,
+        milestone_id BIGINT NULL,
+        activity_name TEXT NOT NULL,
+        description TEXT NULL,
+        unit_of_measure TEXT NULL,
+        quantity NUMERIC(18,4) NULL,
+        unit_cost NUMERIC(18,2) NULL,
+        budget_amount NUMERIC(18,2) NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        voided BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await runProcurementSafeDdl(`CREATE INDEX IF NOT EXISTS idx_category_bq_templates_category ON category_bq_templates (category_id, voided, sort_order)`);
+    await runProcurementSafeDdl(`
+      CREATE TABLE IF NOT EXISTS project_milestones (
+        milestone_id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        milestone_name TEXT NOT NULL,
+        description TEXT NULL,
+        due_date DATE NULL,
+        completed BOOLEAN NOT NULL DEFAULT FALSE,
+        completed_date DATE NULL,
+        sequence_order INTEGER NULL,
+        progress NUMERIC(5,2) NOT NULL DEFAULT 0,
+        weight NUMERIC(10,2) NOT NULL DEFAULT 1,
+        status TEXT NULL DEFAULT 'pending',
+        user_id BIGINT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        voided BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS activity_code TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS activity_name TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS indicator_name TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS milestone_value NUMERIC NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS milestone_period TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS milestone_source TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS remarks TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS category_milestone_id BIGINT NULL`);
+    await runProcurementSafeDdl(`CREATE INDEX IF NOT EXISTS idx_project_milestones_category_template ON project_milestones (project_id, category_milestone_id)`);
+    await runProcurementSafeDdl(`
+      CREATE TABLE IF NOT EXISTS project_bq_items (
+        id BIGSERIAL PRIMARY KEY,
+        project_id BIGINT NOT NULL,
+        activity_name TEXT NOT NULL,
+        milestone_name TEXT NULL,
+        start_date DATE NULL,
+        end_date DATE NULL,
+        budget_amount NUMERIC(18,2) NULL,
+        progress_percent NUMERIC(5,2) NULL DEFAULT 0,
+        remarks TEXT NULL,
+        completed BOOLEAN NOT NULL DEFAULT FALSE,
+        completion_date DATE NULL,
+        sort_order INTEGER NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        voided BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS category_bq_template_id BIGINT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(18,4) NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS unit_of_measure TEXT NULL`);
+    await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(18,2) NULL`);
+    await runProcurementSafeDdl(`CREATE INDEX IF NOT EXISTS idx_project_bq_items_category_template ON project_bq_items (project_id, category_bq_template_id)`);
+    return;
+  }
+
+  await runProcurementSafeDdl(`
+    CREATE TABLE IF NOT EXISTS category_bq_templates (
+      id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      category_id BIGINT NOT NULL,
+      milestone_id BIGINT NULL,
+      activity_name VARCHAR(255) NOT NULL,
+      description TEXT NULL,
+      unit_of_measure VARCHAR(100) NULL,
+      quantity DECIMAL(18,4) NULL,
+      unit_cost DECIMAL(18,2) NULL,
+      budget_amount DECIMAL(18,2) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      voided TINYINT(1) NOT NULL DEFAULT 0,
+      INDEX idx_category_bq_templates_category (category_id, voided, sort_order)
+    )
+  `);
+  await runProcurementSafeDdl(`ALTER TABLE project_milestones ADD COLUMN category_milestone_id BIGINT NULL`);
+  await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN category_bq_template_id BIGINT NULL`);
+  await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN quantity DECIMAL(18,4) NULL`);
+  await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN unit_of_measure VARCHAR(100) NULL`);
+  await runProcurementSafeDdl(`ALTER TABLE project_bq_items ADD COLUMN unit_cost DECIMAL(18,2) NULL`);
+}
+
+async function getProjectForProcurementScope(projectId) {
+  if (isPostgres) {
+    const queries = [
+      {
+        sql: `SELECT
+                p.project_id AS "projectId",
+                p.name AS "projectName",
+                p.category_id AS "categoryId",
+                c."categoryName" AS "categoryName"
+              FROM projects p
+              LEFT JOIN categories c ON c."categoryId" = p.category_id AND COALESCE(c.voided, false) = false
+              WHERE p.project_id = $1 AND COALESCE(p.voided, false) = false
+              LIMIT 1`,
+        params: [projectId],
+      },
+      {
+        sql: `SELECT
+                p.id AS "projectId",
+                p."projectName" AS "projectName",
+                p."categoryId" AS "categoryId",
+                c."categoryName" AS "categoryName"
+              FROM projects p
+              LEFT JOIN categories c ON c."categoryId" = p."categoryId" AND COALESCE(c.voided, false) = false
+              WHERE p.id = $1 AND COALESCE(p.voided, false) = false
+              LIMIT 1`,
+        params: [projectId],
+      },
+    ];
+    for (const q of queries) {
+      try {
+        const row = rowsOf(await pool.query(q.sql, q.params))[0];
+        if (row) return row;
+      } catch (e) {
+        if (!isSchemaError(e)) throw e;
+      }
+    }
+    return null;
+  }
+  const row = rowsOf(await pool.query(
+    `SELECT
+        p.id AS projectId,
+        p.projectName,
+        p.categoryId,
+        c.categoryName
+     FROM projects p
+     LEFT JOIN project_milestone_implementations c ON c.categoryId = p.categoryId AND COALESCE(c.voided, 0) = 0
+     WHERE p.id = ? AND COALESCE(p.voided, 0) = 0
+     LIMIT 1`,
+    [projectId]
+  ))[0];
+  return row || null;
+}
+
+async function applyProjectTypeScopeToProject(projectId, actorId = null, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  await ensureProcurementScopeTables();
+  const project = await getProjectForProcurementScope(projectId);
+  if (!project) {
+    return { ok: false, status: 404, message: 'Project not found.' };
+  }
+  const categoryId = Number(project.categoryId);
+  if (!Number.isFinite(categoryId)) {
+    return { ok: false, status: 400, message: 'Select a project type/category on the project before preparing procurement scope.' };
+  }
+
+  const milestoneRows = rowsOf(await pool.query(
+    isPostgres
+      ? `SELECT
+            "milestoneId" AS "milestoneId",
+            "milestoneName" AS "milestoneName",
+            description,
+            "sequenceOrder" AS "sequenceOrder",
+            "unit_of_measure" AS "unitOfMeasure",
+            "achievement_value" AS "achievementValue"
+         FROM category_milestones
+         WHERE "categoryId" = $1 AND COALESCE(voided, false) = false
+         ORDER BY "sequenceOrder" ASC, "milestoneId" ASC`
+      : `SELECT
+            milestoneId,
+            milestoneName,
+            description,
+            sequenceOrder,
+            unit_of_measure AS unitOfMeasure,
+            achievement_value AS achievementValue
+         FROM category_milestones
+         WHERE categoryId = ? AND COALESCE(voided, 0) = 0
+         ORDER BY sequenceOrder ASC, milestoneId ASC`,
+    [categoryId]
+  ));
+
+  const bqRows = rowsOf(await pool.query(
+    isPostgres
+      ? `SELECT
+            b.id AS "templateId",
+            b.milestone_id AS "milestoneId",
+            cm."milestoneName" AS "milestoneName",
+            b.activity_name AS "activityName",
+            b.description,
+            b.unit_of_measure AS "unitOfMeasure",
+            b.quantity,
+            b.unit_cost AS "unitCost",
+            b.budget_amount AS "budgetAmount",
+            b.sort_order AS "sortOrder"
+         FROM category_bq_templates b
+         LEFT JOIN category_milestones cm
+           ON cm."milestoneId" = b.milestone_id
+          AND COALESCE(cm.voided, false) = false
+         WHERE b.category_id = $1 AND COALESCE(b.voided, false) = false
+         ORDER BY b.sort_order ASC, b.id ASC`
+      : `SELECT
+            b.id AS templateId,
+            b.milestone_id AS milestoneId,
+            cm.milestoneName AS milestoneName,
+            b.activity_name AS activityName,
+            b.description,
+            b.unit_of_measure AS unitOfMeasure,
+            b.quantity,
+            b.unit_cost AS unitCost,
+            b.budget_amount AS budgetAmount,
+            b.sort_order AS sortOrder
+         FROM category_bq_templates b
+         LEFT JOIN category_milestones cm
+           ON cm.milestoneId = b.milestone_id
+          AND COALESCE(cm.voided, 0) = 0
+         WHERE b.category_id = ? AND COALESCE(b.voided, 0) = 0
+         ORDER BY b.sort_order ASC, b.id ASC`,
+    [categoryId]
+  ));
+
+  let milestonesCreated = 0;
+  let bqItemsCreated = 0;
+  const preparedMilestones = [];
+  const preparedBqItems = [];
+
+  if (isPostgres) {
+    for (const m of milestoneRows) {
+      const exists = rowsOf(await pool.query(
+        `SELECT milestone_id
+         FROM project_milestones
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND (
+             (category_milestone_id IS NOT NULL AND category_milestone_id = $2)
+             OR LOWER(TRIM(milestone_name)) = LOWER(TRIM($3))
+           )
+         LIMIT 1`,
+        [projectId, m.milestoneId, m.milestoneName]
+      ))[0];
+      if (exists) {
+        preparedMilestones.push({
+          templateId: m.milestoneId,
+          name: m.milestoneName,
+          description: m.description || '',
+          sequenceOrder: m.sequenceOrder,
+          unitOfMeasure: m.unitOfMeasure || '',
+          achievementValue: m.achievementValue,
+          status: 'existing',
+        });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_milestones (
+              project_id, milestone_name, description, due_date, completed, completed_date,
+              sequence_order, progress, weight, status, user_id, created_at, updated_at, voided,
+              activity_name, milestone_value, milestone_source, remarks, category_milestone_id
+           ) VALUES ($1,$2,$3,NULL,false,NULL,$4,0,1,'pending',$5,NOW(),NOW(),false,$6,$7,$8,$9,$10)`,
+          [
+            projectId,
+            m.milestoneName,
+            m.description || null,
+            Number.isFinite(Number(m.sequenceOrder)) ? Number(m.sequenceOrder) : null,
+            actorId,
+            m.milestoneName,
+            m.achievementValue == null ? null : Number(m.achievementValue),
+            'Project type template',
+            m.description || null,
+            m.milestoneId,
+          ]
+        );
+      }
+      milestonesCreated += 1;
+      preparedMilestones.push({
+        templateId: m.milestoneId,
+        name: m.milestoneName,
+        description: m.description || '',
+        sequenceOrder: m.sequenceOrder,
+        unitOfMeasure: m.unitOfMeasure || '',
+        achievementValue: m.achievementValue,
+        status: dryRun ? 'will_create' : 'created',
+      });
+    }
+
+    for (const bq of bqRows) {
+      const exists = rowsOf(await pool.query(
+        `SELECT id
+         FROM project_bq_items
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND (
+             (category_bq_template_id IS NOT NULL AND category_bq_template_id = $2)
+             OR (
+               LOWER(TRIM(activity_name)) = LOWER(TRIM($3))
+               AND LOWER(TRIM(COALESCE(milestone_name, ''))) = LOWER(TRIM(COALESCE($4, '')))
+             )
+           )
+         LIMIT 1`,
+        [projectId, bq.templateId, bq.activityName, bq.milestoneName || null]
+      ))[0];
+      if (exists) {
+        preparedBqItems.push({
+          templateId: bq.templateId,
+          activityName: bq.activityName,
+          milestoneName: bq.milestoneName || '',
+          description: bq.description || '',
+          unitOfMeasure: bq.unitOfMeasure || '',
+          quantity: bq.quantity,
+          unitCost: bq.unitCost,
+          budgetAmount: bq.budgetAmount,
+          sortOrder: bq.sortOrder,
+          status: 'existing',
+        });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_bq_items (
+              project_id, activity_name, milestone_name, start_date, end_date,
+              budget_amount, progress_percent, remarks, completed, completion_date, sort_order,
+              quantity, unit_of_measure, unit_cost, category_bq_template_id
+           ) VALUES ($1,$2,$3,NULL,NULL,$4,0,$5,false,NULL,$6,$7,$8,$9,$10)`,
+          [
+            projectId,
+            bq.activityName,
+            bq.milestoneName || null,
+            bq.budgetAmount == null ? null : Number(bq.budgetAmount),
+            bq.description || 'Generated from project type during procurement scope preparation',
+            Number.isFinite(Number(bq.sortOrder)) ? Number(bq.sortOrder) : 0,
+            bq.quantity == null ? null : Number(bq.quantity),
+            bq.unitOfMeasure || null,
+            bq.unitCost == null ? null : Number(bq.unitCost),
+            bq.templateId,
+          ]
+        );
+      }
+      bqItemsCreated += 1;
+      preparedBqItems.push({
+        templateId: bq.templateId,
+        activityName: bq.activityName,
+        milestoneName: bq.milestoneName || '',
+        description: bq.description || '',
+        unitOfMeasure: bq.unitOfMeasure || '',
+        quantity: bq.quantity,
+        unitCost: bq.unitCost,
+        budgetAmount: bq.budgetAmount,
+        sortOrder: bq.sortOrder,
+        status: dryRun ? 'will_create' : 'created',
+      });
+    }
+  } else {
+    for (const m of milestoneRows) {
+      const exists = rowsOf(await pool.query(
+        `SELECT milestoneId
+         FROM project_milestones
+         WHERE projectId = ?
+           AND COALESCE(voided, 0) = 0
+           AND (
+             (category_milestone_id IS NOT NULL AND category_milestone_id = ?)
+             OR LOWER(TRIM(milestoneName)) = LOWER(TRIM(?))
+           )
+         LIMIT 1`,
+        [projectId, m.milestoneId, m.milestoneName]
+      ))[0];
+      if (exists) {
+        preparedMilestones.push({
+          templateId: m.milestoneId,
+          name: m.milestoneName,
+          description: m.description || '',
+          sequenceOrder: m.sequenceOrder,
+          unitOfMeasure: m.unitOfMeasure || '',
+          achievementValue: m.achievementValue,
+          status: 'existing',
+        });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_milestones
+            (projectId, milestoneName, description, sequenceOrder, status, userId, createdAt, category_milestone_id)
+           VALUES (?, ?, ?, ?, 'pending', ?, NOW(), ?)`,
+          [projectId, m.milestoneName, m.description || null, m.sequenceOrder || null, actorId || 1, m.milestoneId]
+        );
+      }
+      milestonesCreated += 1;
+      preparedMilestones.push({
+        templateId: m.milestoneId,
+        name: m.milestoneName,
+        description: m.description || '',
+        sequenceOrder: m.sequenceOrder,
+        unitOfMeasure: m.unitOfMeasure || '',
+        achievementValue: m.achievementValue,
+        status: dryRun ? 'will_create' : 'created',
+      });
+    }
+
+    for (const bq of bqRows) {
+      const exists = rowsOf(await pool.query(
+        `SELECT id
+         FROM project_bq_items
+         WHERE project_id = ?
+           AND COALESCE(voided, 0) = 0
+           AND (
+             (category_bq_template_id IS NOT NULL AND category_bq_template_id = ?)
+             OR (
+               LOWER(TRIM(activity_name)) = LOWER(TRIM(?))
+               AND LOWER(TRIM(COALESCE(milestone_name, ''))) = LOWER(TRIM(COALESCE(?, '')))
+             )
+           )
+         LIMIT 1`,
+        [projectId, bq.templateId, bq.activityName, bq.milestoneName || null]
+      ))[0];
+      if (exists) {
+        preparedBqItems.push({
+          templateId: bq.templateId,
+          activityName: bq.activityName,
+          milestoneName: bq.milestoneName || '',
+          description: bq.description || '',
+          unitOfMeasure: bq.unitOfMeasure || '',
+          quantity: bq.quantity,
+          unitCost: bq.unitCost,
+          budgetAmount: bq.budgetAmount,
+          sortOrder: bq.sortOrder,
+          status: 'existing',
+        });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_bq_items (
+              project_id, activity_name, milestone_name, budget_amount, progress_percent,
+              remarks, completed, sort_order, quantity, unit_of_measure, unit_cost, category_bq_template_id
+           ) VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?)`,
+          [
+            projectId,
+            bq.activityName,
+            bq.milestoneName || null,
+            bq.budgetAmount == null ? null : Number(bq.budgetAmount),
+            bq.description || 'Generated from project type during procurement scope preparation',
+            Number.isFinite(Number(bq.sortOrder)) ? Number(bq.sortOrder) : 0,
+            bq.quantity == null ? null : Number(bq.quantity),
+            bq.unitOfMeasure || null,
+            bq.unitCost == null ? null : Number(bq.unitCost),
+            bq.templateId,
+          ]
+        );
+      }
+      bqItemsCreated += 1;
+      preparedBqItems.push({
+        templateId: bq.templateId,
+        activityName: bq.activityName,
+        milestoneName: bq.milestoneName || '',
+        description: bq.description || '',
+        unitOfMeasure: bq.unitOfMeasure || '',
+        quantity: bq.quantity,
+        unitCost: bq.unitCost,
+        budgetAmount: bq.budgetAmount,
+        sortOrder: bq.sortOrder,
+        status: dryRun ? 'will_create' : 'created',
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    projectId,
+    projectName: project.projectName,
+    categoryId,
+    categoryName: project.categoryName,
+    templateMilestones: milestoneRows.length,
+    templateBqItems: bqRows.length,
+    milestonesCreated,
+    bqItemsCreated,
+    dryRun,
+    preparedScope: {
+      milestones: preparedMilestones,
+      bqItems: preparedBqItems,
+    },
+  };
+}
+
+async function appendProcurementScopeSummary(projectRows = []) {
+  const rows = Array.isArray(projectRows) ? projectRows : [];
+  const ids = rows
+    .map((row) => Number(row?.projectId))
+    .filter((id) => Number.isFinite(id));
+  if (!ids.length) return rows;
+
+  try {
+    await ensureProcurementScopeTables();
+    let summaryRows = [];
+    if (isPostgres) {
+      summaryRows = rowsOf(await pool.query(
+        `SELECT
+            project_id AS "projectId",
+            COUNT(*)::int AS "bqItemCount",
+            COUNT(*) FILTER (WHERE COALESCE(completed, false) = true)::int AS "completedBqItemCount",
+            COALESCE(AVG(COALESCE(progress_percent, 0)), 0) AS "averageBqProgress",
+            COALESCE(SUM(COALESCE(budget_amount, 0)), 0) AS "bqBudgetAmount",
+            COUNT(*) FILTER (WHERE category_bq_template_id IS NOT NULL)::int AS "templateBqItemCount"
+         FROM project_bq_items
+         WHERE COALESCE(voided, false) = false AND project_id = ANY($1::bigint[])
+         GROUP BY project_id`,
+        [ids]
+      ));
+    } else {
+      const placeholders = ids.map(() => '?').join(',');
+      summaryRows = rowsOf(await pool.query(
+        `SELECT
+            project_id AS projectId,
+            COUNT(*) AS bqItemCount,
+            SUM(CASE WHEN COALESCE(completed, 0) = 1 THEN 1 ELSE 0 END) AS completedBqItemCount,
+            COALESCE(AVG(COALESCE(progress_percent, 0)), 0) AS averageBqProgress,
+            COALESCE(SUM(COALESCE(budget_amount, 0)), 0) AS bqBudgetAmount,
+            SUM(CASE WHEN category_bq_template_id IS NOT NULL THEN 1 ELSE 0 END) AS templateBqItemCount
+         FROM project_bq_items
+         WHERE COALESCE(voided, 0) = 0 AND project_id IN (${placeholders})
+         GROUP BY project_id`,
+        ids
+      ));
+    }
+    const byProject = new Map(summaryRows.map((row) => [String(row.projectId), row]));
+    return rows.map((row) => {
+      const summary = byProject.get(String(row.projectId)) || {};
+      const bqItemCount = Number(summary.bqItemCount || 0);
+      const completedBqItemCount = Number(summary.completedBqItemCount || 0);
+      const averageBqProgress = Number(summary.averageBqProgress || 0);
+      const bqBudgetAmount = Number(summary.bqBudgetAmount || 0);
+      const templateBqItemCount = Number(summary.templateBqItemCount || 0);
+      return {
+        ...row,
+        bqItemCount,
+        completedBqItemCount,
+        averageBqProgress,
+        bqBudgetAmount,
+        templateBqItemCount,
+        hasPreparedBq: bqItemCount > 0,
+      };
+    });
+  } catch (error) {
+    console.warn('Unable to append procurement BQ scope summary:', error?.message || error);
+    return rows.map((row) => ({
+      ...row,
+      bqItemCount: 0,
+      completedBqItemCount: 0,
+      averageBqProgress: 0,
+      bqBudgetAmount: 0,
+      templateBqItemCount: 0,
+      hasPreparedBq: false,
+    }));
+  }
+}
+
 function normalizeTemplateFields(fields) {
   if (!Array.isArray(fields)) return [];
   return fields
@@ -2544,6 +3125,8 @@ router.get('/projects', async (req, res) => {
           SELECT
             p.project_id AS "projectId",
             p.name AS "projectName",
+            p.category_id AS "categoryId",
+            c."categoryName" AS "categoryName",
             COALESCE(p.progress->>'status', '') AS "projectStatus",
             p.implementing_agency AS "implementingAgency",
             COALESCE(
@@ -2558,6 +3141,9 @@ router.get('/projects', async (req, res) => {
             wf.decision AS "latestDecision",
             wf.updated_at AS "updatedAt"
           FROM projects p
+          LEFT JOIN categories c
+            ON c."categoryId" = p.category_id
+           AND COALESCE(c.voided, false) = false
           LEFT JOIN LATERAL (
             SELECT stage, decision, updated_at
             FROM project_procurement_workflow w
@@ -2573,6 +3159,8 @@ router.get('/projects', async (req, res) => {
           SELECT
             p.project_id AS "projectId",
             p.name AS "projectName",
+            p.category_id AS "categoryId",
+            c."categoryName" AS "categoryName",
             COALESCE(p.status, '') AS "projectStatus",
             p.implementing_agency AS "implementingAgency",
             0::numeric AS "budget",
@@ -2580,6 +3168,9 @@ router.get('/projects', async (req, res) => {
             wf.decision AS "latestDecision",
             wf.updated_at AS "updatedAt"
           FROM projects p
+          LEFT JOIN categories c
+            ON c."categoryId" = p.category_id
+           AND COALESCE(c.voided, false) = false
           LEFT JOIN LATERAL (
             SELECT stage, decision, updated_at
             FROM project_procurement_workflow w
@@ -2595,6 +3186,8 @@ router.get('/projects', async (req, res) => {
           SELECT
             p.id AS "projectId",
             p."projectName" AS "projectName",
+            p."categoryId" AS "categoryId",
+            c."categoryName" AS "categoryName",
             COALESCE(p.status, '') AS "projectStatus",
             p.directorate AS "implementingAgency",
             COALESCE(p."costOfProject", 0) AS "budget",
@@ -2602,6 +3195,9 @@ router.get('/projects', async (req, res) => {
             wf.decision AS "latestDecision",
             wf.updated_at AS "updatedAt"
           FROM projects p
+          LEFT JOIN categories c
+            ON c."categoryId" = p."categoryId"
+           AND COALESCE(c.voided, false) = false
           LEFT JOIN LATERAL (
             SELECT stage, decision, updated_at
             FROM project_procurement_workflow w
@@ -2617,6 +3213,8 @@ router.get('/projects', async (req, res) => {
           SELECT
             p.id AS "projectId",
             p."projectName" AS "projectName",
+            p."categoryId" AS "categoryId",
+            c."categoryName" AS "categoryName",
             COALESCE(p.status, '') AS "projectStatus",
             p.directorate AS "implementingAgency",
             COALESCE(p."costOfProject", 0) AS "budget",
@@ -2624,6 +3222,9 @@ router.get('/projects', async (req, res) => {
             NULL::text AS "latestDecision",
             p."updatedAt" AS "updatedAt"
           FROM projects p
+          LEFT JOIN categories c
+            ON c."categoryId" = p."categoryId"
+           AND COALESCE(c.voided, false) = false
           WHERE COALESCE(p.voided, false) = false
             AND LOWER(COALESCE(p.status, '')) LIKE '%procurement%'
           ORDER BY p."updatedAt" DESC NULLS LAST
@@ -2645,6 +3246,8 @@ router.get('/projects', async (req, res) => {
       if (!rows && !schemaReady) {
         const fallbackQueries = [
           `SELECT p.project_id AS "projectId", p.name AS "projectName",
+                  p.category_id AS "categoryId",
+                  c."categoryName" AS "categoryName",
                   COALESCE(p.progress->>'status','') AS "projectStatus",
                   p.implementing_agency AS "implementingAgency",
                   0::numeric AS "budget",
@@ -2652,10 +3255,15 @@ router.get('/projects', async (req, res) => {
                   NULL::text AS "latestDecision",
                   p.updated_at AS "updatedAt"
            FROM projects p
+           LEFT JOIN categories c
+             ON c."categoryId" = p.category_id
+            AND COALESCE(c.voided, false) = false
            WHERE COALESCE(p.voided, false) = false
              AND LOWER(COALESCE(p.progress->>'status','')) LIKE '%procurement%'
            ORDER BY p.updated_at DESC NULLS LAST`,
           `SELECT p.id AS "projectId", p."projectName" AS "projectName",
+                  p."categoryId" AS "categoryId",
+                  c."categoryName" AS "categoryName",
                   COALESCE(p.status,'') AS "projectStatus",
                   p.directorate AS "implementingAgency",
                   COALESCE(p."costOfProject",0) AS "budget",
@@ -2663,6 +3271,9 @@ router.get('/projects', async (req, res) => {
                   NULL::text AS "latestDecision",
                   p."updatedAt" AS "updatedAt"
            FROM projects p
+           LEFT JOIN categories c
+             ON c."categoryId" = p."categoryId"
+            AND COALESCE(c.voided, false) = false
            WHERE COALESCE(p.voided, false) = false
              AND LOWER(COALESCE(p.status,'')) LIKE '%procurement%'
            ORDER BY p."updatedAt" DESC NULLS LAST`,
@@ -2682,13 +3293,16 @@ router.get('/projects', async (req, res) => {
         // Fail soft for missing/variant schemas.
         return res.status(200).json([]);
       }
-      return res.status(200).json(rows || []);
+      const enrichedRows = await appendProcurementScopeSummary(rows || []);
+      return res.status(200).json(enrichedRows);
     }
 
     const result = await pool.query(`
       SELECT
         p.id AS projectId,
         p.projectName,
+        p.categoryId,
+        c.categoryName,
         COALESCE(p.status, '') AS projectStatus,
         p.directorate AS implementingAgency,
         COALESCE(p.costOfProject, 0) AS budget,
@@ -2696,6 +3310,9 @@ router.get('/projects', async (req, res) => {
         wf.decision AS latestDecision,
         wf.updated_at AS updatedAt
       FROM projects p
+      LEFT JOIN project_milestone_implementations c
+        ON c.categoryId = p.categoryId
+       AND COALESCE(c.voided, 0) = 0
       LEFT JOIN (
         SELECT w1.*
         FROM project_procurement_workflow w1
@@ -2710,7 +3327,8 @@ router.get('/projects', async (req, res) => {
         AND LOWER(COALESCE(p.status, '')) LIKE '%procurement%'
       ORDER BY p.updatedAt DESC
     `);
-    return res.status(200).json(rowsOf(result));
+    const enrichedRows = await appendProcurementScopeSummary(rowsOf(result));
+    return res.status(200).json(enrichedRows);
   } catch (error) {
     console.error('Error listing under-procurement projects:', error);
     return res.status(500).json({ message: 'Error listing under-procurement projects', error: error.message });
@@ -2738,6 +3356,58 @@ router.get('/projects/:projectId/workflow', async (req, res) => {
   } catch (error) {
     console.error('Error loading procurement workflow:', error);
     return res.status(500).json({ message: 'Error loading procurement workflow', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/prepare-scope/preview', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const result = await applyProjectTypeScopeToProject(projectId, null, { dryRun: true });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ message: result.message || 'Could not preview project scope.' });
+    }
+    const hasTemplates = (Number(result.templateMilestones) || 0) + (Number(result.templateBqItems) || 0) > 0;
+    const wouldCreateAny = (Number(result.milestonesCreated) || 0) + (Number(result.bqItemsCreated) || 0) > 0;
+    let message = `Previewed procurement scope from project type. ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ item(s) would be created.`;
+    if (!hasTemplates) {
+      message = 'The selected project type has no milestone or BQ templates configured yet. Add templates under Project Types, then run Prepare Scope & BQ again.';
+    } else if (!wouldCreateAny) {
+      message = 'This project already has the milestones/BQ items from this project type.';
+    }
+    return res.status(200).json({ ...result, message });
+  } catch (error) {
+    console.error('Error previewing procurement scope:', error);
+    return res.status(500).json({ message: 'Error previewing procurement scope', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/prepare-scope', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  try {
+    await ensureProcurementSchema();
+    const result = await applyProjectTypeScopeToProject(projectId, actorId);
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ message: result.message || 'Could not prepare project scope.' });
+    }
+    const hasTemplates = (Number(result.templateMilestones) || 0) + (Number(result.templateBqItems) || 0) > 0;
+    const createdAny = (Number(result.milestonesCreated) || 0) + (Number(result.bqItemsCreated) || 0) > 0;
+    let message = `Prepared procurement scope from project type. Created ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ item(s).`;
+    if (!hasTemplates) {
+      message = 'The selected project type has no milestone or BQ templates configured yet. Add templates under Project Types, then run Prepare Scope & BQ again.';
+    } else if (!createdAny) {
+      message = 'No new scope lines were created because the project already has the milestones/BQ items from this project type.';
+    }
+    return res.status(200).json({
+      ...result,
+      message,
+    });
+  } catch (error) {
+    console.error('Error preparing procurement scope:', error);
+    return res.status(500).json({ message: 'Error preparing procurement scope', error: error.message });
   }
 });
 

@@ -29,7 +29,7 @@ const toNumber = (value) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export default function ProjectTaskOutputPanel({ projectId }) {
+export default function ProjectTaskOutputPanel({ projectId, bqGroups = [], milestones = [] }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tasks, setTasks] = useState([]);
@@ -44,10 +44,28 @@ export default function ProjectTaskOutputPanel({ projectId }) {
     targetValue: '',
     achievedValue: '',
     reportingPeriod: '',
+    linkedBqGroup: '',
+    linkedMilestone: '',
+    evidenceSource: '',
     status: 'on_track',
   });
   const [busyKey, setBusyKey] = useState('');
   const isBusy = Boolean(busyKey);
+
+  const bqGroupOptions = useMemo(
+    () => Array.from(new Set((bqGroups || []).map((group) => String(group.milestoneName || '').trim()).filter(Boolean))),
+    [bqGroups]
+  );
+
+  const milestoneOptions = useMemo(
+    () => Array.from(new Set((milestones || []).map((milestone) => String(milestone.milestoneName || '').trim()).filter(Boolean))),
+    [milestones]
+  );
+
+  const getOptionsWithCurrentValue = (options, value) => {
+    const current = String(value || '').trim();
+    return current && !options.includes(current) ? [current, ...options] : options;
+  };
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -141,7 +159,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
   };
 
   const handleDeleteTask = async (taskId) => {
-    if (!window.confirm('Delete this task and hide its subtasks?')) return;
+    if (!window.confirm('Delete this action/follow-up and hide its sub-actions?')) return;
     setBusyKey(`task-del-${taskId}`);
     try {
       await projectService.tasks.deleteTask(taskId);
@@ -154,7 +172,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
   };
 
   const handleEditTask = async (task) => {
-    const nextName = window.prompt('Task name', task.taskName || '');
+    const nextName = window.prompt('Action / follow-up name', task.taskName || '');
     if (nextName == null) return;
     const dueDefault = task.dueDate ? String(task.dueDate).slice(0, 10) : '';
     const nextDueDate = window.prompt('Due date (YYYY-MM-DD, leave blank to clear)', dueDefault);
@@ -171,27 +189,27 @@ export default function ProjectTaskOutputPanel({ projectId }) {
       await projectService.tasks.updateSubtask(subtaskId, patch);
       await load();
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to update subtask.');
+      setError(e?.response?.data?.message || e?.message || 'Failed to update sub-action.');
     } finally {
       setBusyKey('');
     }
   };
 
   const handleDeleteSubtask = async (subtaskId) => {
-    if (!window.confirm('Delete this subtask?')) return;
+    if (!window.confirm('Delete this sub-action?')) return;
     setBusyKey(`subtask-del-${subtaskId}`);
     try {
       await projectService.tasks.deleteSubtask(subtaskId);
       await load();
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to delete subtask.');
+      setError(e?.response?.data?.message || e?.message || 'Failed to delete sub-action.');
     } finally {
       setBusyKey('');
     }
   };
 
   const handleEditSubtask = async (subtask) => {
-    const nextName = window.prompt('Subtask name', subtask.subtaskName || '');
+    const nextName = window.prompt('Sub-action name', subtask.subtaskName || '');
     if (nextName == null) return;
     const dueDefault = subtask.dueDate ? String(subtask.dueDate).slice(0, 10) : '';
     const nextDueDate = window.prompt('Due date (YYYY-MM-DD, leave blank to clear)', dueDefault);
@@ -210,6 +228,9 @@ export default function ProjectTaskOutputPanel({ projectId }) {
       targetValue: outputForm.targetValue || null,
       achievedValue: outputForm.achievedValue || null,
       reportingPeriod: outputForm.reportingPeriod || null,
+      linkedBqGroup: outputForm.linkedBqGroup || null,
+      linkedMilestone: outputForm.linkedMilestone || null,
+      evidenceSource: outputForm.evidenceSource || null,
       status: outputForm.status || 'on_track',
     });
     setOutputForm({
@@ -218,6 +239,9 @@ export default function ProjectTaskOutputPanel({ projectId }) {
       targetValue: '',
       achievedValue: '',
       reportingPeriod: '',
+      linkedBqGroup: '',
+      linkedMilestone: '',
+      evidenceSource: '',
       status: 'on_track',
     });
     await load();
@@ -253,7 +277,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
         <Stack direction="row" spacing={1} alignItems="center">
           <CircularProgress size={20} />
-          <Typography variant="body2">Loading task and output register...</Typography>
+          <Typography variant="body2">Loading action and output registers...</Typography>
         </Stack>
       </Paper>
     );
@@ -267,13 +291,13 @@ export default function ProjectTaskOutputPanel({ projectId }) {
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
           <Typography variant="subtitle1" fontWeight={700}>
-            Subtasks Register
+            Action / Follow-up Register
           </Typography>
-          <Chip size="small" label={`Tasks: ${tasks.length}`} />
+          <Chip size="small" label={`Actions/Follow-ups: ${tasks.length}`} />
         </Stack>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
           <TextField
-            label="Task name"
+            label="Action / Follow-up name"
             value={taskForm.taskName}
             onChange={(e) => setTaskForm((p) => ({ ...p, taskName: e.target.value }))}
             size="small"
@@ -302,17 +326,17 @@ export default function ProjectTaskOutputPanel({ projectId }) {
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 170 }}
           />
-          <Button variant="contained" onClick={handleCreateTask} disabled={creatingTask || isBusy}>
-            Add Task
+          <Button variant="contained" onClick={handleCreateTask} disabled={creatingTask || isBusy} sx={{ flexShrink: 0 }}>
+            Add Action
           </Button>
         </Stack>
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Task</TableCell>
-                <TableCell>Task Status</TableCell>
-                <TableCell>Subtasks</TableCell>
+                <TableCell>Action / Follow-up</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Sub-actions</TableCell>
                 <TableCell>Completion</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -328,7 +352,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                   dueDate: '',
                 };
                 return (
-                  <TableRow key={task.taskId}>
+                  <TableRow key={task.taskId} hover>
                     <TableCell>{task.taskName || '-'}</TableCell>
                     <TableCell>
                       <TextField
@@ -380,7 +404,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                         ))}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ mt: 0.5 }}>
                           <TextField
-                            placeholder="New subtask"
+                            placeholder="New sub-action"
                             size="small"
                             value={subtaskForm.subtaskName}
                             onChange={(e) =>
@@ -409,7 +433,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                             ))}
                           </TextField>
                           <Button variant="outlined" size="small" disabled={isBusy} onClick={() => handleCreateSubtask(task.taskId)}>
-                            Add
+                            Add Sub-action
                           </Button>
                         </Stack>
                       </Stack>
@@ -431,7 +455,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
               {tasks.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} align="center">
-                    No tasks yet. Add a task to start tracking subtasks.
+                    No actions/follow-ups yet. Add an action to start tracking sub-actions.
                   </TableCell>
                 </TableRow>
               )}
@@ -451,7 +475,10 @@ export default function ProjectTaskOutputPanel({ projectId }) {
             <Chip size="small" variant="outlined" label={`Progress: ${outputSummary.completionRate.toFixed(1)}%`} />
           </Stack>
         </Stack>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Record expected deliverables and connect each output to the BQ group, schedule milestone, and evidence source that verifies progress.
+        </Typography>
+        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} sx={{ mb: 1 }}>
           <TextField
             label="Output name"
             value={outputForm.outputName}
@@ -487,6 +514,46 @@ export default function ProjectTaskOutputPanel({ projectId }) {
             size="small"
             sx={{ minWidth: 120 }}
           />
+        </Stack>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
+          <TextField
+            select
+            label="Linked BQ Group"
+            value={outputForm.linkedBqGroup}
+            onChange={(e) => setOutputForm((p) => ({ ...p, linkedBqGroup: e.target.value }))}
+            size="small"
+            sx={{ minWidth: 220 }}
+          >
+            <MenuItem value="">Not linked</MenuItem>
+            {bqGroupOptions.map((name) => (
+              <MenuItem key={name} value={name}>
+                {name}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Linked Milestone"
+            value={outputForm.linkedMilestone}
+            onChange={(e) => setOutputForm((p) => ({ ...p, linkedMilestone: e.target.value }))}
+            size="small"
+            sx={{ minWidth: 220 }}
+          >
+            <MenuItem value="">Not linked</MenuItem>
+            {milestoneOptions.map((name) => (
+              <MenuItem key={name} value={name}>
+                {name}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Evidence Source"
+            value={outputForm.evidenceSource}
+            onChange={(e) => setOutputForm((p) => ({ ...p, evidenceSource: e.target.value }))}
+            size="small"
+            placeholder="Inspection, monitoring record, certificate..."
+            fullWidth
+          />
           <TextField
             select
             label="Status"
@@ -501,7 +568,7 @@ export default function ProjectTaskOutputPanel({ projectId }) {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="contained" disabled={isBusy} onClick={handleCreateOutput}>
+          <Button variant="contained" disabled={isBusy} onClick={handleCreateOutput} sx={{ flexShrink: 0 }}>
             Add Output
           </Button>
         </Stack>
@@ -516,6 +583,9 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                 <TableCell align="right">% Achieved</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Reporting Period</TableCell>
+                <TableCell>Linked BQ Group</TableCell>
+                <TableCell>Linked Milestone</TableCell>
+                <TableCell>Evidence Source</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -524,8 +594,10 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                 const target = toNumber(row.targetValue);
                 const achieved = toNumber(row.achievedValue);
                 const achievedPct = target > 0 ? (achieved / target) * 100 : 0;
+                const rowBqOptions = getOptionsWithCurrentValue(bqGroupOptions, row.linkedBqGroup);
+                const rowMilestoneOptions = getOptionsWithCurrentValue(milestoneOptions, row.linkedMilestone);
                 return (
-                  <TableRow key={row.outputId}>
+                  <TableRow key={row.outputId} hover>
                     <TableCell>{row.outputName}</TableCell>
                     <TableCell>{row.unitOfMeasure || '-'}</TableCell>
                     <TableCell align="right">{target.toLocaleString()}</TableCell>
@@ -561,6 +633,46 @@ export default function ProjectTaskOutputPanel({ projectId }) {
                         sx={{ minWidth: 120 }}
                       />
                     </TableCell>
+                    <TableCell>
+                      <TextField
+                        select
+                        size="small"
+                        value={row.linkedBqGroup || ''}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { linkedBqGroup: e.target.value || null })}
+                        sx={{ minWidth: 180 }}
+                      >
+                        <MenuItem value="">Not linked</MenuItem>
+                        {rowBqOptions.map((name) => (
+                          <MenuItem key={name} value={name}>
+                            {name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        select
+                        size="small"
+                        value={row.linkedMilestone || ''}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { linkedMilestone: e.target.value || null })}
+                        sx={{ minWidth: 180 }}
+                      >
+                        <MenuItem value="">Not linked</MenuItem>
+                        {rowMilestoneOptions.map((name) => (
+                          <MenuItem key={name} value={name}>
+                            {name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        value={row.evidenceSource || ''}
+                        onChange={(e) => handleUpdateOutput(row.outputId, { evidenceSource: e.target.value || null })}
+                        sx={{ minWidth: 190 }}
+                      />
+                    </TableCell>
                     <TableCell align="right">
                       <Button size="small" color="error" variant="text" onClick={() => handleDeleteOutput(row.outputId)}>
                         Delete
@@ -571,8 +683,8 @@ export default function ProjectTaskOutputPanel({ projectId }) {
               })}
               {outputs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    No outputs recorded yet.
+                  <TableCell colSpan={11} align="center">
+                    No outputs recorded yet. Add an output and link it to the BQ or milestone it verifies.
                   </TableCell>
                 </TableRow>
               )}

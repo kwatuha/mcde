@@ -21,6 +21,22 @@ const isUndefinedColumnError = (error) => {
     const msg = String(error?.message || '').toLowerCase();
     return msg.includes('column') && (msg.includes('does not exist') || msg.includes('unknown column'));
 };
+const isDuplicateColumnError = (error) => {
+    const msg = String(error?.message || '').toLowerCase();
+    return error?.code === 'ER_DUP_FIELDNAME' || msg.includes('duplicate column');
+};
+const textOrNull = (value) => {
+    if (value == null) return null;
+    const text = String(value).trim();
+    return text || null;
+};
+async function runOptionalDDL(sql) {
+    try {
+        await pool.query(sql);
+    } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+    }
+}
 async function queryRowsWithFallback(queries, params) {
     let lastError = null;
     for (const sql of queries) {
@@ -66,11 +82,17 @@ async function ensureEnhancementTables() {
                 achieved_value NUMERIC(18,2) NULL,
                 status TEXT NOT NULL DEFAULT 'on_track',
                 reporting_period TEXT NULL,
+                linked_bq_group TEXT NULL,
+                linked_milestone TEXT NULL,
+                evidence_source TEXT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 voided BOOLEAN NOT NULL DEFAULT FALSE
             )
         `);
+        await pool.query(`ALTER TABLE project_outputs ADD COLUMN IF NOT EXISTS linked_bq_group TEXT NULL`);
+        await pool.query(`ALTER TABLE project_outputs ADD COLUMN IF NOT EXISTS linked_milestone TEXT NULL`);
+        await pool.query(`ALTER TABLE project_outputs ADD COLUMN IF NOT EXISTS evidence_source TEXT NULL`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_outputs_project_id ON project_outputs (project_id)`);
     } else {
         await pool.query(`
@@ -100,12 +122,18 @@ async function ensureEnhancementTables() {
                 achievedValue DECIMAL(18,2) NULL,
                 status VARCHAR(50) NOT NULL DEFAULT 'on_track',
                 reportingPeriod VARCHAR(100) NULL,
+                linkedBqGroup VARCHAR(255) NULL,
+                linkedMilestone VARCHAR(255) NULL,
+                evidenceSource VARCHAR(255) NULL,
                 createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 voided TINYINT(1) NOT NULL DEFAULT 0,
                 INDEX idx_project_outputs_projectId (projectId)
             )
         `);
+        await runOptionalDDL(`ALTER TABLE project_outputs ADD COLUMN linkedBqGroup VARCHAR(255) NULL`);
+        await runOptionalDDL(`ALTER TABLE project_outputs ADD COLUMN linkedMilestone VARCHAR(255) NULL`);
+        await runOptionalDDL(`ALTER TABLE project_outputs ADD COLUMN evidenceSource VARCHAR(255) NULL`);
     }
     enhancementTablesEnsured = true;
 }
@@ -358,6 +386,9 @@ router.get('/project/:projectId/outputs', async (req, res) => {
                     achieved_value AS "achievedValue",
                     status,
                     reporting_period AS "reportingPeriod",
+                    linked_bq_group AS "linkedBqGroup",
+                    linked_milestone AS "linkedMilestone",
+                    evidence_source AS "evidenceSource",
                     created_at AS "createdAt",
                     updated_at AS "updatedAt"
                  FROM project_outputs
@@ -391,6 +422,9 @@ router.post('/project/:projectId/outputs', async (req, res) => {
         achievedValue: req.body?.achievedValue != null && req.body?.achievedValue !== '' ? Number(req.body.achievedValue) : null,
         status: String(req.body?.status || 'on_track').trim() || 'on_track',
         reportingPeriod: req.body?.reportingPeriod ? String(req.body.reportingPeriod) : null,
+        linkedBqGroup: textOrNull(req.body?.linkedBqGroup),
+        linkedMilestone: textOrNull(req.body?.linkedMilestone),
+        evidenceSource: textOrNull(req.body?.evidenceSource),
     };
     if (!payload.outputName) return res.status(400).json({ message: 'outputName is required.' });
     try {
@@ -398,8 +432,8 @@ router.post('/project/:projectId/outputs', async (req, res) => {
         if (isPostgres) {
             const insertRes = await pool.query(
                 `INSERT INTO project_outputs
-                    (project_id, output_name, output_description, unit_of_measure, baseline_value, target_value, achieved_value, status, reporting_period, voided)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,false)
+                    (project_id, output_name, output_description, unit_of_measure, baseline_value, target_value, achieved_value, status, reporting_period, linked_bq_group, linked_milestone, evidence_source, voided)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false)
                  RETURNING output_id AS "outputId"`,
                 [
                     payload.projectId,
@@ -411,6 +445,9 @@ router.post('/project/:projectId/outputs', async (req, res) => {
                     payload.achievedValue,
                     payload.status,
                     payload.reportingPeriod,
+                    payload.linkedBqGroup,
+                    payload.linkedMilestone,
+                    payload.evidenceSource,
                 ]
             );
             const outputId = insertRes.rows?.[0]?.outputId;
@@ -426,6 +463,9 @@ router.post('/project/:projectId/outputs', async (req, res) => {
                     achieved_value AS "achievedValue",
                     status,
                     reporting_period AS "reportingPeriod",
+                    linked_bq_group AS "linkedBqGroup",
+                    linked_milestone AS "linkedMilestone",
+                    evidence_source AS "evidenceSource",
                     created_at AS "createdAt",
                     updated_at AS "updatedAt"
                  FROM project_outputs
@@ -457,6 +497,9 @@ router.put('/outputs/:outputId', async (req, res) => {
         achievedValue: req.body?.achievedValue != null && req.body?.achievedValue !== '' ? Number(req.body.achievedValue) : undefined,
         status: req.body?.status != null ? String(req.body.status).trim() : undefined,
         reportingPeriod: req.body?.reportingPeriod != null ? String(req.body.reportingPeriod) : undefined,
+        linkedBqGroup: req.body?.linkedBqGroup !== undefined ? textOrNull(req.body.linkedBqGroup) : undefined,
+        linkedMilestone: req.body?.linkedMilestone !== undefined ? textOrNull(req.body.linkedMilestone) : undefined,
+        evidenceSource: req.body?.evidenceSource !== undefined ? textOrNull(req.body.evidenceSource) : undefined,
         updatedAt: new Date(),
     };
     Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
@@ -473,6 +516,9 @@ router.put('/outputs/:outputId', async (req, res) => {
                 achieved_value: payload.achievedValue,
                 status: payload.status,
                 reporting_period: payload.reportingPeriod,
+                linked_bq_group: payload.linkedBqGroup,
+                linked_milestone: payload.linkedMilestone,
+                evidence_source: payload.evidenceSource,
                 updated_at: new Date(),
             };
             Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
@@ -500,6 +546,9 @@ router.put('/outputs/:outputId', async (req, res) => {
                     achieved_value AS "achievedValue",
                     status,
                     reporting_period AS "reportingPeriod",
+                    linked_bq_group AS "linkedBqGroup",
+                    linked_milestone AS "linkedMilestone",
+                    evidence_source AS "evidenceSource",
                     created_at AS "createdAt",
                     updated_at AS "updatedAt"
                  FROM project_outputs

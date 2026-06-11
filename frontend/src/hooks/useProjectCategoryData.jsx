@@ -47,17 +47,20 @@ const useProjectCategoryData = () => {
         return;
       }
       
-      console.log('useProjectCategoryData: Fetching milestones for each category...');
+      console.log('useProjectCategoryData: Fetching milestones and BQ templates for each category...');
       const categoriesWithMilestones = await Promise.all(
         categoriesData.map(async (category) => {
           console.log(`useProjectCategoryData: Fetching milestones for category ${category.categoryId} (${category.categoryName})`);
           try {
-            const milestonesData = await apiService.metadata.projectCategories.getMilestonesByCategory(category.categoryId);
+            const [milestonesData, bqTemplatesData] = await Promise.all([
+              apiService.metadata.projectCategories.getMilestonesByCategory(category.categoryId),
+              apiService.metadata.projectCategories.getBqTemplatesByCategory(category.categoryId).catch(() => []),
+            ]);
             console.log(`useProjectCategoryData: Category ${category.categoryId} has ${milestonesData?.length || 0} milestones`);
-            return { ...category, milestones: milestonesData || [] };
+            return { ...category, milestones: milestonesData || [], bqTemplates: bqTemplatesData || [] };
           } catch (milestoneError) {
             console.error(`useProjectCategoryData: Error fetching milestones for category ${category.categoryId}:`, milestoneError);
-            return { ...category, milestones: [] };
+            return { ...category, milestones: [], bqTemplates: [] };
           }
         })
       );
