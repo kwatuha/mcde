@@ -412,7 +412,7 @@ const PublicApprovalManagementPage = () => {
           'Content-Type': 'multipart/form-data',
         },
       });
-      setSuccess('Photo uploaded successfully!');
+      setSuccess('Photo uploaded successfully. Approve it to publish it on the citizen portal.');
       setPhotoDescription('');
       await fetchProjectPhotos(selectedProject.id);
       if (photoFileInputRef.current) {

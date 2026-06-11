@@ -134,7 +134,13 @@ const Register = () => {
         }
 
         if (name === 'phoneNumber') {
-            setFormErrors((prev) => ({ ...prev, phoneNumber: '' }));
+            const phoneValue = value.trim();
+            setFormErrors((prev) => ({
+                ...prev,
+                phoneNumber: phoneValue && !phoneRegex.test(phoneValue)
+                    ? 'Use 07XXXXXXXX or +2547XXXXXXXX'
+                    : '',
+            }));
         }
     };
 
@@ -146,8 +152,19 @@ const Register = () => {
         setLoading(true);
 
         // Basic client-side validation for required fields
+        const usernameTrim = String(formData.username || '').trim();
+        const emailTrim = String(formData.email || '').trim();
+        const phoneTrim = String(formData.phoneNumber || '').trim();
+        const firstNameTrim = String(formData.firstName || '').trim();
+        const lastNameTrim = String(formData.lastName || '').trim();
+        const idNumberTrim = String(formData.idNumber || '').trim();
+        const employeeNumberTrim = String(formData.employeeNumber || '').trim();
         const errors = {};
-        if (!formData.username || !formData.email || !formData.password || !formData.firstName || !formData.lastName || !formData.idNumber || !formData.employeeNumber) {
+        if (!usernameTrim || !emailTrim || !phoneTrim || !formData.password || !firstNameTrim || !lastNameTrim || !idNumberTrim || !employeeNumberTrim) {
+            if (!phoneTrim) {
+                errors.phoneNumber = 'Phone number is required';
+                setFormErrors((prev) => ({ ...prev, phoneNumber: errors.phoneNumber }));
+            }
             setError('Please fill in all required fields.');
             setLoading(false);
             return;
@@ -159,7 +176,7 @@ const Register = () => {
         if (!formData.directorate || !String(formData.directorate).trim()) {
             errors.directorate = 'Directorate is required';
         }
-        if (formData.phoneNumber && !phoneRegex.test(formData.phoneNumber.trim())) {
+        if (!phoneRegex.test(phoneTrim)) {
             errors.phoneNumber = 'Use 07XXXXXXXX or +2547XXXXXXXX';
         }
 
@@ -171,7 +188,7 @@ const Register = () => {
         }
 
         // Email validation
-        if (!validateEmail(formData.email)) {
+        if (!validateEmail(emailTrim)) {
             setEmailError('Please enter a valid email address (e.g., user@example.com)');
             setLoading(false);
             return;
@@ -198,14 +215,14 @@ const Register = () => {
                 ministriesHierarchy.find((m) => m.ministryId === formData.selectedDepartment?.ministryId)?.name ||
                 '';
             const response = await axiosInstance.post('/auth/register', {
-                username: formData.username,
-                email: formData.email,
+                username: usernameTrim,
+                email: emailTrim.toLowerCase(),
                 password: formData.password,
-                phoneNumber: formData.phoneNumber,
-                firstName: formData.firstName,
-                lastName: formData.lastName,
-                idNumber: formData.idNumber,
-                employeeNumber: formData.employeeNumber,
+                phoneNumber: phoneTrim,
+                firstName: firstNameTrim,
+                lastName: lastNameTrim,
+                idNumber: idNumberTrim,
+                employeeNumber: employeeNumberTrim,
                 ministry: parentMinistry,
                 state_department: formData.selectedDepartment?.name || '',
                 directorate: String(formData.directorate).trim(),
@@ -570,9 +587,10 @@ const Register = () => {
                             type="tel"
                             value={formData.phoneNumber}
                             onChange={handleChange}
+                            required
                             disabled={loading}
                             error={!!formErrors.phoneNumber}
-                            helperText={formErrors.phoneNumber || "Optional: 07XXXXXXXX or +2547XXXXXXXX"}
+                            helperText={formErrors.phoneNumber || "Required: 07XXXXXXXX or +2547XXXXXXXX"}
                             sx={{ 
                                 mb: 2,
                                 '& .MuiOutlinedInput-root': {

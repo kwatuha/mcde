@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import apiService from '../api';
 import { DEFAULT_COUNTY } from '../configs/appConfig';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
+import { isAdmin as isAdminUser } from '../utils/privilegeUtils';
 
 function deriveFinancialYearName(dateValue) {
   if (!dateValue) return '';
@@ -13,7 +14,28 @@ function deriveFinancialYearName(dateValue) {
   return `${startYear}/${startYear + 1}`;
 }
 
-const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar) => {
+const normalizeOrgKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const isAllOrgScope = (value) => ['*', 'all', 'all ministries', 'all_ministries'].includes(normalizeOrgKey(value));
+
+const hasRestrictedDepartmentScope = (user) => {
+  if (!user || isAdminUser(user) || user.privileges?.includes('organization.scope_bypass')) return false;
+  const scopes = Array.isArray(user.organizationScopes) ? user.organizationScopes : [];
+  if (scopes.some((scope) => {
+    const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+    return scopeType === 'ALL_MINISTRIES' || (scopeType === 'MINISTRY_ALL' && isAllOrgScope(scope?.ministry));
+  })) {
+    return false;
+  }
+  if (scopes.some((scope) => {
+    const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+    return scopeType === 'STATE_DEPARTMENT_ALL' && normalizeOrgKey(scope?.stateDepartment || scope?.state_department);
+  })) {
+    return true;
+  }
+  return scopes.length === 0 && Boolean(normalizeOrgKey(user.stateDepartment || user.state_department));
+};
+
+const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar, user = null) => {
   const [formData, setFormData] = useState({
     projectName: '', projectDescription: '', startDate: '', endDate: '',
     directorate: '', costOfProject: '', Contracted: '', paidOut: '',
@@ -187,7 +209,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
       setInitialAssociations({ countyIds: defaultCountyIds, subcountyIds: [], wardIds: [], sites: [] });
       setLoading(false);
     }
-  }, [currentProject?.id, setSnackbar, allMetadata]); // Use currentProject?.id to ensure it re-runs when project changes
+  }, [currentProject?.id, currentProject, setSnackbar, allMetadata]); // Use currentProject?.id to ensure it re-runs when project changes
 
 
   useEffect(() => {
@@ -253,7 +275,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     });
   };
 
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     let errors = {};
     // Project name is required
     if (!formData.projectName || !formData.projectName.trim()) {
@@ -267,6 +289,9 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     }
     if (!formData.sector || !String(formData.sector).trim()) {
       errors.sector = 'Sector is required.';
+    }
+    if (hasRestrictedDepartmentScope(user) && (!formData.stateDepartment || !String(formData.stateDepartment).trim())) {
+      errors.stateDepartment = 'Department is required for users with scoped organization access.';
     }
     // Implementing Agency (directorate) is optional
     // Project category is optional
@@ -290,7 +315,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     }
     setFormErrors(errors);
     return { isValid: Object.keys(errors).length === 0, errors };
-  };
+  }, [currentProject, formData, user]);
 
   const synchronizeAssociations = useCallback(async (projectId, currentIds, newIds, addFn, removeFn) => {
     const idsToAdd = newIds.filter(id => !currentIds.includes(id));
@@ -386,7 +411,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
         setSnackbar({ open: true, message: 'Project updated successfully!', severity: 'success' });
       } else {
         const createdProject = await apiService.projects.createProject(dataToSubmit);
-        projectId = createdProject.id;
+        projectId = createdProject.id || createdProject.projectId || createdProject.project_id;
         setSnackbar({ open: true, message: 'Project created successfully!', severity: 'success' });
       }
 
@@ -397,7 +422,11 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
           synchronizeAssociations(projectId, initialAssociations.wardIds.map(id => parseInt(id, 10)), wardIdsToSave, apiService.junctions.addProjectWard, apiService.junctions.removeProjectWard),
         ]);
       }
-      onFormSuccess();
+      onFormSuccess({
+        projectId,
+        isNewProject: !currentProject,
+        formData: dataToSubmit,
+      });
     } catch (err) {
       console.error("Submit project error:", err);
       console.error("Error response:", err.response?.data);
@@ -410,7 +439,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar)
     } finally {
       setLoading(false);
     }
-  }, [formData, formErrors, currentProject, initialAssociations, onFormSuccess, setSnackbar, synchronizeAssociations, allMetadata]);
+  }, [formData, currentProject, initialAssociations, onFormSuccess, setSnackbar, synchronizeAssociations, allMetadata, validateForm]);
 
   return {
     formData, formErrors, loading, handleChange, handleMultiSelectChange, handleSubmit,

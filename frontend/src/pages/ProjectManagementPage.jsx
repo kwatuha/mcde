@@ -4,7 +4,7 @@ import {
   Menu, MenuItem, ListItemIcon, Checkbox, ListItemText, Box, Typography, Button, CircularProgress, IconButton,
   Snackbar, Alert, Stack, useTheme, Tooltip, Grid, Card, CardContent, TextField, InputAdornment, Chip, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, ToggleButton, ToggleButtonGroup, Collapse,
-  FormControl, InputLabel, Select,
+  FormControl, InputLabel, Select, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import { DataGrid } from "@mui/x-data-grid";
 import { getThemedDataGridSx, TREE_LAYOUT_GRID } from '../utils/dataGridTheme';
@@ -79,6 +79,20 @@ const getProjectBudgetValue = (project) => Number(
     ?? project?.approvedBudget
     ?? 0
 );
+
+const fmtOptionalCurrency = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '-';
+  return `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const fmtMeasure = (value, unit) => {
+  if (value === null || value === undefined || value === '') return unit || '-';
+  const n = Number(value);
+  const formatted = Number.isFinite(n) ? n.toLocaleString('en-KE', { maximumFractionDigits: 2 }) : String(value);
+  return unit ? `${formatted} ${unit}` : formatted;
+};
 
 const getImplementationReadiness = (project) => {
   const checks = [
@@ -429,6 +443,14 @@ function ProjectManagementPage() {
   // Dialog state for create/edit
   const [openFormDialog, setOpenFormDialog] = useState(false);
   const [currentProject, setCurrentProject] = useState(null);
+  const [postCreateScopeModal, setPostCreateScopeModal] = useState({
+    open: false,
+    loading: false,
+    confirming: false,
+    error: '',
+    project: null,
+    preview: null,
+  });
   
   // State for delete confirmation dialog
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1413,9 +1435,82 @@ function ProjectManagementPage() {
       fetchProjects();
   };
 
-  const handleFormSuccess = () => {
+  const isUnderProcurementStatus = useCallback((value) => (
+    String(value || '').trim().toLowerCase() === 'under procurement'
+  ), []);
+
+  const openPostCreateScopePreview = useCallback(async (result) => {
+    const projectId = result?.projectId;
+    if (!projectId) return;
+    const form = result?.formData || {};
+    const categoryId = form.categoryId;
+    const project = {
+      projectId,
+      projectName: form.projectName || `Project ${projectId}`,
+      categoryName: categoryId ? projectCategoryNameMap.get(String(categoryId)) || '' : '',
+    };
+    setPostCreateScopeModal({
+      open: true,
+      loading: true,
+      confirming: false,
+      error: '',
+      project,
+      preview: null,
+    });
+    try {
+      const preview = await apiService.procurement.previewProjectScope(projectId);
+      setPostCreateScopeModal((prev) => ({
+        ...prev,
+        loading: false,
+        preview,
+        error: '',
+      }));
+    } catch (err) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to preview project scope and BQ.';
+      setPostCreateScopeModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: message,
+      }));
+    }
+  }, [projectCategoryNameMap]);
+
+  const closePostCreateScopeModal = useCallback(() => {
+    setPostCreateScopeModal({
+      open: false,
+      loading: false,
+      confirming: false,
+      error: '',
+      project: null,
+      preview: null,
+    });
+  }, []);
+
+  const confirmPostCreateScope = useCallback(async () => {
+    const projectId = postCreateScopeModal.project?.projectId;
+    if (!projectId) return;
+    setPostCreateScopeModal((prev) => ({ ...prev, confirming: true, error: '' }));
+    try {
+      const res = await apiService.procurement.prepareProjectScope(projectId);
+      closePostCreateScopeModal();
+      setSnackbar({
+        open: true,
+        message: res?.message || `Scope & BQ prepared for ${postCreateScopeModal.project?.projectName || 'the project'}.`,
+        severity: 'success',
+      });
+      fetchProjects();
+    } catch (err) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to prepare project scope and BQ.';
+      setPostCreateScopeModal((prev) => ({ ...prev, confirming: false, error: message }));
+    }
+  }, [closePostCreateScopeModal, fetchProjects, postCreateScopeModal.project, setSnackbar]);
+
+  const handleFormSuccess = (result = {}) => {
     handleCloseFormDialog();
     fetchProjects(); // Re-fetch projects to refresh the table
+    if (result.isNewProject && isUnderProcurementStatus(result.formData?.status)) {
+      openPostCreateScopePreview(result);
+    }
   };
 
   const handleDeleteProject = (project) => {
@@ -1546,6 +1641,17 @@ function ProjectManagementPage() {
   }, []);
 
   const handleCloseSnackbar = (event, reason) => { if (reason === 'clickaway') return; setSnackbar({ ...snackbar, open: false }); };
+
+  const postCreatePreviewMilestones = Array.isArray(postCreateScopeModal.preview?.preparedScope?.milestones)
+    ? postCreateScopeModal.preview.preparedScope.milestones
+    : [];
+  const postCreatePreviewBqItems = Array.isArray(postCreateScopeModal.preview?.preparedScope?.bqItems)
+    ? postCreateScopeModal.preview.preparedScope.bqItems
+    : [];
+  const postCreateWouldCreateCount = postCreatePreviewMilestones.filter((m) => m.status === 'will_create').length
+    + postCreatePreviewBqItems.filter((bq) => bq.status === 'will_create').length;
+  const postCreateTemplateCount = Number(postCreateScopeModal.preview?.templateMilestones || 0)
+    + Number(postCreateScopeModal.preview?.templateBqItems || 0);
 
   const handleExportToExcel = () => {
     setExportingExcel(true);
@@ -3707,6 +3813,148 @@ function ProjectManagementPage() {
         user={user}
         villageOptions={villageOptions}
       />
+
+      <Dialog open={postCreateScopeModal.open} onClose={closePostCreateScopeModal} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 0.75 }}>
+          Prepare Scope & BQ now?
+          <Typography component="div" variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 400 }}>
+            {postCreateScopeModal.project?.projectName || 'New procurement project'}
+            {postCreateScopeModal.project?.categoryName ? ` · ${postCreateScopeModal.project.categoryName}` : ''}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Alert severity="info">
+              This project was saved as <strong>Under Procurement</strong>. Review the project type templates below before creating its procurement milestones and BQ lines.
+            </Alert>
+
+            {postCreateScopeModal.loading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+                <CircularProgress size={28} />
+                <Typography variant="body2" color="text.secondary" sx={{ ml: 1.5 }}>
+                  Loading Scope & BQ preview...
+                </Typography>
+              </Box>
+            ) : null}
+
+            {postCreateScopeModal.error ? (
+              <Alert severity="error">{postCreateScopeModal.error}</Alert>
+            ) : null}
+
+            {!postCreateScopeModal.loading && !postCreateScopeModal.error ? (
+              <>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Chip size="small" label={`${postCreatePreviewMilestones.length} milestone template(s)`} />
+                  <Chip size="small" label={`${postCreatePreviewBqItems.length} BQ template line(s)`} />
+                  <Chip
+                    size="small"
+                    color={postCreateWouldCreateCount > 0 ? 'warning' : 'default'}
+                    variant={postCreateWouldCreateCount > 0 ? 'filled' : 'outlined'}
+                    label={`${postCreateWouldCreateCount} item(s) will be created`}
+                  />
+                </Stack>
+
+                {postCreatePreviewMilestones.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                      Milestones to Prepare
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>#</strong></TableCell>
+                            <TableCell><strong>Milestone</strong></TableCell>
+                            <TableCell><strong>Target</strong></TableCell>
+                            <TableCell><strong>Status</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {postCreatePreviewMilestones.map((m, idx) => (
+                            <TableRow key={`${m.templateId || m.name}-${idx}`}>
+                              <TableCell>{m.sequenceOrder || idx + 1}</TableCell>
+                              <TableCell>{m.name}</TableCell>
+                              <TableCell>{fmtMeasure(m.achievementValue, m.unitOfMeasure)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={m.status === 'will_create' ? 'Will create' : 'Already exists'}
+                                  color={m.status === 'will_create' ? 'warning' : 'default'}
+                                  variant={m.status === 'will_create' ? 'filled' : 'outlined'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                ) : null}
+
+                {postCreatePreviewBqItems.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.75 }}>
+                      BQ Lines to Prepare
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>Activity</strong></TableCell>
+                            <TableCell><strong>Milestone</strong></TableCell>
+                            <TableCell><strong>Qty</strong></TableCell>
+                            <TableCell align="right"><strong>Unit Cost</strong></TableCell>
+                            <TableCell align="right"><strong>Budget</strong></TableCell>
+                            <TableCell><strong>Status</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {postCreatePreviewBqItems.map((bq, idx) => (
+                            <TableRow key={`${bq.templateId || bq.activityName}-${idx}`}>
+                              <TableCell>{bq.activityName}</TableCell>
+                              <TableCell>{bq.milestoneName || '-'}</TableCell>
+                              <TableCell>{fmtMeasure(bq.quantity, bq.unitOfMeasure)}</TableCell>
+                              <TableCell align="right">{fmtOptionalCurrency(bq.unitCost)}</TableCell>
+                              <TableCell align="right">{fmtOptionalCurrency(bq.budgetAmount)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={bq.status === 'will_create' ? 'Will create' : 'Already exists'}
+                                  color={bq.status === 'will_create' ? 'warning' : 'default'}
+                                  variant={bq.status === 'will_create' ? 'filled' : 'outlined'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                ) : null}
+
+                {!postCreateTemplateCount ? (
+                  <Alert severity="warning" variant="outlined">
+                    No milestone or BQ templates are configured for this project type. Add project type templates before preparing scope.
+                  </Alert>
+                ) : null}
+              </>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closePostCreateScopeModal} disabled={postCreateScopeModal.confirming}>
+            Skip for Now
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={confirmPostCreateScope}
+            disabled={postCreateScopeModal.loading || postCreateScopeModal.confirming || postCreateWouldCreateCount === 0}
+          >
+            {postCreateScopeModal.confirming ? 'Creating Scope & BQ...' : 'Confirm Create Scope & BQ'}
+          </Button>
+        </DialogActions>
+      </Dialog>
       
       <AssignContractorModal
         open={openAssignModal}

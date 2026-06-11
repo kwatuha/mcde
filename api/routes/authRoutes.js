@@ -208,19 +208,41 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
 // @access  Public
 router.post('/register', async (req, res) => {
     const {
-        username, email, password, firstName, lastName, roleName, idNumber, employeeNumber, consentGiven,
-        ministry, state_department, directorate, phoneNumber,
+        username: usernameInput,
+        email: emailInput,
+        password: passwordInput,
+        firstName: firstNameInput,
+        lastName: lastNameInput,
+        roleName,
+        idNumber: idNumberInput,
+        employeeNumber: employeeNumberInput,
+        consentGiven,
+        ministry: ministryInput,
+        state_department: stateDepartmentInput,
+        directorate: directorateInput,
+        phoneNumber: phoneNumberInput,
+        phone_number: phoneNumberSnakeInput,
     } = req.body;
 
     // Legacy national field; not used for county self-registration (always null).
     const resolvedAgencyId = null;
 
-    const directorateTrim = directorate !== undefined && directorate !== null ? String(directorate).trim() : '';
+    const username = String(usernameInput ?? '').trim();
+    const email = String(emailInput ?? '').trim().toLowerCase();
+    const password = typeof passwordInput === 'string' ? passwordInput : '';
+    const firstName = String(firstNameInput ?? '').trim();
+    const lastName = String(lastNameInput ?? '').trim();
+    const idNumber = String(idNumberInput ?? '').trim();
+    const employeeNumber = String(employeeNumberInput ?? '').trim();
+    const ministry = String(ministryInput ?? '').trim();
+    const state_department = String(stateDepartmentInput ?? '').trim();
+    const directorateTrim = String(directorateInput ?? '').trim();
+    const phoneNumber = String(phoneNumberInput ?? phoneNumberSnakeInput ?? '').trim();
 
     // ministry = parent cabinet / county executive name; state_department = county department; directorate = section name
-    if (!username || !email || !password || !firstName || !lastName || !idNumber || !employeeNumber || !ministry || !state_department || !directorateTrim) {
+    if (!username || !email || !password || !firstName || !lastName || !idNumber || !employeeNumber || !phoneNumber || !ministry || !state_department || !directorateTrim) {
         return res.status(400).json({
-            error: 'Please enter all required fields: username, email, password, first name, last name, ID number, employee number, parent organization (ministry), department, and directorate.',
+            error: 'Please enter all required fields: username, email, phone number, password, first name, last name, ID number, employee number, parent organization (ministry), department, and directorate.',
         });
     }
 
@@ -230,12 +252,10 @@ router.post('/register', async (req, res) => {
         return res.status(400).json({ error: 'Please enter a valid email address (e.g., user@example.com).' });
     }
 
-    // Validate phone format if provided (0718109196 or +254718109196)
-    if (phoneNumber !== undefined && phoneNumber !== null && String(phoneNumber).trim() !== '') {
-        const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
-        if (!phoneRegex.test(String(phoneNumber).trim())) {
-            return res.status(400).json({ error: 'Invalid phone number format. Use 07XXXXXXXX or +2547XXXXXXXX.' });
-        }
+    // Validate phone format (0718109196 or +254718109196)
+    const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
+    if (!phoneRegex.test(phoneNumber)) {
+        return res.status(400).json({ error: 'Invalid phone number format. Use 07XXXXXXXX or +2547XXXXXXXX.' });
     }
 
     // Validate consent

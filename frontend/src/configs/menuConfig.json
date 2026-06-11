@@ -496,6 +496,9 @@
       "id": "hr",
       "label": "HR",
       "icon": "PeopleIcon",
+      "hidden": true,
+      "scopeDown": true,
+      "scopeDownReason": "HR module is currently outside the active county M&E scope.",
       "submenus": [
         {
           "title": "Employees",

@@ -1,5 +1,5 @@
 // src/components/ProjectFormDialog.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel,
@@ -12,6 +12,7 @@ import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../u
 import { tokens } from '../pages/dashboard/theme';
 import { DEFAULT_COUNTY } from '../configs/appConfig';
 import apiService from '../api';
+import { isAdmin as isAdminUser } from '../utils/privilegeUtils';
 
 const parseMoney = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -29,6 +30,50 @@ const fmtKes = (value) => {
 const fmtNumber = (value) => {
   const parsed = parseMoney(value);
   return parsed === null ? '-' : parsed.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+};
+
+const normalizeOrgKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const isAllOrgScope = (value) => ['*', 'all', 'all ministries', 'all_ministries'].includes(normalizeOrgKey(value));
+const aliasKeys = (value) => String(value || '')
+  .split(/[,;|/]/)
+  .map(normalizeOrgKey)
+  .filter(Boolean);
+
+const getUserDepartmentScope = (user) => {
+  if (!user || isAdminUser(user) || user.privileges?.includes('organization.scope_bypass')) {
+    return { restricted: false, allowedKeys: new Set() };
+  }
+
+  const scopes = Array.isArray(user.organizationScopes) ? user.organizationScopes : [];
+  const hasAllDepartmentsScope = scopes.some((scope) => {
+    const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+    return scopeType === 'ALL_MINISTRIES' || (scopeType === 'MINISTRY_ALL' && isAllOrgScope(scope?.ministry));
+  });
+  if (hasAllDepartmentsScope) {
+    return { restricted: false, allowedKeys: new Set() };
+  }
+
+  const allowedKeys = new Set();
+  let hasRestrictingScope = false;
+
+  scopes.forEach((scope) => {
+    const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+    if (scopeType === 'STATE_DEPARTMENT_ALL') {
+      hasRestrictingScope = true;
+      const key = normalizeOrgKey(scope?.stateDepartment || scope?.state_department);
+      if (key) allowedKeys.add(key);
+    }
+  });
+
+  if (allowedKeys.size === 0 && !scopes.length) {
+    const profileDepartment = normalizeOrgKey(user.stateDepartment || user.state_department);
+    if (profileDepartment) {
+      hasRestrictingScope = true;
+      allowedKeys.add(profileDepartment);
+    }
+  }
+
+  return { restricted: hasRestrictingScope && allowedKeys.size > 0, allowedKeys };
 };
 
 const ProjectFormDialog = ({
@@ -303,7 +348,20 @@ const ProjectFormDialog = ({
   const selectedProjectType = projectTypeOptions.find((category) =>
     String(category.categoryId) === String(formData.categoryId || '')
   );
-  const departmentOptions = departmentCatalog;
+  const userDepartmentScope = useMemo(() => getUserDepartmentScope(user), [user]);
+  const departmentOptions = userDepartmentScope.restricted
+    ? departmentCatalog.filter((department) => {
+        const keys = [
+          normalizeOrgKey(department?.name),
+          normalizeOrgKey(department?.alias),
+          ...aliasKeys(department?.alias),
+        ].filter(Boolean);
+        return keys.some((key) => userDepartmentScope.allowedKeys.has(key));
+      })
+    : departmentCatalog;
+  const departmentScopeHelper = userDepartmentScope.restricted
+    ? 'Limited to departments in your access scope'
+    : 'Select the responsible county department';
   const selectedDepartment = departmentOptions.find((department) => {
     const departmentName = department?.name || '';
     const departmentAlias = department?.alias || '';
@@ -318,6 +376,11 @@ const ProjectFormDialog = ({
     const sectionAlias = section?.alias || '';
     return sectionName === formData.directorate || sectionAlias === formData.directorate;
   }) || (formData.directorate ? { name: formData.directorate } : null);
+
+  useEffect(() => {
+    if (!open || currentProject || !userDepartmentScope.restricted || formData.stateDepartment || departmentOptions.length !== 1) return;
+    handleChange({ target: { name: 'stateDepartment', value: departmentOptions[0].name || '' } });
+  }, [open, currentProject, userDepartmentScope.restricted, formData.stateDepartment, departmentOptions, handleChange]);
   const templateBudgetTotal = projectTypeScopePreview.bqTemplates.reduce((sum, line) => {
     const amount = parseMoney(line.budgetAmount ?? line.budget_amount);
     return sum + (amount || 0);
@@ -862,7 +925,7 @@ const ProjectFormDialog = ({
                     label="Department"
                     variant="outlined"
                     size="small"
-                    helperText={formErrors.stateDepartment || 'Select the responsible county department'}
+                    helperText={formErrors.stateDepartment || departmentScopeHelper}
                     error={!!formErrors.stateDepartment}
                     sx={{
                       '& .MuiOutlinedInput-root': {

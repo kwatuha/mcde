@@ -9,9 +9,142 @@ const multer = require('multer');
 const xlsx = require('xlsx');
 const { addStatusFilter } = require('../utils/statusFilterHelper');
 const privilege = require('../middleware/privilegeMiddleware');
-const { isSuperAdminRequester } = require('../utils/roleUtils');
+const { isSuperAdminRequester, isAdminLikeRequester } = require('../utils/roleUtils');
 
 const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+
+const hasProjectScopeBypass = (user) => (
+    isAdminLikeRequester(user) || orgScope.userHasOrganizationBypass(user?.privileges || [])
+);
+
+const normalizeOrgAssignmentKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const isAllOrgAssignmentScope = (value) => ['*', 'all', 'all ministries', 'all_ministries'].includes(normalizeOrgAssignmentKey(value));
+
+const addOrgAssignmentAliasKeys = (set, value) => {
+    String(value || '')
+        .split(/[,;|/]/)
+        .map(normalizeOrgAssignmentKey)
+        .filter(Boolean)
+        .forEach((key) => set.add(key));
+};
+
+const getProjectAssignmentScopesForUser = async (user = {}) => {
+    if (hasProjectScopeBypass(user)) {
+        return { restricted: false, allowedDepartments: new Set(), allowedMinistries: new Set() };
+    }
+
+    const userId = getScopeUserId(user);
+    let scopes = [];
+    if (userId) {
+        try {
+            scopes = await orgScope.fetchOrganizationScopesForUser(userId);
+        } catch (err) {
+            console.warn('Project assignment scope lookup failed:', err.message);
+        }
+    }
+    if (!Array.isArray(scopes) || scopes.length === 0) {
+        scopes = Array.isArray(user.organizationScopes) ? user.organizationScopes : [];
+    }
+
+    const hasAllDepartmentScope = scopes.some((scope) => {
+        const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+        return scopeType === 'ALL_MINISTRIES' || (scopeType === 'MINISTRY_ALL' && isAllOrgAssignmentScope(scope?.ministry));
+    });
+    if (hasAllDepartmentScope) {
+        return { restricted: false, allowedDepartments: new Set(), allowedMinistries: new Set() };
+    }
+
+    const allowedDepartments = new Set();
+    const allowedMinistries = new Set();
+
+    scopes.forEach((scope) => {
+        const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
+        const ministryKey = normalizeOrgAssignmentKey(scope?.ministry);
+        const stateDepartmentKey = normalizeOrgAssignmentKey(scope?.stateDepartment || scope?.state_department);
+
+        if (scopeType === 'MINISTRY_ALL' && ministryKey) {
+            allowedMinistries.add(ministryKey);
+        }
+        if (scopeType === 'STATE_DEPARTMENT_ALL' && stateDepartmentKey) {
+            allowedDepartments.add(stateDepartmentKey);
+        }
+    });
+
+    if (allowedDepartments.size === 0 && allowedMinistries.size === 0 && scopes.length === 0) {
+        const profileDepartment = normalizeOrgAssignmentKey(user.stateDepartment || user.state_department);
+        const profileMinistry = normalizeOrgAssignmentKey(user.ministry);
+        if (profileDepartment) allowedDepartments.add(profileDepartment);
+        if (!profileDepartment && profileMinistry) allowedMinistries.add(profileMinistry);
+    }
+
+    return {
+        restricted: allowedDepartments.size > 0 || allowedMinistries.size > 0,
+        allowedDepartments,
+        allowedMinistries,
+    };
+};
+
+const expandDepartmentAssignmentKeys = async (rawKeys) => {
+    const keys = new Set([...rawKeys].map(normalizeOrgAssignmentKey).filter(Boolean));
+    if (keys.size === 0) return keys;
+
+    try {
+        const result = await pool.query(`
+            SELECT name, alias
+            FROM departments
+            WHERE COALESCE(voided, false) = false
+        `);
+        for (const row of result.rows || []) {
+            const rowKeys = new Set();
+            rowKeys.add(normalizeOrgAssignmentKey(row.name));
+            rowKeys.add(normalizeOrgAssignmentKey(row.alias));
+            addOrgAssignmentAliasKeys(rowKeys, row.alias);
+
+            if ([...rowKeys].some((key) => keys.has(key))) {
+                rowKeys.forEach((key) => {
+                    if (key) keys.add(key);
+                });
+            }
+        }
+    } catch (err) {
+        console.warn('Department alias expansion skipped:', err.message);
+    }
+
+    return keys;
+};
+
+const validateProjectOrgAssignment = async (user, { ministry, stateDepartment }) => {
+    const assignmentScope = await getProjectAssignmentScopesForUser(user);
+    if (!assignmentScope.restricted) {
+        return { ok: true };
+    }
+
+    const ministryKey = normalizeOrgAssignmentKey(ministry);
+    if (ministryKey && assignmentScope.allowedMinistries.has(ministryKey)) {
+        return { ok: true };
+    }
+
+    const requestedDepartmentKey = normalizeOrgAssignmentKey(stateDepartment);
+    if (!requestedDepartmentKey) {
+        return {
+            ok: false,
+            message: 'Select a department within your organization access scope before saving this project.',
+        };
+    }
+
+    const allowedDepartmentKeys = await expandDepartmentAssignmentKeys(assignmentScope.allowedDepartments);
+    const requestedDepartmentKeys = await expandDepartmentAssignmentKeys(new Set([requestedDepartmentKey]));
+    const isAllowedDepartment = [...requestedDepartmentKeys].some((key) => allowedDepartmentKeys.has(key));
+
+    if (!isAllowedDepartment) {
+        return {
+            ok: false,
+            message: 'You can only assign projects to departments within your organization access scope.',
+        };
+    }
+
+    return { ok: true };
+};
 
 // --- Consolidated Imports for All Sub-Routers ---
 const appointmentScheduleRoutes = require('./appointmentScheduleRoutes');
@@ -3383,10 +3516,9 @@ router.get('/status-counts', async (req, res) => {
         ];
         const queryParams = [];
 
-        // Enforce organization visibility unless user is Super Admin or has explicit bypass.
+        // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
                 whereConditions.push(scopeFragPg);
@@ -3535,10 +3667,9 @@ router.get('/directorate-counts', async (req, res) => {
         ];
         const queryParams = [];
 
-        // Enforce organization visibility unless user is Super Admin or has explicit bypass.
+        // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
                 whereConditions.push(scopeFragPg);
@@ -3679,10 +3810,9 @@ router.get('/organization-distribution', async (req, res) => {
         const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
         const queryParams = [];
 
-        // Enforce organization visibility unless user has bypass privilege.
+        // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -3796,8 +3926,7 @@ router.get('/organization-projects', async (req, res) => {
         const queryParams = [];
 
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -3906,8 +4035,7 @@ router.get('/jobs-snapshot', async (req, res) => {
         const queryParams = [];
 
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
                 queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
@@ -4736,8 +4864,7 @@ router.get('/', async (req, res) => {
         }
 
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
                 let hasProfileScopeContext = false;
@@ -6093,8 +6220,7 @@ router.get('/:id', async (req, res) => {
         let params = [id];
 
         const authUserId = getScopeUserId(req.user);
-        const authPrivileges = req.user?.privileges || [];
-        if (DB_TYPE === 'postgresql' && authUserId && !isSuperAdminRequester(req.user) && !orgScope.userHasOrganizationBypass(authPrivileges)) {
+        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
                 let hasProfileScopeContext = false;
@@ -6212,6 +6338,14 @@ router.post('/', validateProject, async (req, res) => {
                 const countyDepartment = departmentName || department || stateDepartment || null;
                 const countySection = sectionName || implementingAgency || directorate || null;
                 const parentMinistry = ministry || (countyDepartment ? 'Machakos County Executive' : null);
+                const assignmentValidation = await validateProjectOrgAssignment(req.user, {
+                    ministry: parentMinistry,
+                    stateDepartment: countyDepartment,
+                });
+                if (!assignmentValidation.ok) {
+                    await pool.query('ROLLBACK');
+                    return res.status(403).json({ message: assignmentValidation.message });
+                }
                 const normalizedFinancialYear = normalizeFinancialYearValue(finYearId ?? financialYear, startDate, endDate);
                 
                 // categoryId was extracted separately from req.body, use it here
@@ -6554,7 +6688,7 @@ router.put('/:id', validateProject, async (req, res) => {
             // Build JSONB objects for update
             // First, fetch existing project to merge with existing JSONB data
             const existingResult = await pool.query(
-                'SELECT timeline, budget, progress, notes, data_sources, public_engagement, location FROM projects WHERE project_id = $1 AND voided = false',
+                'SELECT timeline, budget, progress, notes, data_sources, public_engagement, location, ministry, state_department FROM projects WHERE project_id = $1 AND voided = false',
                 [id]
             );
 
@@ -6564,6 +6698,20 @@ router.put('/:id', validateProject, async (req, res) => {
             }
 
             const existing = existingResult.rows[0];
+            const effectiveMinistry = ('ministry' in projectData)
+                ? (ministry && typeof ministry === 'string' && ministry.trim() !== '' ? ministry.trim() : null)
+                : (existing.ministry || null);
+            const effectiveStateDepartment = ('stateDepartment' in projectData || 'departmentName' in projectData || 'department' in projectData)
+                ? (countyDepartment && typeof countyDepartment === 'string' && countyDepartment.trim() !== '' ? countyDepartment.trim() : null)
+                : (existing.state_department || null);
+            const assignmentValidation = await validateProjectOrgAssignment(req.user, {
+                ministry: effectiveMinistry,
+                stateDepartment: effectiveStateDepartment,
+            });
+            if (!assignmentValidation.ok) {
+                await pool.query('ROLLBACK');
+                return res.status(403).json({ message: assignmentValidation.message });
+            }
             
             // Merge existing JSONB data with new values
             const existingTimeline = existing.timeline || {};

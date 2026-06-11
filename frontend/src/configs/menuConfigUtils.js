@@ -125,6 +125,11 @@ export const getIconComponent = (iconName) => {
 // Filter menu categories based on user permissions and admin status
 export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, user = null) => {
   const categories = menuConfig.menuCategories.filter(category => {
+    // Scope-down/disabled modules stay configured for reference, but are not shown in navigation.
+    if (category.hidden === true || category.scopeDown === true) {
+      return false;
+    }
+
     // Filter out admin-only categories if user is not admin
     if (category.adminOnly && !isAdmin) {
       return false;

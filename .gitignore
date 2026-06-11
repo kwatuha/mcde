@@ -126,6 +126,7 @@ setup-ssh-key.sh
 scripts/migration/*.sql
 !scripts/migration/2026-06-11-seed-cidp-sectors-subsectors-and-project-links.sql
 !scripts/migration/2026-06-11-seed-project-types-milestones-and-bq-templates.sql
+!scripts/migration/2026-06-11-scope-down-hr-module.sql
 *.dump
 *.sql.gz
 

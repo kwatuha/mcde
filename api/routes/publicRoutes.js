@@ -566,7 +566,15 @@ router.get('/projects', async (req, res) => {
                     p.sector AS "projectType",
                     p.location->>'subcounty' AS subcounty_name,
                     p.location->>'ward' AS ward_name,
-                    NULL::text AS thumbnail
+                    (
+                        SELECT pp."filePath"
+                        FROM project_photos pp
+                        WHERE pp."projectId" = p.project_id
+                          AND COALESCE(pp.voided, false) = false
+                          AND COALESCE(pp.approved_for_public, false) = true
+                        ORDER BY COALESCE(pp."isDefault", false) DESC, pp."createdAt" DESC
+                        LIMIT 1
+                    ) AS thumbnail
                 FROM projects p
                 WHERE ${whereClause}
                 ORDER BY p.created_at DESC
@@ -856,6 +864,71 @@ router.get('/projects/:id/map', async (req, res) => {
 router.get('/projects/:id', async (req, res) => {
     try {
         const { id } = req.params;
+
+        if (isPostgresDb()) {
+            const query = `
+                SELECT
+                    p.project_id AS id,
+                    p.name AS project_name,
+                    p.description AS description,
+                    CASE
+                        WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN (p.budget->>'allocated_amount_kes')::numeric
+                        ELSE NULL
+                    END AS budget,
+                    p.progress->>'status' AS status,
+                    (p.timeline->>'start_date')::date AS start_date,
+                    (p.timeline->>'expected_completion_date')::date AS end_date,
+                    CASE
+                        WHEN (p.progress->>'percentage_complete') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN (p.progress->>'percentage_complete')::numeric
+                        ELSE NULL
+                    END AS "completionPercentage",
+                    p.created_at AS "createdAt",
+                    p.ministry AS department_name,
+                    p.sector AS "projectType",
+                    p.timeline->>'financial_year' AS "financialYear",
+                    p.location->>'subcounty' AS subcounty_name,
+                    p.location->>'ward' AS ward_name,
+                    (
+                        SELECT pp."filePath"
+                        FROM project_photos pp
+                        WHERE pp."projectId" = p.project_id
+                          AND COALESCE(pp.voided, false) = false
+                          AND COALESCE(pp.approved_for_public, false) = true
+                        ORDER BY COALESCE(pp."isDefault", false) DESC, pp."createdAt" DESC
+                        LIMIT 1
+                    ) AS thumbnail
+                FROM projects p
+                WHERE p.project_id = $1
+                  AND p.voided = false
+                  AND LOWER(COALESCE(p.is_public->>'approved', 'false')) = 'true'
+            `;
+
+            const projects = rowsFrom(await pool.query(query, [id]));
+            if (projects.length === 0) {
+                return res.status(404).json({ error: 'Project not found' });
+            }
+
+            const photosQuery = `
+                SELECT
+                    "photoId" AS "photoId",
+                    "filePath" AS "filePath",
+                    "fileName" AS "fileName",
+                    description,
+                    "createdAt" AS uploaded_at
+                FROM project_photos
+                WHERE "projectId" = $1
+                  AND COALESCE(voided, false) = false
+                  AND COALESCE(approved_for_public, false) = true
+                ORDER BY COALESCE("isDefault", false) DESC, "createdAt" DESC
+            `;
+            const photos = rowsFrom(await pool.query(photosQuery, [id]));
+
+            const projectData = projects[0];
+            projectData.photos = photos || [];
+            return res.json(projectData);
+        }
 
         const query = `
             SELECT 

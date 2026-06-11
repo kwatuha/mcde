@@ -20,9 +20,9 @@ import {
   Close,
   Send,
   Comment,
-  LocationOn,
   Business,
-  CalendarToday
+  CalendarToday,
+  CheckCircle
 } from '@mui/icons-material';
 import { submitFeedback } from '../services/publicApi';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -43,6 +43,7 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [error, setError] = useState(null);
 
   const handleChange = (e) => {
@@ -84,6 +85,7 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
       console.log('Feedback submission result:', result);
       
       setSuccess(true);
+      setSuccessDialogOpen(true);
       
       // Reset form
       setFormData({
@@ -98,12 +100,6 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
         ratingTransparency: null,
         ratingFeasibilityConfidence: null
       });
-      
-      // Close modal after 2 seconds
-      setTimeout(() => {
-        setSuccess(false);
-        onClose();
-      }, 2000);
     } catch (err) {
       console.error('Error submitting feedback:', err);
       setError(`Failed to submit feedback: ${err.message || 'Please try again later.'}`);
@@ -127,9 +123,16 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
         ratingFeasibilityConfidence: null
       });
       setSuccess(false);
+      setSuccessDialogOpen(false);
       setError(null);
       onClose();
     }
+  };
+
+  const handleSuccessDialogClose = () => {
+    setSuccessDialogOpen(false);
+    setSuccess(false);
+    onClose();
   };
 
   console.log('ProjectFeedbackModal - open:', open, 'project:', project);
@@ -140,6 +143,7 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
   }
 
   return (
+    <>
     <Dialog 
       open={open} 
       onClose={handleClose}
@@ -258,13 +262,6 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
         </Paper>
 
         <Divider sx={{ mb: 3 }} />
-
-        {/* Success Message */}
-        {success && (
-          <Alert severity="success" sx={{ mb: 3 }}>
-            Thank you for your feedback! Your input has been submitted successfully.
-          </Alert>
-        )}
 
         {/* Error Message */}
         {error && (
@@ -482,6 +479,86 @@ const ProjectFeedbackModal = ({ open, onClose, project }) => {
         </Button>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={successDialogOpen}
+      onClose={handleSuccessDialogClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: '8px',
+          overflow: 'hidden'
+        }
+      }}
+    >
+      <Box
+        sx={{
+          background: 'linear-gradient(135deg, #2e7d32 0%, #66bb6a 100%)',
+          color: 'white',
+          textAlign: 'center',
+          py: 3,
+          px: 3
+        }}
+      >
+        <Box
+          sx={{
+            width: 44,
+            height: 44,
+            mx: 'auto',
+            mb: 1.5,
+            borderRadius: '50%',
+            backgroundColor: 'rgba(255,255,255,0.92)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <CheckCircle sx={{ fontSize: 34, color: '#2e7d32' }} />
+        </Box>
+        <Typography variant="h5" fontWeight="bold">
+          Your message has been received
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 1, opacity: 0.95 }}>
+          Thank you for contacting the County Government of Machakos
+        </Typography>
+      </Box>
+      <DialogContent sx={{ p: 3, pb: 1 }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.5,
+            borderRadius: '8px',
+            backgroundColor: '#fafafa'
+          }}
+        >
+          <Typography variant="body1" sx={{ lineHeight: 1.75 }}>
+            Thank you for visiting the County Government of Machakos Public Investment Management System.
+            Your message has been received and forwarded for feedback processing. Kindly stay patient as
+            we process your concerns.
+          </Typography>
+        </Paper>
+      </DialogContent>
+      <DialogActions sx={{ justifyContent: 'center', px: 3, pb: 3 }}>
+        <Button
+          variant="contained"
+          onClick={handleSuccessDialogClose}
+          autoFocus
+          sx={{
+            minWidth: 160,
+            borderRadius: '8px',
+            py: 1,
+            fontWeight: 'bold',
+            backgroundColor: '#2e7d32',
+            '&:hover': {
+              backgroundColor: '#1b5e20'
+            }
+          }}
+        >
+          OK
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 
