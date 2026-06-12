@@ -11,13 +11,24 @@ import {
     Delete as DeleteIcon, Star as StarIcon, Close as CloseIcon
 } from '@mui/icons-material';
 import apiService from '../api';
+import { API_BASE_URL } from '../api';
 import { useAuth } from '../context/AuthContext';
+
+const buildPhotoUrl = (filePath) => {
+    if (!filePath) return '';
+    const apiBaseUrl = API_BASE_URL || '';
+    const normalizedBase = apiBaseUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
+    const normalizedPath = String(filePath).replace(/^\/+/, '');
+
+    if (/^https?:\/\//i.test(filePath)) return filePath;
+    if (normalizedPath.startsWith('uploads/')) return `${normalizedBase}/${normalizedPath}`;
+    return `${normalizedBase}/uploads/${normalizedPath}`;
+};
 
 const ProjectPhotoManager = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { hasPrivilege } = useAuth();
-    const serverUrl =import.meta.env.VITE_API_BASE_URL;
 
     const [photos, setPhotos] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -155,19 +166,38 @@ const ProjectPhotoManager = () => {
 
             <Paper elevation={3} sx={{ p: 3, mb: 4, borderRadius: '8px' }}>
                 <Typography variant="h6" color="primary.main" gutterBottom>Photo Gallery</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Click any photo to view the full-size image. Gallery previews preserve the full photo so important details are not cropped.
+                </Typography>
                 <Grid container spacing={3}>
                     {photos.length > 0 ? (
                         photos.map((photo) => (
-                            <Grid item key={photo.photoId} xs={12} sm={6} md={4} lg={3}>
-                                <Card sx={{ position: 'relative', border: photo.isDefault ? '2px solid #22c55e' : '1px solid #ccc' }}>
-                                    <CardMedia
-                                        component="img"
-                                        height="200"
-                                        image={`${serverUrl}/${photo.filePath}`}
-                                        alt={photo.description}
-                                        sx={{ cursor: 'pointer', objectFit: 'cover' }}
+                            <Grid item key={photo.photoId} xs={12} sm={6} md={4} xl={3}>
+                                <Card sx={{ position: 'relative', height: '100%', border: photo.isDefault ? '2px solid #22c55e' : '1px solid #ccc' }}>
+                                    <Box
+                                        sx={{
+                                            height: { xs: 260, sm: 280, md: 300 },
+                                            bgcolor: 'grey.100',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            overflow: 'hidden',
+                                        }}
                                         onClick={() => handleOpenPreview(photo)}
-                                    />
+                                    >
+                                        <CardMedia
+                                            component="img"
+                                            image={buildPhotoUrl(photo.filePath)}
+                                            alt={photo.description || photo.fileName || 'Project photo'}
+                                            sx={{
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'contain',
+                                                p: 1,
+                                            }}
+                                        />
+                                    </Box>
                                     <CardContent>
                                         <Typography gutterBottom variant="subtitle2" component="div" noWrap>
                                             {photo.fileName}
@@ -216,14 +246,14 @@ const ProjectPhotoManager = () => {
                             disabled={uploading}
                         >
                             Upload Photo
-                            <input type="file" hidden onChange={handleFileSelect} ref={fileInputRef} />
+                            <input type="file" accept="image/*" hidden onChange={handleFileSelect} ref={fileInputRef} />
                         </Button>
                         {uploading && <LinearProgress sx={{ mt: 1 }} />}
                     </Box>
                 )}
             </Paper>
 
-            <Dialog open={!!previewPhoto} onClose={handleClosePreview} fullWidth maxWidth="md">
+            <Dialog open={!!previewPhoto} onClose={handleClosePreview} fullWidth maxWidth="lg">
                 <DialogTitle>
                     {previewPhoto?.fileName}
                     <IconButton
@@ -236,8 +266,12 @@ const ProjectPhotoManager = () => {
                 </DialogTitle>
                 <DialogContent dividers>
                     {previewPhoto && (
-                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                            <img src={`${serverUrl}/${previewPhoto.filePath}`} alt={previewPhoto.description} style={{ maxWidth: '100%', maxHeight: '80vh' }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'center', bgcolor: 'grey.100', borderRadius: 1, p: 1 }}>
+                            <img
+                                src={buildPhotoUrl(previewPhoto.filePath)}
+                                alt={previewPhoto.description || previewPhoto.fileName || 'Project photo'}
+                                style={{ maxWidth: '100%', maxHeight: '82vh', objectFit: 'contain' }}
+                            />
                         </Box>
                     )}
                 </DialogContent>

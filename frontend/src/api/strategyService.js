@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { axiosInstance} from './index';
 
 const strategyService = {
@@ -134,6 +133,15 @@ const strategyService = {
         throw error;
     }
   },
+  getSubprogramsByPlanId: async (planCidpId) => {
+    try {
+        const response = await axiosInstance.get(`/strategy/subprograms/by-plan/${planCidpId}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching subprograms for plan ${planCidpId}:`, error);
+        throw error;
+    }
+  },
   createSubprogram: async (subprogramData) => {
     try {
       const response = await axiosInstance.post('/strategy/subprograms', subprogramData);
@@ -170,6 +178,15 @@ const strategyService = {
               return response.data;
           } catch (error) {
               console.error(`Error fetching work plans for subprogram ${subProgramId}:`, error);
+              throw error;
+          }
+      },
+      getWorkPlansByPlanId: async (planCidpId) => {
+          try {
+              const response = await axiosInstance.get(`/strategy/workplans/by-plan/${planCidpId}`);
+              return response.data;
+          } catch (error) {
+              console.error(`Error fetching work plans for plan ${planCidpId}:`, error);
               throw error;
           }
       },
@@ -417,12 +434,7 @@ const strategyService = {
   // --- Placeholder for Filter Options ---
   getFilterOptions: async (filterType) => {
     console.warn(`apiService.strategy.getFilterOptions called for type: ${filterType}. This is a placeholder and needs implementation.`);
-    try {
-      return [];
-    } catch (error) {
-      console.error('Error fetching filter options:', error);
-      throw error;
-    }
+    return [];
   },
 };
 

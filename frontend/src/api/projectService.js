@@ -196,6 +196,25 @@ const projectService = {
       const { data } = await axiosInstance.delete(`/projects/${projectId}/planning-catalog/risks/${linkId}`);
       return data;
     },
+    getCidpCatalog: async () => {
+      const { data } = await axiosInstance.get('/projects/cidp/catalog');
+      return data;
+    },
+    getCidpProjectLink: async (projectId) => {
+      const { data } = await axiosInstance.get(`/projects/${projectId}/cidp-link`);
+      return data;
+    },
+    updateCidpProjectLink: async (projectId, payload) => {
+      const { data } = await axiosInstance.put(`/projects/${projectId}/cidp-link`, payload);
+      return data;
+    },
+    updateCidpSuggestionStatus: async (projectId, suggestionId, status) => {
+      const { data } = await axiosInstance.patch(
+        `/projects/${projectId}/cidp-link-suggestions/${suggestionId}`,
+        { status }
+      );
+      return data;
+    },
     getProjectEvaluations: async (projectId) => {
       const { data } = await axiosInstance.get('/projects/evaluation', { params: { projectId } });
       return data;

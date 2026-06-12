@@ -184,15 +184,15 @@ function filterCategorySubmenusToNavItems(category, hasPrivilege, user, isAdminL
 
 const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed, nested, treeChrome }) => {
   const navigate = useNavigate();
-  
-  if (privilegeCheck && !privilegeCheck()) {
-    return null;
-  }
 
   const handleClick = useCallback(() => {
     setSelected(to);
     navigate(to);
   }, [to, setSelected, navigate]);
+
+  if (privilegeCheck && !privilegeCheck()) {
+    return null;
+  }
 
   const isSel = selected === to;
   const labelColor = treeChrome
@@ -395,6 +395,7 @@ const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nest
 
 const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPinnedOpen = false, onTogglePinned }) => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const { selectedCategoryId } = useMenuCategory();
   const { user, hasPrivilege } = useAuth();
   
@@ -436,6 +437,18 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   const stableSetSelected = useCallback((value) => {
     setSelected(value);
   }, []);
+
+  const handleLogoHomeNavigation = useCallback(() => {
+    setSelected(ROUTES.DASHBOARD);
+    navigate(ROUTES.DASHBOARD);
+  }, [navigate]);
+
+  const handleLogoKeyDown = useCallback((event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleLogoHomeNavigation();
+    }
+  }, [handleLogoHomeNavigation]);
   
   // Get sidebar collapse state from context
   const { isCollapsed, toggleSidebar } = useSidebar();
@@ -834,6 +847,11 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
               {/* CIMES-style brand strip (tree layout only; emblem matches AppBar) */}
               {!isCollapsed ? (
                 <Box
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Go to home page"
+                  onClick={handleLogoHomeNavigation}
+                  onKeyDown={handleLogoKeyDown}
                   sx={{
                     display: 'flex',
                     alignItems: 'center',
@@ -843,6 +861,15 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                     px: 1,
                     pr: 4.5,
                     minHeight: 36,
+                    cursor: 'pointer',
+                    borderRadius: 1,
+                    '&:hover': {
+                      backgroundColor: treeChromeLight ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
+                    },
+                    '&:focus-visible': {
+                      outline: `2px solid ${treeChromeLight ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
+                      outlineOffset: 2,
+                    },
                   }}
                 >
                   <Box
@@ -879,12 +906,26 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
               ) : (
                 <Tooltip title="MCMES" placement="right" arrow>
                   <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Go to home page"
+                    onClick={handleLogoHomeNavigation}
+                    onKeyDown={handleLogoKeyDown}
                     sx={{
                       display: 'flex',
                       justifyContent: 'center',
                       mt: treeBrandMt,
                       mb: 0.5,
                       px: 0.5,
+                      cursor: 'pointer',
+                      borderRadius: 1,
+                      '&:hover': {
+                        backgroundColor: treeChromeLight ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
+                      },
+                      '&:focus-visible': {
+                        outline: `2px solid ${treeChromeLight ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
+                        outlineOffset: 2,
+                      },
                     }}
                   >
                     <Box

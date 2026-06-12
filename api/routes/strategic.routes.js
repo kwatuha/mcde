@@ -77,7 +77,16 @@ async function ensureStrategyTables() {
             )
         `);
 
-        await runSafeDdl(`ALTER TABLE programs ALTER COLUMN cidpid TYPE TEXT USING cidpid::text`);
+        const cidpIdColumnType = firstRowFromResult(await pool.query(`
+            SELECT data_type AS "dataType"
+            FROM information_schema.columns
+            WHERE table_name = 'programs'
+              AND column_name = 'cidpid'
+            LIMIT 1
+        `))?.dataType;
+        if (cidpIdColumnType && cidpIdColumnType !== 'text') {
+            await runSafeDdl(`ALTER TABLE programs ALTER COLUMN cidpid TYPE TEXT USING cidpid::text`);
+        }
         await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS programme TEXT NULL`);
         await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS description TEXT NULL`);
         await runSafeDdl(`ALTER TABLE programs ADD COLUMN IF NOT EXISTS "needsPriorities" TEXT NULL`);
@@ -102,6 +111,8 @@ async function ensureStrategyTables() {
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "totalBudget" NUMERIC(18,2) NULL`);
         await runSafeDdl(`ALTER TABLE subprograms ADD COLUMN IF NOT EXISTS "planningIndicatorId" BIGINT NULL`);
         await pool.query(`UPDATE subprograms SET "unitOfMeasure" = 'count' WHERE "unitOfMeasure" = 'counts'`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_programs_cidpid_voided ON programs (cidpid, voided)`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_subprograms_programid_voided ON subprograms ("programId", voided)`);
 
         await runSafeDdl(`ALTER TABLE strategicplans ADD COLUMN IF NOT EXISTS vision TEXT NULL`);
         await runSafeDdl(`ALTER TABLE strategicplans ADD COLUMN IF NOT EXISTS mission TEXT NULL`);
@@ -166,6 +177,17 @@ async function ensureStrategyTables() {
                 updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        const runSafeMySqlDdl = async (sql) => {
+            try {
+                await pool.query(sql);
+            } catch (e) {
+                if (!['ER_DUP_KEYNAME', 'ER_DUP_FIELDNAME'].includes(String(e?.code || ''))) {
+                    throw e;
+                }
+            }
+        };
+        await runSafeMySqlDdl('CREATE INDEX idx_programs_cidpid_voided ON programs (cidpid, voided)');
+        await runSafeMySqlDdl('CREATE INDEX idx_subprograms_programid_voided ON subprograms (programId, voided)');
         await pool.query(`UPDATE subprograms SET unitOfMeasure = 'count' WHERE unitOfMeasure = 'counts'`);
 
         try {
@@ -611,6 +633,32 @@ router.get('/subprograms', async (req, res) => {
     } catch (error) {
         console.error('Error fetching subprograms:', error);
         res.status(500).json({ message: 'Error fetching subprograms', error: error.message });
+    }
+});
+
+router.get('/subprograms/by-plan/:planId', async (req, res) => {
+    const { planId } = req.params;
+    try {
+        const result = await pool.query(isPostgres ? `
+            SELECT s.*,
+            COALESCE(s."subProgramme", s."subProgramName") AS "subProgramme"
+            FROM subprograms s
+            INNER JOIN programs p ON p."programId" = s."programId"
+            WHERE p.cidpid = ? AND s.voided = false AND p.voided = false
+            ORDER BY s."programId", s."subProgramId"
+        ` : `
+            SELECT s.*,
+            COALESCE(s.subProgramme, s.subProgramName) AS subProgramme
+            FROM subprograms s
+            INNER JOIN programs p ON p.programId = s.programId
+            WHERE p.cidpid = ? AND s.voided = 0 AND p.voided = 0
+            ORDER BY s.programId, s.subProgramId
+        `, [planId]);
+        const rows = rowsFromResult(result);
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error(`Error fetching subprograms for plan ${planId}:`, error);
+        res.status(500).json({ message: `Error fetching subprograms for plan ${planId}`, error: error.message });
     }
 });
 

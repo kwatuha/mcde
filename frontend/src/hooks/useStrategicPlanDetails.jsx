@@ -34,69 +34,27 @@ const useStrategicPlanDetails = (planId) => {
       const planData = await apiService.strategy.getStrategicPlanById(planId);
       setStrategicPlan(planData);
 
-      // Step 2: Fetch the programs associated with this specific plan.
-      const programsData = await apiService.strategy.getProgramsByPlanId(planData.cidpid);
+      // Step 2: Fetch the plan-level collections in bulk.
+      const [
+        programsData,
+        allSubprograms,
+        workPlansResults,
+        attachmentsData,
+        milestonesData,
+      ] = await Promise.all([
+        apiService.strategy.getProgramsByPlanId(planData.cidpid),
+        apiService.strategy.getSubprogramsByPlanId(planData.cidpid),
+        apiService.strategy.annualWorkPlans.getWorkPlansByPlanId(planData.cidpid),
+        apiService.strategy.getPlanningDocumentsForEntity('plan', planId),
+        apiService.milestones.getMilestonesForProject(planId),
+      ]);
       setPrograms(programsData);
-
-      // Step 3: Fetch all subprograms.
-      const allSubprograms = (await Promise.all(
-        programsData.map(program =>
-          apiService.strategy.getSubprogramsByProgramId(program.programId)
-        )
-      )).flat();
       setSubprograms(allSubprograms);
-
-      // Step 4: Fetch all work plans for all subprograms.
-      const workPlansPromises = allSubprograms.map(subprogram => 
-          apiService.strategy.annualWorkPlans.getWorkPlansBySubprogramId(subprogram.subProgramId)
-      );
-      const workPlansResults = (await Promise.all(workPlansPromises)).flat();
       setAnnualWorkPlans(workPlansResults);
-
-      // Step 5: Fetch all activities for all work plans.
-      // Be tolerant of partial failures to avoid breaking plan refresh after saving a work plan.
-      const validWorkPlans = (workPlansResults || []).filter(
-        (workplan) => workplan && workplan.workplanId
-      );
-      let activitiesResults = [];
-      if (validWorkPlans.length > 0) {
-        const activitiesPromises = validWorkPlans.map((workplan) =>
-          apiService.strategy.activities
-            .getActivitiesByWorkPlanId(workplan.workplanId)
-            .catch((err) => {
-              console.warn(`Error fetching activities for work plan ${workplan.workplanId}:`, err);
-              return [];
-            })
-        );
-        activitiesResults = (await Promise.all(activitiesPromises)).flat();
-      }
-      setActivities(activitiesResults);
-      
-      // Step 6: Fetch attachments for the plan.
-      const attachmentsData = await apiService.strategy.getPlanningDocumentsForEntity('plan', planId);
       setAttachments(attachmentsData);
-      
-      // Step 7: Fetch all milestones for the project.
-      const milestonesData = await apiService.milestones.getMilestonesForProject(planId);
       setMilestones(milestonesData);
-
-      // NEW: Step 8: Fetch all activities for each milestone.
-      let milestoneActivitiesResults = [];
-      if (milestonesData && milestonesData.length > 0) {
-        try {
-          const milestoneActivitiesPromises = milestonesData.map(milestone =>
-            apiService.strategy.milestoneActivities.getActivitiesByMilestoneId(milestone.milestoneId).catch(err => {
-              console.warn(`Error fetching activities for milestone ${milestone.milestoneId}:`, err);
-              return []; // Return empty array on error
-            })
-          );
-          milestoneActivitiesResults = (await Promise.all(milestoneActivitiesPromises)).flat();
-        } catch (err) {
-          console.warn('Error fetching milestone activities:', err);
-          milestoneActivitiesResults = [];
-        }
-      }
-      setMilestoneActivities(milestoneActivitiesResults);
+      setActivities([]);
+      setMilestoneActivities([]);
 
     } catch (err) {
       console.error('Error fetching strategic plan details:', err);

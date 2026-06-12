@@ -12,8 +12,18 @@ const affectedRowsFromResult = (result) => (isPostgres ? Number(result?.rowCount
 async function ensureWorkPlanTable() {
     if (workPlanTableEnsured) return;
 
+    const runSafeDdl = async (sql) => {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            const code = String(err?.code || '');
+            if (['42P07', '42710', '23505', 'ER_DUP_KEYNAME'].includes(code)) return;
+            throw err;
+        }
+    };
+
     if (isPostgres) {
-        await pool.query(`
+        await runSafeDdl(`
             CREATE TABLE IF NOT EXISTS annual_workplans (
                 "workplanId" BIGSERIAL PRIMARY KEY,
                 "subProgramId" BIGINT NULL,
@@ -34,8 +44,9 @@ async function ensureWorkPlanTable() {
                 "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_annual_workplans_subprogramid_voided ON annual_workplans ("subProgramId", voided)`);
     } else {
-        await pool.query(`
+        await runSafeDdl(`
             CREATE TABLE IF NOT EXISTS annual_workplans (
                 workplanId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 subProgramId BIGINT NULL,
@@ -56,6 +67,7 @@ async function ensureWorkPlanTable() {
                 updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        await runSafeDdl('CREATE INDEX idx_annual_workplans_subprogramid_voided ON annual_workplans (subProgramId, voided)');
     }
 
     workPlanTableEnsured = true;
@@ -91,6 +103,33 @@ const formatToMySQLDateTime = (date) => {
     const seconds = d.getSeconds().toString().padStart(2, '0');
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
+
+// GET all work plans for a strategic plan
+router.get('/by-plan/:planId', async (req, res) => {
+    const { planId } = req.params;
+    try {
+        const result = await pool.query(isPostgres ? `
+            SELECT awp.*
+            FROM annual_workplans awp
+            INNER JOIN subprograms s ON s."subProgramId" = awp."subProgramId"
+            INNER JOIN programs p ON p."programId" = s."programId"
+            WHERE p.cidpid = ? AND awp.voided = false AND s.voided = false AND p.voided = false
+            ORDER BY awp."subProgramId", awp."workplanId"
+        ` : `
+            SELECT awp.*
+            FROM annual_workplans awp
+            INNER JOIN subprograms s ON s.subProgramId = awp.subProgramId
+            INNER JOIN programs p ON p.programId = s.programId
+            WHERE p.cidpid = ? AND awp.voided = 0 AND s.voided = 0 AND p.voided = 0
+            ORDER BY awp.subProgramId, awp.workplanId
+        `, [planId]);
+        const rows = rowsFromResult(result);
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error(`Error fetching work plans for plan ${planId}:`, error);
+        res.status(500).json({ message: `Error fetching work plans for plan ${planId}`, error: error.message });
+    }
+});
 
 // GET all work plans for a specific subprogram
 router.get('/by-subprogram/:subProgramId', async (req, res) => {

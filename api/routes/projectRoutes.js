@@ -477,10 +477,25 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
                 p.timeline->>'financial_year' AS "financialYearName",
-                (p.notes->>'program_id')::integer AS "programId",
-                NULL AS "programName",
-                (p.notes->>'subprogram_id')::integer AS "subProgramId",
-                NULL AS "subProgramName",
+                CASE
+                    WHEN (p.notes->>'program_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'program_id')::integer
+                    ELSE NULL
+                END AS "programId",
+                COALESCE(cidp_pr.programme, cidp_pr."programName") AS "programName",
+                CASE
+                    WHEN (p.notes->>'subprogram_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'subprogram_id')::integer
+                    ELSE NULL
+                END AS "subProgramId",
+                COALESCE(cidp_sp."subProgramme", cidp_sp."subProgramName") AS "subProgramName",
+                cidp_pr."programCode" AS "cidpProgramCode",
+                COALESCE(cidp_pr.programme, cidp_pr."programName") AS "cidpProgramme",
+                cidp_sp."subProgramCode" AS "cidpSubProgramCode",
+                COALESCE(cidp_sp."subProgramme", cidp_sp."subProgramName") AS "cidpSubProgramme",
+                cidp_sp."totalBudget" AS "cidpTotalBudget",
+                cidp_src.source_cidp_page AS "cidpSourcePage",
+                cidp_src.source_pdf_page AS "cidpSourcePdfPage",
                 p.category_id AS "categoryId",
                 proj_cat."categoryName" AS "categoryName",
                 p.sector AS "sector",
@@ -534,6 +549,23 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
             LEFT JOIN categories proj_cat
               ON proj_cat."categoryId" = p.category_id
              AND COALESCE(proj_cat.voided, false) = false
+            LEFT JOIN programs cidp_pr
+              ON cidp_pr."programId" = CASE
+                    WHEN (p.notes->>'program_id') ~ '^[0-9]+$' THEN (p.notes->>'program_id')::bigint
+                    ELSE NULL
+                 END
+             AND COALESCE(cidp_pr.voided, false) = false
+            LEFT JOIN subprograms cidp_sp
+              ON cidp_sp."subProgramId" = CASE
+                    WHEN (p.notes->>'subprogram_id') ~ '^[0-9]+$' THEN (p.notes->>'subprogram_id')::bigint
+                    ELSE NULL
+                 END
+             AND COALESCE(cidp_sp.voided, false) = false
+            LEFT JOIN cidp_programme_sources cidp_src
+              ON cidp_src.cidp_code = cidp_pr.cidpid
+             AND cidp_src.programme_code = cidp_pr."programCode"
+             AND COALESCE(cidp_src.subprogramme_code, '') = COALESCE(cidp_sp."subProgramCode", '')
+             AND cidp_src.record_type = CASE WHEN cidp_sp."subProgramId" IS NULL THEN 'programme' ELSE 'subprogramme' END
             WHERE p.project_id = $1 AND p.voided = false
         `;
     } else {
@@ -4708,10 +4740,25 @@ router.get('/', async (req, res) => {
                 p.state_department AS "stateDepartment",
                 NULL AS "finYearId",
                 p.timeline->>'financial_year' AS "financialYearName",
-                (p.notes->>'program_id')::integer AS "programId",
-                NULL AS programName,
-                (p.notes->>'subprogram_id')::integer AS "subProgramId",
-                NULL AS subProgramName,
+                CASE
+                    WHEN (p.notes->>'program_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'program_id')::integer
+                    ELSE NULL
+                END AS "programId",
+                COALESCE(cidp_pr.programme, cidp_pr."programName") AS programName,
+                CASE
+                    WHEN (p.notes->>'subprogram_id') ~ '^[0-9]+$'
+                    THEN (p.notes->>'subprogram_id')::integer
+                    ELSE NULL
+                END AS "subProgramId",
+                COALESCE(cidp_sp."subProgramme", cidp_sp."subProgramName") AS subProgramName,
+                cidp_pr."programCode" AS "cidpProgramCode",
+                COALESCE(cidp_pr.programme, cidp_pr."programName") AS "cidpProgramme",
+                cidp_sp."subProgramCode" AS "cidpSubProgramCode",
+                COALESCE(cidp_sp."subProgramme", cidp_sp."subProgramName") AS "cidpSubProgramme",
+                cidp_sp."totalBudget" AS "cidpTotalBudget",
+                cidp_src.source_cidp_page AS "cidpSourcePage",
+                cidp_src.source_pdf_page AS "cidpSourcePdfPage",
                 p.category_id AS "categoryId",
                 proj_cat."categoryName" AS "categoryName",
                 p.sector AS "sector",
@@ -4788,6 +4835,13 @@ router.get('/', async (req, res) => {
                 NULL AS programName,
                 p.subProgramId,
                 NULL AS subProgramName,
+                NULL AS cidpProgramCode,
+                NULL AS cidpProgramme,
+                NULL AS cidpSubProgramCode,
+                NULL AS cidpSubProgramme,
+                NULL AS cidpTotalBudget,
+                NULL AS cidpSourcePage,
+                NULL AS cidpSourcePdfPage,
                 p.categoryId,
                 NULL AS categoryName,
                 p.userId AS creatorUserId,
@@ -4833,6 +4887,23 @@ router.get('/', async (req, res) => {
             LEFT JOIN categories proj_cat
               ON proj_cat."categoryId" = p.category_id
              AND COALESCE(proj_cat.voided, false) = false
+            LEFT JOIN programs cidp_pr
+              ON cidp_pr."programId" = CASE
+                    WHEN (p.notes->>'program_id') ~ '^[0-9]+$' THEN (p.notes->>'program_id')::bigint
+                    ELSE NULL
+                 END
+             AND COALESCE(cidp_pr.voided, false) = false
+            LEFT JOIN subprograms cidp_sp
+              ON cidp_sp."subProgramId" = CASE
+                    WHEN (p.notes->>'subprogram_id') ~ '^[0-9]+$' THEN (p.notes->>'subprogram_id')::bigint
+                    ELSE NULL
+                 END
+             AND COALESCE(cidp_sp.voided, false) = false
+            LEFT JOIN cidp_programme_sources cidp_src
+              ON cidp_src.cidp_code = cidp_pr.cidpid
+             AND cidp_src.programme_code = cidp_pr."programCode"
+             AND COALESCE(cidp_src.subprogramme_code, '') = COALESCE(cidp_sp."subProgramCode", '')
+             AND cidp_src.record_type = CASE WHEN cidp_sp."subProgramId" IS NULL THEN 'programme' ELSE 'subprogramme' END
             LEFT JOIN (
                 SELECT project_id, COUNT(*) AS site_count
                 FROM project_sites
@@ -4975,7 +5046,7 @@ router.get('/', async (req, res) => {
         if (programId) { 
             // Program ID is now in notes JSONB
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push("(p.notes->>'program_id')::integer = ?");
+                whereConditions.push("CASE WHEN (p.notes->>'program_id') ~ '^[0-9]+$' THEN (p.notes->>'program_id')::integer ELSE NULL END = ?");
                 queryParams.push(parseInt(programId));
             } else {
                 whereConditions.push('p.programId = ?'); 
@@ -4985,7 +5056,7 @@ router.get('/', async (req, res) => {
         if (subProgramId) { 
             // Subprogram ID is now in notes JSONB
             if (DB_TYPE === 'postgresql') {
-                whereConditions.push("(p.notes->>'subprogram_id')::integer = ?");
+                whereConditions.push("CASE WHEN (p.notes->>'subprogram_id') ~ '^[0-9]+$' THEN (p.notes->>'subprogram_id')::integer ELSE NULL END = ?");
                 queryParams.push(parseInt(subProgramId));
             } else {
                 whereConditions.push('p.subProgramId = ?'); 

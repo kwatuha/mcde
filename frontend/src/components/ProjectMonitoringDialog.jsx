@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -13,6 +14,7 @@ import {
   FormControlLabel,
   IconButton,
   MenuItem,
+  Paper,
   Stack,
   TextField,
   Typography,
@@ -50,6 +52,20 @@ const toDateInput = (value) => {
 const getActivityKey = (activity) =>
   `${activity?.activityCode || activity?.activity_code || ''}::${activity?.activityName || activity?.activity_name || ''}`;
 
+const getBqItemKey = (item) => String(item?.itemId || item?.id || '');
+
+const getBqActivityLabel = (item) => {
+  if (!item) return '';
+  const milestone = item.milestoneName ? `${item.milestoneName} - ` : '';
+  return `${milestone}${item.activityName || `BQ item #${item.itemId}`}`;
+};
+
+const formatCurrency = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 'KES 0.00';
+  return `KES ${num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
 export default function ProjectMonitoringDialog({
   open,
   onClose,
@@ -61,7 +77,9 @@ export default function ProjectMonitoringDialog({
   const { hasPrivilege } = useAuth();
   const [form, setForm] = useState(defaultForm);
   const [assignedActivities, setAssignedActivities] = useState([]);
+  const [bqItems, setBqItems] = useState([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
+  const [loadingBqItems, setLoadingBqItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -76,6 +94,13 @@ export default function ProjectMonitoringDialog({
     return assignedActivities.find((activity) => getActivityKey(activity) === formKey) || null;
   }, [assignedActivities, form.projectActivityCode, form.projectActivityName]);
 
+  const selectedBqItem = useMemo(() => {
+    const code = String(form.projectActivityCode || '');
+    if (!code.startsWith('BQ-')) return null;
+    const id = code.replace(/^BQ-/, '');
+    return bqItems.find((item) => getBqItemKey(item) === id) || null;
+  }, [bqItems, form.projectActivityCode]);
+
   const loadAssignedActivities = useCallback(async () => {
     if (!open || !projectId) return;
     setLoadingActivities(true);
@@ -87,6 +112,20 @@ export default function ProjectMonitoringDialog({
       setError(err?.response?.data?.message || 'Failed to load assigned project activities.');
     } finally {
       setLoadingActivities(false);
+    }
+  }, [open, projectId]);
+
+  const loadBqItems = useCallback(async () => {
+    if (!open || !projectId) return;
+    setLoadingBqItems(true);
+    try {
+      const rows = await apiService.bq.getItems(projectId);
+      setBqItems(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setBqItems([]);
+      setError(err?.response?.data?.message || 'Failed to load BQ activity items.');
+    } finally {
+      setLoadingBqItems(false);
     }
   }, [open, projectId]);
 
@@ -118,6 +157,10 @@ export default function ProjectMonitoringDialog({
     loadAssignedActivities();
   }, [loadAssignedActivities]);
 
+  useEffect(() => {
+    loadBqItems();
+  }, [loadBqItems]);
+
   const handleChange = (field) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -129,6 +172,27 @@ export default function ProjectMonitoringDialog({
       projectActivityCode: activity?.activityCode || activity?.activity_code || '',
       projectActivityName: activity?.activityName || activity?.activity_name || '',
       projectIndicatorName: activity?.indicatorName || activity?.indicator_name || '',
+    }));
+  };
+
+  const handleBqItemChange = (_, item) => {
+    if (!item) {
+      setForm((prev) => ({
+        ...prev,
+        projectActivityCode: '',
+        projectActivityName: '',
+        projectIndicatorName: '',
+        achievedValue: '',
+      }));
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      projectActivityCode: `BQ-${item.itemId}`,
+      projectActivityName: getBqActivityLabel(item),
+      projectIndicatorName: 'BQ item progress (%)',
+      achievedValue: item.progressPercent == null ? '' : Number(item.progressPercent),
     }));
   };
 
@@ -208,9 +272,67 @@ export default function ProjectMonitoringDialog({
               </Alert>
             )}
             <Alert severity="info">
-              Select an assigned activity where possible. The activity code and indicator are used by monitoring,
-              evaluation, and reports to reconcile progress against the implementation plan.
+              Prefer a BQ / Activity item when the project has a BQ. This keeps monitoring evidence aligned with
+              the same activity backbone used by the BQ, schedule, inspections, payments, and evaluations.
             </Alert>
+
+            <Autocomplete
+              options={bqItems}
+              loading={loadingBqItems}
+              value={selectedBqItem}
+              onChange={handleBqItemChange}
+              getOptionLabel={(option) => {
+                const label = getBqActivityLabel(option);
+                const progress = option?.progressPercent == null ? '' : ` (${Number(option.progressPercent || 0).toFixed(0)}%)`;
+                return `${label}${progress}`;
+              }}
+              isOptionEqualToValue={(option, value) => getBqItemKey(option) === getBqItemKey(value)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="BQ / Activity Item"
+                  placeholder="Select the BQ item this evidence verifies"
+                  helperText={
+                    bqItems.length
+                      ? 'Recommended for project types that use BQ. Auto-fills activity code, name, indicator, and current progress.'
+                      : 'No BQ items found yet. Use the implementation plan activity selector below if this project has no BQ.'
+                  }
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {loadingBqItems ? <CircularProgress color="inherit" size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+
+            {selectedBqItem && (
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Chip size="small" color="primary" label={selectedBqItem.milestoneName || 'BQ Activity'} />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`Progress ${Number(selectedBqItem.progressPercent || 0).toFixed(0)}%`}
+                  />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`Budget ${formatCurrency(selectedBqItem.budgetAmount)}`}
+                  />
+                  {selectedBqItem.completed ? <Chip size="small" color="success" label="Completed" /> : null}
+                </Stack>
+                {selectedBqItem.remarks && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    BQ remarks: {selectedBqItem.remarks}
+                  </Typography>
+                )}
+              </Paper>
+            )}
 
             <Autocomplete
               options={assignedActivities}
@@ -278,10 +400,11 @@ export default function ProjectMonitoringDialog({
                 fullWidth
               />
               <TextField
-                label="Achieved Value"
+                label={selectedBqItem ? 'Current BQ Progress (%)' : 'Achieved Value'}
                 type="number"
                 value={form.achievedValue}
                 onChange={handleChange('achievedValue')}
+                helperText={selectedBqItem ? 'Defaults to the selected BQ item progress; adjust if this observation records a different achieved value.' : ' '}
                 fullWidth
               />
             </Stack>

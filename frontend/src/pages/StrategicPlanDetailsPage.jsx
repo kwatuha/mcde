@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, CircularProgress, Alert, Button,
   Grid, Snackbar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Paper,
   IconButton,
+  TextField,
   Accordion, AccordionSummary, AccordionDetails,
   Stack, Tooltip, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
@@ -39,6 +40,8 @@ import strategicPlanningLabels from '../configs/strategicPlanningLabels';
 import { ROUTES } from '../configs/appConfig';
 import { resolveWorkflowNavigationPath } from '../utils/workflowNavigation';
 
+const getEntityKey = (value) => (value == null ? '' : String(value));
+const getSearchText = (...parts) => parts.filter(Boolean).join(' ').toLowerCase();
 
 function StrategicPlanDetailsPage() {
   const { planId } = useParams();
@@ -56,6 +59,8 @@ function StrategicPlanDetailsPage() {
   const [pendingAccordionOpen, setPendingAccordionOpen] = useState(false);
   const [myPendingSteps, setMyPendingSteps] = useState([]);
   const [myPendingLoading, setMyPendingLoading] = useState(false);
+  const [programSearchQuery, setProgramSearchQuery] = useState('');
+  const [appliedProgramSearchQuery, setAppliedProgramSearchQuery] = useState('');
 
   const {
     strategicPlan, programs, subprograms, annualWorkPlans,
@@ -107,13 +112,106 @@ function StrategicPlanDetailsPage() {
     setSnackbar({ ...snackbar, open: false });
   };
 
+  const subprogramsByProgramId = useMemo(() => {
+    const grouped = new Map();
+    (subprograms || []).forEach((subprogram) => {
+      const programKey = getEntityKey(subprogram.programId);
+      if (!grouped.has(programKey)) {
+        grouped.set(programKey, []);
+      }
+      grouped.get(programKey).push(subprogram);
+    });
+    return grouped;
+  }, [subprograms]);
+
+  const workPlanCountBySubprogramId = useMemo(() => {
+    const counts = new Map();
+    (annualWorkPlans || []).forEach((workplan) => {
+      const subprogramKey = getEntityKey(workplan.subProgramId);
+      counts.set(subprogramKey, (counts.get(subprogramKey) || 0) + 1);
+    });
+    return counts;
+  }, [annualWorkPlans]);
+
+  const selectedSubprogramWorkplans = useMemo(() => {
+    const selectedKey = getEntityKey(selectedSubprogram?.subProgramId);
+    if (!selectedKey) return [];
+    return (annualWorkPlans || []).filter((workplan) => getEntityKey(workplan.subProgramId) === selectedKey);
+  }, [annualWorkPlans, selectedSubprogram?.subProgramId]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setAppliedProgramSearchQuery(programSearchQuery);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [programSearchQuery]);
+
+  const programSearchResults = useMemo(() => {
+    const query = appliedProgramSearchQuery.trim().toLowerCase();
+    const results = (programs || [])
+      .map((program) => {
+        const programKey = getEntityKey(program.programId);
+        const allSubprograms = subprogramsByProgramId.get(programKey) || [];
+        const programMatches = query
+          ? getSearchText(
+              program.programme,
+              program.programName,
+              program.programCode,
+              program.description,
+              program.needsPriorities,
+              program.strategies,
+              program.objectives,
+              program.outcomes,
+              program.remarks
+            ).includes(query)
+          : true;
+        const matchingSubprograms = query
+          ? allSubprograms.filter((subprogram) =>
+              getSearchText(
+                subprogram.subProgramme,
+                subprogram.subProgramName,
+                subprogram.subProgramCode,
+                subprogram.keyOutcome,
+                subprogram.kpi,
+                subprogram.unitOfMeasure,
+                subprogram.baseline,
+                subprogram.remarks
+              ).includes(query)
+            )
+          : allSubprograms;
+
+        if (!query || programMatches || matchingSubprograms.length > 0) {
+          return {
+            program,
+            programKey,
+            allSubprograms,
+            visibleSubprograms: query && !programMatches ? matchingSubprograms : allSubprograms,
+            programMatches,
+            matchingSubprogramCount: query && !programMatches ? matchingSubprograms.length : allSubprograms.length,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    return {
+      query,
+      results,
+      matchingProgramCount: results.length,
+      matchingSubprogramCount: results.reduce((sum, row) => sum + row.matchingSubprogramCount, 0),
+    };
+  }, [programs, appliedProgramSearchQuery, subprogramsByProgramId]);
+
+  const searchIsApplying = programSearchQuery.trim() !== appliedProgramSearchQuery.trim();
+
   const handleProgramAccordionChange = (programId) => (event, isExpanded) => {
-    setExpandedProgram(isExpanded ? programId : false);
+    setExpandedProgram(isExpanded ? getEntityKey(programId) : false);
   };
 
   const handleViewSubprogram = (subprogramRow) => {
     if (subprogramRow?.programId) {
-      setExpandedProgram(subprogramRow.programId);
+      setExpandedProgram(getEntityKey(subprogramRow.programId));
     }
     setParentEntityId(subprogramRow?.programId || null);
     setIsViewMode(true);
@@ -146,12 +244,14 @@ function StrategicPlanDetailsPage() {
 
   const handleOpenSubprogramWorkplansDialog = (subprogram) => {
     setSelectedSubprogram(subprogram);
+    setWorkplanApprovalSelected(null);
     setOpenWorkplansDialog(true);
   };
 
   const handleCloseSubprogramWorkplansDialog = () => {
     setOpenWorkplansDialog(false);
     setSelectedSubprogram(null);
+    setWorkplanApprovalSelected(null);
   };
 
   const handleCloseDialogWithReset = () => {
@@ -355,12 +455,64 @@ function StrategicPlanDetailsPage() {
         </Stack>
       </Box>
 
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, borderRadius: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }}>
+          <TextField
+            size="small"
+            fullWidth
+            label="Search programmes and sub-programmes"
+            placeholder="Search by programme, subprogramme, code, KPI, baseline, or notes"
+            value={programSearchQuery}
+            onChange={(event) => setProgramSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                setAppliedProgramSearchQuery(programSearchQuery);
+              }
+            }}
+            helperText={searchIsApplying ? 'Typing... search will update shortly. Press Enter to apply now.' : ' '}
+          />
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Chip
+              size="small"
+              color={programSearchResults.query ? 'primary' : 'default'}
+              label={`${programSearchResults.matchingProgramCount} programme${programSearchResults.matchingProgramCount === 1 ? '' : 's'}`}
+            />
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`${programSearchResults.matchingSubprogramCount} sub-programme${programSearchResults.matchingSubprogramCount === 1 ? '' : 's'}`}
+            />
+            {programSearchResults.query && (
+              <Button
+                size="small"
+                onClick={() => {
+                  setProgramSearchQuery('');
+                  setAppliedProgramSearchQuery('');
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </Stack>
+        </Stack>
+        {programSearchResults.query && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Showing matches for "{programSearchQuery.trim()}". Matching programme results expand automatically.
+          </Typography>
+        )}
+      </Paper>
+
         {programs.length > 0 ? (
           <Box>
-            {programs.map(program => (
-              <Accordion
+            {programSearchResults.results.length > 0 ? programSearchResults.results.map((result) => {
+              const { program, programKey, allSubprograms, visibleSubprograms, matchingSubprogramCount } = result;
+              const programSubprograms = visibleSubprograms;
+              const isProgramExpanded = expandedProgram === programKey || Boolean(programSearchResults.query);
+
+              return (
+                <Accordion
                 key={program.programId}
-                expanded={expandedProgram === program.programId}
+                expanded={isProgramExpanded}
                 onChange={handleProgramAccordionChange(program.programId)}
                 sx={{
                   my: 1,
@@ -400,6 +552,15 @@ function StrategicPlanDetailsPage() {
                       </Typography>
                     </Box>
                     <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={
+                          programSearchResults.query
+                            ? `${matchingSubprogramCount} matching sub-programme${matchingSubprogramCount === 1 ? '' : 's'}`
+                            : `${allSubprograms.length} sub-programme${allSubprograms.length === 1 ? '' : 's'}`
+                        }
+                      />
                       {canManagePrograms && (
                         <Tooltip title="Edit Programme">
                           <IconButton size="small" color="primary" onClick={() => handleOpenEditDialog('program', program)}>
@@ -426,6 +587,7 @@ function StrategicPlanDetailsPage() {
                     </Stack>
                   </Box>
                 </AccordionSummary>
+                {isProgramExpanded && (
                 <AccordionDetails sx={{ pt: 2 }}>
                   <TableContainer component={Paper} variant="outlined">
                     <Table size="small">
@@ -439,11 +601,24 @@ function StrategicPlanDetailsPage() {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {subprograms.filter(sub => sub.programId === program.programId).length > 0 ? (
-                          subprograms
-                            .filter(sub => sub.programId === program.programId)
-                            .map((subprogram) => (
-                              <TableRow key={subprogram.subProgramId}>
+                        {programSubprograms.length > 0 ? (
+                          programSubprograms.map((subprogram) => {
+                            const subprogramMatchesSearch = programSearchResults.query && getSearchText(
+                              subprogram.subProgramme,
+                              subprogram.subProgramName,
+                              subprogram.subProgramCode,
+                              subprogram.keyOutcome,
+                              subprogram.kpi,
+                              subprogram.unitOfMeasure,
+                              subprogram.baseline,
+                              subprogram.remarks
+                            ).includes(programSearchResults.query);
+
+                            return (
+                              <TableRow
+                                key={subprogram.subProgramId}
+                                sx={{ bgcolor: subprogramMatchesSearch ? 'action.selected' : 'inherit' }}
+                              >
                                 <TableCell>{subprogram.subProgramme || '—'}</TableCell>
                                 <TableCell>
                                   {subprogram.kpi
@@ -499,13 +674,14 @@ function StrategicPlanDetailsPage() {
                                       <Chip
                                         size="small"
                                         variant="outlined"
-                                        label={`AWP: ${annualWorkPlans.filter(wp => wp.subProgramId === subprogram.subProgramId).length}`}
+                                        label={`AWP: ${workPlanCountBySubprogramId.get(getEntityKey(subprogram.subProgramId)) || 0}`}
                                       />
                                     </Tooltip>
                                   </Stack>
                                 </TableCell>
                               </TableRow>
-                            ))
+                            );
+                          })
                         ) : (
                             <TableRow>
                             <TableCell colSpan={5}>
@@ -530,8 +706,14 @@ function StrategicPlanDetailsPage() {
                     </Box>
                   )}
                 </AccordionDetails>
+                )}
               </Accordion>
-            ))}
+              );
+            }) : (
+              <Alert severity="info">
+                No programmes or sub-programmes match "{programSearchQuery.trim()}". Try a code, KPI, or shorter keyword.
+              </Alert>
+            )}
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
@@ -580,10 +762,8 @@ function StrategicPlanDetailsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(annualWorkPlans.filter(wp => wp.subProgramId === selectedSubprogram?.subProgramId)).length > 0 ? (
-                  annualWorkPlans
-                    .filter(wp => wp.subProgramId === selectedSubprogram?.subProgramId)
-                    .map((workplan) => (
+                {selectedSubprogramWorkplans.length > 0 ? (
+                  selectedSubprogramWorkplans.map((workplan) => (
                       <TableRow
                         key={workplan.workplanId}
                         hover

@@ -16,7 +16,7 @@ import {
   HourglassEmpty as HourglassIcon, AccountBalance as ContractedIcon, Payment as PaidIcon,
   Search as SearchIcon, Clear as ClearIcon, PlayArrow as PlayArrowIcon, Pause as PauseIcon,
   Warning as WarningIcon, Cancel as CancelIcon, Schedule as ScheduleIcon, CheckCircleOutline as CheckCircleOutlineIcon,
-  MoreVert as MoreVertIcon, LocationOn as LocationOnIcon, Download as DownloadIcon,
+  MoreVert as MoreVertIcon, LocationOn as LocationOnIcon, Download as DownloadIcon, Flag as FlagIcon,
   ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
@@ -61,12 +61,18 @@ const EMPTY_REGISTRY_FILTERS = {
   financialYearName: '',
   subcountyNames: '',
   wardNames: '',
+  cidpLinkStatus: '',
 };
 
 const IMPLEMENTATION_READINESS_LABELS = {
   complete: 'Implementation readiness: complete basics',
   partial: 'Implementation readiness: partially ready',
   missing: 'Implementation readiness: needs setup',
+};
+
+const CIDP_LINK_STATUS_LABELS = {
+  linked: 'CIDP linked',
+  pending: 'CIDP pending',
 };
 
 const getProjectBudgetValue = (project) => Number(
@@ -85,6 +91,42 @@ const fmtOptionalCurrency = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '-';
   return `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const getCidpProgrammeLabel = (project) => {
+  const code = project?.cidpProgramCode || project?.programCode || '';
+  const name = project?.cidpProgramme || project?.programName || '';
+  return [code, name].filter(Boolean).join(' - ');
+};
+
+const getCidpSubprogrammeLabel = (project) => {
+  const code = project?.cidpSubProgramCode || project?.subProgramCode || '';
+  const name = project?.cidpSubProgramme || project?.subProgramName || '';
+  return [code, name].filter(Boolean).join(' - ');
+};
+
+const isCidpLinkedProject = (project) => Boolean(
+  project?.subProgramId ||
+  project?.subProgramID ||
+  project?.cidpSubProgramCode ||
+  project?.cidpSubProgramme ||
+  project?.programId ||
+  project?.cidpProgramCode ||
+  project?.cidpProgramme
+);
+
+const getCidpLinkStatus = (project) => (isCidpLinkedProject(project) ? 'linked' : 'pending');
+
+const getCidpExportFields = (project) => {
+  const rawBudget = project?.cidpTotalBudget;
+  const numericBudget = rawBudget === null || rawBudget === undefined || rawBudget === '' ? null : Number(rawBudget);
+  return {
+    'CIDP Link Status': getCidpLinkStatus(project) === 'linked' ? 'Linked' : 'Pending',
+    'CIDP Programme': getCidpProgrammeLabel(project) || 'N/A',
+    'CIDP Subprogramme': getCidpSubprogrammeLabel(project) || 'N/A',
+    'CIDP Total Budget': Number.isFinite(numericBudget) ? numericBudget : 'N/A',
+    'CIDP Source Page': project?.cidpSourcePage || project?.cidpSourcePdfPage || 'N/A',
+  };
 };
 
 const fmtMeasure = (value, unit) => {
@@ -305,6 +347,12 @@ function ProjectManagementPage() {
       localStorage.setItem('projectTableProjectTypeVisibilityMigrated', 'true');
       needsUpdate = true;
     }
+
+    if (localStorage.getItem('projectTableCidpLinkVisibilityMigrated') !== 'true') {
+      currentModel['cidpLink'] = true;
+      localStorage.setItem('projectTableCidpLinkVisibilityMigrated', 'true');
+      needsUpdate = true;
+    }
     
     if (needsUpdate) {
       setColumnVisibilityModel(currentModel);
@@ -351,6 +399,9 @@ function ProjectManagementPage() {
           project.financialYearName || '',
           project.programName || '',
           project.subProgramName || '',
+          getCidpProgrammeLabel(project),
+          getCidpSubprogrammeLabel(project),
+          CIDP_LINK_STATUS_LABELS[getCidpLinkStatus(project)] || '',
           getProjectTypeName(project),
           project.countyNames || '',
           project.subcountyNames || '',
@@ -396,6 +447,7 @@ function ProjectManagementPage() {
       'projectName',
       'projectType',
       'tenderContractNo',
+      'cidpLink',
       'status',
       'subcountyNames',
       'costOfProject', // Budget
@@ -1071,6 +1123,9 @@ function ProjectManagementPage() {
       if (registryFilters.wardNames && !locationFieldMatchesToken(project.wardNames, registryFilters.wardNames)) {
         return false;
       }
+      if (registryFilters.cidpLinkStatus && getCidpLinkStatus(project) !== registryFilters.cidpLinkStatus) {
+        return false;
+      }
       return true;
     });
 
@@ -1188,6 +1243,19 @@ function ProjectManagementPage() {
     };
 
     // Apply column filters (status / progress KPI filters)
+    const getFilterProjectValue = (project, field) => {
+      if (field === 'status') return rawProjectStatus(project);
+      if (field === 'cidpLink') {
+        return [
+          CIDP_LINK_STATUS_LABELS[getCidpLinkStatus(project)],
+          getCidpProgrammeLabel(project),
+          getCidpSubprogrammeLabel(project),
+          project.cidpSourcePage || project.cidpSourcePdfPage || '',
+        ].filter(Boolean).join(' ');
+      }
+      return project[field];
+    };
+
     const filtered = implementationFilteredBase.filter(project => {
       // Group filters by field to handle OR logic for status filters
       const filtersByField = {};
@@ -1205,14 +1273,14 @@ function ProjectManagementPage() {
         if (field === 'status' && fieldFilters.length > 1) {
           return fieldFilters.some(filterItem => {
             const { operator, value } = filterItem;
-            const projectValue = field === 'status' ? rawProjectStatus(project) : project[field];
+            const projectValue = getFilterProjectValue(project, field);
             return checkFilterMatch(projectValue, operator, value, field);
           });
         }
         // For other fields or single status filter, use AND logic
         return fieldFilters.every(filterItem => {
           const { operator, value } = filterItem;
-          const projectValue = field === 'status' ? rawProjectStatus(project) : project[field];
+          const projectValue = getFilterProjectValue(project, field);
           return checkFilterMatch(projectValue, operator, value, field);
         });
       });
@@ -1705,6 +1773,7 @@ function ProjectManagementPage() {
             row[col.headerName] = value;
           }
         });
+        Object.assign(row, getCidpExportFields(project));
         return row;
       });
 
@@ -1749,12 +1818,13 @@ function ProjectManagementPage() {
       );
       
       // Prepare headers
-      const headers = visibleColumns.map(col => col.headerName);
+      const cidpExportHeaders = ['CIDP Link Status', 'CIDP Programme', 'CIDP Subprogramme', 'CIDP Total Budget', 'CIDP Source Page'];
+      const headers = [...visibleColumns.map(col => col.headerName), ...cidpExportHeaders];
       
       // Prepare data rows (use dataGridFilteredProjects to include search and column filters including progress)
       const projectsToExport = dataGridFilteredProjects;
       const dataRows = projectsToExport.map((project, index) => {
-        return visibleColumns.map(col => {
+        const visibleValues = visibleColumns.map(col => {
           if (col.field === 'rowNumber') {
             return index + 1;
           }
@@ -1796,6 +1866,15 @@ function ProjectManagementPage() {
           
           return String(value);
         });
+        const cidpFields = getCidpExportFields(project);
+        return [
+          ...visibleValues,
+          cidpFields['CIDP Link Status'],
+          cidpFields['CIDP Programme'],
+          cidpFields['CIDP Subprogramme'],
+          cidpFields['CIDP Total Budget'] === 'N/A' ? 'N/A' : currencyFormatter.format(cidpFields['CIDP Total Budget']),
+          cidpFields['CIDP Source Page'],
+        ];
       });
       
       const doc = new jsPDF('landscape', 'pt', 'a4');
@@ -1885,6 +1964,7 @@ function ProjectManagementPage() {
     // Default columns: Project Name, Status, Sub-county, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
+      'cidpLink',
       'status',
       'subcountyNames',
       'costOfProject', // Budget
@@ -2002,6 +2082,85 @@ function ProjectManagementPage() {
                 },
               }}
             />
+          );
+        };
+        break;
+      case 'cidpLink':
+        dataGridColumn.valueGetter = (params) => {
+          const project = params?.row || {};
+          const status = CIDP_LINK_STATUS_LABELS[getCidpLinkStatus(project)] || 'CIDP pending';
+          const subprogramme = getCidpSubprogrammeLabel(project);
+          const programme = getCidpProgrammeLabel(project);
+          return [status, subprogramme || programme].filter(Boolean).join(': ');
+        };
+        dataGridColumn.renderCell = (params) => {
+          const project = params?.row || {};
+          const linked = getCidpLinkStatus(project) === 'linked';
+          const programme = getCidpProgrammeLabel(project);
+          const subprogramme = getCidpSubprogrammeLabel(project);
+          const cidpBudget = fmtOptionalCurrency(project.cidpTotalBudget);
+          const sourcePage = project.cidpSourcePage || project.cidpSourcePdfPage;
+          const projectId = project.id || project.project_id;
+          return (
+            <Stack
+              direction="row"
+              spacing={0.75}
+              alignItems="center"
+              sx={{ width: '100%', minWidth: 0, py: 0.5 }}
+            >
+              <Chip
+                icon={<FlagIcon sx={{ fontSize: 14 }} />}
+                label={linked ? 'Linked' : 'Pending'}
+                size="small"
+                color={linked ? 'success' : 'warning'}
+                variant={linked ? 'filled' : 'outlined'}
+                sx={{ height: 24, fontWeight: 700, flexShrink: 0 }}
+              />
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography
+                  variant="caption"
+                  title={subprogramme || programme || 'CIDP link pending'}
+                  sx={{
+                    display: 'block',
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1.25,
+                  }}
+                >
+                  {subprogramme || programme || 'No CIDP subprogramme'}
+                </Typography>
+                {linked && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    title={[programme, cidpBudget !== '-' ? cidpBudget : '', sourcePage ? `Source page ${sourcePage}` : ''].filter(Boolean).join(' | ')}
+                    sx={{
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {[cidpBudget !== '-' ? cidpBudget : null, sourcePage ? `p.${sourcePage}` : null].filter(Boolean).join(' | ')}
+                  </Typography>
+                )}
+              </Box>
+              <Button
+                size="small"
+                variant="text"
+                disabled={!projectId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (projectId) navigate(`/projects/${projectId}?tab=implementation-plan`);
+                }}
+                sx={{ minWidth: 42, px: 0.75, flexShrink: 0, textTransform: 'none' }}
+              >
+                {linked ? 'View' : 'Link'}
+              </Button>
+            </Stack>
           );
         };
         break;
@@ -2959,6 +3118,25 @@ function ProjectManagementPage() {
                               {name}
                             </MenuItem>
                           ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-cidp-link">CIDP linkage</InputLabel>
+                        <Select
+                          labelId="rf-cidp-link"
+                          label="CIDP linkage"
+                          value={registryFilters.cidpLinkStatus}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, cidpLinkStatus: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          <MenuItem value="linked">Linked</MenuItem>
+                          <MenuItem value="pending">Pending</MenuItem>
                         </Select>
                       </FormControl>
                     </Grid>

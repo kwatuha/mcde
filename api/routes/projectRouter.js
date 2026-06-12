@@ -22,6 +22,7 @@ const projectInspectionRoutes = require('./projectInspectionRoutes');
 const projectFundingRoutes = require('./projectFundingRoutes');
 const projectPlanningCatalogLinkRoutes = require('./projectPlanningCatalogLinkRoutes');
 const projectEvaluationRoutes = require('./projectEvaluationRoutes');
+const projectCidpLinkRoutes = require('./projectCidpLinkRoutes');
 
 // Mount all the individual routers under this main project router.
 // The base path for all these routes is now handled by the parent app.use('/api/projects', projectRouter)
@@ -29,6 +30,7 @@ const projectEvaluationRoutes = require('./projectEvaluationRoutes');
 router.use('/', projectFundingRoutes);
 router.use('/', projectPlanningCatalogLinkRoutes);
 router.use('/', projectEvaluationRoutes);
+router.use('/', projectCidpLinkRoutes);
 router.use('/', projectInspectionRoutes);
 router.use('/', projectRoutes);
 router.use('/', projectConceptNoteRoutes);

@@ -50,7 +50,7 @@ import {
     FactCheck as FactCheckIcon,
     AccountBalanceWallet as AccountBalanceWalletIcon
 } from '@mui/icons-material';
-import apiService from '../api';
+import apiService, { API_BASE_URL } from '../api';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
@@ -148,6 +148,7 @@ import {
     ProjectPlanningRiskLinksPage,
 } from './ProjectPlanningCatalogLinksPages';
 import ProjectEvaluationPage from './ProjectEvaluationPage';
+import ProjectCidpImplementationLinksPage from './ProjectCidpImplementationLinksPage';
 
 const checkUserPrivilege = (user, privilegeName) => {
     return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
@@ -203,6 +204,15 @@ const formatCurrency = (amount) => {
     // Current location is Nairobi, Nairobi County, Kenya.
     // So the currency symbol is KES.
     return `KES ${parseFloat(amount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const buildProjectPhotoUrl = (filePath) => {
+    if (!filePath) return '';
+    if (/^https?:\/\//i.test(filePath)) return filePath;
+    const normalizedBase = (API_BASE_URL || '').replace(/\/api\/?$/, '').replace(/\/$/, '');
+    const normalizedPath = String(filePath).replace(/^\/+/, '');
+    if (normalizedPath.startsWith('uploads/')) return `${normalizedBase}/${normalizedPath}`;
+    return `${normalizedBase}/uploads/${normalizedPath}`;
 };
 
 // Helper function for date formatting
@@ -508,12 +518,14 @@ function ProjectDetailsPage() {
         return PROJECT_DETAIL_TAB_ALIASES[tabKey] ?? 0;
     });
     const [projectPhotos, setProjectPhotos] = useState([]);
+    const [previewProjectPhoto, setPreviewProjectPhoto] = useState(null);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
     const [planningSnapshot, setPlanningSnapshot] = useState({
         activities: [],
         risks: [],
         bqItems: [],
         evaluations: [],
+        cidpLink: null,
     });
     const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
     const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
@@ -571,14 +583,14 @@ function ProjectDetailsPage() {
         const loadRows = async (label, promise) => {
             try {
                 return toRows(await promise);
-            } catch (err) {
+            } catch {
                 errors.push(label);
                 return [];
             }
         };
 
         try {
-            const [activities, risks, documents, bqItems, evaluations] = await Promise.all([
+            const [activities, risks, documents, bqItems, evaluations, cidpLinkData] = await Promise.all([
                 loadRows('activities', projectService.projects.getPlanningCatalogActivityLinks(projectId)),
                 loadRows('risks', projectService.projects.getPlanningCatalogRiskLinks(projectId)),
                 canViewProjectDocuments
@@ -586,9 +598,13 @@ function ProjectDetailsPage() {
                     : Promise.resolve([]),
                 loadRows('BQ items', projectService.bq.getItems(projectId)),
                 loadRows('evaluations', projectService.projects.getProjectEvaluations(projectId)),
+                projectService.projects.getCidpProjectLink(projectId).catch(() => {
+                    errors.push('CIDP link');
+                    return null;
+                }),
             ]);
 
-            setPlanningSnapshot({ activities, risks, bqItems, evaluations });
+            setPlanningSnapshot({ activities, risks, bqItems, evaluations, cidpLink: cidpLinkData?.currentLink || null });
             setPlanningDocumentsCount(documents.length);
             if (errors.length > 0) {
                 setPlanningSnapshotError(`Some implementation plan data could not be loaded: ${errors.join(', ')}.`);
@@ -604,11 +620,12 @@ function ProjectDetailsPage() {
     }, [activeTab, projectId, loadPlanningSnapshot]);
 
     const handleCloseImplementationModal = useCallback(() => {
+        const shouldRefreshPlanningSnapshot = activeTab === 9 || implementationModal === 'cidp';
         setImplementationModal(null);
-        if (activeTab === 9) {
+        if (shouldRefreshPlanningSnapshot) {
             loadPlanningSnapshot();
         }
-    }, [activeTab, loadPlanningSnapshot]);
+    }, [activeTab, implementationModal, loadPlanningSnapshot]);
 
 
     const getTeamMemberRef = useCallback((member) => {
@@ -2891,8 +2908,11 @@ function ProjectDetailsPage() {
     // Absorption rate: percentage of the budget that has been paid.
     const absorptionRate = totalBudget > 0 ? (paidAmount / totalBudget) * 100 : 0;
     const boundedAbsorptionRate = Math.max(0, Math.min(100, absorptionRate));
-    const serverUrl = import.meta.env.VITE_API_BASE_URL || '';
-
+    const projectPhotosForDisplay = [...projectPhotos].sort((a, b) => {
+        const defaultSort = Number(Boolean(b.isDefault)) - Number(Boolean(a.isDefault));
+        if (defaultSort !== 0) return defaultSort;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
     return (
                     <Box sx={{ 
                 p: 1, 
@@ -3094,19 +3114,25 @@ function ProjectDetailsPage() {
 
             {/* Project Photos Carousel */}
             {projectPhotos.length > 0 && (
-                <Paper elevation={6} sx={{ 
-                    p: 1, 
-                    mb: 1, 
+                <Paper elevation={3} sx={{
+                    p: 2,
+                    mb: 2,
                     borderRadius: '12px',
-                    background: theme.palette.mode === 'dark'
-                        ? `linear-gradient(135deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`
-                        : `linear-gradient(135deg, ${colors.grey[900]} 0%, ${colors.grey[800]} 100%)`,
+                    background: theme.palette.mode === 'dark' ? colors.primary[400] : theme.palette.background.paper,
                     border: `1px solid ${theme.palette.mode === 'dark' ? colors.blueAccent[700] : colors.blueAccent[200]}`
                 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900] }}>
-                            Project Photos ({projectPhotos.length})
-                        </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ mb: 1.5 }}>
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                                    Project Photos
+                                </Typography>
+                                <Chip size="small" color="primary" variant="outlined" label={`${projectPhotos.length} photo${projectPhotos.length === 1 ? '' : 's'}`} />
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                                Click a photo to preview it without leaving the project details page.
+                            </Typography>
+                        </Box>
                         <Button
                             size="small"
                             startIcon={<PhotoCameraIcon />}
@@ -3115,10 +3141,10 @@ function ProjectDetailsPage() {
                         >
                             Manage Photos
                         </Button>
-                    </Box>
-                    <Box sx={{ 
-                        display: 'flex', 
-                        gap: 1, 
+                    </Stack>
+                    <Box sx={{
+                        display: 'flex',
+                        gap: 1.5,
                         overflowX: 'auto',
                         pb: 1,
                         '&::-webkit-scrollbar': {
@@ -3129,37 +3155,74 @@ function ProjectDetailsPage() {
                             borderRadius: 4,
                         }
                     }}>
-                        {projectPhotos.map((photo) => (
-                            <Card 
+                        {projectPhotosForDisplay.map((photo, index) => (
+                            <Card
                                 key={photo.photoId}
-                                sx={{ 
-                                    minWidth: 200,
+                                sx={{
+                                    minWidth: { xs: 240, sm: 280 },
+                                    maxWidth: 320,
                                     cursor: 'pointer',
+                                    border: photo.isDefault ? '2px solid' : '1px solid',
+                                    borderColor: photo.isDefault ? 'success.main' : 'divider',
                                     transition: 'transform 0.2s ease-in-out',
                                     '&:hover': {
-                                        transform: 'scale(1.05)',
+                                        transform: 'translateY(-2px)',
                                         boxShadow: 6
                                     }
                                 }}
-                                onClick={() => window.open(`${serverUrl}/${photo.filePath}`, '_blank')}
+                                onClick={() => setPreviewProjectPhoto(photo)}
                             >
-                                <CardMedia
-                                    component="img"
-                                    height="150"
-                                    image={`${serverUrl}/${photo.filePath}`}
-                                    alt={photo.description || 'Project photo'}
-                                    sx={{ objectFit: 'cover' }}
-                                />
-                                <CardContent sx={{ p: 1 }}>
-                                    <Typography variant="caption" noWrap sx={{ fontSize: '0.7rem' }}>
+                                <Box sx={{ position: 'relative', height: 180, bgcolor: theme.palette.mode === 'dark' ? colors.primary[500] : 'grey.100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <CardMedia
+                                        component="img"
+                                        image={buildProjectPhotoUrl(photo.filePath)}
+                                        alt={photo.description || 'Project photo'}
+                                        sx={{ width: '100%', height: '100%', objectFit: 'contain', p: 0.75 }}
+                                    />
+                                    <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 8, left: 8 }}>
+                                        {photo.isDefault && <Chip size="small" color="success" label="Default" />}
+                                        {!photo.isDefault && index === 0 && <Chip size="small" color="primary" label="Newest" />}
+                                    </Stack>
+                                </Box>
+                                <CardContent sx={{ p: 1.25 }}>
+                                    <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
                                         {photo.fileName}
                                     </Typography>
+                                    {photo.description && (
+                                        <Typography variant="caption" color="text.secondary" noWrap display="block">
+                                            {photo.description}
+                                        </Typography>
+                                    )}
                                 </CardContent>
                             </Card>
                         ))}
                     </Box>
                 </Paper>
             )}
+
+            <Dialog open={Boolean(previewProjectPhoto)} onClose={() => setPreviewProjectPhoto(null)} fullWidth maxWidth="lg">
+                <DialogTitle>{previewProjectPhoto?.fileName || 'Project photo'}</DialogTitle>
+                <DialogContent dividers>
+                    {previewProjectPhoto && (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', bgcolor: 'grey.100', borderRadius: 1, p: 1 }}>
+                            <Box
+                                component="img"
+                                src={buildProjectPhotoUrl(previewProjectPhoto.filePath)}
+                                alt={previewProjectPhoto.description || previewProjectPhoto.fileName || 'Project photo'}
+                                sx={{ maxWidth: '100%', maxHeight: '82vh', objectFit: 'contain' }}
+                            />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    {previewProjectPhoto && (
+                        <Button onClick={() => window.open(buildProjectPhotoUrl(previewProjectPhoto.filePath), '_blank')}>
+                            Open Original
+                        </Button>
+                    )}
+                    <Button onClick={() => setPreviewProjectPhoto(null)}>Close</Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Tabbed Interface – integrated with page, clearer & more visible tab bar */}
             <Box
@@ -3718,6 +3781,24 @@ function ProjectDetailsPage() {
                                     icon: <WarningIcon />,
                                 },
                                 {
+                                    title: 'CIDP Link',
+                                    value: loadingPlanningSnapshot ? '...' : (planningSnapshot.cidpLink?.programId ? 'Linked' : 'Pending'),
+                                    helper: planningSnapshot.cidpLink?.programme
+                                        ? [
+                                            `Mapped to ${planningSnapshot.cidpLink.programCode || 'CIDP'} ${planningSnapshot.cidpLink.programme}`,
+                                            planningSnapshot.cidpLink.subProgramCode && planningSnapshot.cidpLink.subProgramme
+                                                ? `${planningSnapshot.cidpLink.subProgramCode} ${planningSnapshot.cidpLink.subProgramme}`
+                                                : null,
+                                            planningSnapshot.cidpLink.totalBudget != null
+                                                ? `CIDP budget ${formatCurrency(planningSnapshot.cidpLink.totalBudget)}`
+                                                : null,
+                                        ].filter(Boolean).join(' | ')
+                                        : 'Connect this project to the CIDP programme and subprogramme it implements.',
+                                    action: 'Link CIDP',
+                                    onClick: () => setImplementationModal('cidp'),
+                                    icon: <FlagIcon />,
+                                },
+                                {
                                     title: 'Milestones',
                                     value: milestones.length,
                                     helper: 'Delivery checkpoints synced or aligned with BQ activity groups.',
@@ -3791,6 +3872,13 @@ function ProjectDetailsPage() {
                                             schedule or reporting records.
                                         </Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                onClick={() => setImplementationModal('cidp')}
+                                            >
+                                                CIDP Alignment
+                                            </Button>
                                             <Button
                                                 size="small"
                                                 variant="outlined"
@@ -6951,9 +7039,19 @@ function ProjectDetailsPage() {
                         ? 'Project Activity Assignments'
                         : implementationModal === 'risks'
                             ? 'Project Risk Assignments'
-                            : 'Project Evaluation'}
+                            : implementationModal === 'cidp'
+                                ? 'CIDP Implementation Link'
+                                : 'Project Evaluation'}
                 </DialogTitle>
                 <DialogContent dividers>
+                    {implementationModal === 'cidp' && (
+                        <ProjectCidpImplementationLinksPage
+                            projectId={projectId}
+                            projectName={project?.projectName || project?.name || `Project ${projectId}`}
+                            embedded
+                            onChanged={loadPlanningSnapshot}
+                        />
+                    )}
                     {implementationModal === 'activities' && (
                         <ProjectPlanningActivityLinksPage
                             projectId={projectId}
