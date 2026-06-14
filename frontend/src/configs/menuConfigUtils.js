@@ -122,6 +122,40 @@ export const getIconComponent = (iconName) => {
   return IconComponent;
 };
 
+const asVisibilitySet = (values) => {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const keys = values.map((v) => String(v || '').trim()).filter(Boolean);
+  return keys.length > 0 ? new Set(keys) : null;
+};
+
+const getProfileMenuVisibilitySet = (user) => {
+  const profile = user?.uiProfile || user?.ui_profile || null;
+  return asVisibilitySet(profile?.visibleMenuKeys || profile?.visible_menu_keys || user?.visibleMenuKeys);
+};
+
+const categoryVisibilityKey = (category) => `category:${category.id}`;
+
+const submenuVisibilityKeys = (category, submenu) => [
+  submenu.route ? `route:${submenu.route}` : null,
+  `menu:${category.id}:${submenu.route || submenu.title || submenu.to || ''}`,
+].filter(Boolean);
+
+const applyUiProfileMenuVisibility = (categories, user) => {
+  const visibleKeys = getProfileMenuVisibilitySet(user);
+  if (!visibleKeys) return categories;
+
+  return categories
+    .map((category) => {
+      const categoryAllowed = visibleKeys.has(categoryVisibilityKey(category));
+      const submenus = (category.submenus || []).filter((submenu) => {
+        if (categoryAllowed) return true;
+        return submenuVisibilityKeys(category, submenu).some((key) => visibleKeys.has(key));
+      });
+      return { ...category, submenus };
+    })
+    .filter((category) => (category.submenus || []).length > 0);
+};
+
 // Filter menu categories based on user permissions and admin status
 export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, user = null) => {
   const categories = menuConfig.menuCategories.filter(category => {
@@ -173,7 +207,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
   if (!isExecutiveViewer) {
-    return categories.filter((c) => (c.submenus || []).length > 0);
+    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user);
   }
 
   // Executive Viewer: allow dashboards plus Projects tab with Registry only.
@@ -188,7 +222,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const allowedSet = new Set(allowedDashboardRoutes);
   const allowedProjectsRoutes = new Set(['PROJECTS']);
 
-  return categories
+  return applyUiProfileMenuVisibility(categories
     .filter((category) => {
       if (category.id === 'dashboard' || category.id === 'reporting') return true;
       if (category.id === 'finance') {
@@ -227,7 +261,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         .filter((submenu) => !submenu.hidden && allowedProjectsRoutes.has(submenu.route));
       return { ...category, submenus: filteredSubmenus };
     })
-    .filter((category) => (category.submenus || []).length > 0);
+    .filter((category) => (category.submenus || []).length > 0), user);
 };
 
 // Get menu configuration

@@ -182,6 +182,29 @@ const PROJECT_DETAIL_TAB_KEYS = {
     9: 'implementation-plan',
 };
 
+const PROJECT_DETAIL_TAB_DEFINITIONS = [
+    { value: 0, key: 'overview', label: 'Overview', icon: InfoIcon },
+    { value: 9, key: 'implementation-plan', label: 'Plan', icon: AccountTreeIcon },
+    { value: 1, key: 'financials', label: 'Financials', icon: MoneyIcon },
+    { value: 2, key: 'sites', label: 'Sites', icon: LocationOnIcon },
+    { value: 3, key: 'jobs', label: 'Jobs', icon: WorkIcon },
+    { value: 4, key: 'inspection', label: 'Inspection', icon: FactCheckIcon },
+    { value: 5, key: 'schedule', label: 'Schedule', icon: ScheduleIcon },
+    { value: 6, key: 'bq', label: 'BQ', icon: AssessmentIcon },
+    { value: 7, key: 'certificates', label: 'Certificates', icon: AssessmentIcon },
+    { value: 8, key: 'map', label: 'Map', icon: LocationOnIcon },
+];
+
+const getVisibleProjectDetailTabKeySet = (user) => {
+    const raw = user?.uiProfile?.visibleTabKeys || user?.ui_profile?.visible_tab_keys || [];
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    const keys = raw
+        .map((key) => String(key || '').trim())
+        .filter((key) => key.startsWith('projectDetails:'))
+        .map((key) => key.replace(/^projectDetails:/, ''));
+    return keys.length ? new Set(keys) : null;
+};
+
 const snakeToCamelCase = (obj) => {
     if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
         return obj;
@@ -532,6 +555,19 @@ function ProjectDetailsPage() {
     const [planningSnapshotError, setPlanningSnapshotError] = useState(null);
     const canViewProjectDocuments =
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
+    const visibleProjectDetailTabs = useMemo(() => {
+        const visibleKeys = getVisibleProjectDetailTabKeySet(user);
+        if (!visibleKeys) return PROJECT_DETAIL_TAB_DEFINITIONS;
+        const filtered = PROJECT_DETAIL_TAB_DEFINITIONS.filter((tab) => visibleKeys.has(tab.key));
+        return filtered.length ? filtered : PROJECT_DETAIL_TAB_DEFINITIONS;
+    }, [user]);
+    const visibleProjectDetailTabValues = useMemo(
+        () => new Set(visibleProjectDetailTabs.map((tab) => tab.value)),
+        [visibleProjectDetailTabs]
+    );
+    const displayedProjectDetailTab = visibleProjectDetailTabValues.has(activeTab)
+        ? activeTab
+        : (visibleProjectDetailTabs[0]?.value ?? 0);
 
     const [scheduleGanttVisible, setScheduleGanttVisible] = useState(false);
     const [scheduleBqItems, setScheduleBqItems] = useState([]);
@@ -543,10 +579,16 @@ function ProjectDetailsPage() {
         const tabKey = String(searchParams.get('tab') || '').trim().toLowerCase();
         if (!tabKey) return;
         const nextTab = PROJECT_DETAIL_TAB_ALIASES[tabKey];
-        if (typeof nextTab === 'number' && nextTab !== activeTab) {
+        if (typeof nextTab === 'number' && visibleProjectDetailTabValues.has(nextTab) && nextTab !== activeTab) {
             setActiveTab(nextTab);
         }
-    }, [activeTab, searchParams]);
+    }, [activeTab, searchParams, visibleProjectDetailTabValues]);
+
+    useEffect(() => {
+        if (visibleProjectDetailTabValues.has(activeTab)) return;
+        const fallbackTab = visibleProjectDetailTabs[0]?.value ?? 0;
+        if (fallbackTab !== activeTab) setActiveTab(fallbackTab);
+    }, [activeTab, visibleProjectDetailTabs, visibleProjectDetailTabValues]);
 
     const handleProjectDetailTabChange = useCallback((event, newValue) => {
         setActiveTab(newValue);
@@ -3236,7 +3278,7 @@ function ProjectDetailsPage() {
                 }}
             >
                 <Tabs
-                    value={activeTab}
+                    value={displayedProjectDetailTab}
                     onChange={handleProjectDetailTabChange}
                     variant="scrollable"
                     scrollButtons="auto"
@@ -3291,16 +3333,18 @@ function ProjectDetailsPage() {
                     }}
                 >
                     {/* Tab values: 0=Overview, 9=Implementation Plan, 1=Financials(+Funds), 2=Sites, 3=Jobs, 4=Inspection, 5=Schedule, 6=BQ, 7=Certificates, 8=Map */}
-                    <Tab value={0} label="Overview" icon={<InfoIcon />} iconPosition="start" />
-                    <Tab value={9} label="Plan" icon={<AccountTreeIcon />} iconPosition="start" />
-                    <Tab value={1} label="Financials" icon={<MoneyIcon />} iconPosition="start" />
-                    <Tab value={2} label="Sites" icon={<LocationOnIcon />} iconPosition="start" />
-                    <Tab value={3} label="Jobs" icon={<WorkIcon />} iconPosition="start" />
-                    <Tab value={4} label="Inspection" icon={<FactCheckIcon />} iconPosition="start" />
-                    <Tab value={5} label="Schedule" icon={<ScheduleIcon />} iconPosition="start" />
-                    <Tab value={6} label="BQ" icon={<AssessmentIcon />} iconPosition="start" />
-                    <Tab value={7} label="Certificates" icon={<AssessmentIcon />} iconPosition="start" />
-                    <Tab value={8} label="Map" icon={<LocationOnIcon />} iconPosition="start" />
+                    {visibleProjectDetailTabs.map((tab) => {
+                        const Icon = tab.icon;
+                        return (
+                            <Tab
+                                key={tab.key}
+                                value={tab.value}
+                                label={tab.label}
+                                icon={<Icon />}
+                                iconPosition="start"
+                            />
+                        );
+                    })}
                 </Tabs>
             </Box>
 

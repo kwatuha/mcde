@@ -55,6 +55,76 @@ const userService = {
     }
   },
 
+  getProjectScopeOptions: async () => {
+    try {
+      const response = await axiosInstance.get('/users/users/project-scope-options');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching project scope options:', error);
+      throw error;
+    }
+  },
+
+  getDepartmentSectorMappings: async () => {
+    try {
+      const response = await axiosInstance.get('/users/users/department-sector-mappings');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching department-sector mappings:', error);
+      throw error;
+    }
+  },
+
+  saveDepartmentSectorMappings: async (mappings) => {
+    try {
+      const response = await axiosInstance.put('/users/users/department-sector-mappings', { mappings });
+      return response.data;
+    } catch (error) {
+      console.error('Error saving department-sector mappings:', error);
+      throw error;
+    }
+  },
+
+  getUiProfiles: async () => {
+    try {
+      const response = await axiosInstance.get('/users/ui-profiles');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching UI profiles:', error);
+      throw error;
+    }
+  },
+
+  createUiProfile: async (profileData) => {
+    try {
+      const response = await axiosInstance.post('/users/ui-profiles', profileData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating UI profile:', error);
+      throw error;
+    }
+  },
+
+  updateUiProfile: async (profileId, profileData) => {
+    try {
+      const response = await axiosInstance.put(`/users/ui-profiles/${profileId}`, profileData);
+      return response.data;
+    } catch (error) {
+      console.error(`Error updating UI profile ${profileId}:`, error);
+      throw error;
+    }
+  },
+
+  deleteUiProfile: async (profileId) => {
+    try {
+      const response = await axiosInstance.delete(`/users/ui-profiles/${profileId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error deleting UI profile ${profileId}:`, error);
+      throw error;
+    }
+  },
+
   createUser: async (userData) => {
     try {
       const response = await axiosInstance.post('/users/users', userData);
@@ -138,9 +208,7 @@ const userService = {
 
   createRole: async (roleData) => {
     try {
-      console.log('Creating role with data:', roleData);
       const response = await axiosInstance.post('/users/roles', roleData);
-      console.log('Create role response:', response.data);
       if (!response.data) {
         throw new Error('No data returned from role creation');
       }

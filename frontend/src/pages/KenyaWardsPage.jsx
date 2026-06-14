@@ -560,12 +560,6 @@ function KenyaWardsPage() {
       minWidth: 160,
     },
     {
-      field: 'constituency',
-      headerName: 'Constituency',
-      flex: 1,
-      minWidth: 150,
-    },
-    {
       field: 'actions',
       headerName: 'Actions',
       width: 150,

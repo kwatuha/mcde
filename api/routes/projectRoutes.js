@@ -17,6 +17,53 @@ const hasProjectScopeBypass = (user) => (
     isAdminLikeRequester(user) || orgScope.userHasOrganizationBypass(user?.privileges || [])
 );
 
+const resolveProjectScopeForUser = async (userId, projectAlias = 'p') => {
+    const hasProjectScopeContext = await orgScope.userHasProjectAccessScopeContext(userId);
+    return hasProjectScopeContext
+        ? {
+            fragment: orgScope.buildExplicitProjectScopeFragment(projectAlias),
+            params: orgScope.explicitProjectScopeParams(userId),
+            hasProjectScopeContext,
+        }
+        : {
+            fragment: orgScope.buildProjectListScopeFragment(projectAlias),
+            params: orgScope.projectScopeParamTriple(userId),
+            hasProjectScopeContext,
+        };
+};
+
+const addProjectScopeWhereForRequest = async (
+    req,
+    whereConditions,
+    queryParams,
+    projectAlias = 'p',
+    placeholderIndex = null
+) => {
+    const authUserId = getScopeUserId(req.user);
+    if (!authUserId || hasProjectScopeBypass(req.user) || !(await orgScope.organizationScopeTableExists())) {
+        return placeholderIndex;
+    }
+
+    const { fragment, params } = await resolveProjectScopeForUser(authUserId, projectAlias);
+    const numericPlaceholderIndex = Number(placeholderIndex);
+    if (
+        placeholderIndex !== null &&
+        placeholderIndex !== undefined &&
+        Number.isFinite(numericPlaceholderIndex) &&
+        numericPlaceholderIndex > 0
+    ) {
+        let nextIndex = numericPlaceholderIndex;
+        const pgFragment = fragment.replace(/\?/g, () => `$${nextIndex++}`);
+        whereConditions.push(pgFragment);
+        queryParams.push(...params);
+        return nextIndex;
+    }
+
+    whereConditions.push(fragment);
+    queryParams.push(...params);
+    return placeholderIndex;
+};
+
 const normalizeOrgAssignmentKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const isAllOrgAssignmentScope = (value) => ['*', 'all', 'all ministries', 'all_ministries'].includes(normalizeOrgAssignmentKey(value));
 
@@ -3549,13 +3596,8 @@ router.get('/status-counts', async (req, res) => {
         const queryParams = [];
 
         // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
-        const authUserId = getScopeUserId(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
-            if (await orgScope.organizationScopeTableExists()) {
-                const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
-                whereConditions.push(scopeFragPg);
-                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
-            }
+        if (DB_TYPE === 'postgresql') {
+            placeholderIndex = await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p', placeholderIndex);
         }
 
         if (finYearId) {
@@ -3700,13 +3742,8 @@ router.get('/directorate-counts', async (req, res) => {
         const queryParams = [];
 
         // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
-        const authUserId = getScopeUserId(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
-            if (await orgScope.organizationScopeTableExists()) {
-                const scopeFragPg = orgScope.buildProjectListScopeFragment('p').replace(/\?/g, () => `$${placeholderIndex++}`);
-                whereConditions.push(scopeFragPg);
-                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
-            }
+        if (DB_TYPE === 'postgresql') {
+            placeholderIndex = await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p', placeholderIndex);
         }
 
         if (finYearId) {
@@ -3843,12 +3880,8 @@ router.get('/organization-distribution', async (req, res) => {
         const queryParams = [];
 
         // Enforce organization visibility unless the requester is admin-like or has explicit bypass.
-        const authUserId = getScopeUserId(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
-            if (await orgScope.organizationScopeTableExists()) {
-                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
-                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
-            }
+        if (DB_TYPE === 'postgresql') {
+            await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p');
         }
 
         if (status) {
@@ -3957,12 +3990,8 @@ router.get('/organization-projects', async (req, res) => {
         const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
         const queryParams = [];
 
-        const authUserId = getScopeUserId(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
-            if (await orgScope.organizationScopeTableExists()) {
-                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
-                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
-            }
+        if (DB_TYPE === 'postgresql') {
+            await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p');
         }
 
         if (ministry && ministry.toLowerCase() !== 'all') {
@@ -4066,12 +4095,8 @@ router.get('/jobs-snapshot', async (req, res) => {
         const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
         const queryParams = [];
 
-        const authUserId = getScopeUserId(req.user);
-        if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
-            if (await orgScope.organizationScopeTableExists()) {
-                whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
-                queryParams.push(...orgScope.projectScopeParamTriple(authUserId));
-            }
+        if (DB_TYPE === 'postgresql') {
+            await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p');
         }
 
         if (DB_TYPE === 'postgresql') {
@@ -4574,52 +4599,81 @@ router.get('/:projectId/contractor-photos', async (req, res) => {
  */
 router.get('/maps-data', async (req, res) => {
     const { countyId, subcountyId, wardId, projectType } = req.query;
-    
-    let query = `
-        SELECT
-            p.id,
-            p.projectName,
-            p.projectDescription,
-            p.status,
-            pm.mapId,
-            pm.map AS geoJson
-        FROM
-            projects p
-        JOIN
-            project_maps pm ON p.id = pm.projectId
-        WHERE 1=1
-    `;
-
-    const queryParams = [];
-    
-    // Add filtering based on the junction tables
-    if (countyId) {
-        query += ` AND p.id IN (
-            SELECT projectId FROM project_counties WHERE countyId = ?
-        )`;
-        queryParams.push(countyId);
-    }
-    if (subcountyId) {
-        query += ` AND p.id IN (
-            SELECT projectId FROM project_subcounties WHERE subcountyId = ?
-        )`;
-        queryParams.push(subcountyId);
-    }
-    if (wardId) {
-        query += ` AND p.id IN (
-            SELECT projectId FROM project_wards WHERE wardId = ?
-        )`;
-        queryParams.push(wardId);
-    }
-    if (projectType && projectType !== 'all') {
-        query += ` AND p.projectType = ?`;
-        queryParams.push(projectType);
-    }
-    
-    query += ` ORDER BY p.id;`;
 
     try {
-        const [rows] = await pool.query(query, queryParams);
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const queryParams = [];
+        const whereConditions = [];
+        let query = '';
+
+        if (DB_TYPE === 'postgresql') {
+            whereConditions.push('COALESCE(p.voided, false) = false');
+            whereConditions.push('COALESCE(pm.voided, false) = false');
+            await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p');
+
+            if (projectType && projectType !== 'all') {
+                whereConditions.push('LOWER(TRIM(COALESCE(p.sector, \'\'))) = LOWER(TRIM(COALESCE(?, \'\')))');
+                queryParams.push(projectType);
+            }
+
+            query = `
+                SELECT
+                    p.project_id AS id,
+                    p.name AS "projectName",
+                    p.description AS "projectDescription",
+                    p.progress->>'status' AS status,
+                    pm.mapid AS "mapId",
+                    pm.map AS "geoJson"
+                FROM projects p
+                JOIN project_maps pm ON pm.projectid = p.project_id
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY p.project_id
+            `;
+        } else {
+            whereConditions.push('1=1');
+            // Add filtering based on the junction tables
+            if (countyId) {
+                whereConditions.push(`p.id IN (
+                    SELECT projectId FROM project_counties WHERE countyId = ?
+                )`);
+                queryParams.push(countyId);
+            }
+            if (subcountyId) {
+                whereConditions.push(`p.id IN (
+                    SELECT projectId FROM project_subcounties WHERE subcountyId = ?
+                )`);
+                queryParams.push(subcountyId);
+            }
+            if (wardId) {
+                whereConditions.push(`p.id IN (
+                    SELECT projectId FROM project_wards WHERE wardId = ?
+                )`);
+                queryParams.push(wardId);
+            }
+            if (projectType && projectType !== 'all') {
+                whereConditions.push('p.projectType = ?');
+                queryParams.push(projectType);
+            }
+
+            query = `
+                SELECT
+                    p.id,
+                    p.projectName,
+                    p.projectDescription,
+                    p.status,
+                    pm.mapId,
+                    pm.map AS geoJson
+                FROM projects p
+                JOIN project_maps pm ON p.id = pm.projectId
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY p.id
+            `;
+        }
+
+        const result = await pool.execute(query, queryParams);
+        const rows = DB_TYPE === 'postgresql'
+            ? (result.rows || result)
+            : (Array.isArray(result) ? result[0] : result);
 
         let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
 
@@ -4627,8 +4681,9 @@ router.get('/maps-data', async (req, res) => {
         const projectsWithGeoJson = rows.map(row => {
             try {
                 const geoJson = JSON.parse(row.geoJson);
-                
-                const coordinates = extractCoordinates(geoJson.geometry);
+                const coordinates = geoJson?.type === 'FeatureCollection'
+                    ? (geoJson.features || []).flatMap((feature) => extractCoordinates(feature?.geometry))
+                    : extractCoordinates(geoJson.geometry || geoJson);
                 coordinates.forEach(coord => {
                     const [lng, lat] = coord;
                     if (isFinite(lat) && isFinite(lng)) {
@@ -4641,6 +4696,7 @@ router.get('/maps-data', async (req, res) => {
 
                 return {
                     id: row.id,
+                    mapId: row.mapId || row.mapid || null,
                     projectName: row.projectName,
                     projectDescription: row.projectDescription,
                     status: row.status,
@@ -4656,6 +4712,7 @@ router.get('/maps-data', async (req, res) => {
 
         const responseData = {
             projects: projectsWithGeoJson,
+            projectMaps: projectsWithGeoJson,
             boundingBox: boundingBox
         };
 
@@ -4938,6 +4995,7 @@ router.get('/', async (req, res) => {
         if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+                const hasProjectScopeContext = await orgScope.userHasProjectAccessScopeContext(authUserId);
                 let hasProfileScopeContext = false;
                 try {
                     const profileResult = await pool.query(
@@ -4961,9 +5019,18 @@ router.get('/', async (req, res) => {
                 }
 
                 // Avoid locking users out when this database has no scope rows/profile context for them.
-                if ((scopeRows || []).length > 0 || hasProfileScopeContext) {
-                    whereConditions.push(orgScope.buildProjectListScopeFragment('p'));
-                    queryParams = [...orgScope.projectScopeParamTriple(authUserId), ...queryParams];
+                if ((scopeRows || []).length > 0 || hasProjectScopeContext || hasProfileScopeContext) {
+                    const { fragment, params } = hasProjectScopeContext
+                        ? {
+                            fragment: orgScope.buildExplicitProjectScopeFragment('p'),
+                            params: orgScope.explicitProjectScopeParams(authUserId),
+                        }
+                        : {
+                            fragment: orgScope.buildProjectListScopeFragment('p'),
+                            params: orgScope.projectScopeParamTriple(authUserId),
+                        };
+                    whereConditions.push(fragment);
+                    queryParams = [...params, ...queryParams];
                 }
             }
         }
@@ -6294,6 +6361,7 @@ router.get('/:id', async (req, res) => {
         if (DB_TYPE === 'postgresql' && authUserId && !hasProjectScopeBypass(req.user)) {
             if (await orgScope.organizationScopeTableExists()) {
                 const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+                const hasProjectScopeContext = await orgScope.userHasProjectAccessScopeContext(authUserId);
                 let hasProfileScopeContext = false;
                 try {
                     const profileResult = await pool.query(
@@ -6316,7 +6384,7 @@ router.get('/:id', async (req, res) => {
                     console.warn('Single project scope profile lookup failed, continuing with safe fallback:', profileErr.message);
                 }
 
-                if ((scopeRows || []).length > 0 || hasProfileScopeContext) {
+                if ((scopeRows || []).length > 0 || hasProjectScopeContext || hasProfileScopeContext) {
                     query = orgScope.appendSingleProjectScopeWhereClause(query);
                     params = orgScope.singleProjectScopeParams(id, authUserId);
                 }

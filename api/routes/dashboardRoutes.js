@@ -6,12 +6,70 @@ const pool = require('../config/db'); // Import the database connection pool
 const ExcelJS = require('exceljs'); // For Excel export
 const puppeteer = require('puppeteer'); // For PDF export
 const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
+const orgScope = require('../services/organizationScopeService');
+const { isSuperAdminRequester } = require('../utils/roleUtils');
 
 /**
  * @file Backend routes for Dashboard data and analytics.
  * @description Provides endpoints for summary statistics, demographic data,
  * disease prevalence, and export functionalities, fetching data from the database.
  */
+
+const getDBType = () => {
+    const raw = String(process.env.DB_TYPE || '').trim().toLowerCase();
+    if (raw === 'mysql' || raw === 'mariadb') return 'mysql';
+    return 'postgresql';
+};
+
+const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+
+const pgMoneyExpr = (alias, key) => `
+    CASE
+        WHEN (${alias}.budget->>'${key}') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+        THEN (${alias}.budget->>'${key}')::numeric
+        ELSE 0
+    END
+`;
+
+const pgStatusExpr = (alias = 'p') => `COALESCE(${alias}.progress->>'status', '')`;
+
+async function addDashboardProjectScopeWhere(req, whereConditions, queryParams, projectAlias = 'p', placeholderIndex = null) {
+    if (getDBType() !== 'postgresql') return placeholderIndex;
+    const authUserId = getScopeUserId(req.user);
+    const authPrivileges = Array.isArray(req.user?.privileges) ? req.user.privileges : [];
+    if (!authUserId) {
+        whereConditions.push('FALSE');
+        return placeholderIndex;
+    }
+    if (isSuperAdminRequester(req.user) || orgScope.userHasOrganizationBypass(authPrivileges)) {
+        return placeholderIndex;
+    }
+    if (!(await orgScope.organizationScopeTableExists())) {
+        whereConditions.push('FALSE');
+        return placeholderIndex;
+    }
+    const hasProjectScopes = await orgScope.userHasProjectAccessScopeContext(authUserId);
+    const hasOrgScopes = hasProjectScopes ? false : (await orgScope.fetchOrganizationScopesForUser(authUserId)).length > 0;
+    if (!hasOrgScopes && !hasProjectScopes) return placeholderIndex;
+
+    const numericPlaceholderIndex = Number(placeholderIndex);
+    let nextIndex = (
+        placeholderIndex !== null &&
+        placeholderIndex !== undefined &&
+        Number.isFinite(numericPlaceholderIndex) &&
+        numericPlaceholderIndex > 0
+    ) ? numericPlaceholderIndex : queryParams.length + 1;
+    const rawScopeFragment = hasProjectScopes
+        ? orgScope.buildExplicitProjectScopeFragment(projectAlias)
+        : orgScope.buildProjectListScopeFragment(projectAlias);
+    const scopeParams = hasProjectScopes
+        ? orgScope.explicitProjectScopeParams(authUserId)
+        : orgScope.projectScopeParamTriple(authUserId);
+    const scopeFragment = rawScopeFragment.replace(/\?/g, () => `$${nextIndex++}`);
+    whereConditions.push(scopeFragment);
+    queryParams.push(...scopeParams);
+    return nextIndex;
+}
 
 // --- Helper Functions for Data Simulation (will be replaced by DB queries) ---
 // These are placeholders. In a real app, these would be complex SQL queries.
@@ -402,26 +460,32 @@ router.get('/:userId', async (req, res) => {
  */
 router.get('/statistics/:userId', async (req, res) => {
     try {
-        const { userId } = req.params;
-        
+        const DB_TYPE = getDBType();
+        const projectWhere = [DB_TYPE === 'postgresql' ? 'COALESCE(p.voided, false) = false' : 'p.voided = 0'];
+        const projectParams = [];
+        await addDashboardProjectScopeWhere(req, projectWhere, projectParams, 'p');
+
         // Query project statistics
-        const [projectStats] = await pool.query(`
+        const projectStatsResult = await pool.query(`
             SELECT 
-                COUNT(*) as totalProjects,
-                SUM(CASE WHEN statusId = 2 THEN 1 ELSE 0 END) as activeProjects,
-                SUM(CASE WHEN statusId = 3 THEN 1 ELSE 0 END) as completedProjects,
-                SUM(CASE WHEN statusId = 1 THEN 1 ELSE 0 END) as pendingProjects
-            FROM projects
-        `);
+                COUNT(*) as "totalProjects",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? `${pgStatusExpr()} ILIKE '%ongoing%'` : 'statusId = 2'} THEN 1 ELSE 0 END) as "activeProjects",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? `${pgStatusExpr()} ILIKE '%complete%'` : 'statusId = 3'} THEN 1 ELSE 0 END) as "completedProjects",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? `${pgStatusExpr()} ILIKE '%not started%' OR ${pgStatusExpr()} ILIKE '%pending%'` : 'statusId = 1'} THEN 1 ELSE 0 END) as "pendingProjects"
+            FROM projects p
+            WHERE ${projectWhere.join(' AND ')}
+        `, projectParams);
         
         // Query user statistics
-        const [userStats] = await pool.query(`
+        const userStatsResult = await pool.query(`
             SELECT 
-                COUNT(*) as totalUsers,
-                SUM(CASE WHEN isActive = 1 THEN 1 ELSE 0 END) as activeUsers,
-                SUM(CASE WHEN isActive = 0 THEN 1 ELSE 0 END) as inactiveUsers
+                COUNT(*) as "totalUsers",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? 'COALESCE(isactive, false) = true' : 'isActive = 1'} THEN 1 ELSE 0 END) as "activeUsers",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? 'COALESCE(isactive, false) = false' : 'isActive = 0'} THEN 1 ELSE 0 END) as "inactiveUsers"
             FROM users
         `);
+        const projectStats = DB_TYPE === 'postgresql' ? (projectStatsResult.rows || []) : (Array.isArray(projectStatsResult) ? projectStatsResult[0] : []);
+        const userStats = DB_TYPE === 'postgresql' ? (userStatsResult.rows || []) : (Array.isArray(userStatsResult) ? userStatsResult[0] : []);
         
         const statistics = {
             projects: projectStats[0] || { totalProjects: 0, activeProjects: 0, completedProjects: 0, pendingProjects: 0 },
@@ -442,21 +506,25 @@ router.get('/statistics/:userId', async (req, res) => {
  */
 router.get('/metrics/:userId', async (req, res) => {
     try {
-        const { userId } = req.params;
-        const { role } = req.query;
-        
+        const DB_TYPE = getDBType();
+        const projectWhere = [DB_TYPE === 'postgresql' ? 'COALESCE(p.voided, false) = false' : 'p.voided = 0'];
+        const projectParams = [];
+        await addDashboardProjectScopeWhere(req, projectWhere, projectParams, 'p');
+
         // Query project metrics
-        const [metrics] = await pool.query(`
+        const metricsResult = await pool.query(`
             SELECT 
-                COUNT(*) as totalProjects,
-                SUM(CASE WHEN statusId = 2 THEN 1 ELSE 0 END) as activeProjects,
-                SUM(CASE WHEN statusId = 3 THEN 1 ELSE 0 END) as completedProjects,
-                SUM(budgetAllocated) as totalBudget,
-                SUM(budgetUtilized) as utilizedBudget,
-                COUNT(DISTINCT projectManagerId) as teamMembers
-            FROM projects
-        `);
+                COUNT(*) as "totalProjects",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? `${pgStatusExpr()} ILIKE '%ongoing%'` : 'statusId = 2'} THEN 1 ELSE 0 END) as "activeProjects",
+                SUM(CASE WHEN ${DB_TYPE === 'postgresql' ? `${pgStatusExpr()} ILIKE '%complete%'` : 'statusId = 3'} THEN 1 ELSE 0 END) as "completedProjects",
+                COALESCE(SUM(${DB_TYPE === 'postgresql' ? pgMoneyExpr('p', 'allocated_amount_kes') : 'budgetAllocated'}), 0) as "totalBudget",
+                COALESCE(SUM(${DB_TYPE === 'postgresql' ? pgMoneyExpr('p', 'disbursed_amount_kes') : 'budgetUtilized'}), 0) as "utilizedBudget",
+                COUNT(DISTINCT ${DB_TYPE === 'postgresql' ? 'p.implementing_agency' : 'projectManagerId'}) as "teamMembers"
+            FROM projects p
+            WHERE ${projectWhere.join(' AND ')}
+        `, projectParams);
         
+        const metrics = DB_TYPE === 'postgresql' ? (metricsResult.rows || []) : (Array.isArray(metricsResult) ? metricsResult[0] : []);
         const metricsData = metrics[0] || {};
         metricsData.pendingApprovals = 0; // Placeholder for approvals
         metricsData.budgetUtilization = metricsData.totalBudget > 0 
@@ -476,19 +544,24 @@ router.get('/metrics/:userId', async (req, res) => {
  */
 router.get('/activity/:userId', async (req, res) => {
     try {
-        const { userId } = req.params;
-        
+        const DB_TYPE = getDBType();
+        const projectWhere = [DB_TYPE === 'postgresql' ? 'COALESCE(p.voided, false) = false' : 'p.voided = 0'];
+        const projectParams = [];
+        await addDashboardProjectScopeWhere(req, projectWhere, projectParams, 'p');
+
         // Query recent project updates
-        const [activities] = await pool.query(`
+        const activitiesResult = await pool.query(`
             SELECT 
-                projectName as action,
-                updatedAt as time,
+                ${DB_TYPE === 'postgresql' ? `COALESCE(p.name, p.project_id::text)` : 'projectName'} as action,
+                ${DB_TYPE === 'postgresql' ? 'updated_at' : 'updatedAt'} as time,
                 'project' as type
-            FROM projects
-            ORDER BY updatedAt DESC
+            FROM projects p
+            WHERE ${projectWhere.join(' AND ')}
+            ORDER BY ${DB_TYPE === 'postgresql' ? 'updated_at DESC NULLS LAST' : 'updatedAt DESC'}
             LIMIT 10
-        `);
+        `, projectParams);
         
+        const activities = DB_TYPE === 'postgresql' ? (activitiesResult.rows || []) : (Array.isArray(activitiesResult) ? activitiesResult[0] : []);
         // Format activities
         const recentActivity = activities.map((activity, index) => ({
             id: index + 1,

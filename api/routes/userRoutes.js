@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const orgScope = require('../services/organizationScopeService');
+const uiAccess = require('../services/uiAccessService');
 const { isSuperAdminRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
 const { ensureLoginOtpSchema } = require('../services/loginOtpService');
@@ -14,6 +15,16 @@ const ALLOWED_ASSIGNMENT_ROLES_FOR_MDA_ICT_ADMIN = new Set([
     'data approver',
     'viewer',
 ]);
+
+// Keep project access geography options aligned with the Kenya Wards module.
+// Unset defaults to Machakos; set WARDS_COUNTY_SCOPE=all or empty to show all counties.
+const PROJECT_SCOPE_COUNTY_FILTER = (() => {
+    const raw = process.env.WARDS_COUNTY_SCOPE;
+    if (raw === undefined) return 'Machakos';
+    const trimmed = String(raw).trim();
+    if (!trimmed || trimmed.toLowerCase() === 'all') return '';
+    return trimmed;
+})();
 
 function generateOneTimePassword(length = 12) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
@@ -104,6 +115,99 @@ async function findActiveRoleByName(roleName, DB_TYPE, excludeRoleId = null) {
     const result = await pool.query(query, params);
     const rows = Array.isArray(result) ? result[0] : result;
     return rows?.[0] || null;
+}
+
+function normalizePrivilegeIdsForRole(rawPrivilegeIds) {
+    if (!Array.isArray(rawPrivilegeIds)) return null;
+    return [
+        ...new Set(
+            rawPrivilegeIds
+                .map((id) => parseInt(String(id), 10))
+                .filter((id) => Number.isFinite(id) && id > 0)
+        ),
+    ];
+}
+
+async function syncRolePrivileges(roleId, rawPrivilegeIds, DB_TYPE) {
+    const rid = parseInt(String(roleId), 10);
+    const privilegeIds = normalizePrivilegeIdsForRole(rawPrivilegeIds);
+    if (!Number.isFinite(rid) || rid <= 0) throw new Error('Invalid role id.');
+    if (privilegeIds === null) return;
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        if (DB_TYPE === 'postgresql') {
+            if (privilegeIds.length > 0) {
+                const validResult = await conn.query(
+                    `SELECT privilegeid FROM privileges WHERE privilegeid = ANY($1::int[]) AND COALESCE(voided, false) = false`,
+                    [privilegeIds]
+                );
+                const validIds = new Set((validResult.rows || []).map((row) => Number(row.privilegeid)));
+                const invalidIds = privilegeIds.filter((id) => !validIds.has(id));
+                if (invalidIds.length > 0) {
+                    throw new Error(`Invalid privilege selection: ${invalidIds.join(', ')}`);
+                }
+            }
+
+            await conn.query(
+                `UPDATE role_privileges
+                 SET voided = true, updatedat = CURRENT_TIMESTAMP
+                 WHERE roleid = $1
+                   AND COALESCE(voided, false) = false
+                   AND NOT (privilegeid = ANY($2::int[]))`,
+                [rid, privilegeIds]
+            );
+
+            for (const privilegeId of privilegeIds) {
+                const updateResult = await conn.query(
+                    `UPDATE role_privileges
+                     SET voided = false, updatedat = CURRENT_TIMESTAMP
+                     WHERE roleid = $1 AND privilegeid = $2
+                     RETURNING roleprivilegeid`,
+                    [rid, privilegeId]
+                );
+                if ((updateResult.rows || []).length === 0) {
+                    await conn.query(
+                        `INSERT INTO role_privileges (roleid, privilegeid, createdat, updatedat, voided)
+                         VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false)`,
+                        [rid, privilegeId]
+                    );
+                }
+            }
+        } else {
+            if (privilegeIds.length > 0) {
+                const placeholders = privilegeIds.map(() => '?').join(',');
+                const validResult = await conn.query(
+                    `SELECT privilegeId FROM privileges WHERE privilegeId IN (${placeholders}) AND voided = 0`,
+                    privilegeIds
+                );
+                const rows = Array.isArray(validResult) ? validResult[0] : validResult;
+                const validIds = new Set((rows || []).map((row) => Number(row.privilegeId)));
+                const invalidIds = privilegeIds.filter((id) => !validIds.has(id));
+                if (invalidIds.length > 0) {
+                    throw new Error(`Invalid privilege selection: ${invalidIds.join(', ')}`);
+                }
+            }
+            await conn.query('DELETE FROM role_privileges WHERE roleId = ?', [rid]);
+            for (const privilegeId of privilegeIds) {
+                await conn.query(
+                    'INSERT IGNORE INTO role_privileges SET ?',
+                    { roleId: rid, privilegeId, createdAt: new Date() }
+                );
+            }
+        }
+        await conn.commit();
+    } catch (error) {
+        try {
+            await conn.rollback();
+        } catch (rollbackError) {
+            console.warn('syncRolePrivileges rollback failed:', rollbackError.message);
+        }
+        throw error;
+    } finally {
+        conn.release();
+    }
 }
 
 async function enforceRoleAssignmentPermission(reqUser, targetRoleId, DB_TYPE) {
@@ -251,13 +355,20 @@ async function fetchActiveNonVoidedUsers() {
 
     if (DB_TYPE === 'postgresql' && payload.length > 0 && (await orgScope.organizationScopeTableExists())) {
         try {
-            const scopeMap = await orgScope.fetchOrganizationScopesForUsers(payload.map((u) => u.userId));
+            const userIds = payload.map((u) => u.userId);
+            const [scopeMap, projectScopeMap, uiProfileMap] = await Promise.all([
+                orgScope.fetchOrganizationScopesForUsers(userIds),
+                orgScope.fetchProjectScopesForUsers(userIds),
+                uiAccess.fetchUiProfilesForUsers(userIds),
+            ]);
             payload = payload.map((u) => ({
                 ...u,
                 organizationScopes: scopeMap.get(parseInt(String(u.userId), 10)) || [],
+                projectScopes: projectScopeMap.get(parseInt(String(u.userId), 10)) || [],
+                uiProfile: uiProfileMap.get(parseInt(String(u.userId), 10)) || null,
             }));
         } catch (scopeErr) {
-            console.warn('User list: could not attach organization scopes:', scopeErr.message);
+            console.warn('User list: could not attach access scopes:', scopeErr.message);
         }
     }
 
@@ -354,6 +465,226 @@ router.get('/users/check-username', async (req, res) => {
 });
 
 /**
+ * @route GET /api/users/users/project-scope-options
+ * @description Super Admin only: option lists for project access scopes.
+ */
+router.get('/users/project-scope-options', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage project access scopes.' });
+    }
+    const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    if (DB_TYPE !== 'postgresql') {
+        return res.status(501).json({ error: 'Project access scopes are available on PostgreSQL deployments only.' });
+    }
+
+    const safeRows = async (sql, params = []) => {
+        try {
+            const result = await pool.query(sql, params);
+            return result.rows || [];
+        } catch (error) {
+            console.warn('Project scope options query skipped:', error.message);
+            return [];
+        }
+    };
+
+    try {
+        await orgScope.ensureScopeSchema();
+        const wardCountyClause = PROJECT_SCOPE_COUNTY_FILTER ? ' AND county ILIKE $1' : '';
+        const wardCountyParams = PROJECT_SCOPE_COUNTY_FILTER ? [`%${PROJECT_SCOPE_COUNTY_FILTER}%`] : [];
+        const [sectorRows, projectSectorRows, departmentRows, projectDepartmentRows, subcountyRows, wardRows, mappings] = await Promise.all([
+            safeRows(`
+                SELECT id, name AS "sectorName"
+                FROM sectors
+                WHERE COALESCE(voided, false) = false
+                ORDER BY name
+            `),
+            safeRows(`
+                SELECT DISTINCT NULLIF(TRIM(sector), '') AS "sectorName"
+                FROM projects
+                WHERE COALESCE(voided, false) = false
+                  AND NULLIF(TRIM(sector), '') IS NOT NULL
+                ORDER BY "sectorName"
+            `),
+            safeRows(`
+                SELECT "departmentId" AS id, name AS "departmentName", alias
+                FROM departments
+                WHERE COALESCE(voided::text, '0') IN ('0', 'false', 'f')
+                ORDER BY name
+            `),
+            safeRows(`
+                SELECT DISTINCT NULLIF(TRIM(state_department), '') AS "departmentName"
+                FROM projects
+                WHERE COALESCE(voided, false) = false
+                  AND NULLIF(TRIM(state_department), '') IS NOT NULL
+                ORDER BY "departmentName"
+            `),
+            safeRows(`
+                SELECT DISTINCT COALESCE(NULLIF(TRIM(subcounty), ''), NULLIF(TRIM(division), '')) AS "subcountyName"
+                FROM kenya_wards
+                WHERE COALESCE(voided, false) = false
+                  ${wardCountyClause}
+                  AND COALESCE(NULLIF(TRIM(subcounty), ''), NULLIF(TRIM(division), '')) IS NOT NULL
+                ORDER BY "subcountyName"
+            `, wardCountyParams),
+            safeRows(`
+                SELECT DISTINCT iebc_ward_name AS "wardName",
+                       COALESCE(NULLIF(TRIM(subcounty), ''), NULLIF(TRIM(division), '')) AS "subcountyName"
+                FROM kenya_wards
+                WHERE COALESCE(voided, false) = false
+                  ${wardCountyClause}
+                  AND NULLIF(TRIM(iebc_ward_name), '') IS NOT NULL
+                ORDER BY "subcountyName", "wardName"
+            `, wardCountyParams),
+            orgScope.fetchDepartmentSectorMappings(),
+        ]);
+
+        const sectorByName = new Map();
+        [...sectorRows, ...projectSectorRows].forEach((row) => {
+            const name = String(row.sectorName || '').trim();
+            if (!name) return;
+            const key = name.toLowerCase();
+            if (!sectorByName.has(key)) sectorByName.set(key, { id: row.id || null, sectorName: name });
+        });
+
+        const departmentByName = new Map();
+        [...departmentRows, ...projectDepartmentRows].forEach((row) => {
+            const name = String(row.departmentName || '').trim();
+            if (!name) return;
+            const key = name.toLowerCase();
+            if (!departmentByName.has(key)) {
+                departmentByName.set(key, { id: row.id || null, departmentName: name, alias: row.alias || '' });
+            }
+        });
+
+        res.status(200).json({
+            sectors: [...sectorByName.values()],
+            departments: [...departmentByName.values()],
+            subcounties: subcountyRows,
+            wards: wardRows,
+            departmentSectorMappings: mappings,
+        });
+    } catch (error) {
+        console.error('Error fetching project scope options:', error);
+        res.status(500).json({ error: 'Failed to fetch project scope options.' });
+    }
+});
+
+/**
+ * @route GET /api/users/users/department-sector-mappings
+ * @description Super Admin only: list department-sector bridge mappings.
+ */
+router.get('/users/department-sector-mappings', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage department-sector mappings.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'Department-sector mappings are available on PostgreSQL deployments only.' });
+    }
+    try {
+        const mappings = await orgScope.fetchDepartmentSectorMappings();
+        res.status(200).json(mappings);
+    } catch (error) {
+        console.error('Error fetching department-sector mappings:', error);
+        res.status(500).json({ error: 'Failed to fetch department-sector mappings.' });
+    }
+});
+
+/**
+ * @route PUT /api/users/users/department-sector-mappings
+ * @description Super Admin only: replace department-sector bridge mappings.
+ */
+router.put('/users/department-sector-mappings', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage department-sector mappings.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'Department-sector mappings are available on PostgreSQL deployments only.' });
+    }
+    const mappings = req.body?.mappings ?? req.body?.departmentSectorMappings ?? req.body;
+    if (!Array.isArray(mappings)) {
+        return res.status(400).json({ error: 'Mappings payload must be an array.' });
+    }
+    if (mappings.length > 0 && !mappings.some((row) => orgScope.normalizeDepartmentSectorMappingInput(row))) {
+        return res.status(400).json({ error: 'No valid department-sector mappings were provided.' });
+    }
+    try {
+        await orgScope.replaceDepartmentSectorMappings(mappings);
+        const nextMappings = await orgScope.fetchDepartmentSectorMappings();
+        res.status(200).json(nextMappings);
+    } catch (error) {
+        console.error('Error saving department-sector mappings:', error);
+        res.status(400).json({ error: error.message || 'Failed to save department-sector mappings.' });
+    }
+});
+
+router.get('/ui-profiles', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage UI profiles.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'UI profiles are available on PostgreSQL deployments only.' });
+    }
+    try {
+        const profiles = await uiAccess.fetchUiProfiles();
+        res.status(200).json(profiles);
+    } catch (error) {
+        console.error('Error fetching UI profiles:', error);
+        res.status(500).json({ error: 'Failed to fetch UI profiles.' });
+    }
+});
+
+router.post('/ui-profiles', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage UI profiles.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'UI profiles are available on PostgreSQL deployments only.' });
+    }
+    try {
+        const profile = await uiAccess.createUiProfile(req.body || {});
+        res.status(201).json(profile);
+    } catch (error) {
+        console.error('Error creating UI profile:', error);
+        const duplicate = String(error.message || '').includes('idx_ui_profiles_name_active');
+        res.status(400).json({ error: duplicate ? 'A UI profile with this name already exists.' : error.message || 'Failed to create UI profile.' });
+    }
+});
+
+router.put('/ui-profiles/:id', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage UI profiles.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'UI profiles are available on PostgreSQL deployments only.' });
+    }
+    try {
+        const profile = await uiAccess.updateUiProfile(req.params.id, req.body || {});
+        res.status(200).json(profile);
+    } catch (error) {
+        console.error('Error updating UI profile:', error);
+        const duplicate = String(error.message || '').includes('idx_ui_profiles_name_active');
+        res.status(400).json({ error: duplicate ? 'A UI profile with this name already exists.' : error.message || 'Failed to update UI profile.' });
+    }
+});
+
+router.delete('/ui-profiles/:id', async (req, res) => {
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ error: 'Only Super Admin can manage UI profiles.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'UI profiles are available on PostgreSQL deployments only.' });
+    }
+    try {
+        const deleted = await uiAccess.deleteUiProfile(req.params.id);
+        if (!deleted) return res.status(404).json({ error: 'UI profile not found.' });
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Error deleting UI profile:', error);
+        res.status(400).json({ error: error.message || 'Failed to delete UI profile.' });
+    }
+});
+
+/**
  * @route GET /api/users/users/:id
  * @description Get a single user by user_id from the users table.
  */
@@ -426,14 +757,20 @@ router.get('/users/:id', async (req, res) => {
         if (Array.isArray(rows) ? rows.length > 0 : rows) {
             const userRow = Array.isArray(rows) ? rows[0] : rows;
             let organizationScopes = [];
+            let projectScopes = [];
+            let uiProfile = null;
             if (DB_TYPE === 'postgresql') {
                 try {
-                    organizationScopes = await orgScope.fetchOrganizationScopesForUser(id);
+                    [organizationScopes, projectScopes, uiProfile] = await Promise.all([
+                        orgScope.fetchOrganizationScopesForUser(id),
+                        orgScope.fetchProjectScopesForUser(id),
+                        uiAccess.fetchUiProfileForUser(id),
+                    ]);
                 } catch (scopeErr) {
-                    console.warn('fetchOrganizationScopesForUser:', scopeErr.message);
+                    console.warn('fetch access scopes for user:', scopeErr.message);
                 }
             }
-            res.status(200).json({ ...userRow, organizationScopes });
+            res.status(200).json({ ...userRow, organizationScopes, projectScopes, uiProfile });
         } else {
             res.status(404).json({ message: 'User not found' });
         }
@@ -453,6 +790,10 @@ router.post('/users', async (req, res) => {
         ministry, state_department, directorate, agency_id, phoneNumber, phone_number, otpEnabled,
         organizationScopes: organizationScopesBody,
         organization_scopes: organization_scopes_snake,
+        projectScopes: projectScopesBody,
+        project_scopes: project_scopes_snake,
+        uiProfileId,
+        ui_profile_id,
     } = req.body;
     const otpEnabledVal =
         otpEnabled === true ||
@@ -460,9 +801,29 @@ router.post('/users', async (req, res) => {
         otpEnabled === '1' ||
         String(otpEnabled || '').toLowerCase() === 'true';
     const scopesFromBody = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
+    const projectScopesFromBody = projectScopesBody !== undefined ? projectScopesBody : project_scopes_snake;
+    const uiProfileIdFromBody = uiProfileId !== undefined ? uiProfileId : ui_profile_id;
+    const hasValidOrganizationScopesFromBody = Array.isArray(scopesFromBody)
+        && scopesFromBody.some((row) => orgScope.normalizeScopeInput(row));
+    const hasValidProjectScopesFromBody = Array.isArray(projectScopesFromBody)
+        && projectScopesFromBody.some((row) => orgScope.normalizeProjectScopeInput(row));
 
     if (!username || !email || !password || !firstName || !lastName || !roleId) {
         return res.status(400).json({ error: 'Please enter all required fields: username, email, password, first name, last name, and role ID.' });
+    }
+
+    if (projectScopesFromBody !== undefined) {
+        if (!Array.isArray(projectScopesFromBody)) {
+            return res.status(400).json({ error: 'Project access must be an array.' });
+        }
+        if (projectScopesFromBody.length > 0 && !projectScopesFromBody.some((row) => orgScope.normalizeProjectScopeInput(row))) {
+            return res.status(400).json({ error: 'No valid project access rows were provided.' });
+        }
+    }
+    if ((Array.isArray(scopesFromBody) || Array.isArray(projectScopesFromBody))
+        && !hasValidOrganizationScopesFromBody
+        && !hasValidProjectScopesFromBody) {
+        return res.status(400).json({ error: 'Assign organization access or project access before this user can sign in.' });
     }
 
     const resolvedPhone = phoneNumber ?? phone_number;
@@ -665,21 +1026,33 @@ router.post('/users', async (req, res) => {
 
         if (DB_TYPE === 'postgresql') {
             try {
-                if (Array.isArray(scopesFromBody) && scopesFromBody.length > 0) {
+                if (Array.isArray(scopesFromBody)) {
                     await orgScope.replaceUserOrganizationScopes(insertedUserId, scopesFromBody);
                 } else {
                     await orgScope.syncOrganizationScopesFromUserProfile(insertedUserId, { onlyIfEmpty: true });
                 }
+                if (Array.isArray(projectScopesFromBody)) {
+                    await orgScope.replaceUserProjectScopes(insertedUserId, projectScopesFromBody);
+                }
+                if (uiProfileIdFromBody !== undefined) {
+                    await uiAccess.assignUiProfileToUser(insertedUserId, uiProfileIdFromBody);
+                }
             } catch (scopeErr) {
-                console.error('Error saving organization scopes for new user:', scopeErr);
+                console.error('Error saving access scopes for new user:', scopeErr);
             }
             let organizationScopes = [];
+            let projectScopes = [];
+            let uiProfile = null;
             try {
-                organizationScopes = await orgScope.fetchOrganizationScopesForUser(insertedUserId);
+                [organizationScopes, projectScopes, uiProfile] = await Promise.all([
+                    orgScope.fetchOrganizationScopesForUser(insertedUserId),
+                    orgScope.fetchProjectScopesForUser(insertedUserId),
+                    uiAccess.fetchUiProfileForUser(insertedUserId),
+                ]);
             } catch (e) {
-                console.warn('fetchOrganizationScopesForUser after create:', e.message);
+                console.warn('fetch access scopes after create:', e.message);
             }
-            return res.status(201).json({ ...created, organizationScopes, emailSent });
+            return res.status(201).json({ ...created, organizationScopes, projectScopes, uiProfile, emailSent });
         }
 
         res.status(201).json({ ...created, emailSent });
@@ -797,9 +1170,19 @@ router.put('/users/:id', async (req, res) => {
         password,
         organizationScopes: organizationScopesBody,
         organization_scopes: organization_scopes_snake,
+        projectScopes: projectScopesBody,
+        project_scopes: project_scopes_snake,
+        uiProfileId,
+        ui_profile_id,
         ...otherFieldsToUpdate
     } = req.body;
     const scopesPayload = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
+    const projectScopesPayload = projectScopesBody !== undefined ? projectScopesBody : project_scopes_snake;
+    const uiProfileIdPayload = uiProfileId !== undefined ? uiProfileId : ui_profile_id;
+    const hasValidOrganizationScopesPayload = Array.isArray(scopesPayload)
+        && scopesPayload.some((row) => orgScope.normalizeScopeInput(row));
+    const hasValidProjectScopesPayload = Array.isArray(projectScopesPayload)
+        && projectScopesPayload.some((row) => orgScope.normalizeProjectScopeInput(row));
     if (scopesPayload !== undefined) {
         if (!Array.isArray(scopesPayload)) {
             return res.status(400).json({ error: 'Organization access must be an array.' });
@@ -807,6 +1190,19 @@ router.put('/users/:id', async (req, res) => {
         if (scopesPayload.length > 0 && !scopesPayload.some((row) => orgScope.normalizeScopeInput(row))) {
             return res.status(400).json({ error: 'No valid organization access rows were provided.' });
         }
+    }
+    if (projectScopesPayload !== undefined) {
+        if (!Array.isArray(projectScopesPayload)) {
+            return res.status(400).json({ error: 'Project access must be an array.' });
+        }
+        if (projectScopesPayload.length > 0 && !projectScopesPayload.some((row) => orgScope.normalizeProjectScopeInput(row))) {
+            return res.status(400).json({ error: 'No valid project access rows were provided.' });
+        }
+    }
+    if ((Array.isArray(scopesPayload) || Array.isArray(projectScopesPayload))
+        && !hasValidOrganizationScopesPayload
+        && !hasValidProjectScopesPayload) {
+        return res.status(400).json({ error: 'Assign organization access or project access before this user can sign in.' });
     }
     const incomingPhone = req.body.phoneNumber ?? req.body.phone_number;
     if (incomingPhone !== undefined && incomingPhone !== null && String(incomingPhone).trim() !== '') {
@@ -1039,6 +1435,26 @@ router.put('/users/:id', async (req, res) => {
                     });
                 }
             }
+            if (DB_TYPE === 'postgresql' && projectScopesPayload !== undefined) {
+                try {
+                    await orgScope.replaceUserProjectScopes(id, Array.isArray(projectScopesPayload) ? projectScopesPayload : []);
+                } catch (scopeErr) {
+                    console.error('Error updating project scopes:', scopeErr);
+                    return res.status(400).json({
+                        error: scopeErr.message || 'Error updating project access.',
+                    });
+                }
+            }
+            if (DB_TYPE === 'postgresql' && uiProfileIdPayload !== undefined) {
+                try {
+                    await uiAccess.assignUiProfileToUser(id, uiProfileIdPayload);
+                } catch (scopeErr) {
+                    console.error('Error updating UI profile assignment:', scopeErr);
+                    return res.status(400).json({
+                        error: scopeErr.message || 'Error updating UI profile assignment.',
+                    });
+                }
+            }
 
             // Self-service registration stores ministry / agency on `users` while pending; scopes are not
             // created until activation. The UI always sends organizationScopes (often []), so we cannot
@@ -1051,7 +1467,8 @@ router.put('/users/:id', async (req, res) => {
             if (becameActive) {
                 try {
                     let scopesNow = await orgScope.fetchOrganizationScopesForUser(id);
-                    if (!scopesNow.length) {
+                    let projectScopesNow = await orgScope.fetchProjectScopesForUser(id);
+                    if (!scopesNow.length && !projectScopesNow.length) {
                         await orgScope.syncOrganizationScopesFromUserProfile(id, { onlyIfEmpty: true });
                     }
                 } catch (scopeErr) {
@@ -1060,15 +1477,21 @@ router.put('/users/:id', async (req, res) => {
             }
 
             let organizationScopes = [];
+            let projectScopes = [];
+            let uiProfile = null;
             if (DB_TYPE === 'postgresql') {
                 try {
-                    organizationScopes = await orgScope.fetchOrganizationScopesForUser(id);
+                    [organizationScopes, projectScopes, uiProfile] = await Promise.all([
+                        orgScope.fetchOrganizationScopesForUser(id),
+                        orgScope.fetchProjectScopesForUser(id),
+                        uiAccess.fetchUiProfileForUser(id),
+                    ]);
                 } catch (e) {
-                    console.warn('fetchOrganizationScopesForUser after update:', e.message);
+                    console.warn('fetch access scopes after update:', e.message);
                 }
             }
 
-            res.status(200).json({ ...userObj, organizationScopes });
+            res.status(200).json({ ...userObj, organizationScopes, projectScopes, uiProfile });
         } else {
             res.status(404).json({ message: 'User not found' });
         }
@@ -1291,7 +1714,7 @@ router.post('/roles', async (req, res) => {
         return res.status(403).json({ error: 'Only Super Admin can create roles.' });
     }
 
-    const { roleName, name, description } = req.body;
+    const { roleName, name, description, privilegeIds } = req.body;
     const roleNameValue = String(roleName || name || '').trim(); // Support both field names
 
     if (!roleNameValue) {
@@ -1367,6 +1790,20 @@ router.post('/roles', async (req, res) => {
         if (!createdRole) {
             return res.status(500).json({ message: 'Error creating role', error: 'Failed to fetch created role' });
         }
+
+        if (Array.isArray(privilegeIds)) {
+            try {
+                await syncRolePrivileges(insertedRoleId, privilegeIds, DB_TYPE);
+                createdRole.privilegeIds = normalizePrivilegeIdsForRole(privilegeIds);
+            } catch (syncError) {
+                console.error('Error assigning privileges to new role:', syncError);
+                return res.status(400).json({
+                    message: 'Role was created, but privileges could not be assigned.',
+                    error: syncError.message,
+                    role: createdRole,
+                });
+            }
+        }
         
         res.status(201).json(createdRole);
     } catch (error) {
@@ -1394,7 +1831,7 @@ router.post('/roles', async (req, res) => {
  */
 router.put('/roles/:id', async (req, res) => {
     const { id } = req.params;
-    const { roleName, name, description } = req.body;
+    const { roleName, name, description, privilegeIds } = req.body;
     const roleNameValue = roleName !== undefined || name !== undefined
         ? String(roleName ?? name ?? '').trim()
         : undefined; // Support both field names
@@ -1444,6 +1881,7 @@ router.put('/roles/:id', async (req, res) => {
                 delete fieldsToUpdate.name;
             }
             delete fieldsToUpdate.roleId;
+            delete fieldsToUpdate.privilegeIds;
             const [mysqlResult] = await pool.query('UPDATE roles SET ? WHERE roleId = ?', [fieldsToUpdate, id]);
             result = mysqlResult;
         }
@@ -1462,9 +1900,17 @@ router.put('/roles/:id', async (req, res) => {
                 fetchParams = [id];
             }
             
+            if (Array.isArray(privilegeIds)) {
+                await syncRolePrivileges(id, privilegeIds, DB_TYPE);
+            }
+
             const fetchResult = await pool.query(fetchQuery, fetchParams);
             const rows = DB_TYPE === 'postgresql' ? fetchResult.rows : (Array.isArray(fetchResult) ? fetchResult[0] : fetchResult);
-            res.status(200).json(Array.isArray(rows) ? rows[0] : rows);
+            const updatedRole = Array.isArray(rows) ? rows[0] : rows;
+            if (updatedRole && Array.isArray(privilegeIds)) {
+                updatedRole.privilegeIds = normalizePrivilegeIdsForRole(privilegeIds);
+            }
+            res.status(200).json(updatedRole);
         } else {
             res.status(404).json({ message: 'Role not found' });
         }

@@ -177,7 +177,9 @@ export default function CountyOperationsReportPage() {
       const result = await reportsService.getCountyOperationsReport(params);
       setData(result || {});
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to load county operations report.');
+      const message = e?.response?.data?.message || e?.message || 'Failed to load county operations report.';
+      const detail = e?.response?.data?.error;
+      setError(detail && detail !== message ? `${message}: ${detail}` : message);
       setData(null);
     } finally {
       setLoading(false);

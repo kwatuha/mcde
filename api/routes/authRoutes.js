@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db'); // Your database connection pool
 const orgScope = require('../services/organizationScopeService');
+const uiAccess = require('../services/uiAccessService');
 const authenticate = require('../middleware/authenticate');
 const { normalizeRoleForCompare, ADMIN_LIKE_ROLE_NAMES, isAdminLikeRequester } = require('../utils/roleUtils');
 const { canSendEmail, sendPasswordResetEmail } = require('../services/accountEmailService');
@@ -154,12 +155,31 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
     const userPrivileges = await getPrivilegesByRole(roleId);
 
     let organizationScopes = [];
+    let projectScopes = [];
+    let uiProfile = null;
     if (DB_TYPE === 'postgresql') {
         try {
-            organizationScopes = await orgScope.fetchOrganizationScopesForUser(userId);
+            [organizationScopes, projectScopes, uiProfile] = await Promise.all([
+                orgScope.fetchOrganizationScopesForUser(userId),
+                orgScope.fetchProjectScopesForUser(userId),
+                uiAccess.fetchUiProfileForUser(userId),
+            ]);
         } catch (scopeErr) {
-            console.warn('fetchOrganizationScopesForUser (login):', scopeErr.message);
+            console.warn('fetch access scopes (login):', scopeErr.message);
         }
+    }
+    const normalizedRole = normalizeRoleForCompare(user.roleName || user.role || '');
+    const hasScopeBypass = orgScope.userHasOrganizationBypass(userPrivileges)
+        || normalizedRole === 'super admin'
+        || normalizedRole === 'super_admin'
+        || normalizedRole === 'superadmin';
+    if (DB_TYPE === 'postgresql'
+        && !hasScopeBypass
+        && organizationScopes.length === 0
+        && projectScopes.length === 0) {
+        return res.status(403).json({
+            error: 'Your account has no organization or project access scope. Contact an administrator to assign access before signing in.',
+        });
     }
 
     const payload = {
@@ -175,9 +195,10 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             directorate: user.directorate || null,
             privileges: userPrivileges,
             organizationScopes,
+            projectScopes,
+            uiProfile,
         },
     };
-    const normalizedRole = normalizeRoleForCompare(user.role || '');
     const isSuperAdmin = normalizedRole === 'super admin';
     let mustChangePassword = false;
     if (DB_TYPE === 'postgresql') {

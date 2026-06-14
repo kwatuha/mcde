@@ -41,12 +41,23 @@ async function addProjectScopeWhere(req, filters, params, projectAlias = 'p', pl
     filters.push('FALSE');
     return placeholderIndex;
   }
-  let i = Number.isFinite(Number(placeholderIndex)) ? Number(placeholderIndex) : params.length + 1;
-  const scopeFragment = orgScope
-    .buildProjectListScopeFragment(projectAlias)
-    .replace(/\?/g, () => `$${i++}`);
+  const hasProjectScopes = await orgScope.userHasProjectAccessScopeContext(authUserId);
+  const numericPlaceholderIndex = Number(placeholderIndex);
+  let i = (
+    placeholderIndex !== null &&
+    placeholderIndex !== undefined &&
+    Number.isFinite(numericPlaceholderIndex) &&
+    numericPlaceholderIndex > 0
+  ) ? numericPlaceholderIndex : params.length + 1;
+  const rawScopeFragment = hasProjectScopes
+    ? orgScope.buildExplicitProjectScopeFragment(projectAlias)
+    : orgScope.buildProjectListScopeFragment(projectAlias);
+  const scopeParams = hasProjectScopes
+    ? orgScope.explicitProjectScopeParams(authUserId)
+    : orgScope.projectScopeParamTriple(authUserId);
+  const scopeFragment = rawScopeFragment.replace(/\?/g, () => `$${i++}`);
   filters.push(scopeFragment);
-  params.push(...orgScope.projectScopeParamTriple(authUserId));
+  params.push(...scopeParams);
   return i;
 }
 

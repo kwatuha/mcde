@@ -6,11 +6,93 @@ const SCOPE_TYPES = Object.freeze({
     STATE_DEPARTMENT_ALL: 'STATE_DEPARTMENT_ALL',
 });
 
+const PROJECT_SCOPE_TYPES = Object.freeze({
+    ALL_DEPARTMENTS: 'ALL_DEPARTMENTS',
+    SECTOR: 'SECTOR',
+    DEPARTMENT: 'DEPARTMENT',
+    SUBCOUNTY: 'SUBCOUNTY',
+    WARD: 'WARD',
+});
+
 const BYPASS_PRIVILEGE = 'organization.scope_bypass';
 
 let _tableExistsCache = null;
 let _tableCheckedAt = 0;
 const TABLE_CACHE_MS = 60_000;
+let _scopeSchemaReady = false;
+
+async function ensureScopeSchema() {
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+    if (DB_TYPE !== 'postgresql' || _scopeSchemaReady) return;
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_organization_scope (
+            id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            scope_type TEXT NOT NULL,
+            agency_id BIGINT NULL,
+            ministry TEXT NULL,
+            state_department TEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_user_org_scope_user ON user_organization_scope (user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_user_org_scope_type ON user_organization_scope (scope_type)');
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_project_scopes (
+            id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            scope_type TEXT NOT NULL CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD')),
+            scope_value TEXT NOT NULL,
+            scope_ref_id BIGINT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            voided BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    `);
+    await pool.query(`
+        DO $$
+        DECLARE
+            c record;
+        BEGIN
+            FOR c IN
+                SELECT conname
+                FROM pg_constraint
+                WHERE conrelid = 'user_project_scopes'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) ILIKE '%scope_type%'
+            LOOP
+                EXECUTE format('ALTER TABLE user_project_scopes DROP CONSTRAINT %I', c.conname);
+            END LOOP;
+            ALTER TABLE user_project_scopes
+                ADD CONSTRAINT user_project_scopes_scope_type_check
+                CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD'));
+        END $$;
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_user_project_scopes_user ON user_project_scopes (user_id) WHERE voided = false');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_user_project_scopes_type_value ON user_project_scopes (scope_type, lower(trim(scope_value))) WHERE voided = false');
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS department_sector_mappings (
+            id BIGSERIAL PRIMARY KEY,
+            department_id BIGINT NULL,
+            department_name TEXT NULL,
+            sector_id BIGINT NULL,
+            sector_name TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            voided BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_dept_sector_mappings_sector ON department_sector_mappings (lower(trim(sector_name))) WHERE voided = false');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_dept_sector_mappings_department ON department_sector_mappings (lower(trim(department_name))) WHERE voided = false');
+
+    _scopeSchemaReady = true;
+    _tableExistsCache = true;
+    _tableCheckedAt = Date.now();
+}
 
 async function organizationScopeTableExists() {
     const now = Date.now();
@@ -20,6 +102,7 @@ async function organizationScopeTableExists() {
     const DB_TYPE = process.env.DB_TYPE || 'postgresql';
     try {
         if (DB_TYPE === 'postgresql') {
+            await ensureScopeSchema();
             const r = await pool.query(`
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.tables
@@ -40,6 +123,46 @@ async function organizationScopeTableExists() {
 function userHasOrganizationBypass(privileges) {
     if (!Array.isArray(privileges)) return false;
     return privileges.includes(BYPASS_PRIVILEGE);
+}
+
+function normalizeProjectScopeInput(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const scopeType = String(raw.scopeType || raw.scope_type || '').trim().toUpperCase();
+    if (!Object.values(PROJECT_SCOPE_TYPES).includes(scopeType)) return null;
+    const scopeValue = scopeType === PROJECT_SCOPE_TYPES.ALL_DEPARTMENTS
+        ? '*'
+        : String(raw.scopeValue || raw.scope_value || raw.value || raw.name || '').trim();
+    if (!scopeValue) return null;
+    const rawRefId = raw.scopeRefId ?? raw.scope_ref_id ?? raw.refId ?? raw.id ?? null;
+    const scopeRefId = rawRefId === null || rawRefId === undefined || rawRefId === ''
+        ? null
+        : parseInt(String(rawRefId), 10);
+    return {
+        scopeType,
+        scopeValue,
+        scopeRefId: Number.isFinite(scopeRefId) ? scopeRefId : null,
+    };
+}
+
+function normalizeDepartmentSectorMappingInput(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const departmentName = String(raw.departmentName || raw.department_name || '').trim();
+    const sectorName = String(raw.sectorName || raw.sector_name || '').trim();
+    if (!departmentName || !sectorName) return null;
+    const departmentIdRaw = raw.departmentId ?? raw.department_id ?? null;
+    const sectorIdRaw = raw.sectorId ?? raw.sector_id ?? null;
+    const departmentId = departmentIdRaw === null || departmentIdRaw === undefined || departmentIdRaw === ''
+        ? null
+        : parseInt(String(departmentIdRaw), 10);
+    const sectorId = sectorIdRaw === null || sectorIdRaw === undefined || sectorIdRaw === ''
+        ? null
+        : parseInt(String(sectorIdRaw), 10);
+    return {
+        departmentId: Number.isFinite(departmentId) ? departmentId : null,
+        departmentName,
+        sectorId: Number.isFinite(sectorId) ? sectorId : null,
+        sectorName,
+    };
 }
 
 function normalizeScopeInput(raw) {
@@ -106,6 +229,65 @@ async function fetchOrganizationScopesForUser(userId) {
         [uid]
     );
     return result.rows || [];
+}
+
+async function fetchProjectScopesForUser(userId) {
+    if (!(await organizationScopeTableExists())) return [];
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid)) return [];
+
+    const result = await pool.query(
+        `
+        SELECT
+            id,
+            user_id AS "userId",
+            scope_type AS "scopeType",
+            scope_value AS "scopeValue",
+            scope_ref_id AS "scopeRefId",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+        FROM user_project_scopes
+        WHERE user_id = $1
+          AND COALESCE(voided, false) = false
+        ORDER BY scope_type, scope_value, id
+        `,
+        [uid]
+    );
+    return result.rows || [];
+}
+
+async function fetchProjectScopesForUsers(userIds) {
+    if (!(await organizationScopeTableExists())) return new Map();
+    const ids = [...new Set(userIds)]
+        .map((id) => parseInt(String(id), 10))
+        .filter((n) => Number.isFinite(n));
+    if (ids.length === 0) return new Map();
+
+    const result = await pool.query(
+        `
+        SELECT
+            id,
+            user_id AS "userId",
+            scope_type AS "scopeType",
+            scope_value AS "scopeValue",
+            scope_ref_id AS "scopeRefId",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+        FROM user_project_scopes
+        WHERE user_id = ANY($1::int[])
+          AND COALESCE(voided, false) = false
+        ORDER BY user_id, scope_type, scope_value, id
+        `,
+        [ids]
+    );
+
+    const map = new Map();
+    for (const row of result.rows || []) {
+        const uid = parseInt(String(row.userId), 10);
+        if (!map.has(uid)) map.set(uid, []);
+        map.get(uid).push(row);
+    }
+    return map;
 }
 
 /**
@@ -216,6 +398,119 @@ async function replaceUserOrganizationScopes(userId, scopesPayload) {
     }
 }
 
+async function replaceUserProjectScopes(userId, scopesPayload) {
+    await ensureScopeSchema();
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid)) throw new Error('Invalid user id');
+
+    const normalized = [];
+    if (Array.isArray(scopesPayload)) {
+        for (const row of scopesPayload) {
+            const n = normalizeProjectScopeInput(row);
+            if (n) normalized.push(n);
+        }
+    }
+    if (Array.isArray(scopesPayload) && scopesPayload.length > 0 && normalized.length === 0) {
+        throw new Error('No valid project access rows were provided.');
+    }
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        await conn.query('UPDATE user_project_scopes SET voided = true, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1', [uid]);
+        for (const s of normalized) {
+            await conn.query(
+                `INSERT INTO user_project_scopes (user_id, scope_type, scope_value, scope_ref_id)
+                 VALUES ($1, $2, $3, $4)`,
+                [uid, s.scopeType, s.scopeValue, s.scopeRefId]
+            );
+        }
+        await conn.commit();
+    } catch (e) {
+        try {
+            await conn.rollback();
+        } catch (rbErr) {
+            console.warn('projectScope rollback:', rbErr.message);
+        }
+        throw e;
+    } finally {
+        conn.release();
+    }
+}
+
+async function userHasProjectAccessScopeContext(userId) {
+    if (!(await organizationScopeTableExists())) return false;
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid)) return false;
+    const result = await pool.query(
+        `
+        SELECT EXISTS (
+            SELECT 1 FROM user_project_scopes
+            WHERE user_id = $1 AND COALESCE(voided, false) = false
+        ) AS ex
+        `,
+        [uid]
+    );
+    return result.rows?.[0]?.ex === true;
+}
+
+async function fetchDepartmentSectorMappings() {
+    await ensureScopeSchema();
+    const result = await pool.query(
+        `
+        SELECT
+            id,
+            department_id AS "departmentId",
+            department_name AS "departmentName",
+            sector_id AS "sectorId",
+            sector_name AS "sectorName",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+        FROM department_sector_mappings
+        WHERE COALESCE(voided, false) = false
+        ORDER BY sector_name, department_name, id
+        `
+    );
+    return result.rows || [];
+}
+
+async function replaceDepartmentSectorMappings(mappingsPayload) {
+    await ensureScopeSchema();
+    const normalized = [];
+    if (Array.isArray(mappingsPayload)) {
+        for (const row of mappingsPayload) {
+            const n = normalizeDepartmentSectorMappingInput(row);
+            if (n) normalized.push(n);
+        }
+    }
+    if (Array.isArray(mappingsPayload) && mappingsPayload.length > 0 && normalized.length === 0) {
+        throw new Error('No valid department-sector mappings were provided.');
+    }
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        await conn.query('UPDATE department_sector_mappings SET voided = true, updated_at = CURRENT_TIMESTAMP WHERE COALESCE(voided, false) = false');
+        for (const row of normalized) {
+            await conn.query(
+                `INSERT INTO department_sector_mappings (department_id, department_name, sector_id, sector_name)
+                 VALUES ($1, $2, $3, $4)`,
+                [row.departmentId, row.departmentName, row.sectorId, row.sectorName]
+            );
+        }
+        await conn.commit();
+    } catch (e) {
+        try {
+            await conn.rollback();
+        } catch (rbErr) {
+            console.warn('departmentSectorMapping rollback:', rbErr.message);
+        }
+        throw e;
+    } finally {
+        conn.release();
+    }
+}
+
 /**
  * When a user is created with a home agency only, mirror it as an AGENCY scope row.
  */
@@ -310,17 +605,95 @@ async function syncOrganizationScopesFromUserProfile(userId, options = {}) {
 }
 
 /**
+ * PostgreSQL: explicit project access predicate for projects alias `p`.
+ * Uses one placeholder ? for userId.
+ */
+function buildExplicitProjectScopeFragment(projectAlias = 'p') {
+    const pa = projectAlias;
+    return `EXISTS (
+            SELECT 1
+            FROM user_project_scopes ps
+            WHERE ps.user_id = ?
+              AND COALESCE(ps.voided, false) = false
+              AND (
+                    (
+                        ps.scope_type = 'ALL_DEPARTMENTS'
+                    )
+                    OR (
+                        ps.scope_type = 'SECTOR'
+                        AND (
+                            LOWER(TRIM(COALESCE(${pa}.sector, ''))) = LOWER(TRIM(COALESCE(ps.scope_value, '')))
+                            OR EXISTS (
+                                SELECT 1
+                                FROM department_sector_mappings dsm
+                                WHERE COALESCE(dsm.voided, false) = false
+                                  AND (
+                                        (ps.scope_ref_id IS NOT NULL AND dsm.sector_id = ps.scope_ref_id)
+                                        OR LOWER(TRIM(COALESCE(dsm.sector_name, ''))) = LOWER(TRIM(COALESCE(ps.scope_value, '')))
+                                  )
+                                  AND (
+                                        LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(dsm.department_name, '')))
+                                        OR LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(dsm.department_name, '')))
+                                  )
+                            )
+                        )
+                    )
+                    OR (
+                        ps.scope_type = 'DEPARTMENT'
+                        AND (
+                            LOWER(TRIM(COALESCE(${pa}.state_department, ''))) = LOWER(TRIM(COALESCE(ps.scope_value, '')))
+                            OR LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(ps.scope_value, '')))
+                        )
+                    )
+                    OR (
+                        ps.scope_type = 'SUBCOUNTY'
+                        AND (
+                            regexp_replace(LOWER(TRIM(COALESCE(NULLIF(TRIM(${pa}.location->>'subcounty'), ''), NULLIF(TRIM(${pa}.location->>'constituency'), ''), ''))), '[^a-z0-9]+', '', 'g')
+                                = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                            OR EXISTS (
+                                SELECT 1
+                                FROM kenya_wards kw
+                                WHERE COALESCE(kw.voided, false) = false
+                                  AND NULLIF(TRIM(COALESCE(${pa}.location->>'ward', '')), '') IS NOT NULL
+                                  AND regexp_replace(LOWER(TRIM(kw.iebc_ward_name)), '[^a-z0-9]+', '', 'g')
+                                      = regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'ward', ''))), '[^a-z0-9]+', '', 'g')
+                                  AND regexp_replace(LOWER(TRIM(COALESCE(NULLIF(TRIM(kw.subcounty), ''), NULLIF(TRIM(kw.division), '')))), '[^a-z0-9]+', '', 'g')
+                                      = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                            )
+                        )
+                    )
+                    OR (
+                        ps.scope_type = 'WARD'
+                        AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'ward', ''))), '[^a-z0-9]+', '', 'g')
+                            = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                    )
+              )
+        )`;
+}
+
+/**
  * PostgreSQL: AND (... scope predicate ...) for projects alias `p`.
- * Uses three placeholders ? for the same userId (pool.execute converts to $n).
+ * Uses six placeholders ? for the same userId (pool.execute converts to $n):
+ * project scope rows, project-scope override guard, organization scope rows,
+ * project-scope override guard, no-org fallback check, and user profile fallback.
  */
 function buildProjectListScopeFragment(projectAlias = 'p') {
     const pa = projectAlias;
     return `(
-        EXISTS (
-            SELECT 1 FROM user_organization_scope s
-            LEFT JOIN agencies ag ON s.agency_id = ag.id AND COALESCE(ag.voided, false) = false
-            WHERE s.user_id = ?
-            AND (
+        ${buildExplicitProjectScopeFragment(pa)}
+        OR
+        (
+            NOT EXISTS (
+                SELECT 1
+                FROM user_project_scopes ps_org_guard
+                WHERE ps_org_guard.user_id = ?
+                  AND COALESCE(ps_org_guard.voided, false) = false
+            )
+            AND EXISTS (
+                SELECT 1 FROM user_organization_scope s
+                LEFT JOIN agencies ag ON s.agency_id = ag.id AND COALESCE(ag.voided, false) = false
+                WHERE s.user_id = ?
+                AND (
                 (s.scope_type = 'AGENCY' AND ag.id IS NOT NULL
                     AND (
                         LOWER(TRIM(COALESCE(${pa}.implementing_agency, ''))) = LOWER(TRIM(COALESCE(ag.agency_name, '')))
@@ -923,9 +1296,17 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
                               )
                         )
                     ))
+                )
             )
         )
         OR (
+            NOT EXISTS (
+                SELECT 1
+                FROM user_project_scopes ps_profile_guard
+                WHERE ps_profile_guard.user_id = ?
+                  AND COALESCE(ps_profile_guard.voided, false) = false
+            )
+            AND
             NOT EXISTS (
                 SELECT 1
                 FROM user_organization_scope s0
@@ -1319,7 +1700,12 @@ function buildProjectListScopeFragment(projectAlias = 'p') {
 
 function projectScopeParamTriple(userId) {
     const uid = parseInt(String(userId), 10);
-    return [uid, uid, uid];
+    return [uid, uid, uid, uid, uid, uid];
+}
+
+function explicitProjectScopeParams(userId) {
+    const uid = parseInt(String(userId), 10);
+    return [uid];
 }
 
 /**
@@ -1338,7 +1724,7 @@ function appendSingleProjectScopeWhereClause(baseQuery) {
 function singleProjectScopeParams(projectId, userId) {
     const pid = parseInt(String(projectId), 10);
     const uid = parseInt(String(userId), 10);
-    return [pid, uid, uid, uid];
+    return [pid, uid, uid, uid, uid, uid, uid];
 }
 
 /**
@@ -1385,17 +1771,29 @@ function buildAgenciesScopeFragment() {
 
 module.exports = {
     SCOPE_TYPES,
+    PROJECT_SCOPE_TYPES,
     BYPASS_PRIVILEGE,
+    ensureScopeSchema,
     organizationScopeTableExists,
     userHasOrganizationBypass,
     normalizeScopeInput,
+    normalizeProjectScopeInput,
+    normalizeDepartmentSectorMappingInput,
     fetchOrganizationScopesForUser,
     fetchOrganizationScopesForUsers,
+    fetchProjectScopesForUser,
+    fetchProjectScopesForUsers,
     replaceUserOrganizationScopes,
+    replaceUserProjectScopes,
+    userHasProjectAccessScopeContext,
+    fetchDepartmentSectorMappings,
+    replaceDepartmentSectorMappings,
     ensureDefaultAgencyScope,
     syncOrganizationScopesFromUserProfile,
     buildProjectListScopeFragment,
+    buildExplicitProjectScopeFragment,
     projectScopeParamTriple,
+    explicitProjectScopeParams,
     appendSingleProjectScopeWhereClause,
     singleProjectScopeParams,
     buildAgenciesScopeFragment,
