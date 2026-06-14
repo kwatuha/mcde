@@ -644,12 +644,6 @@
           "hidden": true
         },
         {
-          "title": "Job Categories",
-          "icon": "WorkIcon",
-          "route": "JOB_CATEGORIES",
-          "roles": ["admin"]
-        },
-        {
           "title": "Sectors",
           "icon": "CategoryIcon",
           "route": "SECTORS",
@@ -665,18 +659,6 @@
           "title": "Sublocations & Villages",
           "icon": "LocationOnIcon",
           "route": "SUBLOCATION_VILLAGES",
-          "roles": ["admin"]
-        },
-        {
-          "title": "Agencies",
-          "icon": "BusinessIcon",
-          "route": "AGENCIES",
-          "roles": ["admin"]
-        },
-        {
-          "title": "Ministries",
-          "icon": "ApartmentIcon",
-          "route": "MINISTRIES_MANAGEMENT",
           "roles": ["admin"]
         }
       ]
