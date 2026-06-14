@@ -83,10 +83,10 @@ rsync -avz --no-group --no-owner --delete \
 if [[ "$DEPLOY_SYNC_UPLOADS" == "1" ]]; then
   echo "==> Syncing media uploads (uploads/ and api/uploads/) to server"
   mkdir -p "$ROOT/uploads" "$ROOT/api/uploads"
-  rsync -avz --no-group --no-owner \
+  rsync -avz --no-group --no-owner --no-perms --omit-dir-times \
     --rsh="$RSYNC_RSH" \
     "$ROOT/uploads/" "${REMOTE}:${DEPLOY_PATH}/uploads/"
-  rsync -avz --no-group --no-owner \
+  rsync -avz --no-group --no-owner --no-perms --omit-dir-times \
     --rsh="$RSYNC_RSH" \
     "$ROOT/api/uploads/" "${REMOTE}:${DEPLOY_PATH}/api/uploads/"
 else
