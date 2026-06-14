@@ -93,6 +93,63 @@ const kenyaWardsService = {
       throw error;
     }
   },
+
+  getCatalogSubcounties: async (county) => {
+    try {
+      const params = {};
+      const c = county != null ? String(county).trim() : '';
+      if (c) params.county = c;
+      const response = await axiosInstance.get('/geography/subcounties', { params });
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching catalog sub-counties:', error);
+      throw error;
+    }
+  },
+
+  getCatalogWardsBySubcounty: async (subcounty, county) => {
+    try {
+      const params = {};
+      const s = subcounty != null ? String(subcounty).trim() : '';
+      const c = county != null ? String(county).trim() : '';
+      if (s) params.subcounty = s;
+      if (c) params.county = c;
+      const response = await axiosInstance.get('/geography/wards', { params });
+      return (response.data.data || []).map((name) => ({ name }));
+    } catch (error) {
+      console.error('Error fetching catalog wards:', error);
+      throw error;
+    }
+  },
+
+  getSublocations: async ({ subcounty, ward, county } = {}) => {
+    try {
+      const params = {};
+      if (county) params.county = county;
+      if (subcounty) params.subcounty = subcounty;
+      if (ward) params.ward = ward;
+      const response = await axiosInstance.get('/geography/sublocations', { params });
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching sublocations:', error);
+      throw error;
+    }
+  },
+
+  getVillages: async ({ subcounty, ward, sublocation, county } = {}) => {
+    try {
+      const params = {};
+      if (county) params.county = county;
+      if (subcounty) params.subcounty = subcounty;
+      if (ward) params.ward = ward;
+      if (sublocation) params.sublocation = sublocation;
+      const response = await axiosInstance.get('/geography/villages', { params });
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching villages:', error);
+      throw error;
+    }
+  },
 };
 
 export default kenyaWardsService;

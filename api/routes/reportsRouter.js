@@ -1153,6 +1153,239 @@ router.get('/yearly-trends', async (req, res) => {
     }
 });
 
+/**
+ * @route GET /api/reports/yearly-location-trends
+ * @description Dynamic count of projects by sub-county/ward/sublocation/village and project start year.
+ */
+router.get('/yearly-location-trends', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        if (DB_TYPE !== 'postgresql') {
+            return res.status(501).json({ message: 'Yearly location trends are available on PostgreSQL deployments only.' });
+        }
+
+        const parseYear = (value) => {
+            const n = parseInt(String(value || '').trim(), 10);
+            return Number.isFinite(n) && n >= 1900 && n <= 2200 ? n : null;
+        };
+        const startDateExpr = getStartDateField('p');
+        const yearExpr = `EXTRACT(YEAR FROM ${startDateExpr})::int`;
+        const subcountyExpr = `COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), 'Unspecified')`;
+        const wardExpr = `COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified')`;
+        const sublocationExpr = `COALESCE(NULLIF(TRIM(p.location->>'sublocation'), ''), 'Unspecified')`;
+        const villageExpr = `COALESCE(NULLIF(TRIM(p.location->>'village'), ''), 'Unspecified')`;
+        const budgetExpr = getCostField('p');
+        const paidExpr = getPaidField('p');
+        const norm = (expr) => `regexp_replace(lower(trim(COALESCE(${expr}, ''))), '[^a-z0-9]+', '', 'g')`;
+
+        const inferWhere = ['COALESCE(p.voided, false) = false', `${startDateExpr} IS NOT NULL`];
+        const inferParams = [];
+        await addProjectScopeWhere(req, inferWhere, inferParams, 'p');
+        const boundsResult = await pool.query(
+            `
+            SELECT
+                MIN(${yearExpr}) AS "minYear",
+                MAX(${yearExpr}) AS "maxYear"
+            FROM projects p
+            WHERE ${inferWhere.join(' AND ')}
+            `,
+            inferParams
+        );
+        const inferredMin = parseYear(boundsResult.rows?.[0]?.minYear);
+        const inferredMax = parseYear(boundsResult.rows?.[0]?.maxYear);
+        const currentYear = new Date().getFullYear();
+        let startYear = parseYear(req.query.startYear) ?? inferredMin ?? currentYear;
+        let endYear = parseYear(req.query.endYear) ?? inferredMax ?? startYear;
+        if (endYear < startYear) [startYear, endYear] = [endYear, startYear];
+        if (endYear - startYear > 30) {
+            return res.status(400).json({ message: 'Please select a year range of 30 years or less.' });
+        }
+        const years = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
+
+        const where = [
+            'COALESCE(p.voided, false) = false',
+            `${startDateExpr} IS NOT NULL`,
+            `${yearExpr} BETWEEN $1 AND $2`,
+        ];
+        const params = [startYear, endYear];
+
+        const addTextFilter = (expr, value) => {
+            const text = String(value || '').trim();
+            if (!text) return;
+            params.push(text);
+            where.push(`${norm(expr)} = ${norm(`$${params.length}`)}`);
+        };
+        addTextFilter(subcountyExpr, req.query.subcounty);
+        addTextFilter(wardExpr, req.query.ward);
+        addTextFilter(sublocationExpr, req.query.sublocation);
+        addTextFilter(villageExpr, req.query.village);
+        await addProjectScopeWhere(req, where, params, 'p', params.length + 1);
+
+        const result = await pool.query(
+            `
+            SELECT
+                ${subcountyExpr} AS subcounty,
+                ${wardExpr} AS ward,
+                ${sublocationExpr} AS sublocation,
+                ${villageExpr} AS village,
+                ${yearExpr} AS year,
+                COUNT(*)::int AS count,
+                COALESCE(SUM(${budgetExpr}), 0)::numeric AS budget,
+                COALESCE(SUM(${paidExpr}), 0)::numeric AS paid
+            FROM projects p
+            WHERE ${where.join(' AND ')}
+            GROUP BY ${subcountyExpr}, ${wardExpr}, ${sublocationExpr}, ${villageExpr}, ${yearExpr}
+            ORDER BY subcounty ASC, ward ASC, sublocation ASC, village ASC, year ASC
+            `,
+            params
+        );
+
+        const rowMap = new Map();
+        const totals = {
+            countsByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+            budgetByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+            paidByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+            total: 0,
+            totalBudget: 0,
+            totalPaid: 0,
+        };
+        (result.rows || []).forEach((row) => {
+            const key = [row.subcounty, row.ward, row.sublocation, row.village].join('\u0001');
+            if (!rowMap.has(key)) {
+                rowMap.set(key, {
+                    subcounty: row.subcounty,
+                    ward: row.ward,
+                    sublocation: row.sublocation,
+                    village: row.village,
+                    countsByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+                    budgetByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+                    paidByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
+                    total: 0,
+                    totalBudget: 0,
+                    totalPaid: 0,
+                });
+            }
+            const item = rowMap.get(key);
+            const yearKey = String(row.year);
+            const count = Number(row.count || 0);
+            const budget = Number(row.budget || 0);
+            const paid = Number(row.paid || 0);
+            item.countsByYear[yearKey] = count;
+            item.budgetByYear[yearKey] = budget;
+            item.paidByYear[yearKey] = paid;
+            item.total += count;
+            item.totalBudget += budget;
+            item.totalPaid += paid;
+            totals.countsByYear[yearKey] = (totals.countsByYear[yearKey] || 0) + count;
+            totals.budgetByYear[yearKey] = (totals.budgetByYear[yearKey] || 0) + budget;
+            totals.paidByYear[yearKey] = (totals.paidByYear[yearKey] || 0) + paid;
+            totals.total += count;
+            totals.totalBudget += budget;
+            totals.totalPaid += paid;
+        });
+
+        return res.status(200).json({
+            years,
+            rows: [...rowMap.values()],
+            totals,
+            filters: { startYear, endYear },
+        });
+    } catch (error) {
+        console.error('Error fetching yearly location trends:', error);
+        return res.status(500).json({ message: 'Error fetching yearly location trends', error: error.message });
+    }
+});
+
+/**
+ * @route GET /api/reports/status-report
+ * @description Project status report rows with scoped filters for grouped browse/export.
+ */
+router.get('/status-report', async (req, res) => {
+    try {
+        const DB_TYPE = getDBType();
+        if (DB_TYPE !== 'postgresql') {
+            return res.status(501).json({ message: 'Status report is available on PostgreSQL deployments only.' });
+        }
+
+        const {
+            department = '',
+            financialYear = '',
+            status = '',
+            subcounty = '',
+            ward = '',
+            sublocation = '',
+            village = '',
+            projectName = '',
+            limit = 5000,
+        } = req.query;
+        const startDateExpr = getStartDateField('p');
+        const endDateExpr = getEndDateField('p');
+        const statusExpr = `COALESCE(NULLIF(TRIM(${getStatusField('p')}), ''), 'Other')`;
+        const financialYearExpr = `COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), '')`;
+        const subcountyExpr = `COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'constituency'), ''), '')`;
+        const wardExpr = `COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), '')`;
+        const sublocationExpr = `COALESCE(NULLIF(TRIM(p.location->>'sublocation'), ''), '')`;
+        const villageExpr = `COALESCE(NULLIF(TRIM(p.location->>'village'), ''), '')`;
+        const norm = (expr) => `regexp_replace(lower(trim(COALESCE(${expr}, ''))), '[^a-z0-9]+', '', 'g')`;
+
+        const where = ['COALESCE(p.voided, false) = false'];
+        const params = [];
+        const addExactTextFilter = (expr, value) => {
+            const text = String(value || '').trim();
+            if (!text) return;
+            params.push(text);
+            where.push(`${norm(expr)} = ${norm(`$${params.length}`)}`);
+        };
+        const addLikeFilter = (expr, value) => {
+            const text = String(value || '').trim();
+            if (!text) return;
+            params.push(`%${text}%`);
+            where.push(`${expr} ILIKE $${params.length}`);
+        };
+
+        addExactTextFilter('p.state_department', department);
+        addExactTextFilter(financialYearExpr, financialYear);
+        addExactTextFilter(statusExpr, status);
+        addExactTextFilter(subcountyExpr, subcounty);
+        addExactTextFilter(wardExpr, ward);
+        addExactTextFilter(sublocationExpr, sublocation);
+        addExactTextFilter(villageExpr, village);
+        addLikeFilter('p.name', projectName);
+        await addProjectScopeWhere(req, where, params, 'p', params.length + 1);
+
+        const rowLimit = Math.min(Math.max(parseInt(String(limit), 10) || 5000, 1), 20000);
+        params.push(rowLimit);
+        const result = await pool.query(
+            `
+            SELECT
+                p.project_id AS "projectId",
+                p.name AS "projectName",
+                ${statusExpr} AS status,
+                COALESCE(NULLIF(TRIM(p.state_department), ''), NULLIF(TRIM(p.implementing_agency), ''), 'Unassigned') AS department,
+                ${financialYearExpr} AS "financialYear",
+                ${subcountyExpr} AS subcounty,
+                ${wardExpr} AS ward,
+                ${sublocationExpr} AS sublocation,
+                ${villageExpr} AS village,
+                ${startDateExpr} AS "startDate",
+                ${endDateExpr} AS "endDate",
+                (${getCostField('p')})::numeric AS budget,
+                (${getPaidField('p')})::numeric AS paid,
+                COALESCE((${getCostField('p')})::numeric, 0) - COALESCE((${getPaidField('p')})::numeric, 0) AS balance
+            FROM projects p
+            WHERE ${where.join(' AND ')}
+            ORDER BY status ASC, p.name ASC
+            LIMIT $${params.length}
+            `,
+            params
+        );
+        return res.status(200).json({ rows: result.rows || [] });
+    } catch (error) {
+        console.error('Error fetching status report:', error);
+        return res.status(500).json({ message: 'Error fetching status report', error: error.message });
+    }
+});
+
 // --- NEWLY ADDED ROUTES ---
 
 /**

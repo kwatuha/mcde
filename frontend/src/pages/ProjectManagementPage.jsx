@@ -61,6 +61,8 @@ const EMPTY_REGISTRY_FILTERS = {
   financialYearName: '',
   subcountyNames: '',
   wardNames: '',
+  sublocationName: '',
+  villageName: '',
   cidpLinkStatus: '',
 };
 
@@ -165,6 +167,14 @@ function locationFieldMatchesToken(projectField, token) {
   if (!t) return true;
   const parts = splitLocationTokens(projectField).map((p) => p.toLowerCase());
   return parts.includes(t);
+}
+
+function getProjectSublocationValue(project) {
+  return project?.sublocationName || project?.sublocation || project?.locationSublocation || project?.location?.sublocation || '';
+}
+
+function getProjectVillageValue(project) {
+  return project?.villageName || project?.village || project?.locationVillage || project?.location?.village || '';
 }
 
 /** True if department matches selected name or alias. */
@@ -406,6 +416,8 @@ function ProjectManagementPage() {
           project.countyNames || '',
           project.subcountyNames || '',
           project.wardNames || '',
+          getProjectSublocationValue(project),
+          getProjectVillageValue(project),
           project.tenderContractNo || '',
           project.directorate || '',
           project.sectionName || '',
@@ -450,6 +462,8 @@ function ProjectManagementPage() {
       'cidpLink',
       'status',
       'subcountyNames',
+      'sublocationName',
+      'villageName',
       'costOfProject', // Budget
       'overallProgress', // Progress
       'coverageCount', // Sites
@@ -660,6 +674,8 @@ function ProjectManagementPage() {
     const fy = new Set();
     const subcounty = new Set();
     const ward = new Set();
+    const sublocation = new Set();
+    const village = new Set();
     src.forEach((p) => {
       const d = String(p.departmentName || p.departmentname || p.ministry || '').trim();
       const a = String(p.departmentAlias || p.departmentalias || '').trim();
@@ -673,6 +689,8 @@ function ProjectManagementPage() {
       if (t) projectType.add(t);
       splitLocationTokens(p.subcountyNames).forEach((x) => subcounty.add(x));
       splitLocationTokens(p.wardNames).forEach((x) => ward.add(x));
+      splitLocationTokens(getProjectSublocationValue(p)).forEach((x) => sublocation.add(x));
+      splitLocationTokens(getProjectVillageValue(p)).forEach((x) => village.add(x));
     });
     projectCategoryLookup.forEach((category) => {
       const name = String(category?.categoryName || category?.name || '').trim();
@@ -685,6 +703,8 @@ function ProjectManagementPage() {
       financialYears: sort(fy),
       subcounties: sort(subcounty),
       wards: sort(ward),
+      sublocations: sort(sublocation),
+      villages: sort(village),
     };
   }, [filteredProjects, getProjectTypeName, projectCategoryLookup]);
 
@@ -756,14 +776,71 @@ function ProjectManagementPage() {
     filteredProjects,
   ]);
 
+  const registrySublocationFilterOptions = useMemo(() => {
+    const src = Array.isArray(filteredProjects) ? filteredProjects : [];
+    const sub = String(registryFilters.subcountyNames || '').trim();
+    const ward = String(registryFilters.wardNames || '').trim();
+    const next = new Set();
+    src.forEach((p) => {
+      if (sub && !locationFieldMatchesToken(p.subcountyNames, sub)) return;
+      if (ward && !locationFieldMatchesToken(p.wardNames, ward)) return;
+      splitLocationTokens(getProjectSublocationValue(p)).forEach((x) => next.add(x));
+    });
+    const values = [...next].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return values.length > 0 ? values : registryFilterSelectOptions.sublocations;
+  }, [
+    filteredProjects,
+    registryFilterSelectOptions.sublocations,
+    registryFilters.subcountyNames,
+    registryFilters.wardNames,
+  ]);
+
+  const registryVillageFilterOptions = useMemo(() => {
+    const src = Array.isArray(filteredProjects) ? filteredProjects : [];
+    const sub = String(registryFilters.subcountyNames || '').trim();
+    const ward = String(registryFilters.wardNames || '').trim();
+    const sublocation = String(registryFilters.sublocationName || '').trim();
+    const next = new Set();
+    src.forEach((p) => {
+      if (sub && !locationFieldMatchesToken(p.subcountyNames, sub)) return;
+      if (ward && !locationFieldMatchesToken(p.wardNames, ward)) return;
+      if (sublocation && !locationFieldMatchesToken(getProjectSublocationValue(p), sublocation)) return;
+      splitLocationTokens(getProjectVillageValue(p)).forEach((x) => next.add(x));
+    });
+    const values = [...next].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return values.length > 0 ? values : registryFilterSelectOptions.villages;
+  }, [
+    filteredProjects,
+    registryFilterSelectOptions.villages,
+    registryFilters.subcountyNames,
+    registryFilters.wardNames,
+    registryFilters.sublocationName,
+  ]);
+
   useEffect(() => {
     if (registryKenyaGeoLoading) return;
     const w = String(registryFilters.wardNames || '').trim();
     if (!w) return;
     if (!registryWardFilterOptions.length) return;
     if (registryWardFilterOptions.includes(w)) return;
-    setRegistryFilters((prev) => ({ ...prev, wardNames: '' }));
+    setRegistryFilters((prev) => ({ ...prev, wardNames: '', sublocationName: '', villageName: '' }));
   }, [registryKenyaGeoLoading, registryWardFilterOptions, registryFilters.wardNames]);
+
+  useEffect(() => {
+    const value = String(registryFilters.sublocationName || '').trim();
+    if (!value) return;
+    if (!registrySublocationFilterOptions.length) return;
+    if (registrySublocationFilterOptions.includes(value)) return;
+    setRegistryFilters((prev) => ({ ...prev, sublocationName: '', villageName: '' }));
+  }, [registrySublocationFilterOptions, registryFilters.sublocationName]);
+
+  useEffect(() => {
+    const value = String(registryFilters.villageName || '').trim();
+    if (!value) return;
+    if (!registryVillageFilterOptions.length) return;
+    if (registryVillageFilterOptions.includes(value)) return;
+    setRegistryFilters((prev) => ({ ...prev, villageName: '' }));
+  }, [registryVillageFilterOptions, registryFilters.villageName]);
 
   // State for action menu
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
@@ -1121,6 +1198,18 @@ function ProjectManagementPage() {
         return false;
       }
       if (registryFilters.wardNames && !locationFieldMatchesToken(project.wardNames, registryFilters.wardNames)) {
+        return false;
+      }
+      if (
+        registryFilters.sublocationName &&
+        !locationFieldMatchesToken(getProjectSublocationValue(project), registryFilters.sublocationName)
+      ) {
+        return false;
+      }
+      if (
+        registryFilters.villageName &&
+        !locationFieldMatchesToken(getProjectVillageValue(project), registryFilters.villageName)
+      ) {
         return false;
       }
       if (registryFilters.cidpLinkStatus && getCidpLinkStatus(project) !== registryFilters.cidpLinkStatus) {
@@ -1961,12 +2050,14 @@ function ProjectManagementPage() {
   };
 
   const handleResetColumns = () => {
-    // Default columns: Project Name, Status, Sub-county, Budget, Progress, Sites, Jobs, Actions
+    // Default columns: Project Name, Status, location details, Budget, Progress, Sites, Jobs, Actions
     const defaultVisibleColumns = [
       'projectName',
       'cidpLink',
       'status',
       'subcountyNames',
+      'sublocationName',
+      'villageName',
       'costOfProject', // Budget
       'overallProgress', // Progress
       'coverageCount', // Sites
@@ -2518,6 +2609,24 @@ function ProjectManagementPage() {
         };
         dataGridColumn.renderCell = (params) => {
           const value = params?.row?.wardNames;
+          return value || 'N/A';
+        };
+        break;
+      case 'sublocationName':
+        dataGridColumn.valueGetter = (params) => {
+          return getProjectSublocationValue(params?.row) || '';
+        };
+        dataGridColumn.renderCell = (params) => {
+          const value = getProjectSublocationValue(params?.row);
+          return value || 'N/A';
+        };
+        break;
+      case 'villageName':
+        dataGridColumn.valueGetter = (params) => {
+          return getProjectVillageValue(params?.row) || '';
+        };
+        dataGridColumn.renderCell = (params) => {
+          const value = getProjectVillageValue(params?.row);
           return value || 'N/A';
         };
         break;
@@ -3084,6 +3193,8 @@ function ProjectManagementPage() {
                               ...prev,
                               subcountyNames: v,
                               wardNames: '',
+                              sublocationName: '',
+                              villageName: '',
                             }));
                           }}
                         >
@@ -3107,7 +3218,12 @@ function ProjectManagementPage() {
                           value={registryFilters.wardNames}
                           disabled={registryKenyaGeoLoading}
                           onChange={(e) =>
-                            setRegistryFilters((prev) => ({ ...prev, wardNames: e.target.value }))
+                            setRegistryFilters((prev) => ({
+                              ...prev,
+                              wardNames: e.target.value,
+                              sublocationName: '',
+                              villageName: '',
+                            }))
                           }
                         >
                           <MenuItem value="">
@@ -3115,6 +3231,54 @@ function ProjectManagementPage() {
                           </MenuItem>
                           {registryWardFilterOptions.map((name) => (
                             <MenuItem key={`ward-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-sublocation">Sublocation</InputLabel>
+                        <Select
+                          labelId="rf-sublocation"
+                          label="Sublocation"
+                          value={registryFilters.sublocationName}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({
+                              ...prev,
+                              sublocationName: e.target.value,
+                              villageName: '',
+                            }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registrySublocationFilterOptions.map((name) => (
+                            <MenuItem key={`sublocation-${name}`} value={name}>
+                              {name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <FormControl size="small" fullWidth sx={{ minWidth: { xs: 160, sm: 200 }, maxWidth: '100%' }}>
+                        <InputLabel id="rf-village">Village</InputLabel>
+                        <Select
+                          labelId="rf-village"
+                          label="Village"
+                          value={registryFilters.villageName}
+                          onChange={(e) =>
+                            setRegistryFilters((prev) => ({ ...prev, villageName: e.target.value }))
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Any</em>
+                          </MenuItem>
+                          {registryVillageFilterOptions.map((name) => (
+                            <MenuItem key={`village-${name}`} value={name}>
                               {name}
                             </MenuItem>
                           ))}

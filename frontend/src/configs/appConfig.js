@@ -143,6 +143,8 @@ export const ROUTES = {
     PERFORMANCE_MANAGEMENT_REPORT: '/performance-management-report', // ✨ NEW: Performance Management report route
     CAPR_REPORT: '/capr-report', // ✨ NEW: CAPR report route
     QUARTERLY_IMPLEMENTATION_REPORT: '/quarterly-implementation-report', // ✨ NEW: Quarterly Implementation report route
+    YEARLY_TRENDS_REPORT: '/yearly-trends-report',
+    STATUS_REPORT: '/status-report',
     COUNTY_PROPOSED_PROJECTS: '/county-proposed-projects', // ✨ NEW: Proposed Projects management route
     PROJECT_ANNOUNCEMENTS: '/project-announcements', // ✨ NEW: Project Announcements management route
     PUBLIC_APPROVAL: '/public-approval', // ✨ NEW: Public Content Approval management route
@@ -153,6 +155,7 @@ export const ROUTES = {
     JOB_CATEGORIES: '/job-categories', // ✨ NEW: Job Categories management route
     SECTORS: '/sectors', // ✨ NEW: Sectors management route
     KENYA_WARDS: '/kenya-wards', // ✨ NEW: Kenya Wards management route
+    SUBLOCATION_VILLAGES: '/sublocation-villages',
     AGENCIES: '/agencies', // ✨ NEW: Agencies management route
     MINISTRIES_MANAGEMENT: '/ministries-management',
 

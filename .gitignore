@@ -60,6 +60,7 @@ Thumbs.db
 
 # Database
 *.sql
+!api/migrations/20260614_add_sublocation_villages_catalog.sql
 *.db
 *.sqlite
 *.sqlite3

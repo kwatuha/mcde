@@ -1,6 +1,6 @@
 import React from 'react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate, useLocation } from 'react-router-dom';
 
 // Import AuthProvider and ChatProvider
 import { AuthProvider } from './context/AuthContext';
@@ -35,6 +35,8 @@ import ReportingTemplatePage from './pages/ReportingTemplatePage';
 import PendingBillsReportPage from './pages/PendingBillsReportPage';
 import BudgetJustificationReportPage from './pages/BudgetJustificationReportPage';
 import ProjectFinanceOverviewPage from './pages/ProjectFinanceOverviewPage';
+import YearlyTrendsReportPage from './pages/YearlyTrendsReportPage';
+import StatusReportPage from './pages/StatusReportPage';
 import FundingSourcesReportPage from './pages/FundingSourcesReportPage';
 import PaymentListPage from './pages/PaymentListPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
@@ -112,6 +114,7 @@ import BudgetManagementPage from './pages/BudgetManagementPage';
 import JobCategoriesPage from './pages/JobCategoriesPage';
 // ✨ NEW: Import the Kenya Wards page
 import KenyaWardsPage from './pages/KenyaWardsPage';
+import SublocationVillagesPage from './pages/SublocationVillagesPage';
 // ✨ NEW: Import the Agencies page
 import AgenciesPage from './pages/AgenciesPage';
 import MinistriesManagementPage from './pages/MinistriesManagementPage';
@@ -163,6 +166,20 @@ function ProjectsUploadLogRouteGuard() {
     return <Navigate to={ROUTES.SYSTEM_DASHBOARD} replace />;
   }
   return <ProjectsUploadLogPage />;
+}
+
+function MalformedUrlRedirect() {
+  const location = useLocation();
+  const path = location.pathname || '';
+  if (path.startsWith('/http://') || path.startsWith('/https://')) {
+    try {
+      const parsed = new URL(`${path.slice(1)}${location.search || ''}${location.hash || ''}`);
+      return <Navigate to={`${parsed.pathname || '/'}${parsed.search || ''}${parsed.hash || ''}`} replace />;
+    } catch {
+      return <Navigate to="/" replace />;
+    }
+  }
+  return <Navigate to="/" replace />;
 }
 
 // Define routes at domain root ("/")
@@ -367,6 +384,14 @@ const router = createBrowserRouter([
         element: <ProjectFinanceOverviewPage />,
       },
       {
+        path: 'yearly-trends-report',
+        element: <YearlyTrendsReportPage />,
+      },
+      {
+        path: 'status-report',
+        element: <StatusReportPage />,
+      },
+      {
         path: 'scheduled-reports',
         element: <ScheduledReportsPage />,
       },
@@ -547,6 +572,10 @@ const router = createBrowserRouter([
         element: <KenyaWardsPage />,
       },
       {
+        path: 'sublocation-villages',
+        element: <SublocationVillagesPage />,
+      },
+      {
         path: 'agencies',
         element: <AgenciesPage />,
       },
@@ -573,6 +602,10 @@ const router = createBrowserRouter([
       {
         path: 'projects-by-organization',
         element: <ProjectOrganizationDashboardPage />,
+      },
+      {
+        path: '*',
+        element: <MalformedUrlRedirect />,
       },
     ],
   },

@@ -43,7 +43,7 @@ export function buildProjectOrganizationScopeMeta(user) {
   const projectScopes = Array.isArray(user?.projectScopes) ? user.projectScopes : [];
   const hasExplicitProjectScope = projectScopes.some((scope) => {
     const scopeType = String(scope?.scopeType || scope?.scope_type || '').trim().toUpperCase();
-    return ['ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD'].includes(scopeType);
+    return ['ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD', 'SUBLOCATION', 'VILLAGE'].includes(scopeType);
   });
 
   if (hasExplicitProjectScope) {

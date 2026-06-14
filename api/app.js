@@ -44,6 +44,7 @@ const moderationRoutes = require('./routes/moderationRoutes')
 const countyProposedProjectsRoutes = require('./routes/countyProposedProjectsRoutes')
 const jobCategoriesRoutes = require('./routes/jobCategoriesRoutes')
 const kenyaWardsRoutes = require('./routes/kenyaWardsRoutes')
+const geographyRoutes = require('./routes/geographyRoutes')
 const agenciesRoutes = require('./routes/agenciesRoutes')
 const projectAnnouncementsRoutes = require('./routes/projectAnnouncementsRoutes')
 const citizenProposalsRoutes = require('./routes/citizenProposalsRoutes')
@@ -149,6 +150,7 @@ app.use('/api/approval-workflow', approvalWorkflowRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
 app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/kenya-wards', kenyaWardsRoutes);
+app.use('/api/geography', geographyRoutes);
 app.use('/api/sectors', require('./routes/sectorsRoutes'));
 app.use('/api/ministries', require('./routes/ministriesRoutes'));
 app.use('/api/agencies', agenciesRoutes);

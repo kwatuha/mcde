@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "seed:analytics": "node seeds/seedAnalyticsData.js"
+    "seed:analytics": "node seeds/seedAnalyticsData.js",
+    "import:sublocation-villages": "node scripts/importSublocationVillages.js"
   },
   "keywords": [],
   "author": "",

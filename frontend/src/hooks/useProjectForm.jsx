@@ -49,7 +49,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar,
     subSectorId: '',
     categoryId: '', // Project category/type - determines which site fields are shown
     countyIds: [], subcountyIds: [], wardIds: [],
-    county: '', subcounty: '', ward: '', village: '', // Free text fields for location
+    county: '', subcounty: '', ward: '', sublocation: '', village: '', // Location fields
     sites: [], // Array of project sites for multilocation support - REQUIRED (at least one)
     // Additional JSONB fields from original database structure
     budgetSource: '', // Budget JSONB: source
@@ -131,6 +131,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar,
             county: currentProject.county || DEFAULT_COUNTY.name,
             subcounty: currentProject.subcounty || currentProject.subcountyNames || '',
             ward: currentProject.ward || '',
+            sublocation: currentProject.sublocation || currentProject.sublocationName || currentProject.locationSublocation || '',
             village: currentProject.village || '',
             // Additional JSONB fields
             budgetSource: currentProject.budgetSource || '',
@@ -195,6 +196,7 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar,
         county: DEFAULT_COUNTY.name,
         subcounty: '',
         ward: '',
+        sublocation: '',
         village: '',
         sites: [],
         // Additional JSONB fields (keep defaults stable for controlled inputs)
@@ -237,6 +239,18 @@ const useProjectForm = (currentProject, allMetadata, onFormSuccess, setSnackbar,
 
         // Clear subcounties and wards when counties change
         if (name === 'subcountyIds' && prev.subcountyIds[0] !== value[0]) { newState.wardIds = []; }
+        if (name === 'subcounty' && value !== prev.subcounty) {
+          newState.ward = '';
+          newState.sublocation = '';
+          newState.village = '';
+        }
+        if (name === 'ward' && value !== prev.ward) {
+          newState.sublocation = '';
+          newState.village = '';
+        }
+        if (name === 'sublocation' && value !== prev.sublocation) {
+          newState.village = '';
+        }
 
         return newState;
     });

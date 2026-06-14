@@ -12,6 +12,8 @@ const PROJECT_SCOPE_TYPES = Object.freeze({
     DEPARTMENT: 'DEPARTMENT',
     SUBCOUNTY: 'SUBCOUNTY',
     WARD: 'WARD',
+    SUBLOCATION: 'SUBLOCATION',
+    VILLAGE: 'VILLAGE',
 });
 
 const BYPASS_PRIVILEGE = 'organization.scope_bypass';
@@ -44,7 +46,7 @@ async function ensureScopeSchema() {
         CREATE TABLE IF NOT EXISTS user_project_scopes (
             id BIGSERIAL PRIMARY KEY,
             user_id BIGINT NOT NULL,
-            scope_type TEXT NOT NULL CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD')),
+            scope_type TEXT NOT NULL CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD', 'SUBLOCATION', 'VILLAGE')),
             scope_value TEXT NOT NULL,
             scope_ref_id BIGINT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -68,7 +70,7 @@ async function ensureScopeSchema() {
             END LOOP;
             ALTER TABLE user_project_scopes
                 ADD CONSTRAINT user_project_scopes_scope_type_check
-                CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD'));
+                CHECK (scope_type IN ('ALL_DEPARTMENTS', 'SECTOR', 'DEPARTMENT', 'SUBCOUNTY', 'WARD', 'SUBLOCATION', 'VILLAGE'));
         END $$;
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_user_project_scopes_user ON user_project_scopes (user_id) WHERE voided = false');
@@ -666,6 +668,40 @@ function buildExplicitProjectScopeFragment(projectAlias = 'p') {
                         ps.scope_type = 'WARD'
                         AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'ward', ''))), '[^a-z0-9]+', '', 'g')
                             = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                    )
+                    OR (
+                        ps.scope_type = 'SUBLOCATION'
+                        AND (
+                            regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'sublocation', ''))), '[^a-z0-9]+', '', 'g')
+                                = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                            OR (
+                                position(' > ' in COALESCE(ps.scope_value, '')) > 0
+                                AND regexp_replace(LOWER(TRIM(COALESCE(NULLIF(TRIM(${pa}.location->>'subcounty'), ''), NULLIF(TRIM(${pa}.location->>'constituency'), ''), ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 1))), '[^a-z0-9]+', '', 'g')
+                                AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'ward', ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 2))), '[^a-z0-9]+', '', 'g')
+                                AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'sublocation', ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 3))), '[^a-z0-9]+', '', 'g')
+                            )
+                        )
+                    )
+                    OR (
+                        ps.scope_type = 'VILLAGE'
+                        AND (
+                            regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'village', ''))), '[^a-z0-9]+', '', 'g')
+                                = regexp_replace(LOWER(TRIM(COALESCE(ps.scope_value, ''))), '[^a-z0-9]+', '', 'g')
+                            OR (
+                                position(' > ' in COALESCE(ps.scope_value, '')) > 0
+                                AND regexp_replace(LOWER(TRIM(COALESCE(NULLIF(TRIM(${pa}.location->>'subcounty'), ''), NULLIF(TRIM(${pa}.location->>'constituency'), ''), ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 1))), '[^a-z0-9]+', '', 'g')
+                                AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'ward', ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 2))), '[^a-z0-9]+', '', 'g')
+                                AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'sublocation', ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 3))), '[^a-z0-9]+', '', 'g')
+                                AND regexp_replace(LOWER(TRIM(COALESCE(${pa}.location->>'village', ''))), '[^a-z0-9]+', '', 'g')
+                                    = regexp_replace(LOWER(TRIM(split_part(ps.scope_value, ' > ', 4))), '[^a-z0-9]+', '', 'g')
+                            )
+                        )
                     )
               )
         )`;

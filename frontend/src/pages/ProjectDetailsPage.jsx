@@ -3465,25 +3465,25 @@ function ProjectDetailsPage() {
                                     alignItems: 'start',
                                 }}
                             >
-                                <Typography variant="body1" sx={{ 
+                                <Typography variant="body1" sx={{
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
                                     <strong style={{ color: theme.palette.primary.main }}>Project Category:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{projectCategory?.categoryName || 'N/A'}</span>
                                 </Typography>
-                                <Typography variant="body1" sx={{ 
+                                <Typography variant="body1" sx={{
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
                                     <strong style={{ color: theme.palette.primary.main }}>Ministry:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.departmentAlias || project?.departmentName || 'N/A'}</span>
                                 </Typography>
-                                <Typography variant="body1" sx={{ 
+                                <Typography variant="body1" sx={{
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
                                     <strong style={{ color: theme.palette.primary.main }}>County:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.countyNames || 'N/A'}</span>
                                 </Typography>
-                                <Typography variant="body1" sx={{ 
+                                <Typography variant="body1" sx={{
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>
@@ -3502,6 +3502,18 @@ function ProjectDetailsPage() {
                                     <strong style={{ color: theme.palette.primary.main }}>Ward:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.wardNames || 'N/A'}</span>
                                 </Typography>
                                 <Typography variant="body1" sx={{ 
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.primary.main }}>Sublocation:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.sublocationName || project?.sublocation || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{
+                                    color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
+                                    fontSize: '0.9rem'
+                                }}>
+                                    <strong style={{ color: theme.palette.primary.main }}>Village:</strong> <span style={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#333333', fontWeight: 600 }}>{project?.villageName || project?.village || 'N/A'}</span>
+                                </Typography>
+                                <Typography variant="body1" sx={{
                                     color: theme.palette.mode === 'dark' ? colors.grey[100] : colors.grey[900],
                                     fontSize: '0.9rem'
                                 }}>

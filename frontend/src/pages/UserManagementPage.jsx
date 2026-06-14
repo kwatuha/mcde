@@ -534,6 +534,8 @@ function UserManagementPage() {
     departments: [],
     subcounties: [],
     wards: [],
+    sublocations: [],
+    villages: [],
     departmentSectorMappings: [],
   });
   const [newProjectScopeType, setNewProjectScopeType] = useState('SECTOR');
@@ -1081,6 +1083,8 @@ function UserManagementPage() {
         departments: Array.isArray(data?.departments) ? data.departments : [],
         subcounties: Array.isArray(data?.subcounties) ? data.subcounties : [],
         wards: Array.isArray(data?.wards) ? data.wards : [],
+        sublocations: Array.isArray(data?.sublocations) ? data.sublocations : [],
+        villages: Array.isArray(data?.villages) ? data.villages : [],
         departmentSectorMappings: Array.isArray(data?.departmentSectorMappings) ? data.departmentSectorMappings : [],
       });
     } catch (err) {
@@ -1209,6 +1213,12 @@ function UserManagementPage() {
     if (newProjectScopeType === 'WARD') {
       return unique((projectScopeOptions.wards || []).map((w) => w.wardName || w.name));
     }
+    if (newProjectScopeType === 'SUBLOCATION') {
+      return unique((projectScopeOptions.sublocations || []).map((s) => s.sublocationName || s.name));
+    }
+    if (newProjectScopeType === 'VILLAGE') {
+      return unique((projectScopeOptions.villages || []).map((v) => v.villageName || v.name));
+    }
     return [];
   }, [newProjectScopeType, projectScopeOptions, allCountyDepartmentNames]);
 
@@ -1232,6 +1242,12 @@ function UserManagementPage() {
     }
     if (standaloneProjectScopeType === 'WARD') {
       return unique((projectScopeOptions.wards || []).map((w) => w.wardName || w.name));
+    }
+    if (standaloneProjectScopeType === 'SUBLOCATION') {
+      return unique((projectScopeOptions.sublocations || []).map((s) => s.sublocationName || s.name));
+    }
+    if (standaloneProjectScopeType === 'VILLAGE') {
+      return unique((projectScopeOptions.villages || []).map((v) => v.villageName || v.name));
     }
     return [];
   }, [standaloneProjectScopeType, projectScopeOptions, allCountyDepartmentNames]);
@@ -1670,6 +1686,8 @@ function UserManagementPage() {
       DEPARTMENT: 'Department',
       SUBCOUNTY: 'Sub-county',
       WARD: 'Ward',
+      SUBLOCATION: 'Sublocation',
+      VILLAGE: 'Village',
     };
     if (type === 'ALL_DEPARTMENTS') return 'All departments (county-wide project access)';
     return `${labels[type] || 'Project scope'}: ${value}`;
@@ -4811,10 +4829,10 @@ function UserManagementPage() {
 
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}>
-            Project access (all departments, sector, department, sub-county, ward)
+            Project access (all departments, sector, department, sub-county, ward, sublocation, village)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Prefer this for data access. Use all departments for county-wide project visibility, or narrow access by implementation sector, department, sub-county, or ward.
+            Prefer this for data access. Use all departments for county-wide project visibility, or narrow access by implementation sector, department, sub-county, ward, sublocation, or village.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ md: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 180, bgcolor: '#fff', borderRadius: 1 }}>
@@ -4832,6 +4850,8 @@ function UserManagementPage() {
                 <MenuItem value="DEPARTMENT">Department</MenuItem>
                 <MenuItem value="SUBCOUNTY">Sub-county</MenuItem>
                 <MenuItem value="WARD">Ward</MenuItem>
+                <MenuItem value="SUBLOCATION">Sublocation</MenuItem>
+                <MenuItem value="VILLAGE">Village</MenuItem>
               </Select>
             </FormControl>
             <Autocomplete
@@ -4854,7 +4874,11 @@ function UserManagementPage() {
                         ? 'Departments'
                         : newProjectScopeType === 'SUBCOUNTY'
                           ? 'Sub-counties'
-                          : 'Wards'
+                          : newProjectScopeType === 'WARD'
+                            ? 'Wards'
+                            : newProjectScopeType === 'SUBLOCATION'
+                              ? 'Sublocations'
+                              : 'Villages'
                   }
                   margin="dense"
                   size="small"
@@ -4988,10 +5012,10 @@ function UserManagementPage() {
           </Box>
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}>
-            Project access (all departments, sector, department, sub-county, ward)
+            Project access (all departments, sector, department, sub-county, ward, sublocation, village)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Prefer this section for user data access. All departments gives county-wide project visibility; other rules narrow by sector, department, sub-county, or ward.
+            Prefer this section for user data access. All departments gives county-wide project visibility; other rules narrow by sector, department, sub-county, ward, sublocation, or village.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ md: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 180, bgcolor: '#fff', borderRadius: 1 }}>
@@ -5009,6 +5033,8 @@ function UserManagementPage() {
                 <MenuItem value="DEPARTMENT">Department</MenuItem>
                 <MenuItem value="SUBCOUNTY">Sub-county</MenuItem>
                 <MenuItem value="WARD">Ward</MenuItem>
+                <MenuItem value="SUBLOCATION">Sublocation</MenuItem>
+                <MenuItem value="VILLAGE">Village</MenuItem>
               </Select>
             </FormControl>
             <Autocomplete
@@ -5029,9 +5055,13 @@ function UserManagementPage() {
                       ? 'Sectors'
                       : standaloneProjectScopeType === 'DEPARTMENT'
                         ? 'Departments'
-                        : standaloneProjectScopeType === 'SUBCOUNTY'
+                    : standaloneProjectScopeType === 'SUBCOUNTY'
                           ? 'Sub-counties'
-                          : 'Wards'
+                          : standaloneProjectScopeType === 'WARD'
+                            ? 'Wards'
+                            : standaloneProjectScopeType === 'SUBLOCATION'
+                              ? 'Sublocations'
+                              : 'Villages'
                   }
                   margin="dense"
                   size="small"

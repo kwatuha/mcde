@@ -20,6 +20,8 @@ const projectTableColumns = [
   { id: 'countyNames', label: 'County', minWidth: 150, show: false, sortable: false },
   { id: 'constituencyNames', label: 'Sub-county', minWidth: 150, show: false, sortable: false },
   { id: 'wardNames', label: 'Ward', minWidth: 150, show: false, sortable: false },
+  { id: 'sublocationName', label: 'Sublocation', minWidth: 170, show: true, sortable: false },
+  { id: 'villageName', label: 'Village', minWidth: 170, show: true, sortable: false },
   { id: 'departmentName', label: 'Department', minWidth: 145, show: false, sortable: true },
   { id: 'financialYearName', label: 'Fin. Year', minWidth: 125, show: false, sortable: true },
   { id: 'programName', label: 'Programme', minWidth: 150, show: false, sortable: true },

@@ -102,8 +102,12 @@ const ProjectFormDialog = ({
   // State for Kenya wards dropdowns
   const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
+  const [sublocations, setSublocations] = useState([]);
+  const [villages, setVillages] = useState([]);
   const [loadingSubcounties, setLoadingSubcounties] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
+  const [loadingSublocations, setLoadingSublocations] = useState(false);
+  const [loadingVillages, setLoadingVillages] = useState(false);
 
   const [departmentCatalog, setDepartmentCatalog] = useState([]);
   const [sectionCatalog, setSectionCatalog] = useState([]);
@@ -244,6 +248,8 @@ const ProjectFormDialog = ({
       if (!countyName) {
         setSubcounties([]);
         setWards([]);
+        setSublocations([]);
+        setVillages([]);
         // Clear sub-county and ward when county is cleared
         if (formData.subcounty || formData.ward) {
           // Use a ref to avoid infinite loops - update formData directly via setFormData if available
@@ -253,7 +259,13 @@ const ProjectFormDialog = ({
       }
       setLoadingSubcounties(true);
       try {
-        const data = await apiService.kenyaWards.getSubcounties(countyName);
+        let data = [];
+        if (typeof apiService.kenyaWards.getCatalogSubcounties === 'function') {
+          data = await apiService.kenyaWards.getCatalogSubcounties(countyName);
+        }
+        if (!Array.isArray(data) || data.length === 0) {
+          data = await apiService.kenyaWards.getSubcounties(countyName);
+        }
         setSubcounties(data);
         // Clear sub-county and ward when county changes - use a flag to prevent re-triggering
         const hadSubcounty = formData.subcounty;
@@ -287,11 +299,19 @@ const ProjectFormDialog = ({
     const fetchWards = async () => {
       if (!formData.subcounty) {
         setWards([]);
+        setSublocations([]);
+        setVillages([]);
         return;
       }
       setLoadingWards(true);
       try {
-        const data = await apiService.kenyaWards.getWardsBySubcounty(formData.subcounty);
+        let data = [];
+        if (typeof apiService.kenyaWards.getCatalogWardsBySubcounty === 'function') {
+          data = await apiService.kenyaWards.getCatalogWardsBySubcounty(formData.subcounty, formData.county || DEFAULT_COUNTY.name);
+        }
+        if (!Array.isArray(data) || data.length === 0) {
+          data = await apiService.kenyaWards.getWardsBySubcounty(formData.subcounty);
+        }
         setWards(data);
         // Don't clear ward here - let user keep their selection if they change sub-county back
       } catch (error) {
@@ -311,6 +331,72 @@ const ProjectFormDialog = ({
     fetchWards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.subcounty, open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchSublocations = async () => {
+      if (!formData.subcounty || !formData.ward) {
+        setSublocations([]);
+        setVillages([]);
+        return;
+      }
+      setLoadingSublocations(true);
+      try {
+        const data = await apiService.kenyaWards.getSublocations({
+          county: formData.county || DEFAULT_COUNTY.name,
+          subcounty: formData.subcounty,
+          ward: formData.ward,
+        });
+        setSublocations(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Error fetching sublocations:', error);
+        if (open) {
+          setSnackbar({
+            open: true,
+            message: 'Failed to load sublocations. You can still type one manually.',
+            severity: 'warning',
+          });
+        }
+      } finally {
+        setLoadingSublocations(false);
+      }
+    };
+    fetchSublocations();
+  }, [formData.county, formData.subcounty, formData.ward, open, setSnackbar]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchVillages = async () => {
+      if (!formData.subcounty || !formData.ward || !formData.sublocation) {
+        setVillages([]);
+        return;
+      }
+      setLoadingVillages(true);
+      try {
+        const data = await apiService.kenyaWards.getVillages({
+          county: formData.county || DEFAULT_COUNTY.name,
+          subcounty: formData.subcounty,
+          ward: formData.ward,
+          sublocation: formData.sublocation,
+        });
+        setVillages(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Error fetching villages:', error);
+        if (open) {
+          setSnackbar({
+            open: true,
+            message: 'Failed to load villages. You can still type one manually.',
+            severity: 'warning',
+          });
+        }
+      } finally {
+        setLoadingVillages(false);
+      }
+    };
+    fetchVillages();
+  }, [formData.county, formData.subcounty, formData.ward, formData.sublocation, open, setSnackbar]);
 
   // Use normalized status options for consistency across the application
   const projectStatuses = [
@@ -1024,7 +1110,7 @@ const ProjectFormDialog = ({
             Location
           </Typography>
           <Grid container spacing={1.5}>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
                 options={subcounties}
                 value={formData.subcounty || null}
@@ -1073,7 +1159,7 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
                 options={wards}
                 getOptionLabel={(option) => {
@@ -1136,9 +1222,57 @@ const ProjectFormDialog = ({
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid item xs={12} sm={6} md={3}>
               <Autocomplete
-                options={villageOptions}
+                options={sublocations}
+                value={formData.sublocation || ''}
+                inputValue={formData.sublocation || ''}
+                onInputChange={(event, newInputValue) => {
+                  handleChange({ target: { name: 'sublocation', value: newInputValue || '' } });
+                }}
+                onChange={(event, newValue) => {
+                  handleChange({ target: { name: 'sublocation', value: newValue || '' } });
+                }}
+                loading={loadingSublocations}
+                disabled={!formData.subcounty || !formData.ward}
+                freeSolo
+                sx={{ minWidth: 200 }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    name="sublocation"
+                    label="Sublocation"
+                    variant="outlined"
+                    size="small"
+                    placeholder={formData.ward ? "Search or select sublocation" : "Select ward first"}
+                    helperText="Optional, but recommended for village-level precision"
+                    sx={{
+                      minWidth: 200,
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[600] : colors.blueAccent[400],
+                          borderWidth: '2px',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.blueAccent[500] : colors.blueAccent[300],
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: colorMode === 'dark' ? colors.greenAccent[500] : colors.greenAccent[400],
+                          borderWidth: '2px',
+                        },
+                      },
+                    }}
+                  />
+                )}
+                filterOptions={(options, params) => {
+                  const input = String(params.inputValue || '').toLowerCase();
+                  return options.filter((option) => String(option || '').toLowerCase().includes(input));
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Autocomplete
+                options={Array.from(new Set([...(villages || []), ...(villageOptions || [])]))}
                 value={formData.village || ''}
                 inputValue={formData.village || ''}
                 onInputChange={(event, newInputValue) => {
@@ -1147,6 +1281,8 @@ const ProjectFormDialog = ({
                 onChange={(event, newValue) => {
                   handleChange({ target: { name: 'village', value: newValue || '' } });
                 }}
+                loading={loadingVillages}
+                disabled={!formData.subcounty || !formData.ward}
                 freeSolo
                 sx={{ minWidth: 200 }}
                 renderInput={(params) => (
@@ -1156,8 +1292,8 @@ const ProjectFormDialog = ({
                     label="Village"
                     variant="outlined"
                     size="small"
-                    placeholder="Type village name"
-                    helperText="Free text; existing villages are suggested"
+                    placeholder={formData.sublocation ? "Search or select village" : "Select sublocation or type village"}
+                    helperText="Filtered by sublocation when selected; free text is still allowed"
                     sx={{
                       minWidth: 200,
                       '& .MuiOutlinedInput-root': {

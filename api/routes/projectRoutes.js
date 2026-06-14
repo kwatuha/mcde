@@ -564,6 +564,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.location->>'subcounty' AS "subcounty",
                 p.location->>'constituency' AS "constituency",
                 p.location->>'ward' AS "ward",
+                p.location->>'sublocation' AS "sublocation",
                 p.location->>'village' AS "village",
                 (p.location->'geocoordinates'->>'lat')::numeric AS "latitude",
                 (p.location->'geocoordinates'->>'lng')::numeric AS "longitude",
@@ -577,6 +578,7 @@ const GET_SINGLE_PROJECT_QUERY = (DB_TYPE) => {
                 p.location->>'constituency' AS "constituencyNames",
                 COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                 p.location->>'ward' AS "wardNames",
+                p.location->>'sublocation' AS "sublocationName",
                 p.location->>'village' AS "villageName"
             FROM projects p
             ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
@@ -958,6 +960,7 @@ const projectHeaderMap = {
     Constituency: ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county', 'constituency', 'constituencyname', 'constituency name'],
     'sub-county': ['subcounty', 'subcountyname', 'subcountyid', 'sub-county', 'subcounty_', 'sub county'],
     ward: ['ward', 'wardname', 'wardid', 'ward name'],
+    Sublocation: ['sublocation', 'sub location', 'sub-location', 'sub location name', 'sublocation name', 'sub_location'],
     Village: ['village', 'villagename', 'village name', 'site village', 'sitevillage'],
     Contracted: ['contracted', 'contractamount', 'contractedamount', 'contractsum', 'contractvalue', 'contractvaluekes', 'contract value', 'contract value (kes)'],
     TenderContractNo: ['tendercontractno', 'tendercontractnumber', 'tenderno', 'tendernumber', 'contractno', 'contractnumber', 'tender contract no', 'tender/contract no', 'tender / contract no'],
@@ -1337,6 +1340,11 @@ router.post('/check-metadata-mapping', upload.single('file'), async (req, res) =
                 'ward name (iebc)': 'ward',
                 'iebc ward name': 'ward',
                 'iebc_ward_name': 'ward',
+                'sublocation': 'sublocation',
+                'sub location': 'sublocation',
+                'sub-location': 'sublocation',
+                'sublocation name': 'sublocation',
+                'sub_location': 'sublocation',
                 'village': 'village',
                 'village name': 'village',
                 'village_name': 'village',
@@ -2663,6 +2671,7 @@ router.post('/confirm-import-data', async (req, res) => {
                 subcounty: locationData.subcounty && locationData.subcounty.trim() !== '' ? locationData.subcounty.trim() : null,
                 constituency: locationData.constituency && locationData.constituency.trim() !== '' ? locationData.constituency.trim() : null,
                 ward: locationData.ward && locationData.ward.trim() !== '' ? locationData.ward.trim() : null,
+                sublocation: locationData.sublocation && String(locationData.sublocation).trim() !== '' ? String(locationData.sublocation).trim() : null,
                 village: locationData.village && String(locationData.village).trim() !== '' ? String(locationData.village).trim() : null
             };
             // Add geocoordinates if provided
@@ -3050,12 +3059,14 @@ router.post('/confirm-import-data', async (req, res) => {
                 const countyName = normalizeStr(row.County || row.county || row['County Name']) || DEFAULT_PROJECT_COUNTY;
                 const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                 const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
+                const sublocationName = normalizeStr(row.Sublocation || row.sublocation || row['Sub Location'] || row['Sub-location'] || row['Sublocation Name']);
                 const villageName = normalizeStr(row.Village || row.village || row['Village Name']);
                 const locationData = {
                     county: countyName,
                     subcounty: subcountyName,
                     constituency: subcountyName,
                     ward: wardName,
+                    sublocation: sublocationName,
                     village: villageName,
                     geocoordinates: {
                         lat: projectPayload.latitude,
@@ -3111,6 +3122,7 @@ router.post('/confirm-import-data', async (req, res) => {
                         const countyName = normalizeStr(row.County || row.county || row['County Name']) || DEFAULT_PROJECT_COUNTY;
                         const subcountyName = normalizeStr(row['sub-county'] || row.SubCounty || row['Sub County'] || row.Subcounty || row.Constituency || row.constituency || row['Constituency Name']);
                         const wardName = normalizeStr(row.ward || row.Ward || row['Ward Name']);
+                        const sublocationName = normalizeStr(row.Sublocation || row.sublocation || row['Sub Location'] || row['Sub-location'] || row['Sublocation Name']);
                         const villageName = normalizeStr(row.Village || row.village || row['Village Name']);
 
                         // Build JSONB objects for PostgreSQL projects table
@@ -3164,6 +3176,7 @@ router.post('/confirm-import-data', async (req, res) => {
                             subcounty: subcountyName && subcountyName.trim() !== '' ? subcountyName.trim() : null,
                             constituency: subcountyName && subcountyName.trim() !== '' ? subcountyName.trim() : null,
                             ward: wardName && wardName.trim() !== '' ? wardName.trim() : null,
+                            sublocation: sublocationName && String(sublocationName).trim() !== '' ? String(sublocationName).trim() : null,
                             village: villageName && String(villageName).trim() !== '' ? String(villageName).trim() : null
                         };
                         // Add geocoordinates if latitude and longitude are provided
@@ -4851,6 +4864,7 @@ router.get('/', async (req, res) => {
                 p.location->>'county' AS "countyNames",
                 p.location->>'constituency' AS "constituencyNames",
                 p.location->>'ward' AS "wardNames",
+                p.location->>'sublocation' AS "sublocationName",
                 p.location->>'village' AS "village",
                 p.location->>'village' AS "villageName",
                 COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
@@ -4918,6 +4932,7 @@ router.get('/', async (req, res) => {
                 NULL AS countyNames,
                 NULL AS subcountyNames,
                 NULL AS wardNames,
+                NULL AS "sublocationName",
                 COALESCE(site_counts.site_count, 0) AS "coverageCount",
                 COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
         `;
@@ -6466,6 +6481,7 @@ router.post('/', validateProject, async (req, res) => {
                     subcounty,
                     constituency,
                     ward,
+                    sublocation,
                     village,
                     budgetSource,
                     tenderContractNo,
@@ -6549,6 +6565,7 @@ router.post('/', validateProject, async (req, res) => {
                     subcounty: subcounty && subcounty.trim() !== '' ? subcounty.trim() : null,
                     constituency: constituency && constituency.trim() !== '' ? constituency.trim() : null,
                     ward: ward && ward.trim() !== '' ? ward.trim() : null,
+                    sublocation: sublocation && String(sublocation).trim() !== '' ? String(sublocation).trim() : null,
                     village: village && String(village).trim() !== '' ? String(village).trim() : null,
                     geocoordinates: {
                         lat: latitude && latitude !== '' ? parseFloat(latitude) : null,
@@ -6802,6 +6819,7 @@ router.put('/:id', validateProject, async (req, res) => {
                 subcounty,
                 constituency,
                 ward,
+                sublocation,
                 village,
                 budgetSource,
                 tenderContractNo,
@@ -6952,6 +6970,7 @@ router.put('/:id', validateProject, async (req, res) => {
                 subcounty: subcounty !== undefined ? normalizeOptionalText(subcounty) : (existingLocation.subcounty || null),
                 constituency: constituency !== undefined ? normalizeOptionalText(constituency) : (existingLocation.constituency || null),
                 ward: ward !== undefined ? normalizeOptionalText(ward) : (existingLocation.ward || null),
+                sublocation: sublocation !== undefined ? normalizeOptionalText(sublocation) : (existingLocation.sublocation || null),
                 village: village !== undefined ? normalizeOptionalText(village) : (existingLocation.village || null),
                 geocoordinates: {
                     lat: latitude !== undefined 

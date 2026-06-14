@@ -491,7 +491,7 @@ router.get('/users/project-scope-options', async (req, res) => {
         await orgScope.ensureScopeSchema();
         const wardCountyClause = PROJECT_SCOPE_COUNTY_FILTER ? ' AND county ILIKE $1' : '';
         const wardCountyParams = PROJECT_SCOPE_COUNTY_FILTER ? [`%${PROJECT_SCOPE_COUNTY_FILTER}%`] : [];
-        const [sectorRows, projectSectorRows, departmentRows, projectDepartmentRows, subcountyRows, wardRows, mappings] = await Promise.all([
+        const [sectorRows, projectSectorRows, departmentRows, projectDepartmentRows, subcountyRows, wardRows, sublocationRows, villageRows, mappings] = await Promise.all([
             safeRows(`
                 SELECT id, name AS "sectorName"
                 FROM sectors
@@ -535,6 +535,29 @@ router.get('/users/project-scope-options', async (req, res) => {
                   AND NULLIF(TRIM(iebc_ward_name), '') IS NOT NULL
                 ORDER BY "subcountyName", "wardName"
             `, wardCountyParams),
+            safeRows(`
+                SELECT DISTINCT
+                    CONCAT(subcounty, ' > ', ward, ' > ', sublocation) AS "sublocationName",
+                    sublocation AS "rawSublocationName",
+                    subcounty AS "subcountyName",
+                    ward AS "wardName"
+                FROM machakos_sublocation_villages
+                WHERE COALESCE(voided, false) = false
+                  AND NULLIF(TRIM(sublocation), '') IS NOT NULL
+                ORDER BY "subcountyName", "wardName", "sublocationName"
+            `),
+            safeRows(`
+                SELECT DISTINCT
+                    CONCAT(subcounty, ' > ', ward, ' > ', sublocation, ' > ', village) AS "villageName",
+                    village AS "rawVillageName",
+                    sublocation AS "sublocationName",
+                    subcounty AS "subcountyName",
+                    ward AS "wardName"
+                FROM machakos_sublocation_villages
+                WHERE COALESCE(voided, false) = false
+                  AND NULLIF(TRIM(village), '') IS NOT NULL
+                ORDER BY "subcountyName", "wardName", "sublocationName", "villageName"
+            `),
             orgScope.fetchDepartmentSectorMappings(),
         ]);
 
@@ -561,6 +584,8 @@ router.get('/users/project-scope-options', async (req, res) => {
             departments: [...departmentByName.values()],
             subcounties: subcountyRows,
             wards: wardRows,
+            sublocations: sublocationRows,
+            villages: villageRows,
             departmentSectorMappings: mappings,
         });
     } catch (error) {

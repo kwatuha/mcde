@@ -193,6 +193,26 @@ const reportsService = {
     }
   },
 
+  getYearlyLocationTrendsReport: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/yearly-location-trends', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch yearly location trends report:", error);
+      throw error;
+    }
+  },
+
+  getStatusReport: async (filters = {}) => {
+    try {
+      const response = await axiosInstance.get('/reports/status-report', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch status report:", error);
+      throw error;
+    }
+  },
+
   getSummaryKpis: async (filters = {}) => {
     try {
       const response = await axiosInstance.get('/reports/summary-kpis', { params: filters });

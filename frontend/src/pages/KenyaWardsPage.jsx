@@ -47,7 +47,6 @@ function KenyaWardsPage() {
   const [currentWard, setCurrentWard] = useState(null);
   const [formData, setFormData] = useState({
     iebc_ward_name: '',
-    constituency: '',
     subcounty: '',
   });
   const [cascadeProjectLocations, setCascadeProjectLocations] = useState(true);
@@ -171,10 +170,10 @@ function KenyaWardsPage() {
         ...(currentWard ? { ...currentWard } : {}),
         iebc_ward_name: formData.iebc_ward_name,
         subcounty: formData.subcounty,
-        constituency: formData.constituency,
         cascadeProjectLocations: Boolean(currentWard && cascadeProjectLocations),
       };
       delete payload.id;
+      delete payload.constituency;
       delete payload.created_at;
       delete payload.updated_at;
 
@@ -339,7 +338,6 @@ function KenyaWardsPage() {
     setCurrentWard(ward);
     setFormData({
       iebc_ward_name: ward.iebc_ward_name || '',
-      constituency: ward.constituency || '',
       subcounty: ward.subcounty || '',
     });
     setFormErrors({});
@@ -351,7 +349,6 @@ function KenyaWardsPage() {
   const resetForm = () => {
     setFormData({
       iebc_ward_name: '',
-      constituency: '',
       subcounty: '',
     });
     setFormErrors({});
@@ -863,7 +860,7 @@ function KenyaWardsPage() {
                   sx={{ mb: 2 }}
                 />
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid item xs={12}>
                 <TextField
                   margin="dense"
                   label="Sub-county"
@@ -871,17 +868,6 @@ function KenyaWardsPage() {
                   variant="outlined"
                   value={formData.subcounty}
                   onChange={(e) => handleInputChange('subcounty', e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  margin="dense"
-                  label="Constituency"
-                  fullWidth
-                  variant="outlined"
-                  value={formData.constituency}
-                  onChange={(e) => handleInputChange('constituency', e.target.value)}
                   sx={{ mb: 2 }}
                 />
               </Grid>
