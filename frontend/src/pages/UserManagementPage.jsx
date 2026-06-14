@@ -32,16 +32,16 @@ const MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE =
 const DEFAULT_MACHAKOS_PARENT_ORG = 'Machakos County Executive';
 
 const PROJECT_DETAIL_UI_TAB_OPTIONS = [
-  { key: 'projectDetails:overview', label: 'Project Details: Overview' },
-  { key: 'projectDetails:financials', label: 'Project Details: Financials' },
-  { key: 'projectDetails:sites', label: 'Project Details: Sites / Photos' },
-  { key: 'projectDetails:jobs', label: 'Project Details: Jobs' },
-  { key: 'projectDetails:inspection', label: 'Project Details: Inspection' },
-  { key: 'projectDetails:schedule', label: 'Project Details: Schedule & Milestones' },
-  { key: 'projectDetails:bq', label: 'Project Details: BQ' },
-  { key: 'projectDetails:certificates', label: 'Project Details: Payment Certificates' },
-  { key: 'projectDetails:map', label: 'Project Details: Map' },
-  { key: 'projectDetails:implementation-plan', label: 'Project Details: CIDP / Implementation Plan' },
+  { key: 'projectDetails:overview', label: 'Overview', group: 'Core details', description: 'Project summary, location, ownership and status.' },
+  { key: 'projectDetails:financials', label: 'Financials', group: 'Finance and planning', description: 'Budget, disbursement and financial fields.' },
+  { key: 'projectDetails:sites', label: 'Sites / Photos', group: 'Delivery evidence', description: 'Project sites, uploaded photos and location evidence.' },
+  { key: 'projectDetails:jobs', label: 'Jobs', group: 'Delivery evidence', description: 'Employment and local impact records.' },
+  { key: 'projectDetails:inspection', label: 'Inspection', group: 'Delivery evidence', description: 'Inspection and monitoring evidence.' },
+  { key: 'projectDetails:schedule', label: 'Schedule & Milestones', group: 'Delivery evidence', description: 'Timeline, milestones and implementation schedule.' },
+  { key: 'projectDetails:bq', label: 'BQ', group: 'Finance and planning', description: 'Bill of quantities and work items.' },
+  { key: 'projectDetails:certificates', label: 'Payment Certificates', group: 'Finance and planning', description: 'Certificate generation and payment support.' },
+  { key: 'projectDetails:map', label: 'Map', group: 'Core details', description: 'Project map and geospatial view.' },
+  { key: 'projectDetails:implementation-plan', label: 'CIDP / Implementation Plan', group: 'Finance and planning', description: 'CIDP linkage and implementation plan context.' },
 ];
 
 const USER_FORM_TEXT_FIELD_NAMES = [
@@ -56,19 +56,43 @@ const USER_FORM_TEXT_FIELD_NAMES = [
   'confirmPassword',
 ];
 
-function buildUiMenuVisibilityOptions() {
+function normalizeUiProfileKeys(keys) {
+  return [...new Set((keys || []).map((key) => String(key || '').trim()).filter(Boolean))];
+}
+
+function buildUiMenuVisibilityGroups() {
   return (menuConfig.menuCategories || []).flatMap((category) => {
     if (category.hidden === true || category.scopeDown === true) return [];
-    const group = {
-      key: `category:${category.id}`,
-      label: `Menu group: ${category.label || category.id}`,
-      group: 'Menu groups',
-    };
     const items = (category.submenus || [])
       .filter((submenu) => submenu.hidden !== true)
       .map((submenu) => ({
         key: submenu.route ? `route:${submenu.route}` : `menu:${category.id}:${submenu.title || submenu.to || ''}`,
-        label: `${category.label || category.id}: ${submenu.title || submenu.route || submenu.to}`,
+        label: submenu.title || submenu.route || submenu.to || 'Untitled menu item',
+        route: submenu.route || submenu.to || '',
+      }))
+      .filter((item) => item.key && item.label);
+    if (items.length === 0) return [];
+    return [{
+      key: `category:${category.id}`,
+      id: category.id,
+      label: category.label || category.id,
+      labelTree: category.labelTree || category.label || category.id,
+      items,
+    }];
+  });
+}
+
+function buildUiMenuVisibilityOptions(groups = buildUiMenuVisibilityGroups()) {
+  return groups.flatMap((category) => {
+    const group = {
+      key: category.key,
+      label: `Menu group: ${category.label || category.id}`,
+      group: 'Menu groups',
+    };
+    const items = (category.items || [])
+      .map((item) => ({
+        key: item.key,
+        label: `${category.label || category.id}: ${item.label}`,
         group: 'Menu items',
       }));
     return [group, ...items];
@@ -1080,8 +1104,21 @@ function UserManagementPage() {
 
   const normalizeOrgText = (v) => String(v || '').trim().toLowerCase();
 
-  const uiMenuVisibilityOptions = useMemo(() => buildUiMenuVisibilityOptions(), []);
+  const uiMenuVisibilityGroups = useMemo(() => buildUiMenuVisibilityGroups(), []);
+  const uiMenuVisibilityOptions = useMemo(
+    () => buildUiMenuVisibilityOptions(uiMenuVisibilityGroups),
+    [uiMenuVisibilityGroups]
+  );
   const uiTabVisibilityOptions = useMemo(() => PROJECT_DETAIL_UI_TAB_OPTIONS, []);
+  const uiTabVisibilityGroups = useMemo(() => {
+    const order = ['Core details', 'Delivery evidence', 'Finance and planning'];
+    return order
+      .map((group) => ({
+        group,
+        options: uiTabVisibilityOptions.filter((option) => option.group === group),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [uiTabVisibilityOptions]);
 
   const countyParentOrgName = useMemo(
     () => resolveCountyParentOrgName(ministriesHierarchy),
@@ -1752,12 +1789,20 @@ function UserManagementPage() {
   });
 
   const setUiProfileMenuKeys = (keys) => {
-    const next = [...new Set((keys || []).map((key) => String(key || '').trim()).filter(Boolean))];
+    const next = normalizeUiProfileKeys(keys);
     setUiProfileFormData((prev) => ({ ...prev, visibleMenuKeys: next }));
   };
 
+  const updateUiProfileMenuKeys = (updater) => {
+    setUiProfileFormData((prev) => {
+      const current = new Set(normalizeUiProfileKeys(prev.visibleMenuKeys));
+      const next = updater(current);
+      return { ...prev, visibleMenuKeys: normalizeUiProfileKeys([...next]) };
+    });
+  };
+
   const setUiProfileTabKeys = (keys) => {
-    const next = [...new Set((keys || []).map((key) => String(key || '').trim()).filter(Boolean))];
+    const next = normalizeUiProfileKeys(keys);
     setUiProfileFormData((prev) => ({ ...prev, visibleTabKeys: next }));
   };
 
@@ -1765,8 +1810,76 @@ function UserManagementPage() {
   const handleSelectUiMenuGroups = () => setUiProfileMenuKeys(uiMenuVisibilityOptions.filter((option) => option.group === 'Menu groups').map((option) => option.key));
   const handleSelectUiMenuItems = () => setUiProfileMenuKeys(uiMenuVisibilityOptions.filter((option) => option.group === 'Menu items').map((option) => option.key));
   const handleClearUiMenus = () => setUiProfileMenuKeys([]);
+  const handleToggleUiMenuGroupItems = (group) => {
+    updateUiProfileMenuKeys((selected) => {
+      const itemKeys = (group.items || []).map((item) => item.key);
+      const groupAllowed = selected.has(group.key);
+      const allItemsSelected = itemKeys.length > 0 && itemKeys.every((key) => selected.has(key));
+      selected.delete(group.key);
+      if (groupAllowed || allItemsSelected) {
+        itemKeys.forEach((key) => selected.delete(key));
+      } else {
+        itemKeys.forEach((key) => selected.add(key));
+      }
+      return selected;
+    });
+  };
+  const handleAllowWholeUiMenuGroup = (group) => {
+    updateUiProfileMenuKeys((selected) => {
+      (group.items || []).forEach((item) => selected.delete(item.key));
+      selected.add(group.key);
+      return selected;
+    });
+  };
+  const handleClearUiMenuGroup = (group) => {
+    updateUiProfileMenuKeys((selected) => {
+      selected.delete(group.key);
+      (group.items || []).forEach((item) => selected.delete(item.key));
+      return selected;
+    });
+  };
+  const handleToggleUiMenuItem = (group, item, checked) => {
+    updateUiProfileMenuKeys((selected) => {
+      if (selected.has(group.key)) {
+        selected.delete(group.key);
+        (group.items || []).forEach((groupItem) => {
+          if (groupItem.key !== item.key) selected.add(groupItem.key);
+        });
+      }
+      if (checked) {
+        selected.add(item.key);
+      } else {
+        selected.delete(item.key);
+      }
+      return selected;
+    });
+  };
   const handleSelectAllUiTabs = () => setUiProfileTabKeys(uiTabVisibilityOptions.map((option) => option.key));
   const handleClearUiTabs = () => setUiProfileTabKeys([]);
+  const handleToggleUiTabGroup = (group) => {
+    setUiProfileFormData((prev) => {
+      const selected = new Set(normalizeUiProfileKeys(prev.visibleTabKeys));
+      const keys = (group.options || []).map((option) => option.key);
+      const allSelected = keys.length > 0 && keys.every((key) => selected.has(key));
+      if (allSelected) {
+        keys.forEach((key) => selected.delete(key));
+      } else {
+        keys.forEach((key) => selected.add(key));
+      }
+      return { ...prev, visibleTabKeys: normalizeUiProfileKeys([...selected]) };
+    });
+  };
+  const handleToggleUiTab = (tabKey, checked) => {
+    setUiProfileFormData((prev) => {
+      const selected = new Set(normalizeUiProfileKeys(prev.visibleTabKeys));
+      if (checked) {
+        selected.add(tabKey);
+      } else {
+        selected.delete(tabKey);
+      }
+      return { ...prev, visibleTabKeys: normalizeUiProfileKeys([...selected]) };
+    });
+  };
 
   const handleSaveUiProfile = async () => {
     const formData = readUiProfileFormData();
@@ -5695,7 +5808,7 @@ function UserManagementPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openUiProfileDialog} onClose={handleCloseUiProfileDialog} fullWidth maxWidth="md">
+      <Dialog open={openUiProfileDialog} onClose={handleCloseUiProfileDialog} fullWidth maxWidth="lg">
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white' }}>
           {currentUiProfileToEdit ? 'Edit UI Profile' : 'Create UI Profile'}
         </DialogTitle>
@@ -5746,39 +5859,119 @@ function UserManagementPage() {
               </Stack>
             </Stack>
           </Box>
-          <Autocomplete
-            multiple
-            disableCloseOnSelect
-            limitTags={4}
-            options={uiMenuVisibilityOptions}
-            groupBy={(option) => option.group}
-            getOptionLabel={(option) => option.label}
-            isOptionEqualToValue={(option, value) => option.key === value.key}
-            value={uiMenuVisibilityOptions.filter((option) => uiProfileFormData.visibleMenuKeys.includes(option.key))}
-            onChange={(_, next) => setUiProfileMenuKeys(next.map((option) => option.key))}
-            slotProps={{
-              listbox: {
-                sx: { maxHeight: 360 },
-              },
+          <Paper
+            variant="outlined"
+            sx={{
+              mb: 2,
+              borderRadius: 2,
+              overflow: 'hidden',
+              backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
+              borderColor: theme.palette.mode === 'dark' ? colors.grey[700] : '#d0d7de',
             }}
-            renderOption={(props, option, { selected }) => {
-              const { key, ...otherProps } = props;
+          >
+            <Box sx={{ p: 1.5, borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : '#e5e7eb'}` }}>
+              <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#374151' }}>
+                Expand a menu group, then select only the items this profile should show. Use “Whole group” when the user should see every current and future item in that group.
+              </Typography>
+            </Box>
+            {uiMenuVisibilityGroups.map((group) => {
+              const selectedKeys = new Set(uiProfileFormData.visibleMenuKeys);
+              const itemKeys = (group.items || []).map((item) => item.key);
+              const groupAllowed = selectedKeys.has(group.key);
+              const selectedItemCount = groupAllowed
+                ? itemKeys.length
+                : itemKeys.filter((key) => selectedKeys.has(key)).length;
+              const allItemsSelected = itemKeys.length > 0 && selectedItemCount === itemKeys.length;
+              const partiallySelected = !groupAllowed && selectedItemCount > 0 && !allItemsSelected;
               return (
-                <li key={key} {...otherProps}>
-                  <Checkbox checked={selected} size="small" sx={{ mr: 1 }} />
-                  {option.label}
-                </li>
+                <Accordion
+                  key={group.key}
+                  disableGutters
+                  square
+                  sx={{
+                    backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
+                    color: theme.palette.mode === 'dark' ? colors.grey[100] : '#111827',
+                    '&:before': { display: 'none' },
+                    borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : '#e5e7eb'}`,
+                  }}
+                >
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ width: '100%' }}>
+                      <Checkbox
+                        size="small"
+                        checked={groupAllowed || allItemsSelected}
+                        indeterminate={partiallySelected}
+                        onClick={(event) => event.stopPropagation()}
+                        onFocus={(event) => event.stopPropagation()}
+                        onChange={() => handleToggleUiMenuGroupItems(group)}
+                      />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 800 }}>{group.label}</Typography>
+                        <Typography variant="caption" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : '#6b7280' }}>
+                          {groupAllowed ? 'Whole group allowed' : `${selectedItemCount}/${itemKeys.length} items selected`}
+                        </Typography>
+                      </Box>
+                      {groupAllowed ? <Chip size="small" color="success" label="Whole group" /> : null}
+                    </Stack>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0 }}>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                      <Button size="small" variant="outlined" onClick={() => handleToggleUiMenuGroupItems(group)}>
+                        {groupAllowed || allItemsSelected ? 'Clear group items' : 'Select group items'}
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => handleAllowWholeUiMenuGroup(group)}>
+                        Whole group
+                      </Button>
+                      <Button size="small" color="inherit" onClick={() => handleClearUiMenuGroup(group)}>
+                        Clear group
+                      </Button>
+                    </Stack>
+                    <Divider sx={{ mb: 1 }} />
+                    <Grid container spacing={0.75}>
+                      {(group.items || []).map((item) => {
+                        const itemChecked = groupAllowed || selectedKeys.has(item.key);
+                        return (
+                          <Grid item xs={12} sm={6} md={4} key={item.key}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={itemChecked}
+                                  onChange={(event) => handleToggleUiMenuItem(group, item, event.target.checked)}
+                                />
+                              }
+                              label={
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: theme.palette.mode === 'dark' ? colors.grey[100] : '#111827' }}>
+                                    {item.label}
+                                  </Typography>
+                                  {item.route ? (
+                                    <Typography variant="caption" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[400] : '#6b7280' }}>
+                                      {item.route}
+                                    </Typography>
+                                  ) : null}
+                                </Box>
+                              }
+                              sx={{
+                                alignItems: 'flex-start',
+                                width: '100%',
+                                m: 0,
+                                p: 0.75,
+                                borderRadius: 1,
+                                backgroundColor: itemChecked
+                                  ? (theme.palette.mode === 'dark' ? colors.blueAccent[900] : '#eff6ff')
+                                  : 'transparent',
+                              }}
+                            />
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  </AccordionDetails>
+                </Accordion>
               );
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Visible menus"
-                helperText="The list stays open while selecting. Use the buttons above for faster setup."
-                sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
-              />
-            )}
-          />
+            })}
+          </Paper>
           <Box sx={{ mb: 1 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mb: 1 }}>
               <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700 }}>
@@ -5790,38 +5983,98 @@ function UserManagementPage() {
               </Stack>
             </Stack>
           </Box>
-          <Autocomplete
-            multiple
-            disableCloseOnSelect
-            limitTags={4}
-            options={uiTabVisibilityOptions}
-            getOptionLabel={(option) => option.label}
-            isOptionEqualToValue={(option, value) => option.key === value.key}
-            value={uiTabVisibilityOptions.filter((option) => uiProfileFormData.visibleTabKeys.includes(option.key))}
-            onChange={(_, next) => setUiProfileTabKeys(next.map((option) => option.key))}
-            slotProps={{
-              listbox: {
-                sx: { maxHeight: 320 },
-              },
+          <Paper
+            variant="outlined"
+            sx={{
+              borderRadius: 2,
+              overflow: 'hidden',
+              backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
+              borderColor: theme.palette.mode === 'dark' ? colors.grey[700] : '#d0d7de',
             }}
-            renderOption={(props, option, { selected }) => {
-              const { key, ...otherProps } = props;
-              return (
-                <li key={key} {...otherProps}>
-                  <Checkbox checked={selected} size="small" sx={{ mr: 1 }} />
-                  {option.label}
-                </li>
-              );
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Visible tabs"
-                helperText="Leave empty to show all supported tabs. The list stays open while selecting."
-                sx={{ '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
-              />
-            )}
-          />
+          >
+            <Box sx={{ p: 1.5, borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : '#e5e7eb'}` }}>
+              <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#374151' }}>
+                Leave empty to show all supported tabs. Select tabs here only when this profile should hide some Project Details sections.
+              </Typography>
+            </Box>
+            <Stack spacing={0} divider={<Divider />}>
+              {uiTabVisibilityGroups.map((group) => {
+                const selectedKeys = new Set(uiProfileFormData.visibleTabKeys);
+                const groupKeys = group.options.map((option) => option.key);
+                const selectedCount = groupKeys.filter((key) => selectedKeys.has(key)).length;
+                const allSelected = groupKeys.length > 0 && selectedCount === groupKeys.length;
+                const partiallySelected = selectedCount > 0 && !allSelected;
+                return (
+                  <Box key={group.group} sx={{ p: 1.5 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mb: 1 }}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={allSelected}
+                            indeterminate={partiallySelected}
+                            onChange={() => handleToggleUiTabGroup(group)}
+                          />
+                        }
+                        label={
+                          <Box>
+                            <Typography sx={{ fontWeight: 800, color: theme.palette.mode === 'dark' ? colors.grey[100] : '#111827' }}>
+                              {group.group}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[300] : '#6b7280' }}>
+                              {selectedCount}/{groupKeys.length} tabs selected
+                            </Typography>
+                          </Box>
+                        }
+                        sx={{ m: 0 }}
+                      />
+                      <Button size="small" variant="outlined" onClick={() => handleToggleUiTabGroup(group)}>
+                        {allSelected ? 'Clear section' : 'Select section'}
+                      </Button>
+                    </Stack>
+                    <Grid container spacing={0.75}>
+                      {group.options.map((option) => {
+                        const checked = selectedKeys.has(option.key);
+                        return (
+                          <Grid item xs={12} sm={6} md={4} key={option.key}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={checked}
+                                  onChange={(event) => handleToggleUiTab(option.key, event.target.checked)}
+                                />
+                              }
+                              label={
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.mode === 'dark' ? colors.grey[100] : '#111827' }}>
+                                    {option.label}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ display: 'block', color: theme.palette.mode === 'dark' ? colors.grey[400] : '#6b7280' }}>
+                                    {option.description}
+                                  </Typography>
+                                </Box>
+                              }
+                              sx={{
+                                alignItems: 'flex-start',
+                                width: '100%',
+                                m: 0,
+                                p: 0.75,
+                                borderRadius: 1,
+                                backgroundColor: checked
+                                  ? (theme.palette.mode === 'dark' ? colors.blueAccent[900] : '#eff6ff')
+                                  : 'transparent',
+                              }}
+                            />
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  </Box>
+                );
+              })}
+            </Stack>
+          </Paper>
         </DialogContent>
         <DialogActions sx={{ backgroundColor: colors.primary[400] }}>
           <Button onClick={handleCloseUiProfileDialog} variant="outlined">Cancel</Button>
