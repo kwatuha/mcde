@@ -618,6 +618,12 @@
           "route": "AUDIT_TRAIL"
         },
         {
+          "title": "AI Usage & Costs",
+          "icon": "AssessmentIcon",
+          "route": "AI_USAGE",
+          "roles": ["admin"]
+        },
+        {
           "title": "Workflow mgmt",
           "icon": "AccountTreeIcon",
           "route": "WORKFLOW_MANAGEMENT",

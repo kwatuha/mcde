@@ -27,6 +27,7 @@ import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
 import Topbar from "./Topbar.jsx";
 import Sidebar from "./Sidebar.jsx";
 import FloatingChatButton from "../components/chat/FloatingChatButton.jsx";
+import AIAssistantPanel from "../components/ai/AIAssistantPanel.jsx";
 import RibbonMenu from "./RibbonMenu.jsx";
 import gprisLogo from '../assets/gpris.png';
 import { treeLayoutDataGridGlobalStyles } from '../utils/dataGridTheme.js';
@@ -49,24 +50,14 @@ function MainLayoutContent() {
   const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(false);
   const [headerGovLogoFailed, setHeaderGovLogoFailed] = useState(false);
   
-  // Safely get auth context with error handling
-  let authContext;
-  try {
-    authContext = useAuth();
-  } catch (error) {
-    // If context is not available, return null and let React handle it
-    console.error('Auth context not available:', error);
-    return null;
-  }
-  
-  const { token, user, logout, loading, mustChangePassword } = authContext || {};
-  const isAdminLike = isAdmin(user);
-  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const { token, user, logout, loading, mustChangePassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { isCollapsed } = useSidebar();
   const { isTreeLayout } = useNavigationLayout();
   const { isOpen: isProfileModalOpen, closeModal: closeProfileModal } = useProfileModal();
+  const isAdminLike = isAdmin(user);
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
 
   const expandedSidebarWidth = isTreeLayout ? expandedSidebarWidthTree : expandedSidebarWidthRibbon;
   const currentSidebarWidth = isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth;
@@ -285,6 +276,12 @@ function MainLayoutContent() {
       
       {/* Floating Chat Button - Hidden for now */}
       {/* <FloatingChatButton /> */}
+      <AIAssistantPanel
+        pageContext={{
+          path: location.pathname,
+          title: typeof document !== 'undefined' ? document.title : '',
+        }}
+      />
 
       {/* Profile Modal */}
       <ProfileModal

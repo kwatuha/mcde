@@ -1,4 +1,3 @@
-import axios from 'axios';
 import axiosInstance from './axiosInstance';
 import authService from './authService';
 import userService from './userService';
@@ -26,6 +25,7 @@ import auditTrailService from './auditTrailService';
 import dataCollectionService from './dataCollectionService';
 import partnersService from './partnersService';
 import procurementService from './procurementService';
+import aiAssistantService from './aiAssistantService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -124,6 +124,7 @@ const apiService = {
   dataCollection: dataCollectionService,
   partners: partnersService,
   procurement: procurementService,
+  aiAssistant: aiAssistantService,
   projectPhotos,
 };
 

@@ -58,6 +58,7 @@ const dataCollectionRoutes = require('./routes/dataCollectionRoutes')
 const reportSchedulingRoutes = require('./routes/reportSchedulingRoutes')
 const partnersRoutes = require('./routes/partnersRoutes')
 const procurementRoutes = require('./routes/procurementRoutes')
+const aiAssistantRoutes = require('./routes/aiAssistantRoutes')
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -124,6 +125,7 @@ app.use('/api/data-collection', dataCollectionRoutes);
 app.use('/api/report-schedules', reportSchedulingRoutes);
 app.use('/api/partners', partnersRoutes);
 app.use('/api/procurement', procurementRoutes);
+app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers

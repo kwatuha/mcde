@@ -118,6 +118,7 @@ const routeTitles = {
   // Admin routes
   '/admin': { title: 'Admin Dashboard', subtitle: 'Administration' },
   '/audit-trail': { title: 'Audit trail', subtitle: 'Security & operations events' },
+  '/ai-usage': { title: 'AI Usage & Costs', subtitle: 'OpenAI token usage and estimated costs' },
   '/user-management': { title: 'User Management', subtitle: 'Users & Roles' },
   '/workflow-management': { title: 'Workflow Management', subtitle: 'Process Management' },
   '/approval-levels-management': { title: 'Approvals & workflows', subtitle: 'Approval levels & workflow configuration' },

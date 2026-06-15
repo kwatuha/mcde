@@ -90,6 +90,7 @@ import ApprovalLevelsManagementPage from './pages/ApprovalLevelsManagementPage';
 // ✨ NEW: Import the AdminPage component
 import AdminPage from './pages/AdminPage';
 import AuditTrailPage from './pages/AuditTrailPage';
+import AIUsagePage from './pages/AIUsagePage';
 // ✨ NEW: Import the FeedbackManagementPage component
 import FeedbackManagementPage from './pages/FeedbackManagementPage';
 // ✨ NEW: Import the AbsorptionReport component
@@ -258,6 +259,10 @@ const router = createBrowserRouter([
       {
         path: 'audit-trail',
         element: <AuditTrailPage />,
+      },
+      {
+        path: 'ai-usage',
+        element: <AIUsagePage />,
       },
       {
         path: 'contractor-dashboard',

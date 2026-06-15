@@ -138,6 +138,7 @@ export const ROUTES = {
     HR_PUBLIC_HOLIDAYS: '/hr-module?view=publicHolidays',
     WORKFLOW_MANAGEMENT: '/workflow-management',
     APPROVAL_LEVELS_MANAGEMENT: '/approval-levels-management', // ✨ NEW: Add the approval levels management route
+    AI_USAGE: '/ai-usage',
     FEEDBACK_MANAGEMENT: '/feedback-management', // ✨ NEW: Public feedback management route
     ABSORPTION_REPORT: '/absorption-report', // ✨ NEW: Absorption report route
     PERFORMANCE_MANAGEMENT_REPORT: '/performance-management-report', // ✨ NEW: Performance Management report route

@@ -62,6 +62,7 @@ Thumbs.db
 *.sql
 !api/migrations/20260614_add_sublocation_villages_catalog.sql
 !api/migrations/20260615_seed_sublocation_villages.sql
+!api/migrations/20260615_add_ai_assistant_audit.sql
 *.db
 *.sqlite
 *.sqlite3
