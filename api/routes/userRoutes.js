@@ -4,7 +4,7 @@ const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const orgScope = require('../services/organizationScopeService');
 const uiAccess = require('../services/uiAccessService');
-const { isSuperAdminRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
+const { isSuperAdminRequester, isAdminLikeRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
 const { ensureLoginOtpSchema } = require('../services/loginOtpService');
 const { setMustChangePassword } = require('../services/passwordPolicyService');
@@ -466,11 +466,11 @@ router.get('/users/check-username', async (req, res) => {
 
 /**
  * @route GET /api/users/users/project-scope-options
- * @description Super Admin only: option lists for project access scopes.
+ * @description Admin only: option lists for project access scopes.
  */
 router.get('/users/project-scope-options', async (req, res) => {
-    if (!isSuperAdminRequester(req.user)) {
-        return res.status(403).json({ error: 'Only Super Admin can manage project access scopes.' });
+    if (!isAdminLikeRequester(req.user)) {
+        return res.status(403).json({ error: 'Only administrators can view project access scope options.' });
     }
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
     if (DB_TYPE !== 'postgresql') {
@@ -596,11 +596,11 @@ router.get('/users/project-scope-options', async (req, res) => {
 
 /**
  * @route GET /api/users/users/department-sector-mappings
- * @description Super Admin only: list department-sector bridge mappings.
+ * @description Admin only: list department-sector bridge mappings.
  */
 router.get('/users/department-sector-mappings', async (req, res) => {
-    if (!isSuperAdminRequester(req.user)) {
-        return res.status(403).json({ error: 'Only Super Admin can manage department-sector mappings.' });
+    if (!isAdminLikeRequester(req.user)) {
+        return res.status(403).json({ error: 'Only administrators can view department-sector mappings.' });
     }
     if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
         return res.status(501).json({ error: 'Department-sector mappings are available on PostgreSQL deployments only.' });

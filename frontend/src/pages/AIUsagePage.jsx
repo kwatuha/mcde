@@ -179,11 +179,7 @@ export default function AIUsagePage() {
         </Box>
 
         <Alert severity="info">
-          Costs shown here are estimates based on captured token usage and configured model pricing. For official billing
-          balance, use the OpenAI usage dashboard:{' '}
-          <Link href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">
-            platform.openai.com/usage
-          </Link>
+          Costs shown here are estimates based on captured token usage and configured model pricing.
         </Alert>
 
         {error ? <Alert severity="error">{error}</Alert> : null}

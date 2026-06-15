@@ -157,6 +157,53 @@ function getColumnValue(row, column) {
   return '';
 }
 
+function createEmptyMetricMap(yearKeys) {
+  return Object.fromEntries(yearKeys.map((year) => [String(year), 0]));
+}
+
+function aggregateRowsByDimensions(rows, selectedDimensions, years) {
+  const yearKeys = years.map(String);
+  const groupKeys = selectedDimensions.length ? selectedDimensions : ['__all__'];
+  const rowMap = new Map();
+
+  rows.forEach((row) => {
+    const key = groupKeys
+      .map((dimension) => (dimension === '__all__' ? 'All projects' : row[dimension] || 'Unspecified'))
+      .join('\u0001');
+
+    if (!rowMap.has(key)) {
+      const groupedRow = {
+        countsByYear: createEmptyMetricMap(yearKeys),
+        budgetByYear: createEmptyMetricMap(yearKeys),
+        paidByYear: createEmptyMetricMap(yearKeys),
+        total: 0,
+        totalBudget: 0,
+        totalPaid: 0,
+      };
+      selectedDimensions.forEach((dimension) => {
+        groupedRow[dimension] = row[dimension] || 'Unspecified';
+      });
+      rowMap.set(key, groupedRow);
+    }
+
+    const groupedRow = rowMap.get(key);
+    yearKeys.forEach((year) => {
+      groupedRow.countsByYear[year] = (groupedRow.countsByYear[year] || 0) + Number(row?.countsByYear?.[year] || 0);
+      groupedRow.budgetByYear[year] = (groupedRow.budgetByYear[year] || 0) + Number(row?.budgetByYear?.[year] || 0);
+      groupedRow.paidByYear[year] = (groupedRow.paidByYear[year] || 0) + Number(row?.paidByYear?.[year] || 0);
+    });
+    groupedRow.total += Number(row?.total || 0);
+    groupedRow.totalBudget += Number(row?.totalBudget || 0);
+    groupedRow.totalPaid += Number(row?.totalPaid || 0);
+  });
+
+  return [...rowMap.values()].sort((a, b) => (
+    selectedDimensions
+      .map((dimension) => String(a[dimension] || '').localeCompare(String(b[dimension] || '')))
+      .find((comparison) => comparison !== 0) || 0
+  ));
+}
+
 export default function YearlyTrendsReportPage() {
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_FILTERS }));
   const [years, setYears] = useState([]);
@@ -353,6 +400,11 @@ export default function YearlyTrendsReportPage() {
     [displayYears, selectedDimensions, selectedMetrics]
   );
 
+  const displayRows = useMemo(
+    () => aggregateRowsByDimensions(rows, selectedDimensions, displayYears),
+    [rows, selectedDimensions, displayYears]
+  );
+
   const activeFiltersText = useMemo(() => {
     const entries = Object.entries(filters).filter(([, value]) => String(value || '').trim() !== '');
     return entries.length ? entries.map(([key, value]) => `${key}: ${value}`).join(', ') : 'All scoped records';
@@ -360,7 +412,7 @@ export default function YearlyTrendsReportPage() {
 
   const handleExportExcel = () => {
     const headers = ['#', ...reportColumns.map((column) => column.label)];
-    const body = rows.map((row, index) => [
+    const body = displayRows.map((row, index) => [
       index + 1,
       ...reportColumns.map((column) => {
         const value = getColumnValue(row, column);
@@ -391,13 +443,13 @@ export default function YearlyTrendsReportPage() {
       const metricColumns = reportColumns.filter((column) => column.type !== 'dimension');
       const summaryRows = `
         <tr>
-          <td>${rows.length.toLocaleString()}</td>
+          <td>${displayRows.length.toLocaleString()}</td>
           ${metricColumns.map((column) => `
             <td style="text-align:right;">${escapeHtml(formatMetricValue(getColumnValue(totals, column), column.metricKey))}</td>
           `).join('')}
         </tr>
       `;
-      const bodyRows = rows.map((row) => `
+      const bodyRows = displayRows.map((row) => `
         <tr>
           ${reportColumns.map((column) => {
             const value = getColumnValue(row, column);
@@ -490,7 +542,7 @@ export default function YearlyTrendsReportPage() {
         startY: y,
         head: [['Rows', ...reportColumns.filter((column) => column.type !== 'dimension').map((column) => column.label)]],
         body: [[
-          rows.length.toLocaleString(),
+          displayRows.length.toLocaleString(),
           ...reportColumns
             .filter((column) => column.type !== 'dimension')
             .map((column) => formatMetricValue(getColumnValue(totals, column), column.metricKey)),
@@ -502,7 +554,7 @@ export default function YearlyTrendsReportPage() {
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 14,
         head: [reportColumns.map((column) => column.label)],
-        body: rows.map((row) => reportColumns.map((column) => {
+        body: displayRows.map((row) => reportColumns.map((column) => {
           const value = getColumnValue(row, column);
           return column.type === 'dimension' ? value : formatMetricValue(value, column.metricKey);
         })),
@@ -652,13 +704,13 @@ export default function YearlyTrendsReportPage() {
               <Button size="small" variant="contained" onClick={() => load(filters)} disabled={loading}>
                 {loading ? 'Loading...' : 'Browse'}
               </Button>
-              <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleExportExcel} disabled={loading || rows.length === 0}>
+              <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleExportExcel} disabled={loading || displayRows.length === 0}>
                 Excel
               </Button>
-              <Button size="small" variant="outlined" startIcon={<DescriptionIcon />} onClick={handleExportWord} disabled={loading || exportingWord || rows.length === 0}>
+              <Button size="small" variant="outlined" startIcon={<DescriptionIcon />} onClick={handleExportWord} disabled={loading || exportingWord || displayRows.length === 0}>
                 {exportingWord ? 'Exporting...' : 'Word'}
               </Button>
-              <Button size="small" variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={handleExportPdf} disabled={loading || exportingPdf || rows.length === 0}>
+              <Button size="small" variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={handleExportPdf} disabled={loading || exportingPdf || displayRows.length === 0}>
                 {exportingPdf ? 'Exporting...' : 'PDF'}
               </Button>
             </Stack>
@@ -742,8 +794,8 @@ export default function YearlyTrendsReportPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={`${row.subcounty}|${row.ward}|${row.sublocation}|${row.village}`} hover>
+                {displayRows.map((row, rowIndex) => (
+                  <TableRow key={`${selectedDimensions.map((dimension) => row[dimension] || 'Unspecified').join('|')}|${rowIndex}`} hover>
                     {reportColumns.map((column) => {
                       const value = getColumnValue(row, column);
                       return (
@@ -771,7 +823,7 @@ export default function YearlyTrendsReportPage() {
                     );
                   })}
                 </TableRow>
-                {rows.length === 0 && (
+                {displayRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={Math.max(reportColumns.length, 1)}>
                       <Alert severity="info">No projects found for the selected year range and filters.</Alert>

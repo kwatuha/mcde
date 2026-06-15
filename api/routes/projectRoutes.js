@@ -2,11 +2,13 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const pool = require('../config/db'); // Import the database connection pool
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 const orgScope = require('../services/organizationScopeService');
 const multer = require('multer');
 const xlsx = require('xlsx');
+const ExcelJS = require('exceljs');
 const { addStatusFilter } = require('../utils/statusFilterHelper');
 const privilege = require('../middleware/privilegeMiddleware');
 const { isSuperAdminRequester, isAdminLikeRequester } = require('../utils/roleUtils');
@@ -2611,7 +2613,8 @@ router.post('/confirm-import-data', async (req, res) => {
         // Build JSONB objects for update
         const timeline = JSON.stringify({
             start_date: projectPayload.startDate || null,
-            expected_completion_date: projectPayload.endDate || null
+            expected_completion_date: projectPayload.endDate || null,
+            financial_year: projectPayload.financialYear || null
         });
 
         const budget = JSON.stringify({
@@ -2905,7 +2908,12 @@ router.post('/confirm-import-data', async (req, res) => {
                     }
                 }
 
-                // Financial years are no longer saved - removed from template
+                const readFirstValue = (...values) => {
+                    for (const value of values) {
+                        if (value !== undefined && value !== null && value !== '') return value;
+                    }
+                    return null;
+                };
 
                 // Prepare project payload
                 const toMoney = (v) => {
@@ -2964,6 +2972,22 @@ router.post('/confirm-import-data', async (req, res) => {
                     const num = Number(cleaned);
                     return isNaN(num) ? null : num;
                 };
+
+                const parsePercentageComplete = (value) => {
+                    if (value == null || value === '') return null;
+                    const num = toNumber(value);
+                    if (num == null || num < 0 || num > 100) {
+                        summary.dataCorrections.push({
+                            row: i + 2,
+                            field: 'PercentageComplete',
+                            originalValue: value,
+                            correctedValue: null,
+                            message: `Percentage Complete must be a number between 0 and 100. Value "${value}" was ignored.`
+                        });
+                        return null;
+                    }
+                    return num;
+                };
                 
                 // Helper to parse JSON array or string
                 const parseDataSources = (v) => {
@@ -2988,6 +3012,7 @@ router.post('/confirm-import-data', async (req, res) => {
                     status: normalizeStr(row.Status) || null,
                     costOfProject: toMoney(row.budget),
                     paidOut: toMoney(row.amountPaid || row.Disbursed), // Prefer paid amount; keep legacy Disbursed imports working.
+                    financialYear: normalizeStr(row.financialYear || row.FinancialYear || row['Financial Year'] || row.FY || row.ADP || row.Year) || null,
                     startDate: normalizeDate(row.StartDate, 'StartDate').date,
                     endDate: normalizeDate(row.EndDate, 'EndDate').date,
                     directorate: normalizeStr(row.directorate || row.Directorate) || null,
@@ -3001,7 +3026,7 @@ router.post('/confirm-import-data', async (req, res) => {
                     tenderContractNo: normalizeStr(row.TenderContractNo || row.tenderContractNo) || null,
                     // New fields from projects_upload_template.xlsx
                     budgetSource: normalizeStr(row.BudgetSource || row.budgetSource) || null,
-                    percentageComplete: toNumber(row.PercentageComplete || row.percentageComplete),
+                    percentageComplete: parsePercentageComplete(readFirstValue(row.PercentageComplete, row.percentageComplete)),
                     latestUpdateSummary: normalizeStr(row.LatestUpdateSummary || row.latestUpdateSummary) || null,
                     feedbackEnabled: toBool(row.FeedbackEnabled || row.feedbackEnabled),
                     complaintsReceived: toNumber(row.ComplaintsReceived || row.complaintsReceived),
@@ -3128,7 +3153,8 @@ router.post('/confirm-import-data', async (req, res) => {
                         // Build JSONB objects for PostgreSQL projects table
                         const timeline = JSON.stringify({
                             start_date: projectPayload.startDate || null,
-                            expected_completion_date: projectPayload.endDate || null
+                            expected_completion_date: projectPayload.endDate || null,
+                            financial_year: projectPayload.financialYear || null
                         });
 
                         const budget = JSON.stringify({
@@ -3489,6 +3515,402 @@ router.post('/confirm-import-data', async (req, res) => {
     }
 });
 //===========================================================================
+const PROJECT_TEMPLATE_MAX_DATA_ROW = 500;
+
+async function fetchProjectTemplateFinancialYears() {
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+    const rowsFromResult = (result) => {
+        if (!result) return [];
+        if (Array.isArray(result.rows)) return result.rows;
+        if (Array.isArray(result)) return Array.isArray(result[0]) ? result[0] : result;
+        return [];
+    };
+
+    try {
+        const result = await pool.query(
+            DB_TYPE === 'postgresql'
+                ? `SELECT finYearName AS name
+                   FROM financialyears
+                   WHERE COALESCE(voided, false) = false
+                     AND NULLIF(TRIM(finYearName), '') IS NOT NULL
+                   ORDER BY finYearName DESC`
+                : `SELECT finYearName AS name
+                   FROM financialyears
+                   WHERE (voided IS NULL OR voided = 0)
+                     AND NULLIF(TRIM(finYearName), '') IS NOT NULL
+                   ORDER BY finYearName DESC`
+        );
+        const names = rowsFromResult(result).map((row) => String(row.name || row.finYearName || '').trim()).filter(Boolean);
+        if (names.length) return [...new Set(names)];
+    } catch (error) {
+        console.warn('Could not load financial years for project import template:', error.message);
+    }
+
+    try {
+        const result = await pool.query(
+            DB_TYPE === 'postgresql'
+                ? `SELECT DISTINCT NULLIF(TRIM(timeline->>'financial_year'), '') AS name
+                   FROM projects
+                   WHERE COALESCE(voided, false) = false
+                     AND NULLIF(TRIM(timeline->>'financial_year'), '') IS NOT NULL
+                   ORDER BY name DESC`
+                : `SELECT DISTINCT NULLIF(TRIM(financialYear), '') AS name
+                   FROM projects
+                   WHERE (voided IS NULL OR voided = 0)
+                     AND NULLIF(TRIM(financialYear), '') IS NOT NULL
+                   ORDER BY name DESC`
+        );
+        const names = rowsFromResult(result).map((row) => String(row.name || '').trim()).filter(Boolean);
+        if (names.length) return [...new Set(names)];
+    } catch (error) {
+        console.warn('Could not load project financial years for project import template:', error.message);
+    }
+
+    return ['2025/2026', '2024/2025', '2023/2024'];
+}
+
+const projectTemplateRowsFromResult = (result) => {
+    if (!result) return [];
+    if (Array.isArray(result.rows)) return result.rows;
+    if (Array.isArray(result)) return Array.isArray(result[0]) ? result[0] : result;
+    return [];
+};
+
+const projectTemplateRangeName = (prefix, value) =>
+    `${prefix}_${crypto.createHash('sha1').update(String(value || '')).digest('hex').slice(0, 16)}`;
+
+const projectTemplateSheetRange = (sheetName, startCol, startRow, endCol, endRow) =>
+    `'${String(sheetName).replace(/'/g, "''")}'!$${startCol}$${startRow}:$${endCol}$${endRow}`;
+
+function clearProjectTemplateSheet(sheet) {
+    const rowCount = Math.max(sheet.rowCount || 0, 1);
+    const columnCount = Math.max(sheet.columnCount || 0, 1);
+    for (let row = 1; row <= rowCount; row += 1) {
+        for (let col = 1; col <= columnCount; col += 1) {
+            const cell = sheet.getCell(row, col);
+            cell.value = null;
+            cell.dataValidation = null;
+        }
+    }
+}
+
+function removeProjectTemplateDefinedNames(workbook) {
+    const existing = Array.isArray(workbook.definedNames?.model) ? workbook.definedNames.model : [];
+    workbook.definedNames.model = existing.filter((entry) => {
+        const name = String(entry?.name || '');
+        return name !== 'OrgDepartments' && !name.startsWith('DEPT_') && !name.startsWith('SEC_');
+    });
+}
+
+async function fetchProjectTemplateOrganizationMetadata() {
+    const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+    const fallback = {
+        sectors: [],
+        departments: [],
+        directoratesByDepartment: new Map(),
+        departmentsBySector: new Map(),
+    };
+
+    try {
+        const [sectorResult, departmentResult, sectionResult, mappingResult] = await Promise.all([
+            pool.query(
+                DB_TYPE === 'postgresql'
+                    ? `SELECT id, name AS "sectorName"
+                       FROM sectors
+                       WHERE COALESCE(voided, false) = false
+                         AND NULLIF(TRIM(name), '') IS NOT NULL
+                       ORDER BY name`
+                    : `SELECT id, name AS sectorName
+                       FROM sectors
+                       WHERE COALESCE(voided, 0) = 0
+                         AND NULLIF(TRIM(name), '') IS NOT NULL
+                       ORDER BY name`
+            ),
+            pool.query(
+                DB_TYPE === 'postgresql'
+                    ? `SELECT "departmentId" AS id, name AS "departmentName"
+                       FROM departments
+                       WHERE COALESCE(voided, false) = false
+                         AND NULLIF(TRIM(name), '') IS NOT NULL
+                       ORDER BY name`
+                    : `SELECT departmentId AS id, name AS departmentName
+                       FROM departments
+                       WHERE COALESCE(voided, 0) = 0
+                         AND NULLIF(TRIM(name), '') IS NOT NULL
+                       ORDER BY name`
+            ),
+            pool.query(
+                DB_TYPE === 'postgresql'
+                    ? `SELECT s."departmentId" AS "departmentId", s.name AS "directorateName"
+                       FROM sections s
+                       JOIN departments d ON d."departmentId" = s."departmentId"
+                       WHERE COALESCE(s.voided, false) = false
+                         AND COALESCE(d.voided, false) = false
+                         AND NULLIF(TRIM(s.name), '') IS NOT NULL
+                       ORDER BY d.name, s.name`
+                    : `SELECT s.departmentId AS departmentId, s.name AS directorateName
+                       FROM sections s
+                       JOIN departments d ON d.departmentId = s.departmentId
+                       WHERE COALESCE(s.voided, 0) = 0
+                         AND COALESCE(d.voided, 0) = 0
+                         AND NULLIF(TRIM(s.name), '') IS NOT NULL
+                       ORDER BY d.name, s.name`
+            ),
+            DB_TYPE === 'postgresql'
+                ? pool.query(
+                    `SELECT department_id AS "departmentId", department_name AS "departmentName",
+                            sector_id AS "sectorId", sector_name AS "sectorName"
+                     FROM department_sector_mappings
+                     WHERE COALESCE(voided, false) = false
+                       AND NULLIF(TRIM(sector_name), '') IS NOT NULL
+                       AND NULLIF(TRIM(department_name), '') IS NOT NULL
+                     ORDER BY sector_name, department_name`
+                ).catch(() => ({ rows: [] }))
+                : Promise.resolve({ rows: [] }),
+        ]);
+
+        const sectorRows = projectTemplateRowsFromResult(sectorResult);
+        const departmentRows = projectTemplateRowsFromResult(departmentResult);
+        const sectionRows = projectTemplateRowsFromResult(sectionResult);
+        const mappingRows = projectTemplateRowsFromResult(mappingResult);
+
+        const sectors = sectorRows
+            .map((row) => ({ id: row.id || null, sectorName: String(row.sectorName || '').trim() }))
+            .filter((row) => row.sectorName);
+        const departments = departmentRows
+            .map((row) => ({ id: row.id || null, departmentName: String(row.departmentName || '').trim() }))
+            .filter((row) => row.departmentName);
+
+        const departmentById = new Map(departments.map((department) => [String(department.id), department.departmentName]));
+        const departmentByName = new Map(departments.map((department) => [department.departmentName.toLowerCase(), department.departmentName]));
+        const sectorById = new Map(sectors.map((sector) => [String(sector.id), sector.sectorName]));
+        const sectorByName = new Map(sectors.map((sector) => [sector.sectorName.toLowerCase(), sector.sectorName]));
+
+        const directoratesByDepartment = new Map(departments.map((department) => [department.departmentName, []]));
+        for (const row of sectionRows) {
+            const departmentName = departmentById.get(String(row.departmentId));
+            const directorateName = String(row.directorateName || '').trim();
+            if (!departmentName || !directorateName) continue;
+            directoratesByDepartment.get(departmentName).push(directorateName);
+        }
+
+        const departmentsBySector = new Map(sectors.map((sector) => [sector.sectorName, []]));
+        for (const row of mappingRows) {
+            const sectorName = sectorById.get(String(row.sectorId)) ||
+                sectorByName.get(String(row.sectorName || '').trim().toLowerCase()) ||
+                String(row.sectorName || '').trim();
+            const departmentName = departmentById.get(String(row.departmentId)) ||
+                departmentByName.get(String(row.departmentName || '').trim().toLowerCase()) ||
+                String(row.departmentName || '').trim();
+            if (!sectorName || !departmentName || !departmentsBySector.has(sectorName)) continue;
+            const current = departmentsBySector.get(sectorName);
+            if (!current.some((name) => name.toLowerCase() === departmentName.toLowerCase())) {
+                current.push(departmentName);
+            }
+        }
+
+        return { sectors, departments, directoratesByDepartment, departmentsBySector };
+    } catch (error) {
+        console.warn('Could not load organization metadata for project import template:', error.message);
+        return fallback;
+    }
+}
+
+function applyProjectTemplateOrganizationMetadata(workbook, organizationMetadata) {
+    const referenceLists = workbook.getWorksheet('Reference Lists');
+    if (!referenceLists) return { sectorEndRow: 2 };
+
+    const sectors = organizationMetadata?.sectors || [];
+    const departments = organizationMetadata?.departments || [];
+    const directoratesByDepartment = organizationMetadata?.directoratesByDepartment || new Map();
+    const departmentsBySector = organizationMetadata?.departmentsBySector || new Map();
+    const allDirectorates = [...new Set([...directoratesByDepartment.values()].flat().filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+    removeProjectTemplateDefinedNames(workbook);
+
+    let orgLists = workbook.getWorksheet('Org Lists');
+    if (!orgLists) orgLists = workbook.addWorksheet('Org Lists');
+    let orgLookup = workbook.getWorksheet('Org Lookup');
+    if (!orgLookup) orgLookup = workbook.addWorksheet('Org Lookup');
+    let sectorLists = workbook.getWorksheet('Sector Lists');
+    if (!sectorLists) sectorLists = workbook.addWorksheet('Sector Lists');
+    let sectorLookup = workbook.getWorksheet('Sector Lookup');
+    if (!sectorLookup) sectorLookup = workbook.addWorksheet('Sector Lookup');
+
+    [orgLists, orgLookup, sectorLists, sectorLookup].forEach((sheet) => {
+        clearProjectTemplateSheet(sheet);
+        sheet.state = 'hidden';
+    });
+
+    for (let row = 2; row <= Math.max(referenceLists.rowCount || 0, 250); row += 1) {
+        referenceLists.getCell(`A${row}`).value = null;
+        referenceLists.getCell(`B${row}`).value = null;
+        referenceLists.getCell(`C${row}`).value = null;
+    }
+    referenceLists.getCell('A1').value = 'Sectors';
+    referenceLists.getCell('B1').value = 'Machakos Departments';
+    referenceLists.getCell('C1').value = 'Machakos Directorates';
+
+    sectors.forEach((sector, index) => {
+        referenceLists.getCell(`A${index + 2}`).value = sector.sectorName;
+    });
+    departments.forEach((department, index) => {
+        referenceLists.getCell(`B${index + 2}`).value = department.departmentName;
+    });
+    allDirectorates.forEach((directorate, index) => {
+        referenceLists.getCell(`C${index + 2}`).value = directorate;
+    });
+
+    orgLists.getCell('A1').value = 'Departments';
+    departments.forEach((department, index) => {
+        orgLists.getCell(index + 2, 1).value = department.departmentName;
+    });
+    const orgDepartmentsEndRow = Math.max(departments.length + 1, 2);
+    workbook.definedNames.add(
+        projectTemplateSheetRange('Org Lists', 'A', 2, 'A', orgDepartmentsEndRow),
+        'OrgDepartments'
+    );
+
+    orgLookup.getCell('A1').value = 'Department';
+    orgLookup.getCell('B1').value = 'DirectorateRangeName';
+    departments.forEach((department, index) => {
+        const column = index + 2;
+        const colLetter = orgLists.getColumn(column).letter;
+        const directorates = directoratesByDepartment.get(department.departmentName) || [];
+        const rangeName = projectTemplateRangeName('DEPT', department.departmentName);
+        orgLists.getCell(1, column).value = `Directorates - ${department.departmentName}`;
+        directorates.forEach((directorate, directorateIndex) => {
+            orgLists.getCell(directorateIndex + 2, column).value = directorate;
+        });
+        const endRow = Math.max(directorates.length + 1, 2);
+        workbook.definedNames.add(
+            projectTemplateSheetRange('Org Lists', colLetter, 2, colLetter, endRow),
+            rangeName
+        );
+        orgLookup.getCell(index + 2, 1).value = department.departmentName;
+        orgLookup.getCell(index + 2, 2).value = rangeName;
+    });
+
+    sectorLookup.getCell('A1').value = 'Sector';
+    sectorLookup.getCell('B1').value = 'DepartmentRangeName';
+    sectors.forEach((sector, index) => {
+        const column = index + 1;
+        const colLetter = sectorLists.getColumn(column).letter;
+        const sectorDepartments = departmentsBySector.get(sector.sectorName) || [];
+        const rangeName = projectTemplateRangeName('SEC', sector.sectorName);
+        sectorLists.getCell(1, column).value = `Departments - ${sector.sectorName}`;
+        sectorDepartments.forEach((departmentName, departmentIndex) => {
+            sectorLists.getCell(departmentIndex + 2, column).value = departmentName;
+        });
+        const endRow = Math.max(sectorDepartments.length + 1, 2);
+        workbook.definedNames.add(
+            projectTemplateSheetRange('Sector Lists', colLetter, 2, colLetter, endRow),
+            rangeName
+        );
+        sectorLookup.getCell(index + 2, 1).value = sector.sectorName;
+        sectorLookup.getCell(index + 2, 2).value = rangeName;
+    });
+
+    return { sectorEndRow: Math.max(sectors.length + 1, 2) };
+}
+
+function applyProjectTemplateDownloadMetadata(workbook, financialYears, organizationMetadata) {
+    const projects = workbook.getWorksheet('Projects');
+    const referenceLists = workbook.getWorksheet('Reference Lists');
+    if (!projects || !referenceLists) return;
+    const organizationRanges = applyProjectTemplateOrganizationMetadata(workbook, organizationMetadata);
+
+    const headers = [
+        'Project Name',
+        'Tender/Contract No',
+        'Description',
+        'Sector',
+        'Department',
+        'Directorate',
+        'Sub-county',
+        'Ward',
+        'Sublocation',
+        'Village',
+        'Latitude',
+        'Longitude',
+        'Allocated Amount (KES)',
+        'Contract Value (KES)',
+        'Paid Amount (KES)',
+        'Budget Source',
+        'Financial Year',
+        'Start Date (YYYY-MM-DD)',
+        'Expected Completion Date (YYYY-MM-DD)',
+        'Percentage Complete (0-100)',
+        'Status',
+    ];
+    headers.forEach((header, index) => {
+        projects.getCell(1, index + 1).value = header;
+    });
+
+    // Remove older helper cells that used to sit immediately after Status.
+    for (let row = 1; row <= PROJECT_TEMPLATE_MAX_DATA_ROW; row += 1) {
+        for (let col = 22; col <= 26; col += 1) {
+            projects.getCell(row, col).value = null;
+            projects.getCell(row, col).dataValidation = null;
+        }
+    }
+    ['V', 'W', 'X', 'Y', 'Z'].forEach((column) => {
+        projects.getColumn(column).hidden = false;
+    });
+
+    const helperHeaders = {
+        AA: 'Ward Range Helper',
+        AB: 'Sublocation Range Helper',
+        AC: 'Village Range Helper',
+        AD: 'Directorate Range Helper',
+        AE: 'Department Range Helper',
+    };
+    Object.entries(helperHeaders).forEach(([column, header]) => {
+        projects.getCell(`${column}1`).value = header;
+        projects.getColumn(column).hidden = true;
+    });
+
+    for (let row = 2; row <= PROJECT_TEMPLATE_MAX_DATA_ROW; row += 1) {
+        projects.getCell(`AA${row}`).value = { formula: `IFERROR(VLOOKUP($G${row},'Geo Lookup'!$A:$B,2,FALSE),"")` };
+        projects.getCell(`AB${row}`).value = { formula: `IFERROR(VLOOKUP($G${row}&"|"&$H${row},'Geo Lookup'!$D:$E,2,FALSE),"")` };
+        projects.getCell(`AC${row}`).value = { formula: `IFERROR(VLOOKUP($G${row}&"|"&$H${row}&"|"&$I${row},'Geo Lookup'!$G:$H,2,FALSE),"")` };
+        projects.getCell(`AD${row}`).value = { formula: `IFERROR(VLOOKUP($E${row},'Org Lookup'!$A:$B,2,FALSE),"")` };
+        projects.getCell(`AE${row}`).value = { formula: `IFERROR(VLOOKUP($D${row},'Sector Lookup'!$A:$B,2,FALSE),"OrgDepartments")` };
+    }
+
+    referenceLists.getCell('J1').value = 'Financial Years';
+    for (let row = 2; row <= 200; row += 1) {
+        referenceLists.getCell(`J${row}`).value = null;
+    }
+    financialYears.forEach((name, index) => {
+        referenceLists.getCell(`J${index + 2}`).value = name;
+    });
+    referenceLists.getColumn('J').width = 18;
+    referenceLists.getColumn('J').hidden = true;
+
+    const financialYearEndRow = Math.max(financialYears.length + 1, 2);
+    const financialYearRange = `'Reference Lists'!$J$2:$J$${financialYearEndRow}`;
+    const sectorRange = `'Reference Lists'!$A$2:$A$${organizationRanges?.sectorEndRow || 2}`;
+    const validationByColumn = {
+        D: { type: 'list', allowBlank: true, formulae: [sectorRange] },
+        E: { type: 'list', allowBlank: true, formulae: ['INDIRECT($AE2)'] },
+        F: { type: 'list', allowBlank: true, formulae: ['INDIRECT($AD2)'] },
+        G: { type: 'list', allowBlank: true, formulae: ['GeoSubcounties'] },
+        H: { type: 'list', allowBlank: true, formulae: ['INDIRECT($AA2)'] },
+        I: { type: 'list', allowBlank: true, formulae: ['INDIRECT($AB2)'] },
+        J: { type: 'list', allowBlank: true, formulae: ['INDIRECT($AC2)'] },
+        Q: { type: 'list', allowBlank: true, formulae: [financialYearRange], showErrorMessage: true, errorTitle: 'Invalid Financial Year', error: 'Select a financial year from the dropdown list.' },
+        T: { type: 'decimal', operator: 'between', allowBlank: true, formulae: [0, 100], showErrorMessage: true, errorTitle: 'Invalid Percentage', error: 'Percentage Complete must be a number between 0 and 100.' },
+        U: { type: 'list', allowBlank: true, formulae: ["'Reference Lists'!$F$2:$F$7"] },
+    };
+
+    for (let row = 2; row <= PROJECT_TEMPLATE_MAX_DATA_ROW; row += 1) {
+        Object.entries(validationByColumn).forEach(([column, validation]) => {
+            projects.getCell(`${column}${row}`).dataValidation = validation;
+        });
+    }
+}
+
 /**
  * @route GET /api/projects/template
  * @description Download project import template
@@ -3502,9 +3924,19 @@ router.get('/template', async (req, res) => {
         if (!fs.existsSync(templatePath)) {
             return res.status(404).json({ message: 'Projects template not found on server' });
         }
+
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(templatePath);
+        const [financialYears, organizationMetadata] = await Promise.all([
+            fetchProjectTemplateFinancialYears(),
+            fetchProjectTemplateOrganizationMetadata(),
+        ]);
+        applyProjectTemplateDownloadMetadata(workbook, financialYears, organizationMetadata);
+
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename="projects_import_template.xlsx"');
-        return res.sendFile(templatePath);
+        await workbook.xlsx.write(res);
+        return res.end();
     } catch (err) {
         console.error('Error serving projects template:', err);
         return res.status(500).json({ message: 'Failed to serve projects template' });
