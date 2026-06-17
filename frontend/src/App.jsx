@@ -19,6 +19,7 @@ import ProjectPartnersPage from './pages/ProjectPartnersPage';
 import ProjectStatusPage from './pages/ProjectStatusPage';
 import ProjectUpdatesPage from './pages/ProjectUpdatesPage';
 import MonitoringProjectMonitoringPage from './pages/MonitoringProjectMonitoringPage';
+import PmcWardReportsPage from './pages/PmcWardReportsPage';
 import ProjectMilestonesPage from './pages/ProjectMilestonesPage';
 import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
@@ -314,6 +315,10 @@ const router = createBrowserRouter([
       {
         path: 'monitoring/project-monitoring',
         element: <MonitoringProjectMonitoringPage />,
+      },
+      {
+        path: 'monitoring/pmc-ward-reports',
+        element: <PmcWardReportsPage />,
       },
       {
         path: 'projects/teams',

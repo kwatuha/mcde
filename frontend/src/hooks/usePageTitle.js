@@ -19,6 +19,10 @@ const routeTitles = {
     title: 'Project Monitoring List',
     subtitle: 'Monitoring - project activities, indicators, evidence and achieved values',
   },
+  '/monitoring/pmc-ward-reports': {
+    title: 'PMC Ward Reports',
+    subtitle: 'Ward upload and sub-county approval of signed PMC progress reports',
+  },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
     subtitle: 'Associate Planning catalog activities with projects',
@@ -113,7 +117,7 @@ const routeTitles = {
     title: 'Reporting frequency',
     subtitle: 'Planning — how often indicators or milestones are reported',
   },
-  '/budget-management': { title: 'ADP-Budget', subtitle: 'Annual Development Plan & budget containers' },
+  '/budget-management': { title: 'ADP-Budget', subtitle: 'Department budgets and consolidated county budget' },
   '/strategic-planning/import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },
   '/strategic-data-import': { title: 'Import Strategic Data', subtitle: 'Strategic Data' },
   '/hr-module': { title: 'HR Module', subtitle: 'Human Resources' },

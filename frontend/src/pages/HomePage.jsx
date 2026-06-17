@@ -59,11 +59,13 @@ import {
   Close as CloseIcon,
   ListAlt as RegistryIcon,
   FactCheck as FactCheckIcon,
+  AssignmentTurnedIn as AssignmentTurnedInIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../configs/appConfig';
 import logo from '../assets/logo.png';
 import apiService from '../api';
+import pmcReportService from '../api/pmcReportService';
 import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
@@ -244,6 +246,16 @@ const HomePage = () => {
     return isAdmin(user) || hasPrivilege('project.read') || hasPrivilege('project.update');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
 
+  const canReviewPmcReports = React.useMemo(() => {
+    if (!user) return false;
+    return isAdmin(user) || hasPrivilege('pmc_report.review');
+  }, [user?.roleName, user?.privileges, hasPrivilege]);
+
+  const canSubmitPmcReports = React.useMemo(() => {
+    if (!user) return false;
+    return isAdmin(user) || hasPrivilege('pmc_report.submit') || hasPrivilege('pmc_report.create');
+  }, [user?.roleName, user?.privileges, hasPrivilege]);
+
   const [projectStats, setProjectStats] = useState({
     total: 0,
     active: 0,
@@ -264,6 +276,8 @@ const HomePage = () => {
   const [projectsPendingReview, setProjectsPendingReview] = useState([]);
   /** Generic approval workflow rows where the current user's role matches the pending step (see GET /approval-workflow/requests/pending-me). */
   const [workflowPendingRows, setWorkflowPendingRows] = useState([]);
+  const [pmcPendingReview, setPmcPendingReview] = useState([]);
+  const [pmcReturnedReports, setPmcReturnedReports] = useState([]);
   /** Block navigation and show required privileges (e.g. finance list needs document.read_all). */
   const [workflowPathAccessModal, setWorkflowPathAccessModal] = useState({
     open: false,
@@ -383,6 +397,8 @@ const HomePage = () => {
           setPendingProjects([]);
           setProjectsPendingReview([]);
           setWorkflowPendingRows([]);
+          setPmcPendingReview([]);
+          setPmcReturnedReports([]);
           setLoadingNotifications(false);
         }
         return;
@@ -488,6 +504,33 @@ const HomePage = () => {
           wfRows = [];
         }
         if (isMounted) setWorkflowPendingRows(wfRows);
+
+        const pmcPromises = [];
+        if (canReviewPmcReports) {
+          pmcPromises.push(
+            pmcReportService.list({ status: 'submitted', limit: 10 }).catch((err) => {
+              console.warn('PMC pending review list skipped:', err?.response?.data?.message || err.message);
+              return { rows: [] };
+            })
+          );
+        } else {
+          pmcPromises.push(Promise.resolve({ rows: [] }));
+        }
+        if (canSubmitPmcReports) {
+          pmcPromises.push(
+            pmcReportService.list({ status: 'returned', limit: 10 }).catch((err) => {
+              console.warn('PMC returned list skipped:', err?.response?.data?.message || err.message);
+              return { rows: [] };
+            })
+          );
+        } else {
+          pmcPromises.push(Promise.resolve({ rows: [] }));
+        }
+        const [pmcSubmittedData, pmcReturnedData] = await Promise.all(pmcPromises);
+        if (isMounted) {
+          setPmcPendingReview(Array.isArray(pmcSubmittedData?.rows) ? pmcSubmittedData.rows : []);
+          setPmcReturnedReports(Array.isArray(pmcReturnedData?.rows) ? pmcReturnedData.rows : []);
+        }
       } catch (error) {
         console.error('Error fetching notifications:', error);
         if (isMounted) {
@@ -495,6 +538,8 @@ const HomePage = () => {
           setPendingProjects([]);
           setProjectsPendingReview([]);
           setWorkflowPendingRows([]);
+          setPmcPendingReview([]);
+          setPmcReturnedReports([]);
         }
       } finally {
         if (isMounted) {
@@ -508,7 +553,7 @@ const HomePage = () => {
     return () => {
       isMounted = false;
     };
-  }, [user?.userId, canApproveUsers, canManageProjects]);
+  }, [user?.userId, canApproveUsers, canManageProjects, canReviewPmcReports, canSubmitPmcReports]);
 
 
 
@@ -571,6 +616,34 @@ const HomePage = () => {
       // Card click opens the first pending item’s resolved URL (link_template or entity fallback), not CIDP.
       route: resolveWorkflowNavigationPath(workflowPendingRows[0]),
       description: `${workflowPendingRows.length} step${workflowPendingRows.length > 1 ? 's' : ''} waiting for your role (work plans, payment requests, certificates, etc.). Use the list below to open a specific item.`,
+    });
+  }
+
+  if (canReviewPmcReports) {
+    notificationItems.push({
+      type: 'pmc-pending-review',
+      title: 'PMC Reports Awaiting Review',
+      count: pmcPendingReview.length,
+      icon: <AssignmentTurnedInIcon />,
+      color: '#00897b',
+      route: `${ROUTES.PMC_WARD_REPORTS}?status=submitted`,
+      description: pmcPendingReview.length > 0
+        ? `${pmcPendingReview.length} signed PMC report${pmcPendingReview.length > 1 ? 's' : ''} awaiting sub-county approval`
+        : 'No PMC reports awaiting review',
+    });
+  }
+
+  if (canSubmitPmcReports) {
+    notificationItems.push({
+      type: 'pmc-returned',
+      title: 'PMC Reports Returned',
+      count: pmcReturnedReports.length,
+      icon: <AssignmentTurnedInIcon />,
+      color: '#d84315',
+      route: `${ROUTES.PMC_WARD_REPORTS}?status=returned`,
+      description: pmcReturnedReports.length > 0
+        ? `${pmcReturnedReports.length} PMC report${pmcReturnedReports.length > 1 ? 's' : ''} returned for revision`
+        : 'No returned PMC reports',
     });
   }
 

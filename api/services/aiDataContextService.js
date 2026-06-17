@@ -29,7 +29,7 @@ function detectNeedsData(question, context = {}) {
     const page = pageEntity(context);
     if (page.projectId || page.budgetId || page.adpPlanId) return true;
     const text = `${question} ${context?.path || ''} ${context?.title || ''} ${page.pageType || ''}`.toLowerCase();
-    return /\b(project|projects|status|budget|paid|payment|finance|pending|bill|cidp|adp|programme|program|subprogram|ward|subcounty|sub-county|sublocation|village|dashboard|report|milestone|procurement|contract|stalled|ongoing|completed|implementation|absorption|monitoring|gap|attention|summarize|summary|how many|which|compare|linkage|linked|unbudgeted)\b/.test(text);
+    return /\b(project|projects|status|budget|paid|payment|finance|pending|bill|cidp|adp|programme|program|subprogram|ward|subcounty|sub-county|sublocation|village|dashboard|report|milestone|procurement|contract|stalled|ongoing|completed|implementation|absorption|monitoring|pmc|gap|attention|summarize|summary|how many|which|compare|linkage|linked|unbudgeted)\b/.test(text);
 }
 
 function detectStatus(question) {
@@ -53,6 +53,7 @@ function detectIntents(question, context = {}) {
     if (page.adpPlanId || /\badp|annual development|wishlist\b/.test(text)) intents.add('adp');
     if (/\bcidp|programme|program|subprogram|linkage\b/.test(text)) intents.add('cidp');
     if (/\bmonitor|stalled|attention|risk|warning|challenge\b/.test(text)) intents.add('monitoring');
+    if (page.pageType === 'pmc-ward-reports' || /\bpmc\b/.test(text)) intents.add('pmc');
     if (/\bward|subcounty|sub-county|sublocation|village|location|regional\b/.test(text)) intents.add('location');
     if (/\bpaid|payment|finance|absorption|disbursed\b/.test(text)) intents.add('finance');
 
@@ -297,7 +298,7 @@ async function getProjectDetail(user, projectId) {
     const project = result.rows?.[0];
     if (!project) return null;
 
-    const [cidpLink, adpLink, monitoring] = await Promise.all([
+    const [cidpLink, adpLink, monitoring, pmcReports] = await Promise.all([
         pool.query(
             `
             SELECT
@@ -341,9 +342,27 @@ async function getProjectDetail(user, projectId) {
             `,
             [id]
         ).then((r) => r.rows || []).catch(() => []),
+        pool.query(
+            `
+            SELECT
+                r.report_id AS "reportId",
+                r.report_title AS "reportTitle",
+                r.reporting_period AS "reportingPeriod",
+                r.status,
+                r.ward,
+                r.subcounty,
+                r.submitted_at AS "submittedAt",
+                LEFT(COALESCE(r.review_comment, ''), 120) AS "reviewComment"
+            FROM pmc_ward_reports r
+            WHERE r.project_id = $1 AND COALESCE(r.voided, false) = false
+            ORDER BY COALESCE(r.submitted_at, r.updated_at, r.created_at) DESC NULLS LAST, r.report_id DESC
+            LIMIT 5
+            `,
+            [id]
+        ).then((r) => r.rows || []).catch(() => []),
     ]);
 
-    return { ...project, cidpLink, adpLink, monitoring };
+    return { ...project, cidpLink, adpLink, monitoring, pmcReports };
 }
 
 async function getCidpSummary(user) {
@@ -548,6 +567,55 @@ async function getMonitoringHighlights(user) {
     return result.rows || [];
 }
 
+async function getPmcSummary(user) {
+    const { where, params } = await scopedWhere(user, 'p');
+    const result = await pool.query(
+        `
+        SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE r.status = 'draft')::int AS draft,
+            COUNT(*) FILTER (WHERE r.status = 'submitted')::int AS submitted,
+            COUNT(*) FILTER (WHERE r.status = 'returned')::int AS returned,
+            COUNT(*) FILTER (WHERE r.status = 'approved')::int AS approved
+        FROM pmc_ward_reports r
+        INNER JOIN projects p ON p.project_id = r.project_id
+        WHERE COALESCE(r.voided, false) = false
+          AND ${where.join(' AND ')}
+        `,
+        params
+    );
+    return result.rows?.[0] || {};
+}
+
+async function getPmcHighlights(user) {
+    const { where, params } = await scopedWhere(user, 'p');
+    params.push(8);
+    const result = await pool.query(
+        `
+        SELECT
+            r.report_id AS "reportId",
+            r.report_title AS "reportTitle",
+            r.reporting_period AS "reportingPeriod",
+            r.status,
+            r.ward,
+            r.subcounty,
+            p.project_id AS "projectId",
+            p.name AS "projectName",
+            r.submitted_at AS "submittedAt",
+            LEFT(COALESCE(r.review_comment, ''), 120) AS "reviewComment"
+        FROM pmc_ward_reports r
+        INNER JOIN projects p ON p.project_id = r.project_id
+        WHERE COALESCE(r.voided, false) = false
+          AND r.status IN ('submitted', 'returned')
+          AND ${where.join(' AND ')}
+        ORDER BY COALESCE(r.submitted_at, r.updated_at, r.created_at) DESC NULLS LAST, r.report_id DESC
+        LIMIT $${params.length}
+        `,
+        params
+    );
+    return result.rows || [];
+}
+
 function money(value) {
     return Number(value || 0).toLocaleString('en-KE', { maximumFractionDigits: 0 });
 }
@@ -659,6 +727,12 @@ function formatDataContext(context) {
                 lines.push(`    - ${m.observationDate || 'n/a'} [${m.warningLevel || 'n/a'}]: ${m.comment || 'No comment'}.`);
             });
         }
+        if (p.pmcReports?.length) {
+            lines.push('  - PMC ward reports:');
+            p.pmcReports.forEach((r) => {
+                lines.push(`    - ${r.reportTitle || 'Untitled'} (${r.reportingPeriod || 'period n/a'}); status ${r.status}; ${r.ward || 'ward n/a'}.`);
+            });
+        }
     }
     if (context.cidpSummary) {
         const s = context.cidpSummary.summary || {};
@@ -694,6 +768,16 @@ function formatDataContext(context) {
             lines.push(`  - #${row.projectId} ${row.projectName}; warning ${row.warningLevel || 'n/a'}; ${row.observationDate || 'n/a'}: ${row.comment || 'No comment'}.`);
         });
     }
+    if (context.pmcSummary && Object.keys(context.pmcSummary).length) {
+        const s = context.pmcSummary;
+        lines.push(`- PMC ward reports: ${s.total || 0} total; ${s.draft || 0} draft; ${s.submitted || 0} awaiting review; ${s.returned || 0} returned; ${s.approved || 0} approved.`);
+    }
+    if (context.pmcHighlights?.length) {
+        lines.push('- PMC reports needing attention:');
+        context.pmcHighlights.forEach((row) => {
+            lines.push(`  - ${row.reportTitle} (#${row.projectId} ${row.projectName}); status ${row.status}; ${row.ward || 'ward n/a'}; period ${row.reportingPeriod || 'n/a'}${row.reviewComment ? `; comment: ${row.reviewComment}` : ''}.`);
+        });
+    }
     return lines.join('\n').slice(0, MAX_CONTEXT_CHARS);
 }
 
@@ -721,6 +805,10 @@ async function buildAiDataContext({ user, messages, context }) {
         if (intents.includes('monitoring') || intents.includes('projects')) {
             tasks.stalledProjects = getStalledProjects(user);
             tasks.monitoringHighlights = getMonitoringHighlights(user);
+        }
+        if (intents.includes('pmc') || intents.includes('monitoring') || page.pageType === 'pmc-ward-reports') {
+            tasks.pmcSummary = getPmcSummary(user);
+            tasks.pmcHighlights = getPmcHighlights(user);
         }
         if (intents.includes('location')) {
             tasks.locationBreakdown = getLocationBreakdown(user);

@@ -48,9 +48,11 @@ import {
     Work as WorkIcon,
     Feedback as FeedbackIcon,
     FactCheck as FactCheckIcon,
-    AccountBalanceWallet as AccountBalanceWalletIcon
+    AssignmentTurnedIn as AssignmentTurnedInIcon,
+    AccountBalanceWallet as AccountBalanceWalletIcon,
 } from '@mui/icons-material';
 import apiService, { API_BASE_URL } from '../api';
+import pmcReportService from '../api/pmcReportService';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
@@ -370,6 +372,8 @@ function ProjectDetailsPage() {
     const [loadingMonitoring, setLoadingMonitoring] = useState(false);
     const [monitoringError, setMonitoringError] = useState(null);
     const [editingMonitoringRecord, setEditingMonitoringRecord] = useState(null);
+    const [pmcReports, setPmcReports] = useState([]);
+    const [loadingPmcReports, setLoadingPmcReports] = useState(false);
     
     // NEW: State for Contractors
     const [assignedContractors, setAssignedContractors] = useState([]);
@@ -1337,10 +1341,12 @@ function ProjectDetailsPage() {
             progress: project.overallProgress != null ? parseFloat(project.overallProgress) || 0 : null,
             cidpProgramme: planningSnapshot.cidpLink?.programme || planningSnapshot.cidpLink?.programName || '',
             adpProjectName: planningSnapshot.adpLink?.projectName || planningSnapshot.adpLink?.adpProjectName || '',
+            pmcReportCount: pmcReports.length,
+            pmcReportsPending: pmcReports.filter((row) => ['submitted', 'returned', 'draft'].includes(row.status)).length,
         });
 
         return () => clearAIPageContext();
-    }, [project, projectId, planningSnapshot, setAIPageContext, clearAIPageContext]);
+    }, [project, projectId, planningSnapshot, pmcReports, setAIPageContext, clearAIPageContext]);
 
     const fetchProjectDetails = useCallback(async () => {
         setLoading(true);
@@ -1405,6 +1411,7 @@ function ProjectDetailsPage() {
 
             // NEW: Fetch monitoring records
             await fetchMonitoringRecords();
+            await fetchPmcReports();
             
             // NEW: Fetch teams (don't fail if this errors)
             try {
@@ -1503,6 +1510,27 @@ function ProjectDetailsPage() {
             setMonitoringError('Failed to load monitoring records.');
         } finally {
             setLoadingMonitoring(false);
+        }
+    }, [projectId, user]);
+
+    const fetchPmcReports = useCallback(async () => {
+        const canViewPmc = checkUserPrivilege(user, 'pmc_report.read')
+            || checkUserPrivilege(user, 'pmc_report.create')
+            || checkUserPrivilege(user, 'project.read_all');
+        if (!canViewPmc) {
+            setPmcReports([]);
+            return;
+        }
+
+        setLoadingPmcReports(true);
+        try {
+            const data = await pmcReportService.list({ projectId });
+            setPmcReports(Array.isArray(data?.rows) ? data.rows : []);
+        } catch (err) {
+            console.warn('Error fetching PMC reports:', err);
+            setPmcReports([]);
+        } finally {
+            setLoadingPmcReports(false);
         }
     }, [projectId, user]);
 
@@ -3943,6 +3971,20 @@ function ProjectDetailsPage() {
                                     action: 'Add / Review Monitoring',
                                     onClick: handleOpenMonitoringModal,
                                     icon: <FactCheckIcon />,
+                                },
+                                {
+                                    title: 'PMC Ward Reports',
+                                    value: loadingPmcReports ? '...' : pmcReports.length,
+                                    helper: pmcReports.length
+                                        ? [
+                                            `${pmcReports.filter((row) => row.status === 'approved').length} approved`,
+                                            `${pmcReports.filter((row) => row.status === 'submitted').length} awaiting review`,
+                                            `${pmcReports.filter((row) => row.status === 'returned').length} returned`,
+                                        ].filter((part) => !part.startsWith('0 ')).join(' · ') || 'Signed PMC progress reports for this project.'
+                                        : 'Ward administrators upload signed PMC reports for sub-county review.',
+                                    action: 'Open PMC Reports',
+                                    onClick: () => navigate(`${ROUTES.PMC_WARD_REPORTS}?projectId=${projectId}`),
+                                    icon: <AssignmentTurnedInIcon />,
                                 },
                                 {
                                     title: 'Evaluation Rows',

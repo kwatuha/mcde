@@ -76,6 +76,7 @@ export const ROUTES = {
     PROJECT_UPDATES: '/projects/updates',
     /** CIMES-style project monitoring records list (sidebar under Monitoring). */
     MONITORING_PROJECT_MONITORING: '/monitoring/project-monitoring',
+    PMC_WARD_REPORTS: '/monitoring/pmc-ward-reports',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
     /** Completed procurements (handed off to contractor; audit trail on project). */

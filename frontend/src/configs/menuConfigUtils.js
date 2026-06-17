@@ -108,6 +108,8 @@ export const ICON_MAP = {
   UpdateIcon: () => import('@mui/icons-material/Update').then(m => m.default),
   RepeatIcon: () => import('@mui/icons-material/Repeat').then(m => m.default),
   FactCheckIcon: () => import('@mui/icons-material/FactCheck').then(m => m.default),
+  ChecklistIcon: () => import('@mui/icons-material/Checklist').then(m => m.default),
+  AssignmentTurnedInIcon: () => import('@mui/icons-material/AssignmentTurnedIn').then(m => m.default),
   SpeedIcon: () => import('@mui/icons-material/Speed').then(m => m.default),
   ArticleIcon: () => import('@mui/icons-material/Article').then(m => m.default),
   HubIcon: () => import('@mui/icons-material/Hub').then(m => m.default),

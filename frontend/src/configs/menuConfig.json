@@ -389,6 +389,12 @@
           "permissionsAny": ["project_monitoring.read", "project_monitoring.create", "project_monitoring.update"]
         },
         {
+          "title": "PMC Ward Reports",
+          "icon": "AssignmentTurnedInIcon",
+          "route": "PMC_WARD_REPORTS",
+          "permissionsAny": ["pmc_report.read", "pmc_report.create", "pmc_report.submit", "pmc_report.review", "project.read_all"]
+        },
+        {
           "title": "Project Documents",
           "icon": "DescriptionIcon",
           "route": "PROJECT_DOCUMENTS_BY_PROJECT",

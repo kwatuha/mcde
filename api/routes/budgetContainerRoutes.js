@@ -13,6 +13,82 @@ const isPostgres = DB_TYPE === 'postgresql';
 let budgetTablesEnsured = false;
 const rowsFromResult = (result) => (isPostgres ? (result?.rows || []) : (Array.isArray(result) ? (result[0] || []) : []));
 const firstRow = (result) => rowsFromResult(result)[0] || null;
+const voidedActiveSql = (alias = '') => {
+    const prefix = alias ? `${alias}.` : '';
+    return isPostgres ? `COALESCE(${prefix}voided, false) = false` : `${prefix}voided = 0`;
+};
+
+function isCombinedBudgetRow(row) {
+    if (!row) return false;
+    const value = row.isCombined ?? row.iscombined ?? row.is_combined;
+    return value === 1 || value === true || String(value).toLowerCase() === 'true'
+        || String(row.budgetType || row.budgettype || '').toLowerCase() === 'combined';
+}
+
+async function fetchBudgetItemsForCombinedContainer(containerBudgetId) {
+    if (isPostgres) {
+        const itemsResult = await pool.query(`
+            SELECT
+                bi.itemid AS "itemId",
+                bi.budgetid AS "budgetId",
+                bi.projectid AS "projectId",
+                COALESCE(
+                    bi.amount,
+                    NULLIF(regexp_replace(COALESCE(p.budget->>'total_amount', p.budget->>'estimated_cost', ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    ap.estimated_cost,
+                    0
+                ) AS amount,
+                COALESCE(p.name, ap.project_name) AS "projectName",
+                COALESCE(prog.sector_name, p.sector) AS "departmentName",
+                COALESCE(NULLIF(ap.location_text, ''), p.location->>'subcounty', p.location->>'ward') AS "subcountyName",
+                p.location->>'ward' AS "wardName",
+                bi.remarks,
+                bi.addedafterapproval AS "addedAfterApproval",
+                bi.changerequestid AS "changeRequestId",
+                bi.userid AS "userId",
+                bi.createdat AS "createdAt",
+                bi.updatedat AS "updatedAt"
+            FROM budget_items bi
+            LEFT JOIN projects p ON p.project_id = bi.projectid AND COALESCE(p.voided, false) = false
+            LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
+            ORDER BY bi.createdat DESC
+        `, [containerBudgetId]);
+        return rowsFromResult(itemsResult);
+    }
+
+    const itemsResult = await pool.query(`
+        SELECT 
+            p.id as projectId,
+            p.projectName,
+            p.costOfProject as amount,
+            p.status,
+            p.departmentId,
+            p.budgetId,
+            p.createdAt,
+            p.updatedAt,
+            d.name as departmentName,
+            sc.name as subcountyName,
+            w.name as wardName,
+            bi.itemId,
+            bi.remarks,
+            bi.addedAfterApproval,
+            bi.changeRequestId,
+            bi.userId
+         FROM projects p
+         LEFT JOIN departments d ON p.departmentId = d.departmentId
+         LEFT JOIN project_subcounties psc ON p.id = psc.projectId
+         LEFT JOIN subcounties sc ON psc.subcountyId = sc.subcountyId
+         LEFT JOIN project_wards pw ON p.id = pw.projectId
+         LEFT JOIN wards w ON pw.wardId = w.wardId
+         LEFT JOIN budget_items bi ON p.id = bi.projectId AND bi.budgetId = ? AND bi.voided = 0
+         WHERE p.budgetId = ? AND p.voided = 0
+         ORDER BY p.createdAt DESC`,
+        [containerBudgetId, containerBudgetId]
+    );
+    return rowsFromResult(itemsResult);
+}
 
 async function recalculateBudgetTotal(budgetId) {
     if (isPostgres) {
@@ -158,6 +234,20 @@ async function ensureBudgetTables() {
             ON budget_items (budgetId, adpProjectId)
             WHERE COALESCE(voided, false) = false AND adpProjectId IS NOT NULL
         `);
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS budget_combinations (
+                combinationId BIGSERIAL PRIMARY KEY,
+                combinedBudgetId BIGINT NOT NULL,
+                containerBudgetId BIGINT NOT NULL,
+                displayOrder INTEGER NOT NULL DEFAULT 0,
+                userId BIGINT NULL,
+                createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (combinedBudgetId, containerBudgetId)
+            )
+        `);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_budget_combinations_combined ON budget_combinations (combinedBudgetId)`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_budget_combinations_container ON budget_combinations (containerBudgetId)`);
     } else {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS budgets (
@@ -203,6 +293,20 @@ async function ensureBudgetTables() {
         await runSafeDdl('ALTER TABLE budgets ADD COLUMN adpPlanId BIGINT NULL');
         await runSafeDdl('ALTER TABLE budget_items ADD COLUMN adpProjectId BIGINT NULL');
         await runSafeDdl('ALTER TABLE budget_items ADD COLUMN adpSourceSnapshot JSON NULL');
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS budget_combinations (
+                combinationId BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                combinedBudgetId BIGINT NOT NULL,
+                containerBudgetId BIGINT NOT NULL,
+                displayOrder INT DEFAULT 0,
+                userId BIGINT NOT NULL,
+                createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_combination (combinedBudgetId, containerBudgetId),
+                KEY idx_combinedBudgetId (combinedBudgetId),
+                KEY idx_containerBudgetId (containerBudgetId)
+            )
+        `);
     }
 
     budgetTablesEnsured = true;
@@ -1818,115 +1922,128 @@ router.put('/changes/:changeId/reject', auth, privilege(['budget.approve']), asy
  */
 router.post('/containers/combined', auth, privilege(['budget.create']), async (req, res) => {
     try {
+        await ensureBudgetTables();
         const {
             budgetName,
             finYearId,
             description,
-            containerIds = [] // Array of budget IDs to combine
+            containerIds = []
         } = req.body;
 
-        // Validation
         if (!budgetName || !finYearId) {
-            return res.status(400).json({ 
-                message: 'Missing required fields: budgetName and finYearId are required' 
+            return res.status(400).json({
+                message: 'Missing required fields: budgetName and finYearId are required'
             });
         }
 
         if (!Array.isArray(containerIds) || containerIds.length === 0) {
-            return res.status(400).json({ 
-                message: 'At least one container must be selected to create a combined budget' 
+            return res.status(400).json({
+                message: 'At least one department budget must be selected to create a consolidated budget'
             });
         }
 
-        const userId = req.user?.userId || 1;
-
-        // Verify all containers exist and are not already part of another combined budget
+        const userId = req.user?.userId || req.user?.id || 1;
         const placeholders = containerIds.map(() => '?').join(',');
-        const [containers] = await pool.query(
-            `SELECT budgetId, budgetName, departmentId, status, isCombined, parentBudgetId 
-             FROM budgets 
-             WHERE budgetId IN (${placeholders}) AND voided = 0`,
+
+        const containersResult = await pool.query(
+            `SELECT budgetid AS "budgetId", budgetname AS "budgetName", departmentid AS "departmentId",
+                    status, iscombined AS "isCombined", parentbudgetid AS "parentBudgetId"
+             FROM budgets
+             WHERE budgetid IN (${placeholders}) AND ${voidedActiveSql()}`,
             containerIds
         );
+        const containers = rowsFromResult(containersResult);
 
         if (containers.length !== containerIds.length) {
-            return res.status(400).json({ 
-                message: 'One or more selected containers do not exist or have been deleted' 
+            return res.status(400).json({
+                message: 'One or more selected department budgets do not exist or have been deleted'
             });
         }
 
-        // Check if any container is already part of a combined budget
-        const alreadyCombined = containers.filter(c => c.isCombined === 1 || c.parentBudgetId);
+        const alreadyCombined = containers.filter((c) => isCombinedBudgetRow(c) || c.parentBudgetId);
         if (alreadyCombined.length > 0) {
-            return res.status(400).json({ 
-                message: `The following containers are already part of a combined budget: ${alreadyCombined.map(c => c.budgetName).join(', ')}` 
+            return res.status(400).json({
+                message: `The following budgets are already part of a consolidated budget: ${alreadyCombined.map((c) => c.budgetName).join(', ')}`
             });
         }
 
-        // Create the combined budget container
-        const query = `
-            INSERT INTO budgets 
-            (budgetName, budgetType, isCombined, finYearId, description, userId)
-            VALUES (?, 'Combined', 1, ?, ?, ?)
-        `;
+        const insertQuery = isPostgres
+            ? `
+                INSERT INTO budgets (budgetname, budgettype, iscombined, finyearid, description, userid)
+                VALUES (?, 'Combined', 1, ?, ?, ?)
+                RETURNING budgetid AS "budgetId"
+            `
+            : `
+                INSERT INTO budgets (budgetName, budgetType, isCombined, finYearId, description, userId)
+                VALUES (?, 'Combined', 1, ?, ?, ?)
+            `;
 
-        const [result] = await pool.query(query, [
+        const insertResult = await pool.query(insertQuery, [
             budgetName,
             finYearId,
             description || null,
             userId
         ]);
 
-        const combinedBudgetId = result.insertId;
+        const combinedBudgetId = isPostgres
+            ? firstRow(insertResult)?.budgetId
+            : insertResult?.[0]?.insertId;
 
-        // Link containers to the combined budget
-        const combinationQueries = containerIds.map((containerId, index) => {
-            return pool.query(
-                `INSERT INTO budget_combinations 
-                 (combinedBudgetId, containerBudgetId, displayOrder, userId)
-                 VALUES (?, ?, ?, ?)`,
-                [combinedBudgetId, containerId, index, userId]
-            );
-        });
+        if (!combinedBudgetId) {
+            throw new Error('Failed to resolve created consolidated budget id.');
+        }
 
-        await Promise.all(combinationQueries);
+        await Promise.all(containerIds.map((containerId, index) => pool.query(
+            `INSERT INTO budget_combinations (combinedbudgetid, containerbudgetid, displayorder, userid)
+             VALUES (?, ?, ?, ?)`,
+            [combinedBudgetId, containerId, index, userId]
+        )));
 
-        // Calculate total amount from all containers
-        const [totalResult] = await pool.query(
-            `SELECT COALESCE(SUM(totalAmount), 0) as total
+        const totalResult = await pool.query(
+            `SELECT COALESCE(SUM(${isPostgres ? 'totalamount' : 'totalAmount'}), 0) AS total
              FROM budgets
-             WHERE budgetId IN (${placeholders}) AND voided = 0`,
+             WHERE budgetid IN (${placeholders}) AND ${voidedActiveSql()}`,
             containerIds
         );
+        const totalAmount = Number(firstRow(totalResult)?.total || 0);
 
-        const totalAmount = totalResult[0].total || 0;
-
-        // Update the combined budget's total amount
         await pool.query(
-            'UPDATE budgets SET totalAmount = ? WHERE budgetId = ?',
+            `UPDATE budgets SET ${isPostgres ? 'totalamount' : 'totalAmount'} = ? WHERE budgetid = ?`,
             [totalAmount, combinedBudgetId]
         );
 
-        // Fetch the created combined budget
-        const [createdBudget] = await pool.query(
-            `SELECT b.*, fy.finYearName, d.name as departmentName
-             FROM budgets b
-             LEFT JOIN financialyears fy ON b.finYearId = fy.finYearId
-             LEFT JOIN departments d ON b.departmentId = d.departmentId
-             WHERE b.budgetId = ?`,
+        const createdBudgetResult = await pool.query(
+            isPostgres
+                ? `
+                    SELECT b.budgetid AS "budgetId", b.budgetname AS "budgetName", b.budgettype AS "budgetType",
+                           b.iscombined AS "isCombined", b.finyearid AS "finYearId", b.description,
+                           b.totalamount AS "totalAmount", b.status, fy."finYearName" AS "finYearName",
+                           d.name AS "departmentName"
+                    FROM budgets b
+                    LEFT JOIN financialyears fy ON b.finyearid = fy."finYearId"
+                    LEFT JOIN departments d ON b.departmentid = d."departmentId"
+                    WHERE b.budgetid = ?
+                `
+                : `
+                    SELECT b.*, fy.finYearName, d.name as departmentName
+                    FROM budgets b
+                    LEFT JOIN financialyears fy ON b.finYearId = fy.finYearId
+                    LEFT JOIN departments d ON b.departmentId = d.departmentId
+                    WHERE b.budgetId = ?
+                `,
             [combinedBudgetId]
         );
 
         res.status(201).json({
-            message: 'Combined budget created successfully',
-            budget: createdBudget[0],
+            message: 'Consolidated budget created successfully',
+            budget: firstRow(createdBudgetResult),
             totalAmount,
             containerCount: containerIds.length
         });
     } catch (error) {
         console.error('Error creating combined budget:', error);
-        res.status(500).json({ 
-            message: 'Error creating combined budget', 
+        res.status(500).json({
+            message: 'Error creating consolidated budget',
             error: error.message,
             details: error.sqlMessage || error.code
         });
@@ -1940,152 +2057,108 @@ router.post('/containers/combined', auth, privilege(['budget.create']), async (r
  */
 router.get('/containers/:budgetId/combined', auth, async (req, res) => {
     try {
+        await ensureBudgetTables();
         const { budgetId } = req.params;
 
-        // Get the combined budget
-        const [combinedBudget] = await pool.query(
-            `SELECT b.*, fy.finYearName, d.name as departmentName
-             FROM budgets b
-             LEFT JOIN financialyears fy ON b.finYearId = fy.finYearId
-             LEFT JOIN departments d ON b.departmentId = d.departmentId
-             WHERE b.budgetId = ? AND b.voided = 0`,
+        const combinedBudgetResult = await pool.query(
+            isPostgres
+                ? `
+                    SELECT b.budgetid AS "budgetId", b.budgetname AS "budgetName", b.budgettype AS "budgetType",
+                           b.iscombined AS "isCombined", b.finyearid AS "finYearId", b.departmentid AS "departmentId",
+                           b.description, b.totalamount AS "totalAmount", b.status, b.isfrozen AS "isFrozen",
+                           fy."finYearName" AS "finYearName", d.name AS "departmentName"
+                    FROM budgets b
+                    LEFT JOIN financialyears fy ON b.finyearid = fy."finYearId"
+                    LEFT JOIN departments d ON b.departmentid = d."departmentId"
+                    WHERE b.budgetid = ? AND ${voidedActiveSql('b')}
+                `
+                : `
+                    SELECT b.*, fy.finYearName, d.name as departmentName
+                    FROM budgets b
+                    LEFT JOIN financialyears fy ON b.finYearId = fy.finYearId
+                    LEFT JOIN departments d ON b.departmentId = d.departmentId
+                    WHERE b.budgetId = ? AND ${voidedActiveSql('b')}
+                `,
             [budgetId]
         );
+        const combinedBudget = firstRow(combinedBudgetResult);
 
-        if (combinedBudget.length === 0) {
-            return res.status(404).json({ message: 'Combined budget not found' });
+        if (!combinedBudget) {
+            return res.status(404).json({ message: 'Consolidated budget not found' });
         }
 
-        if (combinedBudget[0].isCombined !== 1) {
-            return res.status(400).json({ message: 'This is not a combined budget' });
+        if (!isCombinedBudgetRow(combinedBudget)) {
+            return res.status(400).json({ message: 'This is not a consolidated budget' });
         }
 
-        // Get all containers in this combined budget
-        const [containers] = await pool.query(
-            `SELECT 
-                b.budgetId,
-                b.budgetName,
-                b.totalAmount,
-                b.status,
-                b.isFrozen,
-                b.description,
-                d.name as departmentName,
-                d.departmentId,
-                bc.displayOrder,
-                (SELECT COUNT(*) FROM projects WHERE budgetId = b.budgetId AND voided = 0) as itemCount
-             FROM budget_combinations bc
-             INNER JOIN budgets b ON bc.containerBudgetId = b.budgetId
-             LEFT JOIN departments d ON b.departmentId = d.departmentId
-             WHERE bc.combinedBudgetId = ? AND b.voided = 0
-             ORDER BY bc.displayOrder ASC, b.budgetName ASC`,
+        const containersResult = await pool.query(
+            isPostgres
+                ? `
+                    SELECT
+                        b.budgetid AS "budgetId",
+                        b.budgetname AS "budgetName",
+                        b.totalamount AS "totalAmount",
+                        b.status,
+                        b.isfrozen AS "isFrozen",
+                        b.description,
+                        d.name AS "departmentName",
+                        d."departmentId" AS "departmentId",
+                        bc.displayorder AS "displayOrder",
+                        (
+                            SELECT COUNT(*)
+                            FROM budget_items bi
+                            WHERE bi.budgetid = b.budgetid AND COALESCE(bi.voided, false) = false
+                        ) AS "itemCount"
+                    FROM budget_combinations bc
+                    INNER JOIN budgets b ON bc.containerbudgetid = b.budgetid
+                    LEFT JOIN departments d ON b.departmentid = d."departmentId"
+                    WHERE bc.combinedbudgetid = ? AND ${voidedActiveSql('b')}
+                    ORDER BY bc.displayorder ASC, b.budgetname ASC
+                `
+                : `
+                    SELECT 
+                        b.budgetId,
+                        b.budgetName,
+                        b.totalAmount,
+                        b.status,
+                        b.isFrozen,
+                        b.description,
+                        d.name as departmentName,
+                        d.departmentId,
+                        bc.displayOrder,
+                        (SELECT COUNT(*) FROM budget_items bi WHERE bi.budgetId = b.budgetId AND bi.voided = 0) as itemCount
+                    FROM budget_combinations bc
+                    INNER JOIN budgets b ON bc.containerBudgetId = b.budgetId
+                    LEFT JOIN departments d ON b.departmentId = d.departmentId
+                    WHERE bc.combinedBudgetId = ? AND ${voidedActiveSql('b')}
+                    ORDER BY bc.displayOrder ASC, b.budgetName ASC
+                `,
             [budgetId]
         );
+        const containers = rowsFromResult(containersResult);
 
-        // Get all items from all containers, grouped by container
         const containerItems = [];
-        console.log(`Found ${containers.length} containers in combined budget ${budgetId}`);
-        
         for (const container of containers) {
-            console.log(`Fetching items for container ${container.budgetId} (${container.budgetName})`);
-            
-            // Query projects directly using budgetId (primary source), with optional budget_items metadata
-            const [itemCountCheck] = await pool.query(
-                `SELECT COUNT(*) as count FROM projects WHERE budgetId = ? AND voided = 0`,
-                [container.budgetId]
-            );
-            console.log(`Container ${container.budgetId} has ${itemCountCheck[0].count} projects in database`);
-            
-            const [items] = await pool.query(
-                `SELECT 
-                    p.id as projectId,
-                    p.projectName,
-                    p.costOfProject as amount,
-                    p.status,
-                    p.departmentId,
-                    p.budgetId,
-                    p.createdAt,
-                    p.updatedAt,
-                    d.name as departmentName,
-                    sc.name as subcountyName,
-                    w.name as wardName,
-                    bi.itemId,
-                    bi.remarks,
-                    bi.addedAfterApproval,
-                    bi.changeRequestId,
-                    bi.userId
-                 FROM projects p
-                 LEFT JOIN departments d ON p.departmentId = d.departmentId
-                 LEFT JOIN project_subcounties psc ON p.id = psc.projectId
-                 LEFT JOIN subcounties sc ON psc.subcountyId = sc.subcountyId
-                 LEFT JOIN project_wards pw ON p.id = pw.projectId
-                 LEFT JOIN wards w ON pw.wardId = w.wardId
-                 LEFT JOIN budget_items bi ON p.id = bi.projectId AND bi.budgetId = ? AND bi.voided = 0
-                 WHERE p.budgetId = ? AND p.voided = 0
-                 ORDER BY p.createdAt DESC`,
-                [container.budgetId, container.budgetId]
-            );
-
-            console.log(`Container ${container.budgetId} query returned ${items.length} items after joins`);
-            if (items.length > 0) {
-                console.log(`First item sample:`, JSON.stringify(items[0], null, 2));
-            }
-            if (items.length > 0) {
-                console.log(`Sample item from container ${container.budgetId}:`, JSON.stringify(items[0], null, 2));
-            }
-            
-            // Ensure items is always an array
-            const itemsArray = Array.isArray(items) ? items : [];
-            
-            console.log(`Container ${container.budgetId} (${container.budgetName}):`, {
-                itemCount: itemsArray.length,
-                items: itemsArray,
-                rawItems: items
-            });
-            
+            const itemsArray = await fetchBudgetItemsForCombinedContainer(container.budgetId);
             containerItems.push({
-                container: container,
-                items: itemsArray
+                container,
+                items: itemsArray,
             });
         }
-        
-        console.log(`Total containerItems array length: ${containerItems.length}`);
-        const totalItemsCount = containerItems.reduce((sum, ci) => sum + (ci.items?.length || 0), 0);
-        console.log(`Total items across all containers: ${totalItemsCount}`);
-        
-        if (containerItems.length > 0) {
-            console.log(`Sample containerItems[0] structure:`, JSON.stringify({
-                container: {
-                    budgetId: containerItems[0].container?.budgetId,
-                    budgetName: containerItems[0].container?.budgetName,
-                    itemCount: containerItems[0].container?.itemCount
-                },
-                itemsLength: containerItems[0].items?.length,
-                firstItem: containerItems[0].items?.[0] || null
-            }, null, 2));
-        }
-        
-        // Log full response structure
-        console.log('Full response structure:', {
-            hasCombinedBudget: !!combinedBudget[0],
-            containersCount: containers.length,
-            containerItemsCount: containerItems.length,
-            totalItems: totalItemsCount
-        });
 
-        // Calculate grand total
         const grandTotal = containers.reduce((sum, c) => sum + (parseFloat(c.totalAmount) || 0), 0);
 
         res.json({
-            combinedBudget: combinedBudget[0],
-            containers: containers,
-            containerItems: containerItems,
-            grandTotal: grandTotal,
+            combinedBudget,
+            containers,
+            containerItems,
+            grandTotal,
             containerCount: containers.length,
-            totalItems: containerItems.reduce((sum, ci) => sum + ci.items.length, 0)
+            totalItems: containerItems.reduce((sum, ci) => sum + (ci.items?.length || 0), 0),
         });
     } catch (error) {
         console.error('Error fetching combined budget:', error);
-        res.status(500).json({ message: 'Error fetching combined budget', error: error.message });
+        res.status(500).json({ message: 'Error fetching consolidated budget', error: error.message });
     }
 });
 
