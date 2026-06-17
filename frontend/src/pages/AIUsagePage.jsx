@@ -24,7 +24,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import aiAssistantService from '../api/aiAssistantService';
 import { useAuth } from '../context/AuthContext';
-import { isAdmin } from '../utils/privilegeUtils';
+import { isSuperAdminUser } from '../utils/roleUtils';
 
 const today = new Date();
 const thirtyDaysAgo = new Date(today);
@@ -120,7 +120,7 @@ function BreakdownTable({ title, rows, columns, emptyText = 'No records found.' 
 
 export default function AIUsagePage() {
   const { user } = useAuth();
-  const hasAdminAccess = isAdmin(user);
+  const hasSuperAdminAccess = isSuperAdminUser(user);
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_FILTERS }));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -135,7 +135,7 @@ export default function AIUsagePage() {
   }, [data]);
 
   const load = useCallback(async (nextFilters = DEFAULT_FILTERS) => {
-    if (!hasAdminAccess) return;
+    if (!hasSuperAdminAccess) return;
     setLoading(true);
     setError('');
     try {
@@ -147,19 +147,19 @@ export default function AIUsagePage() {
     } finally {
       setLoading(false);
     }
-  }, [hasAdminAccess]);
+  }, [hasSuperAdminAccess]);
 
   useEffect(() => {
     load(DEFAULT_FILTERS);
   }, [load]);
 
-  if (!hasAdminAccess) {
+  if (!hasSuperAdminAccess) {
     return (
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h5" color="error" gutterBottom>Access Denied</Typography>
           <Typography variant="body1" color="text.secondary">
-            Only administrators can view AI usage and cost statistics.
+            Only Super Admin users can view AI usage and cost statistics.
           </Typography>
         </Box>
       </Container>

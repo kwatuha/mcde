@@ -205,7 +205,7 @@ export default function AIAssistantPanel({ pageContext }) {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>M&E AI Assistant</Typography>
             <Typography variant="caption" color="text.secondary">
-              {status?.model ? `Model: ${status.model}` : 'Workflow, reporting, and system guidance'}
+              Workflow, reporting, and system guidance
             </Typography>
           </Box>
           <IconButton onClick={() => setOpen(false)} aria-label="Close AI assistant">
@@ -215,7 +215,7 @@ export default function AIAssistantPanel({ pageContext }) {
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 2 }}>
           {statusLoaded && !status.configured ? (
             <Alert severity="warning">
-              AI assistance is not configured yet. Add <strong>OPENAI_API_KEY</strong> to <code>api/.env</code> and restart the API.
+              AI assistance is not configured yet. Add the assistant service credentials and restart the API.
             </Alert>
           ) : null}
           {statusLoaded && status.configured ? (

@@ -26,6 +26,7 @@ import dataCollectionService from './dataCollectionService';
 import partnersService from './partnersService';
 import procurementService from './procurementService';
 import aiAssistantService from './aiAssistantService';
+import adpService from './adpService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -125,6 +126,7 @@ const apiService = {
   partners: partnersService,
   procurement: procurementService,
   aiAssistant: aiAssistantService,
+  adp: adpService,
   projectPhotos,
 };
 

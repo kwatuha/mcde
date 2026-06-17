@@ -13,7 +13,7 @@ const {
     renderReportPdf,
     safeFileName,
 } = require('../services/aiReportRendererService');
-const { isAdminLikeRequester } = require('../utils/roleUtils');
+const { isSuperAdminRequester } = require('../utils/roleUtils');
 
 const router = express.Router();
 
@@ -231,8 +231,8 @@ router.post('/report', async (req, res) => {
 });
 
 router.get('/usage', async (req, res) => {
-    if (!isAdminLikeRequester(req.user)) {
-        return res.status(403).json({ message: 'Only administrators can view AI usage statistics.' });
+    if (!isSuperAdminRequester(req.user)) {
+        return res.status(403).json({ message: 'Only Super Admin can view AI usage statistics.' });
     }
 
     try {

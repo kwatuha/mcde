@@ -55,6 +55,7 @@ import PlanningProjectActivitiesPage from './pages/PlanningProjectActivitiesPage
 import PlanningProjectRisksPage from './pages/PlanningProjectRisksPage';
 import PlanningReportingFrequencyPage from './pages/PlanningReportingFrequencyPage';
 import PlanningCimesListPage from './pages/PlanningCimesListPage';
+import ADPImplementationPage from './pages/ADPImplementationPage';
 import {
   ProjectPlanningActivityLinksPage,
   ProjectPlanningRiskLinksPage,
@@ -150,6 +151,7 @@ import { modernTheme } from './theme/modernTheme';
 import CentralImportPage from './pages/CentralImportPage';
 import { ROUTES } from './configs/appConfig';
 import { canAccessProjectBySectorDashboard, isMdaIctAdminOrSuperAdmin } from './utils/privilegeUtils';
+import { isSuperAdminUser } from './utils/roleUtils';
 
 function ProjectBySectorRouteGuard() {
   const { user, loading } = useAuth();
@@ -167,6 +169,15 @@ function ProjectsUploadLogRouteGuard() {
     return <Navigate to={ROUTES.SYSTEM_DASHBOARD} replace />;
   }
   return <ProjectsUploadLogPage />;
+}
+
+function AIUsageRouteGuard() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!isSuperAdminUser(user)) {
+    return <Navigate to={ROUTES.SYSTEM_DASHBOARD} replace />;
+  }
+  return <AIUsagePage />;
 }
 
 function MalformedUrlRedirect() {
@@ -262,7 +273,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'ai-usage',
-        element: <AIUsagePage />,
+        element: <AIUsageRouteGuard />,
       },
       {
         path: 'contractor-dashboard',
@@ -483,6 +494,10 @@ const router = createBrowserRouter([
       {
         path: 'planning/adp-periods',
         element: <PlanningCimesListPage variant="adp" />,
+      },
+      {
+        path: 'planning/adp-implementation',
+        element: <ADPImplementationPage />,
       },
       {
         path: 'planning/programmes',

@@ -14,6 +14,56 @@ let budgetTablesEnsured = false;
 const rowsFromResult = (result) => (isPostgres ? (result?.rows || []) : (Array.isArray(result) ? (result[0] || []) : []));
 const firstRow = (result) => rowsFromResult(result)[0] || null;
 
+async function recalculateBudgetTotal(budgetId) {
+    if (isPostgres) {
+        await pool.query(`
+            UPDATE budgets b
+            SET totalamount = COALESCE(t.total_amount, 0),
+                updatedat = CURRENT_TIMESTAMP
+            FROM (
+                SELECT
+                    bi.budgetid,
+                    SUM(COALESCE(
+                        bi.amount,
+                        NULLIF(regexp_replace(COALESCE(p.budget->>'total_amount', p.budget->>'estimated_cost', ''), '[^0-9.]', '', 'g'), '')::numeric,
+                        ap.estimated_cost,
+                        0
+                    )) AS total_amount
+                FROM budget_items bi
+                LEFT JOIN projects p ON p.project_id = bi.projectid AND COALESCE(p.voided, false) = false
+                LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
+                WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
+                GROUP BY bi.budgetid
+            ) t
+            WHERE b.budgetid = t.budgetid AND b.budgetid = ?
+        `, [budgetId, budgetId]);
+
+        await pool.query(`
+            UPDATE budgets
+            SET totalamount = 0,
+                updatedat = CURRENT_TIMESTAMP
+            WHERE budgetid = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM budget_items bi
+                WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
+              )
+        `, [budgetId, budgetId]);
+        return;
+    }
+
+    await pool.query(`
+        UPDATE budgets b
+        SET totalAmount = (
+            SELECT COALESCE(SUM(COALESCE(bi.amount, p.costOfProject, 0)), 0)
+            FROM budget_items bi
+            LEFT JOIN projects p ON p.id = bi.projectId AND p.voided = 0
+            WHERE bi.budgetId = b.budgetId AND bi.voided = 0
+        ),
+        updatedAt = CURRENT_TIMESTAMP
+        WHERE b.budgetId = ?
+    `, [budgetId]);
+}
+
 async function ensureBudgetTables() {
     if (budgetTablesEnsured) return;
 
@@ -23,7 +73,7 @@ async function ensureBudgetTables() {
         } catch (err) {
             const code = String(err?.code || '');
             // Ignore create races/duplicate objects and continue.
-            if (code === '42P07' || code === '42710' || code === '23505') return;
+            if (['42P07', '42710', '23505', '42701', 'ER_DUP_KEYNAME', 'ER_DUP_FIELDNAME'].includes(code)) return;
             throw err;
         }
     };
@@ -59,7 +109,7 @@ async function ensureBudgetTables() {
             CREATE TABLE IF NOT EXISTS budget_items (
                 itemId BIGSERIAL PRIMARY KEY,
                 budgetId BIGINT NOT NULL,
-                projectId BIGINT NOT NULL,
+                projectId BIGINT NULL,
                 amount NUMERIC(18,2) NULL,
                 remarks TEXT NULL,
                 addedAfterApproval INTEGER NOT NULL DEFAULT 0,
@@ -69,6 +119,44 @@ async function ensureBudgetTables() {
                 updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 voided BOOLEAN NOT NULL DEFAULT FALSE
             )
+        `);
+        await runSafeDdl(`
+            CREATE TABLE IF NOT EXISTS budget_changes (
+                changeId BIGSERIAL PRIMARY KEY,
+                budgetId BIGINT NOT NULL,
+                itemId BIGINT NULL,
+                changeType TEXT NOT NULL,
+                changeReason TEXT NULL,
+                oldValue JSONB NULL,
+                newValue JSONB NULL,
+                status TEXT NOT NULL DEFAULT 'Pending Approval',
+                requestedBy BIGINT NULL,
+                reviewedBy BIGINT NULL,
+                reviewedAt TIMESTAMP NULL,
+                reviewNotes TEXT NULL,
+                userId BIGINT NULL,
+                requestedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                voided BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        `);
+        await runSafeDdl(`ALTER TABLE budgets ADD COLUMN IF NOT EXISTS adpPlanId BIGINT NULL`);
+        await runSafeDdl(`ALTER TABLE budget_items ADD COLUMN IF NOT EXISTS adpProjectId BIGINT NULL`);
+        await runSafeDdl(`ALTER TABLE budget_items ADD COLUMN IF NOT EXISTS adpSourceSnapshot JSONB NULL`);
+        await runSafeDdl(`ALTER TABLE budget_items ALTER COLUMN projectId DROP NOT NULL`);
+        await runSafeDdl(`ALTER TABLE budget_changes ADD COLUMN IF NOT EXISTS reviewNotes TEXT NULL`);
+        await runSafeDdl(`ALTER TABLE budget_changes ADD COLUMN IF NOT EXISTS userId BIGINT NULL`);
+        await runSafeDdl(`ALTER TABLE budget_changes ADD COLUMN IF NOT EXISTS createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+        await runSafeDdl(`ALTER TABLE budget_changes ADD COLUMN IF NOT EXISTS updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+        await runSafeDdl(`ALTER TABLE budget_changes ADD COLUMN IF NOT EXISTS voided BOOLEAN NOT NULL DEFAULT FALSE`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_budgets_adp_plan ON budgets (adpPlanId) WHERE COALESCE(voided, false) = false`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_budget_items_adp_project ON budget_items (adpProjectId) WHERE COALESCE(voided, false) = false`);
+        await runSafeDdl(`CREATE INDEX IF NOT EXISTS idx_budget_changes_budget_status ON budget_changes (budgetId, status) WHERE COALESCE(voided, false) = false`);
+        await runSafeDdl(`
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_budget_items_budget_adp_project
+            ON budget_items (budgetId, adpProjectId)
+            WHERE COALESCE(voided, false) = false AND adpProjectId IS NOT NULL
         `);
     } else {
         await pool.query(`
@@ -112,6 +200,9 @@ async function ensureBudgetTables() {
                 voided TINYINT(1) NOT NULL DEFAULT 0
             )
         `);
+        await runSafeDdl('ALTER TABLE budgets ADD COLUMN adpPlanId BIGINT NULL');
+        await runSafeDdl('ALTER TABLE budget_items ADD COLUMN adpProjectId BIGINT NULL');
+        await runSafeDdl('ALTER TABLE budget_items ADD COLUMN adpSourceSnapshot JSON NULL');
     }
 
     budgetTablesEnsured = true;
@@ -196,6 +287,7 @@ router.get('/containers', async (req, res) => {
                 b.parentbudgetid AS "parentBudgetId",
                 b.finyearid AS "finYearId",
                 b.departmentid AS "departmentId",
+                b.adpplanid AS "adpPlanId",
                 b.description,
                 b.totalamount AS "totalAmount",
                 b.status,
@@ -210,11 +302,17 @@ router.get('/containers', async (req, res) => {
                 b.createdat AS "createdAt",
                 b.updatedat AS "updatedAt",
                 fy."finYearName" AS "finYearName",
+                ap.adp_name AS "adpPlanName",
                 d.name AS "departmentName",
-                0 AS "itemCount"
+                (
+                    SELECT COUNT(*)
+                    FROM budget_items bi
+                    WHERE bi.budgetid = b.budgetid AND COALESCE(bi.voided, false) = false
+                ) AS "itemCount"
             FROM budgets b
             LEFT JOIN financialyears fy ON b.finyearid = fy."finYearId"
             LEFT JOIN departments d ON b.departmentid = d."departmentId"
+            LEFT JOIN adp_plans ap ON b.adpplanid = ap.id
             WHERE ${whereClause}
             ORDER BY b.createdat DESC
             LIMIT ? OFFSET ?
@@ -228,6 +326,7 @@ router.get('/containers', async (req, res) => {
                 b.parentBudgetId,
                 b.finYearId,
                 b.departmentId,
+                b.adpPlanId,
                 b.description,
                 b.totalAmount,
                 b.status,
@@ -242,6 +341,7 @@ router.get('/containers', async (req, res) => {
                 b.createdAt,
                 b.updatedAt,
                 fy.finYearName,
+                ap.adp_name as adpPlanName,
                 d.name as departmentName,
                 u.firstName as createdByFirstName,
                 u.lastName as createdByLastName,
@@ -251,6 +351,7 @@ router.get('/containers', async (req, res) => {
             FROM budgets b
             LEFT JOIN financialyears fy ON b.finYearId = fy.finYearId
             LEFT JOIN departments d ON b.departmentId = d.departmentId
+            LEFT JOIN adp_plans ap ON b.adpPlanId = ap.id
             LEFT JOIN users u ON b.userId = u.userId
             LEFT JOIN users approver ON b.approvedBy = approver.userId
             WHERE ${whereClause}
@@ -289,6 +390,97 @@ router.get('/containers', async (req, res) => {
     }
 });
 
+router.get('/adp-wishlist', auth, async (req, res) => {
+    try {
+        await ensureBudgetTables();
+
+        if (!isPostgres) {
+            return res.status(400).json({ message: 'ADP budget wishlist is only available on PostgreSQL deployments.' });
+        }
+
+        const { budgetId, planId, search, sector } = req.query;
+        let effectivePlanId = planId || null;
+
+        if (!effectivePlanId && budgetId) {
+            const budgetResult = await pool.query('SELECT adpplanid FROM budgets WHERE budgetid = ? AND COALESCE(voided, false) = false', [budgetId]);
+            effectivePlanId = firstRow(budgetResult)?.adpplanid || null;
+        }
+
+        const where = ['COALESCE(ap.voided, false) = false'];
+        const params = [budgetId || null];
+
+        if (effectivePlanId) {
+            where.push('ap.adp_plan_id = ?');
+            params.push(effectivePlanId);
+        }
+
+        if (sector) {
+            where.push('prog.sector_name = ?');
+            params.push(sector);
+        }
+
+        if (search) {
+            where.push(`(
+                ap.project_name ILIKE ?
+                OR ap.location_text ILIKE ?
+                OR ap.activity_description ILIKE ?
+                OR ap.performance_indicator ILIKE ?
+                OR prog.programme_name ILIKE ?
+            )`);
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+        }
+
+        const projectsResult = await pool.query(`
+            SELECT
+                ap.id,
+                ap.adp_plan_id AS "adpPlanId",
+                plan.adp_name AS "adpPlanName",
+                plan.financial_year AS "financialYear",
+                prog.sector_name AS "sectorName",
+                prog.programme_name AS "programmeName",
+                prog.subprogramme_name AS "subprogrammeName",
+                ap.project_name AS "projectName",
+                ap.location_text AS "locationText",
+                ap.activity_description AS "outputText",
+                ap.estimated_cost AS "estimatedCost",
+                ap.plan_status AS status,
+                COALESCE(current_bi.budget_amount, 0) AS "currentBudgetAmount",
+                COALESCE(current_bi.in_budget, false) AS "inCurrentBudget"
+            FROM adp_projects ap
+            INNER JOIN adp_plans plan ON plan.id = ap.adp_plan_id
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) > 0 AS in_budget,
+                    COALESCE(SUM(COALESCE(bi.amount, ap.estimated_cost, 0)), 0) AS budget_amount
+                FROM budget_items bi
+                WHERE bi.adpprojectid = ap.id
+                  AND bi.budgetid = ?::bigint
+                  AND COALESCE(bi.voided, false) = false
+            ) current_bi ON true
+            WHERE ${where.join(' AND ')}
+            ORDER BY prog.sector_name NULLS LAST, prog.programme_name NULLS LAST, ap.project_name
+            LIMIT 500
+        `, params);
+
+        const plansResult = await pool.query(`
+            SELECT id, adp_code AS "adpCode", adp_name AS "adpName", financial_year AS "financialYear"
+            FROM adp_plans
+            WHERE COALESCE(voided, false) = false
+            ORDER BY active DESC, start_date DESC NULLS LAST, id DESC
+        `);
+
+        return res.json({
+            plans: rowsFromResult(plansResult),
+            projects: rowsFromResult(projectsResult),
+            selectedPlanId: effectivePlanId
+        });
+    } catch (error) {
+        console.error('Error fetching ADP budget wishlist:', error);
+        return res.status(500).json({ message: 'Error fetching ADP budget wishlist', error: error.message });
+    }
+});
+
 /**
  * @route GET /api/budgets/containers/:budgetId
  * @description Get a single budget container with all items
@@ -297,6 +489,109 @@ router.get('/containers', async (req, res) => {
 router.get('/containers/:budgetId', auth, async (req, res) => {
     try {
         const { budgetId } = req.params;
+
+        if (isPostgres) {
+            await ensureBudgetTables();
+
+            const budgetResult = await pool.query(`
+                SELECT
+                    b.budgetid AS "budgetId",
+                    b.budgetname AS "budgetName",
+                    b.budgettype AS "budgetType",
+                    b.iscombined AS "isCombined",
+                    b.parentbudgetid AS "parentBudgetId",
+                    b.finyearid AS "finYearId",
+                    b.departmentid AS "departmentId",
+                    b.adpplanid AS "adpPlanId",
+                    b.description,
+                    b.totalamount AS "totalAmount",
+                    b.status,
+                    b.isfrozen AS "isFrozen",
+                    b.requiresapprovalforchanges AS "requiresApprovalForChanges",
+                    b.approvedby AS "approvedBy",
+                    b.approvedat AS "approvedAt",
+                    b.rejectedby AS "rejectedBy",
+                    b.rejectedat AS "rejectedAt",
+                    b.rejectionreason AS "rejectionReason",
+                    b.userid AS "userId",
+                    b.createdat AS "createdAt",
+                    b.updatedat AS "updatedAt",
+                    fy."finYearName" AS "finYearName",
+                    d.name AS "departmentName",
+                    ap.adp_name AS "adpPlanName",
+                    ap.financial_year AS "adpFinancialYear"
+                FROM budgets b
+                LEFT JOIN financialyears fy ON b.finyearid = fy."finYearId"
+                LEFT JOIN departments d ON b.departmentid = d."departmentId"
+                LEFT JOIN adp_plans ap ON b.adpplanid = ap.id
+                WHERE b.budgetid = ? AND COALESCE(b.voided, false) = false
+            `, [budgetId]);
+
+            const budget = firstRow(budgetResult);
+            if (!budget) {
+                return res.status(404).json({ message: 'Budget container not found' });
+            }
+
+            const itemsResult = await pool.query(`
+                SELECT
+                    bi.itemid AS "itemId",
+                    bi.budgetid AS "budgetId",
+                    bi.projectid AS "projectId",
+                    bi.adpprojectid AS "adpProjectId",
+                    bi.amount AS "budgetAmount",
+                    COALESCE(
+                        bi.amount,
+                        NULLIF(regexp_replace(COALESCE(p.budget->>'total_amount', p.budget->>'estimated_cost', ''), '[^0-9.]', '', 'g'), '')::numeric,
+                        ap.estimated_cost,
+                        0
+                    ) AS amount,
+                    COALESCE(p.name, ap.project_name) AS "projectName",
+                    COALESCE(prog.sector_name, p.sector) AS "departmentName",
+                    COALESCE(NULLIF(ap.location_text, ''), p.location->>'subcounty', p.location->>'ward') AS "subcountyName",
+                    p.location->>'ward' AS "wardName",
+                    p.progress->>'status' AS "projectStatus",
+                    ap.plan_status AS "adpStatus",
+                    ap.estimated_cost AS "adpEstimatedCost",
+                    ap.activity_description AS "adpOutput",
+                    prog.programme_name AS "adpProgrammeName",
+                    bi.remarks,
+                    bi.addedafterapproval AS "addedAfterApproval",
+                    bi.changerequestid AS "changeRequestId",
+                    bi.userid AS "userId",
+                    bi.createdat AS "createdAt",
+                    bi.updatedat AS "updatedAt"
+                FROM budget_items bi
+                LEFT JOIN projects p ON p.project_id = bi.projectid AND COALESCE(p.voided, false) = false
+                LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
+                LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+                WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
+                ORDER BY bi.createdat DESC
+            `, [budgetId]);
+
+            const changesResult = await pool.query(`
+                SELECT
+                    bc.changeid AS "changeId",
+                    bc.budgetid AS "budgetId",
+                    bc.itemid AS "itemId",
+                    bc.changetype AS "changeType",
+                    bc.changereason AS "changeReason",
+                    bc.status,
+                    bc.requestedby AS "requestedBy",
+                    bc.reviewedby AS "reviewedBy",
+                    bc.requestedat AS "requestedAt",
+                    bc.reviewedat AS "reviewedAt",
+                    bc.reviewnotes AS "reviewNotes"
+                FROM budget_changes bc
+                WHERE bc.budgetid = ? AND COALESCE(bc.voided, false) = false AND bc.status = 'Pending Approval'
+                ORDER BY bc.requestedat DESC
+            `, [budgetId]);
+
+            return res.json({
+                ...budget,
+                items: rowsFromResult(itemsResult),
+                pendingChanges: rowsFromResult(changesResult)
+            });
+        }
 
         // Get budget container
         const budgetQuery = `
@@ -388,6 +683,140 @@ router.get('/containers/:budgetId', auth, async (req, res) => {
     }
 });
 
+router.post('/containers/:budgetId/adp-items', auth, privilege(['budget.update']), async (req, res) => {
+    try {
+        await ensureBudgetTables();
+
+        if (!isPostgres) {
+            return res.status(400).json({ message: 'ADP budget items are only available on PostgreSQL deployments.' });
+        }
+
+        const { budgetId } = req.params;
+        const { items = [], changeReason = null } = req.body;
+
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'Select at least one ADP project to add to the budget.' });
+        }
+
+        const budgetResult = await pool.query(`
+            SELECT budgetid, status, isfrozen, requiresapprovalforchanges, adpplanid
+            FROM budgets
+            WHERE budgetid = ? AND COALESCE(voided, false) = false
+        `, [budgetId]);
+        const budget = firstRow(budgetResult);
+
+        if (!budget) {
+            return res.status(404).json({ message: 'Budget container not found' });
+        }
+
+        if (budget.status === 'Approved' && Number(budget.isfrozen) === 1 && Number(budget.requiresapprovalforchanges) === 1) {
+            if (!changeReason) {
+                return res.status(400).json({ message: 'Change reason is required when adding ADP items to an approved and frozen budget.' });
+            }
+            return res.status(400).json({ message: 'ADP wishlist additions to approved budgets are not yet supported. Create a change request through the standard item flow.' });
+        }
+
+        const adpProjectIds = [...new Set(items.map((item) => Number(item.adpProjectId || item.id)).filter(Boolean))];
+        if (adpProjectIds.length === 0) {
+            return res.status(400).json({ message: 'No valid ADP project IDs were provided.' });
+        }
+
+        const adpProjectsResult = await pool.query(`
+            SELECT
+                ap.id,
+                ap.adp_plan_id,
+                ap.project_name,
+                prog.sector_name,
+                ap.location_text,
+                ap.activity_description,
+                ap.estimated_cost,
+                prog.programme_name
+            FROM adp_projects ap
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            WHERE ap.id = ANY(?::bigint[]) AND COALESCE(ap.voided, false) = false
+        `, [adpProjectIds]);
+
+        const adpProjects = rowsFromResult(adpProjectsResult);
+        if (adpProjects.length !== adpProjectIds.length) {
+            return res.status(400).json({ message: 'One or more selected ADP projects could not be found.' });
+        }
+
+        const planIds = [...new Set(adpProjects.map((project) => String(project.adp_plan_id)))];
+        if (planIds.length > 1) {
+            return res.status(400).json({ message: 'Select ADP projects from one ADP plan at a time.' });
+        }
+
+        const selectedPlanId = Number(planIds[0]);
+        if (budget.adpplanid && Number(budget.adpplanid) !== selectedPlanId) {
+            return res.status(400).json({ message: 'This budget is already linked to a different ADP plan.' });
+        }
+
+        const userId = req.user?.userId || 1;
+        const itemInputByAdpId = new Map(items.map((item) => [Number(item.adpProjectId || item.id), item]));
+        let addedCount = 0;
+        let updatedCount = 0;
+
+        for (const adpProject of adpProjects) {
+            const input = itemInputByAdpId.get(Number(adpProject.id)) || {};
+            const rawAmount = input.amount ?? input.budgetAmount ?? adpProject.estimated_cost ?? 0;
+            const amount = Number(rawAmount) > 0 ? Number(rawAmount) : Number(adpProject.estimated_cost || 0);
+            const snapshot = {
+                projectName: adpProject.project_name,
+                sectorName: adpProject.sector_name,
+                programmeName: adpProject.programme_name,
+                locationText: adpProject.location_text,
+                outputText: adpProject.activity_description,
+                estimatedCost: adpProject.estimated_cost
+            };
+
+            const result = await pool.query(`
+                INSERT INTO budget_items
+                    (budgetid, projectid, adpprojectid, amount, remarks, addedafterapproval, userid, adpsourcesnapshot)
+                VALUES
+                    (?, NULL, ?, ?, ?, ?, ?, ?::jsonb)
+                ON CONFLICT (budgetid, adpprojectid)
+                WHERE COALESCE(voided, false) = false AND adpprojectid IS NOT NULL
+                DO UPDATE SET
+                    amount = EXCLUDED.amount,
+                    remarks = COALESCE(EXCLUDED.remarks, budget_items.remarks),
+                    adpsourcesnapshot = EXCLUDED.adpsourcesnapshot,
+                    updatedat = CURRENT_TIMESTAMP
+                RETURNING (xmax = 0) AS inserted
+            `, [
+                budgetId,
+                adpProject.id,
+                amount,
+                input.remarks || null,
+                budget.status === 'Approved' ? 1 : 0,
+                userId,
+                JSON.stringify(snapshot)
+            ]);
+
+            if (firstRow(result)?.inserted) {
+                addedCount += 1;
+            } else {
+                updatedCount += 1;
+            }
+        }
+
+        if (!budget.adpplanid) {
+            await pool.query('UPDATE budgets SET adpplanid = ?, updatedat = CURRENT_TIMESTAMP WHERE budgetid = ?', [selectedPlanId, budgetId]);
+        }
+
+        await recalculateBudgetTotal(budgetId);
+
+        return res.status(201).json({
+            message: 'ADP wishlist items added to budget successfully',
+            addedCount,
+            updatedCount,
+            adpPlanId: selectedPlanId
+        });
+    } catch (error) {
+        console.error('Error adding ADP budget items:', error);
+        return res.status(500).json({ message: 'Error adding ADP budget items', error: error.message });
+    }
+});
+
 /**
  * @route POST /api/budgets/containers
  * @description Create a new budget container
@@ -401,6 +830,7 @@ router.post('/containers', auth, async (req, res) => {
             budgetType = 'Draft',
             finYearId,
             departmentId,
+            adpPlanId,
             description,
             requiresApprovalForChanges = true
         } = req.body;
@@ -416,8 +846,8 @@ router.post('/containers', auth, async (req, res) => {
 
         const query = `
             INSERT INTO budgets 
-            (budgetName, budgetType, finYearId, departmentId, description, requiresApprovalForChanges, userId)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (budgetName, budgetType, finYearId, departmentId, adpPlanId, description, requiresApprovalForChanges, userId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ${isPostgres ? 'RETURNING budgetId' : ''}
         `;
 
@@ -426,6 +856,7 @@ router.post('/containers', auth, async (req, res) => {
             budgetType,
             finYearId,
             departmentId || null,
+            adpPlanId || null,
             description || null,
             requiresApprovalForChanges ? 1 : 0,
             userId
@@ -472,6 +903,7 @@ router.put('/containers/:budgetId', auth, privilege(['budget.update']), async (r
             budgetType,
             finYearId,
             departmentId,
+            adpPlanId,
             description,
             requiresApprovalForChanges
         } = req.body;
@@ -514,6 +946,10 @@ router.put('/containers/:budgetId', auth, privilege(['budget.update']), async (r
         if (departmentId !== undefined) {
             updates.push('departmentId = ?');
             values.push(departmentId || null);
+        }
+        if (adpPlanId !== undefined) {
+            updates.push('adpPlanId = ?');
+            values.push(adpPlanId || null);
         }
         if (description !== undefined) {
             updates.push('description = ?');
@@ -669,6 +1105,46 @@ router.post('/containers/:budgetId/reject', auth, privilege(['budget.approve']),
 router.get('/containers/:budgetId/items', auth, async (req, res) => {
     try {
         const { budgetId } = req.params;
+
+        if (isPostgres) {
+            await ensureBudgetTables();
+            const itemsResult = await pool.query(`
+                SELECT
+                    bi.itemid AS "itemId",
+                    bi.budgetid AS "budgetId",
+                    bi.projectid AS "projectId",
+                    bi.adpprojectid AS "adpProjectId",
+                    bi.amount AS "budgetAmount",
+                    COALESCE(
+                        bi.amount,
+                        NULLIF(regexp_replace(COALESCE(p.budget->>'total_amount', p.budget->>'estimated_cost', ''), '[^0-9.]', '', 'g'), '')::numeric,
+                        ap.estimated_cost,
+                        0
+                    ) AS amount,
+                    COALESCE(p.name, ap.project_name) AS "projectName",
+                    COALESCE(prog.sector_name, p.sector) AS "departmentName",
+                    COALESCE(NULLIF(ap.location_text, ''), p.location->>'subcounty', p.location->>'ward') AS "subcountyName",
+                    p.location->>'ward' AS "wardName",
+                    p.progress->>'status' AS "projectStatus",
+                    ap.plan_status AS "adpStatus",
+                    ap.estimated_cost AS "adpEstimatedCost",
+                    prog.programme_name AS "adpProgrammeName",
+                    bi.remarks,
+                    bi.addedafterapproval AS "addedAfterApproval",
+                    bi.changerequestid AS "changeRequestId",
+                    bi.userid AS "userId",
+                    bi.createdat AS "createdAt",
+                    bi.updatedat AS "updatedAt"
+                FROM budget_items bi
+                LEFT JOIN projects p ON p.project_id = bi.projectid AND COALESCE(p.voided, false) = false
+                LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
+                LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+                WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
+                ORDER BY bi.createdat DESC
+            `, [budgetId]);
+
+            return res.json({ items: rowsFromResult(itemsResult) });
+        }
 
         // Query projects directly using budgetId, with optional budget_items metadata
         const query = `
@@ -1036,6 +1512,41 @@ router.delete('/items/:itemId', auth, privilege(['budget.update']), async (req, 
         const { itemId } = req.params;
         const { changeReason } = req.body;
         const userId = req.user?.userId || 1;
+
+        if (isPostgres) {
+            const itemResult = await pool.query(`
+                SELECT
+                    bi.itemid AS "itemId",
+                    bi.budgetid AS "budgetId",
+                    bi.adpprojectid AS "adpProjectId",
+                    b.status AS "budgetStatus",
+                    b.isfrozen AS "isFrozen",
+                    b.requiresapprovalforchanges AS "requiresApprovalForChanges"
+                FROM budget_items bi
+                INNER JOIN budgets b ON b.budgetid = bi.budgetid
+                WHERE bi.itemid = ? AND COALESCE(bi.voided, false) = false
+            `, [itemId]);
+
+            const item = firstRow(itemResult);
+            if (!item) {
+                return res.status(404).json({ message: 'Budget item not found' });
+            }
+
+            if (item.budgetStatus === 'Approved' && Number(item.isFrozen) === 1 && Number(item.requiresApprovalForChanges) === 1) {
+                if (!changeReason) {
+                    return res.status(400).json({ message: 'Change reason is required when removing items from approved budgets.' });
+                }
+                return res.status(400).json({ message: 'Removing items from approved budgets is not yet supported for ADP-backed rows.' });
+            }
+
+            await pool.query(
+                'UPDATE budget_items SET voided = true, updatedat = CURRENT_TIMESTAMP WHERE itemid = ?',
+                [itemId]
+            );
+            await recalculateBudgetTotal(item.budgetId);
+
+            return res.json({ message: 'Budget item removed successfully' });
+        }
 
         // Get item and budget info
         const [items] = await pool.query(

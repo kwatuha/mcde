@@ -1,6 +1,7 @@
 import menuConfig from './menuConfig.json';
 import { ROUTES } from './appConfig.js';
 import { normalizeRoleName, canAccessProjectBySectorDashboard } from '../utils/privilegeUtils.js';
+import { isSuperAdminUser } from '../utils/roleUtils.js';
 
 /** Paths that should highlight the Monitoring tree group when the same route key appears under Projects or elsewhere. */
 const MONITORING_PREFERRED_ROUTE_PATHS = [
@@ -174,6 +175,9 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
     submenus: category.submenus.filter(submenu => {
       // Check if item is hidden
       if (submenu.hidden === true) {
+        return false;
+      }
+      if (submenu.superAdminOnly && !isSuperAdminUser(user)) {
         return false;
       }
       if (submenu.route === 'PROJECT_BY_SECTOR_DASHBOARD' && !canAccessProjectBySectorDashboard(user)) {

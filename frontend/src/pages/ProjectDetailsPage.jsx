@@ -149,6 +149,7 @@ import {
 } from './ProjectPlanningCatalogLinksPages';
 import ProjectEvaluationPage from './ProjectEvaluationPage';
 import ProjectCidpImplementationLinksPage from './ProjectCidpImplementationLinksPage';
+import ProjectAdpImplementationLinksPage from './ProjectAdpImplementationLinksPage';
 
 const checkUserPrivilege = (user, privilegeName) => {
     return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
@@ -549,6 +550,7 @@ function ProjectDetailsPage() {
         bqItems: [],
         evaluations: [],
         cidpLink: null,
+        adpLink: null,
     });
     const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
     const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
@@ -632,7 +634,7 @@ function ProjectDetailsPage() {
         };
 
         try {
-            const [activities, risks, documents, bqItems, evaluations, cidpLinkData] = await Promise.all([
+            const [activities, risks, documents, bqItems, evaluations, cidpLinkData, adpLinkData] = await Promise.all([
                 loadRows('activities', projectService.projects.getPlanningCatalogActivityLinks(projectId)),
                 loadRows('risks', projectService.projects.getPlanningCatalogRiskLinks(projectId)),
                 canViewProjectDocuments
@@ -644,9 +646,20 @@ function ProjectDetailsPage() {
                     errors.push('CIDP link');
                     return null;
                 }),
+                apiService.adp.getProjectLink(projectId).catch(() => {
+                    errors.push('ADP link');
+                    return null;
+                }),
             ]);
 
-            setPlanningSnapshot({ activities, risks, bqItems, evaluations, cidpLink: cidpLinkData?.currentLink || null });
+            setPlanningSnapshot({
+                activities,
+                risks,
+                bqItems,
+                evaluations,
+                cidpLink: cidpLinkData?.currentLink || null,
+                adpLink: adpLinkData?.currentLink || null,
+            });
             setPlanningDocumentsCount(documents.length);
             if (errors.length > 0) {
                 setPlanningSnapshotError(`Some implementation plan data could not be loaded: ${errors.join(', ')}.`);
@@ -662,7 +675,7 @@ function ProjectDetailsPage() {
     }, [activeTab, projectId, loadPlanningSnapshot]);
 
     const handleCloseImplementationModal = useCallback(() => {
-        const shouldRefreshPlanningSnapshot = activeTab === 9 || implementationModal === 'cidp';
+        const shouldRefreshPlanningSnapshot = activeTab === 9 || ['cidp', 'adp'].includes(implementationModal);
         setImplementationModal(null);
         if (shouldRefreshPlanningSnapshot) {
             loadPlanningSnapshot();
@@ -3853,6 +3866,22 @@ function ProjectDetailsPage() {
                                     action: 'Link CIDP',
                                     onClick: () => setImplementationModal('cidp'),
                                     icon: <FlagIcon />,
+                                },
+                                {
+                                    title: 'ADP Link',
+                                    value: loadingPlanningSnapshot ? '...' : (planningSnapshot.adpLink?.adpProjectId ? 'Linked' : 'Pending'),
+                                    helper: planningSnapshot.adpLink?.adpProjectName
+                                        ? [
+                                            `${planningSnapshot.adpLink.financialYear || 'ADP'} ${planningSnapshot.adpLink.adpProjectName}`,
+                                            planningSnapshot.adpLink.locationText || null,
+                                            planningSnapshot.adpLink.estimatedCost != null
+                                                ? `ADP cost ${formatCurrency(planningSnapshot.adpLink.estimatedCost)}`
+                                                : null,
+                                        ].filter(Boolean).join(' | ')
+                                        : 'Connect this project to the annual ADP priority it implements.',
+                                    action: 'Link ADP',
+                                    onClick: () => setImplementationModal('adp'),
+                                    icon: <FactCheckIcon />,
                                 },
                                 {
                                     title: 'Milestones',
@@ -7097,11 +7126,21 @@ function ProjectDetailsPage() {
                             ? 'Project Risk Assignments'
                             : implementationModal === 'cidp'
                                 ? 'CIDP Implementation Link'
-                                : 'Project Evaluation'}
+                                : implementationModal === 'adp'
+                                    ? 'ADP Implementation Link'
+                                    : 'Project Evaluation'}
                 </DialogTitle>
                 <DialogContent dividers>
                     {implementationModal === 'cidp' && (
                         <ProjectCidpImplementationLinksPage
+                            projectId={projectId}
+                            projectName={project?.projectName || project?.name || `Project ${projectId}`}
+                            embedded
+                            onChanged={loadPlanningSnapshot}
+                        />
+                    )}
+                    {implementationModal === 'adp' && (
+                        <ProjectAdpImplementationLinksPage
                             projectId={projectId}
                             projectName={project?.projectName || project?.name || `Project ${projectId}`}
                             embedded

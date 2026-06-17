@@ -81,6 +81,10 @@ const routeTitles = {
     title: 'ADP Period List',
     subtitle: 'Planning - annual development plan periods',
   },
+  '/planning/adp-implementation': {
+    title: 'ADP Implementation',
+    subtitle: 'Annual development plan priorities linked to actual projects',
+  },
   '/planning/programmes': {
     title: 'Programme List',
     subtitle: 'Planning - programmes, objectives, sectors, and SDG linkages',

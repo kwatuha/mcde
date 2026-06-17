@@ -53,6 +53,7 @@ import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } f
 import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { sortMenuCategoriesForNav, categoryNavLabel } from '../configs/navigationLayoutConfig.js';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
+import { isSuperAdminUser } from '../utils/roleUtils.js';
 
 /** First sidebar destination when switching ribbon tab (menuConfig `route` keys). */
 const DEFAULT_ROUTE_KEY_BY_CATEGORY = {
@@ -160,7 +161,7 @@ export default function RibbonMenu({ isAdmin = false }) {
     if (preferredKey) {
       const submenu = category.submenus.find((s) => s.route === preferredKey);
       if (submenu && !submenu.hidden) {
-        const hasPermission = (() => {
+        const hasPermission = submenu.superAdminOnly && !isSuperAdminUser(user) ? false : (() => {
           if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
             return (
               (hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p))) || isAdmin
@@ -178,6 +179,7 @@ export default function RibbonMenu({ isAdmin = false }) {
 
     for (const submenu of category.submenus) {
       if (submenu.hidden) continue;
+      if (submenu.superAdminOnly && !isSuperAdminUser(user)) continue;
       if (Array.isArray(submenu.permissionsAny) && submenu.permissionsAny.length > 0) {
         const pass =
           (hasPrivilege && submenu.permissionsAny.some((p) => hasPrivilege(p))) || isAdmin;

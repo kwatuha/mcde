@@ -233,22 +233,37 @@
         {
           "title": "CIDP Pillars",
           "icon": "AccountTreeIcon",
-          "route": "CIDP_PILLARS"
+          "route": "CIDP_PILLARS",
+          "hidden": true
         },
         {
           "title": "CIDP Periods",
           "icon": "EventNoteIcon",
-          "route": "PLANNING_CIDP_PERIODS"
+          "route": "PLANNING_CIDP_PERIODS",
+          "hidden": true
         },
         {
           "title": "ADP Periods",
           "icon": "EventNoteIcon",
-          "route": "PLANNING_ADP_PERIODS"
+          "route": "PLANNING_ADP_PERIODS",
+          "hidden": true
+        },
+        {
+          "title": "ADP Implementation",
+          "icon": "FactCheckIcon",
+          "route": "ADP_IMPLEMENTATION",
+          "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
+        },
+        {
+          "title": "ADP-Budget",
+          "icon": "AttachMoneyIcon",
+          "route": "BUDGET_MANAGEMENT"
         },
         {
           "title": "Programmes",
           "icon": "ChecklistIcon",
-          "route": "PLANNING_PROGRAMMES"
+          "route": "PLANNING_PROGRAMMES",
+          "hidden": true
         },
         {
           "title": "Sector List",
@@ -296,11 +311,6 @@
           "icon": "ReportProblemIcon",
           "route": "PROJECT_PLANNING_RISK_LINKS",
           "permissionsAny": ["project.read_all", "strategic_plan.read_all"]
-        },
-        {
-          "title": "ADP-Budget",
-          "icon": "AttachMoneyIcon",
-          "route": "BUDGET_MANAGEMENT"
         },
         {
           "title": "Approvals & workflows",
@@ -621,7 +631,7 @@
           "title": "AI Usage & Costs",
           "icon": "AssessmentIcon",
           "route": "AI_USAGE",
-          "roles": ["admin"]
+          "superAdminOnly": true
         },
         {
           "title": "Workflow mgmt",

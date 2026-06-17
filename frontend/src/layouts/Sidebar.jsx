@@ -91,6 +91,7 @@ import {
 } from '../configs/treeNavChrome.js';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
 import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
+import { isSuperAdminUser } from '../utils/roleUtils.js';
 import gprisLogo from '../assets/gpris.png';
 import logoFallback from '../assets/logo.png';
 
@@ -155,6 +156,7 @@ function filterCategorySubmenusToNavItems(category, hasPrivilege, user, isAdminL
   return category.submenus
     .filter((submenu) => {
       if (submenu.hidden) return false;
+      if (submenu.superAdminOnly && !isSuperAdminUser(user)) return false;
       if (submenu.permission && submenu.roles) {
         const hasPermission = hasPrivilege && hasPrivilege(submenu.permission);
         const hasRole = hasConfiguredRole(user, submenu.roles);

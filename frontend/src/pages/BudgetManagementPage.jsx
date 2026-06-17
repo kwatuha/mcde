@@ -3,12 +3,13 @@ import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, CircularProgress, IconButton,
   Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, 
-  Stack, useTheme, Tooltip, Grid, Paper, Chip, Autocomplete,
+  Stack, useTheme, Tooltip, Grid, Paper, Chip, Autocomplete, Checkbox,
   Tabs, Tab, Card, CardContent, Divider, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Avatar,
   DialogContentText, Menu, ListItemIcon, ListItemText
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Add as AddIcon, 
   Edit as EditIcon, 
@@ -26,20 +27,57 @@ import {
   TrendingUp as TrendingUpIcon,
   FileDownload as FileDownloadIcon,
   PictureAsPdf as PictureAsPdfIcon,
-  MoreVert as MoreVertIcon
+  Description as DescriptionIcon,
+  MoreVert as MoreVertIcon,
+  FactCheck as FactCheckIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import adpService from '../api/adpService';
 import budgetService from '../api/budgetService';
 import metaDataService from '../api/metaDataService';
 import projectService from '../api/projectService';
 import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "../pages/dashboard/theme";
 import { formatCurrency, formatToSentenceCase } from '../utils/helpers';
+import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
+
+const parseBudgetAmount = (value) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  const numericValue = Number(String(value).replace(/,/g, '').replace(/[^\d.-]/g, ''));
+  return Number.isFinite(numericValue) ? numericValue : 0;
+};
+
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+const downloadWordDocument = (html, filename) => {
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
 
 function BudgetManagementPage() {
   const { user, hasPrivilege } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const isLight = theme.palette.mode === 'light';
@@ -144,6 +182,7 @@ function BudgetManagementPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingWord, setExportingWord] = useState(false);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -159,10 +198,13 @@ function BudgetManagementPage() {
   const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [adpPlans, setAdpPlans] = useState([]);
   
   // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openItemDialog, setOpenItemDialog] = useState(false);
+  const [openAdpDialog, setOpenAdpDialog] = useState(false);
+  const [openAdpBudgetDialog, setOpenAdpBudgetDialog] = useState(false);
   const [openChangeRequestDialog, setOpenChangeRequestDialog] = useState(false);
   const [currentBudget, setCurrentBudget] = useState(null);
   const [currentItem, setCurrentItem] = useState(null);
@@ -171,9 +213,27 @@ function BudgetManagementPage() {
     budgetName: '',
     finYearId: '',
     departmentId: '',
+    adpPlanId: '',
     description: '',
     requiresApprovalForChanges: true
   });
+  const [adpWishlistRows, setAdpWishlistRows] = useState([]);
+  const [loadingAdpPlans, setLoadingAdpPlans] = useState(false);
+  const [adpBudgetForm, setAdpBudgetForm] = useState({
+    budgetName: '',
+    finYearId: '',
+    departmentId: '',
+    adpPlanId: '',
+    description: ''
+  });
+  const [adpBudgetErrors, setAdpBudgetErrors] = useState({});
+  const [handledAdpBudgetParam, setHandledAdpBudgetParam] = useState(false);
+  const [selectedAdpProjectIds, setSelectedAdpProjectIds] = useState([]);
+  const [adpWishlistFilters, setAdpWishlistFilters] = useState({
+    planId: '',
+    search: ''
+  });
+  const [loadingAdpWishlist, setLoadingAdpWishlist] = useState(false);
   const [itemFormData, setItemFormData] = useState({
     projectId: '',
     projectName: '',
@@ -291,6 +351,27 @@ function BudgetManagementPage() {
     }
   }, []);
 
+  const fetchAdpPlans = useCallback(async () => {
+    setLoadingAdpPlans(true);
+    try {
+      const data = await adpService.getPlans();
+      const normalizedPlans = (Array.isArray(data) ? data : []).map((plan) => ({
+        ...plan,
+        id: plan.id,
+        adpName: plan.adpName || plan.adp_name,
+        financialYear: plan.financialYear || plan.financial_year,
+      }));
+      setAdpPlans(normalizedPlans);
+      return normalizedPlans;
+    } catch (err) {
+      console.error('Error fetching ADP plans for budgets:', err);
+      setAdpPlans([]);
+      return [];
+    } finally {
+      setLoadingAdpPlans(false);
+    }
+  }, []);
+
   // Fetch wards when subcounty changes (for item form)
   useEffect(() => {
     if (itemFormData.subcountyId) {
@@ -378,6 +459,8 @@ function BudgetManagementPage() {
         parentBudgetId: row.parentBudgetId ?? row.parentbudgetid,
         finYearId: row.finYearId ?? row.finyearid,
         departmentId: row.departmentId ?? row.departmentid,
+        adpPlanId: row.adpPlanId ?? row.adpplanid,
+        adpPlanName: row.adpPlanName ?? row.adpplanname,
         totalAmount: row.totalAmount ?? row.totalamount,
         isFrozen: row.isFrozen ?? row.isfrozen,
         requiresApprovalForChanges: row.requiresApprovalForChanges ?? row.requiresapprovalforchanges,
@@ -472,7 +555,8 @@ function BudgetManagementPage() {
   useEffect(() => {
     fetchMetadata();
     fetchProjects();
-  }, [fetchMetadata, fetchProjects]);
+    fetchAdpPlans();
+  }, [fetchMetadata, fetchProjects, fetchAdpPlans]);
 
   useEffect(() => {
     console.log('🔄 useEffect triggered - calling fetchContainers');
@@ -488,6 +572,7 @@ function BudgetManagementPage() {
       budgetName: '',
       finYearId: '',
       departmentId: '',
+      adpPlanId: '',
       description: '',
       requiresApprovalForChanges: true
     });
@@ -495,12 +580,133 @@ function BudgetManagementPage() {
     setOpenDialog(true);
   };
 
+  const findDefaultFinancialYearId = useCallback((planId = '', sourcePlans = adpPlans) => {
+    const plan = sourcePlans.find((item) => String(item.id) === String(planId));
+    if (plan?.financialYear || plan?.financial_year) {
+      const planYear = String(plan.financialYear || plan.financial_year).replace(/\s+/g, '').toLowerCase();
+      const matchingYear = financialYears.find((fy) => String(fy.finYearName || '').replace(/\s+/g, '').toLowerCase().includes(planYear));
+      if (matchingYear?.finYearId) return matchingYear.finYearId;
+    }
+    return financialYears[0]?.finYearId || '';
+  }, [adpPlans, financialYears]);
+
+  const buildAdpBudgetDefaults = useCallback((planId = '', sourcePlans = adpPlans) => {
+    const selectedPlan = sourcePlans.find((item) => String(item.id) === String(planId)) || sourcePlans[0] || null;
+    const finalPlanId = selectedPlan?.id || planId || '';
+    const planName = selectedPlan?.adpName || selectedPlan?.adp_name || 'ADP';
+    const financialYearName = selectedPlan?.financialYear || selectedPlan?.financial_year || '';
+
+    return {
+      budgetName: financialYearName ? `${financialYearName} Budget from ADP` : 'Budget from ADP Wishlist',
+      finYearId: findDefaultFinancialYearId(finalPlanId, sourcePlans),
+      departmentId: '',
+      adpPlanId: finalPlanId,
+      description: `Budget container created from ${planName}. Select priority wishlist items after creating it.`
+    };
+  }, [adpPlans, findDefaultFinancialYearId]);
+
+  const handleOpenAdpBudgetDialog = useCallback(async (planId = '') => {
+    const plansForDefaults = adpPlans.length > 0 ? adpPlans : await fetchAdpPlans();
+    setAdpBudgetForm(buildAdpBudgetDefaults(planId, plansForDefaults));
+    setAdpBudgetErrors({});
+    setOpenAdpBudgetDialog(true);
+  }, [adpPlans, buildAdpBudgetDefaults, fetchAdpPlans]);
+
+  const handleCloseAdpBudgetDialog = () => {
+    setOpenAdpBudgetDialog(false);
+    setAdpBudgetErrors({});
+  };
+
+  const handleAdpBudgetFormChange = (field, value) => {
+    setAdpBudgetForm((prev) => {
+      if (field === 'adpPlanId') {
+        const defaults = buildAdpBudgetDefaults(value);
+        return {
+          ...prev,
+          adpPlanId: value,
+          finYearId: defaults.finYearId || prev.finYearId,
+          budgetName: defaults.budgetName,
+          description: defaults.description
+        };
+      }
+      return { ...prev, [field]: value };
+    });
+    if (adpBudgetErrors[field]) {
+      setAdpBudgetErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const handleCreateAdpBudget = async () => {
+    const errors = {};
+    if (!adpBudgetForm.adpPlanId) errors.adpPlanId = 'Select an ADP plan.';
+    if (!adpBudgetForm.finYearId) errors.finYearId = 'Select a financial year.';
+    if (!adpBudgetForm.budgetName?.trim()) errors.budgetName = 'Budget name is required.';
+    setAdpBudgetErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setLoading(true);
+    try {
+      const result = await budgetService.createBudgetContainer({
+        budgetName: adpBudgetForm.budgetName,
+        finYearId: adpBudgetForm.finYearId,
+        departmentId: adpBudgetForm.departmentId || null,
+        adpPlanId: adpBudgetForm.adpPlanId,
+        description: adpBudgetForm.description || null,
+        requiresApprovalForChanges: true
+      });
+
+      const createdBudgetId = result?.budget?.budgetId || result?.budget?.budgetid;
+      setSnackbar({ open: true, message: 'ADP budget created. Select wishlist items to include.', severity: 'success' });
+      handleCloseAdpBudgetDialog();
+      await fetchContainers();
+
+      if (createdBudgetId) {
+        const created = await budgetService.getBudgetContainer(createdBudgetId);
+        setSelectedContainer(created);
+        setContainerItems(created.items || []);
+        setPendingChanges(created.pendingChanges || []);
+        setActiveTab(1);
+        setSelectedAdpProjectIds([]);
+        setAdpWishlistFilters({ planId: adpBudgetForm.adpPlanId, search: '' });
+        setOpenAdpDialog(true);
+        await fetchAdpWishlist({ budgetId: createdBudgetId, planId: adpBudgetForm.adpPlanId, search: '' });
+      }
+    } catch (err) {
+      console.error('Create ADP budget error:', err);
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || err.message || 'Failed to create ADP budget.',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (handledAdpBudgetParam || adpPlans.length === 0 || financialYears.length === 0) return;
+    if (searchParams.get('mode') !== 'adp') return;
+
+    const planId = searchParams.get('adpPlanId') || '';
+    handleOpenAdpBudgetDialog(planId);
+    setHandledAdpBudgetParam(true);
+    setSearchParams({}, { replace: true });
+  }, [
+    adpPlans.length,
+    financialYears.length,
+    handledAdpBudgetParam,
+    handleOpenAdpBudgetDialog,
+    searchParams,
+    setSearchParams
+  ]);
+
   const handleOpenEditDialog = (container) => {
     setCurrentBudget(container);
     setFormData({
       budgetName: container.budgetName || '',
       finYearId: container.finYearId || '',
       departmentId: container.departmentId || '',
+      adpPlanId: container.adpPlanId || '',
       description: container.description || '',
       requiresApprovalForChanges: container.requiresApprovalForChanges !== 0
     });
@@ -581,6 +787,7 @@ function BudgetManagementPage() {
         budgetName: formData.budgetName,
         finYearId: formData.finYearId,
         departmentId: formData.departmentId || null,
+        adpPlanId: formData.adpPlanId || null,
         description: formData.description || null,
         requiresApprovalForChanges: formData.requiresApprovalForChanges !== false
       };
@@ -801,6 +1008,106 @@ function BudgetManagementPage() {
     });
     setItemFormErrors({});
     setOpenItemDialog(true);
+  };
+
+  const fetchAdpWishlist = useCallback(async (overrides = {}) => {
+    const effectiveBudgetId = overrides.budgetId || selectedContainer?.budgetId;
+    if (!effectiveBudgetId) return;
+
+    setLoadingAdpWishlist(true);
+    try {
+      const params = {
+        budgetId: effectiveBudgetId,
+        planId: overrides.planId ?? adpWishlistFilters.planId ?? selectedContainer?.adpPlanId ?? '',
+        search: overrides.search ?? adpWishlistFilters.search ?? ''
+      };
+      const cleanParams = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== ''));
+      const data = await budgetService.getAdpWishlist(cleanParams);
+      if (Array.isArray(data.plans) && data.plans.length > 0) {
+        setAdpPlans(data.plans.map((plan) => ({
+          ...plan,
+          adpName: plan.adpName || plan.adp_name,
+          financialYear: plan.financialYear || plan.financial_year,
+        })));
+      }
+      setAdpWishlistRows(data.projects || []);
+      setAdpWishlistFilters((prev) => ({
+        ...prev,
+        planId: params.planId || data.selectedPlanId || ''
+      }));
+    } catch (err) {
+      console.error('Fetch ADP wishlist error:', err);
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || err.message || 'Failed to load ADP wishlist.',
+        severity: 'error'
+      });
+    } finally {
+      setLoadingAdpWishlist(false);
+    }
+  }, [selectedContainer?.budgetId, selectedContainer?.adpPlanId, adpWishlistFilters.planId, adpWishlistFilters.search]);
+
+  const handleOpenAdpDialog = async () => {
+    setSelectedAdpProjectIds([]);
+    setAdpWishlistFilters({
+      planId: selectedContainer?.adpPlanId || '',
+      search: ''
+    });
+    setOpenAdpDialog(true);
+    await fetchAdpWishlist({
+      planId: selectedContainer?.adpPlanId || '',
+      search: ''
+    });
+  };
+
+  const handleCloseAdpDialog = () => {
+    setOpenAdpDialog(false);
+    setSelectedAdpProjectIds([]);
+  };
+
+  const handleToggleAdpProject = (projectId) => {
+    setSelectedAdpProjectIds((prev) => (
+      prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId]
+    ));
+  };
+
+  const handleAddSelectedAdpItems = async () => {
+    if (!selectedContainer?.budgetId || selectedAdpProjectIds.length === 0) {
+      setSnackbar({ open: true, message: 'Select at least one ADP item.', severity: 'warning' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const selectedItems = adpWishlistRows
+        .filter((row) => selectedAdpProjectIds.includes(row.id))
+        .map((row) => ({
+          adpProjectId: row.id,
+          amount: row.estimatedCost || 0,
+          remarks: 'Added from ADP wishlist'
+        }));
+
+      const result = await budgetService.addAdpBudgetItems(selectedContainer.budgetId, selectedItems);
+      setSnackbar({
+        open: true,
+        message: `Added ${result.addedCount || 0} ADP item(s) and updated ${result.updatedCount || 0}.`,
+        severity: 'success'
+      });
+      handleCloseAdpDialog();
+      await fetchContainerDetails(selectedContainer.budgetId);
+      await fetchContainers();
+    } catch (err) {
+      console.error('Add ADP budget items error:', err);
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || err.message || 'Failed to add ADP budget items.',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenEditItemDialog = (item) => {
@@ -1064,7 +1371,7 @@ function BudgetManagementPage() {
         item.departmentName || 'N/A',
         formatToSentenceCase(item.subcountyName) || 'N/A',
         formatToSentenceCase(item.wardName) || 'N/A',
-        item.amount || 0,
+        parseBudgetAmount(item.amount),
         item.remarks || ''
       ]);
 
@@ -1099,7 +1406,113 @@ function BudgetManagementPage() {
     }
   };
 
-  const handleExportItemsToPDF = () => {
+  const handleExportItemsToWord = async () => {
+    setExportingWord(true);
+    try {
+      const logoDataUrl = await getCountyLogoDataUrl();
+      const filteredTotal = filteredItems.reduce((sum, item) => sum + parseBudgetAmount(item.amount), 0);
+      const generatedAt = new Date().toLocaleString();
+      const filterText = filteredItems.length !== containerItems.length
+        ? `Filtered view: ${filteredItems.length} of ${containerItems.length} item(s)`
+        : `Items: ${filteredItems.length}`;
+      const rows = filteredItems.map((item, index) => `
+        <tr>
+          <td style="text-align:center;">${index + 1}</td>
+          <td>${escapeHtml(formatToSentenceCase(item.projectName) || 'N/A')}</td>
+          <td>${escapeHtml(item.departmentName || 'N/A')}</td>
+          <td>${escapeHtml(formatToSentenceCase(item.subcountyName) || 'N/A')}</td>
+          <td>${escapeHtml(formatToSentenceCase(item.wardName) || 'N/A')}</td>
+          <td style="text-align:right;">${escapeHtml(formatCurrency(parseBudgetAmount(item.amount)))}</td>
+          <td>${escapeHtml(item.remarks || '')}</td>
+        </tr>
+      `).join('');
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Budget Items Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 10pt; color: #111827; }
+            .official-header { text-align: center; margin-bottom: 14px; border-bottom: 2px solid #166088; padding-bottom: 10px; }
+            .official-header img { width: 76px; height: auto; margin-bottom: 6px; }
+            .official-header .republic { font-size: 12pt; font-weight: bold; }
+            .official-header .county { font-size: 16pt; font-weight: bold; color: #166088; }
+            .official-header .department { font-size: 11pt; font-weight: bold; }
+            h1 { font-size: 18pt; margin: 0 0 6px; color: #111827; }
+            .meta { color: #4b5563; margin-bottom: 14px; line-height: 1.45; }
+            .summary { margin-bottom: 14px; }
+            .summary td { padding: 4px 10px 4px 0; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+            th { background: #166088; color: #ffffff; font-weight: bold; }
+            th, td { border: 1px solid #cbd5e1; padding: 5px; vertical-align: top; }
+            .amount { text-align: right; font-weight: bold; }
+            .total-row td { font-weight: bold; background: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <div class="official-header">
+            ${logoDataUrl ? `<img src="${logoDataUrl}" alt="County logo" />` : ''}
+            <div class="republic">REPUBLIC OF KENYA</div>
+            <div class="county">County Government of Machakos</div>
+            ${selectedContainer?.departmentName ? `<div class="department">${escapeHtml(String(selectedContainer.departmentName).toUpperCase())}</div>` : ''}
+          </div>
+          <h1>Budget Items Report</h1>
+          <div class="meta">
+            Generated: ${escapeHtml(generatedAt)}<br />
+            Budget: ${escapeHtml(selectedContainer?.budgetName || 'Budget Items')}<br />
+            Financial Year: ${escapeHtml(selectedContainer?.finYearName || 'N/A')}<br />
+            ${escapeHtml(filterText)}
+          </div>
+          <table class="summary">
+            <tr>
+              <td><strong>Total Items</strong></td>
+              <td>${filteredItems.length.toLocaleString()}</td>
+              <td><strong>Total Amount</strong></td>
+              <td class="amount">${escapeHtml(formatCurrency(filteredTotal))}</td>
+            </tr>
+          </table>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Project Name</th>
+                <th>Department</th>
+                <th>Subcounty</th>
+                <th>Ward</th>
+                <th>Amount (KES)</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || '<tr><td colspan="7">No budget items found.</td></tr>'}
+              <tr class="total-row">
+                <td colspan="5">Total</td>
+                <td class="amount">${escapeHtml(formatCurrency(filteredTotal))}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `budget_items_${selectedContainer?.budgetName?.replace(/[^a-z0-9]/gi, '_') || 'export'}_${dateStr}.doc`;
+      downloadWordDocument(html, filename);
+      setSnackbar({
+        open: true,
+        message: `Exported ${filteredItems.length} item(s) to Word successfully!${filteredItems.length !== containerItems.length ? ` (filtered from ${containerItems.length})` : ''}`,
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error exporting to Word:', err);
+      setSnackbar({ open: true, message: 'Failed to export to Word. Please try again.', severity: 'error' });
+    } finally {
+      setExportingWord(false);
+    }
+  };
+
+  const handleExportItemsToPDF = async () => {
     setExportingPdf(true);
     try {
       const headers = ['Project Name', 'Department', 'Subcounty', 'Ward', 'Amount (KES)', 'Remarks'];
@@ -1108,31 +1521,42 @@ function BudgetManagementPage() {
         item.departmentName || 'N/A',
         formatToSentenceCase(item.subcountyName) || 'N/A',
         formatToSentenceCase(item.wardName) || 'N/A',
-        formatCurrency(item.amount || 0),
+        formatCurrency(parseBudgetAmount(item.amount)),
         item.remarks || ''
       ]);
 
       const doc = new jsPDF('landscape', 'pt', 'a4');
+      const logoDataUrl = await getCountyLogoDataUrl();
       
       // Calculate total amount for filtered items
-      const filteredTotal = filteredItems.reduce((sum, item) => sum + (item.amount || 0), 0);
-      
-      // Add title
-      doc.setFontSize(16);
+      const filteredTotal = filteredItems.reduce((sum, item) => sum + parseBudgetAmount(item.amount), 0);
+
+      let startY = drawCountyOfficialHeader(doc, {
+        unit: 'pt',
+        logoDataUrl,
+        title: 'Budget Items Report',
+        departmentName: selectedContainer?.departmentName || '',
+      });
+
+      doc.setFontSize(13);
       doc.setFont(undefined, 'bold');
-      doc.text(selectedContainer?.budgetName || 'Budget Items', 40, 30);
-      
+      doc.setTextColor(33, 37, 41);
+      doc.text(selectedContainer?.budgetName || 'Budget Items', 40, startY);
+      startY += 18;
+
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
-      doc.text(`Financial Year: ${selectedContainer?.finYearName || 'N/A'}`, 40, 50);
-      doc.text(`Total Items: ${filteredItems.length}${filteredItems.length !== containerItems.length ? ` (filtered from ${containerItems.length})` : ''}`, 40, 65);
-      doc.text(`Total Amount: ${formatCurrency(filteredTotal)}${filteredItems.length !== containerItems.length ? ` (filtered)` : ''}`, 40, 80);
+      doc.setTextColor(33, 37, 41);
+      doc.text(`Financial Year: ${selectedContainer?.finYearName || 'N/A'}`, 40, startY);
+      doc.text(`Total Items: ${filteredItems.length}${filteredItems.length !== containerItems.length ? ` (filtered from ${containerItems.length})` : ''}`, 260, startY);
+      doc.text(`Total Amount: ${formatCurrency(filteredTotal)}${filteredItems.length !== containerItems.length ? ` (filtered)` : ''}`, 430, startY);
+      startY += 18;
 
       // Add table
       autoTable(doc, {
         head: [headers],
         body: dataRows,
-        startY: 95,
+        startY,
         styles: { 
           fontSize: 8, 
           cellPadding: 3,
@@ -1148,7 +1572,7 @@ function BudgetManagementPage() {
           4: { halign: 'right' } // Right align amount column
         },
         alternateRowStyles: { fillColor: [245, 245, 245] },
-        margin: { top: 95, left: 40, right: 40 },
+        margin: { top: 40, left: 40, right: 40 },
       });
 
       const dateStr = new Date().toISOString().split('T')[0];
@@ -1196,7 +1620,7 @@ function BudgetManagementPage() {
               item.departmentName || 'N/A',
               formatToSentenceCase(item.subcountyName) || 'N/A',
               formatToSentenceCase(item.wardName) || 'N/A',
-              item.amount || 0,
+              parseBudgetAmount(item.amount),
               item.remarks || ''
             ]);
           });
@@ -1208,7 +1632,7 @@ function BudgetManagementPage() {
             '',
             '',
             '',
-            parseFloat(container.totalAmount) || 0,
+            parseBudgetAmount(container.totalAmount),
             ''
           ]);
         }
@@ -1221,7 +1645,7 @@ function BudgetManagementPage() {
         '',
         '',
         '',
-        combinedBudgetView.grandTotal || 0,
+        parseBudgetAmount(combinedBudgetView.grandTotal),
         ''
       ]);
 
@@ -1271,7 +1695,135 @@ function BudgetManagementPage() {
     }
   };
 
-  const handleExportCombinedBudgetToPDF = () => {
+  const handleExportCombinedBudgetToWord = async () => {
+    setExportingWord(true);
+    try {
+      if (!combinedBudgetView || !combinedBudgetView.containerItems) {
+        setSnackbar({ open: true, message: 'No data to export', severity: 'warning' });
+        return;
+      }
+
+      const logoDataUrl = await getCountyLogoDataUrl();
+      const generatedAt = new Date().toLocaleString();
+      const containerSections = combinedBudgetView.containerItems.map((containerData, containerIndex) => {
+        const container = containerData.container;
+        const items = containerData.items || [];
+        const itemRows = items.map((item, itemIndex) => `
+          <tr>
+            <td style="text-align:center;">${itemIndex + 1}</td>
+            <td>${escapeHtml(formatToSentenceCase(item.projectName) || 'N/A')}</td>
+            <td>${escapeHtml(item.departmentName || 'N/A')}</td>
+            <td>${escapeHtml(formatToSentenceCase(item.subcountyName) || 'N/A')}</td>
+            <td>${escapeHtml(formatToSentenceCase(item.wardName) || 'N/A')}</td>
+            <td style="text-align:right;">${escapeHtml(formatCurrency(parseBudgetAmount(item.amount)))}</td>
+            <td>${escapeHtml(item.remarks || '')}</td>
+          </tr>
+        `).join('');
+
+        return `
+          <section class="container-section ${containerIndex > 0 ? 'page-break' : ''}">
+            <h2>${escapeHtml(formatToSentenceCase(container.budgetName) || `Container ${containerIndex + 1}`)}</h2>
+            <div class="meta compact">
+              Department: ${escapeHtml(formatToSentenceCase(container.departmentName) || 'No Department')}<br />
+              Subtotal: ${escapeHtml(formatCurrency(parseBudgetAmount(container.totalAmount)))}<br />
+              Items: ${items.length.toLocaleString()}
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Project Name</th>
+                  <th>Department</th>
+                  <th>Subcounty</th>
+                  <th>Ward</th>
+                  <th>Amount (KES)</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemRows || '<tr><td colspan="7">No budget items found.</td></tr>'}
+                <tr class="total-row">
+                  <td colspan="5">Subtotal</td>
+                  <td class="amount">${escapeHtml(formatCurrency(parseBudgetAmount(container.totalAmount)))}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        `;
+      }).join('');
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Combined Budget Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 10pt; color: #111827; }
+            .official-header { text-align: center; margin-bottom: 14px; border-bottom: 2px solid #166088; padding-bottom: 10px; }
+            .official-header img { width: 76px; height: auto; margin-bottom: 6px; }
+            .official-header .republic { font-size: 12pt; font-weight: bold; }
+            .official-header .county { font-size: 16pt; font-weight: bold; color: #166088; }
+            h1 { font-size: 18pt; margin: 0 0 6px; color: #111827; }
+            h2 { font-size: 13pt; color: #166088; margin: 16px 0 6px; }
+            .meta { color: #4b5563; margin-bottom: 14px; line-height: 1.45; }
+            .meta.compact { margin-bottom: 8px; }
+            .summary { margin-bottom: 14px; }
+            .summary td { padding: 4px 12px 4px 0; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+            th { background: #166088; color: #ffffff; font-weight: bold; }
+            th, td { border: 1px solid #cbd5e1; padding: 5px; vertical-align: top; }
+            .amount { text-align: right; font-weight: bold; }
+            .total-row td { font-weight: bold; background: #f1f5f9; }
+            .grand-total { border-top: 2px solid #166088; margin-top: 12px; padding-top: 10px; font-size: 12pt; font-weight: bold; color: #166088; }
+            .page-break { page-break-before: always; }
+          </style>
+        </head>
+        <body>
+          <div class="official-header">
+            ${logoDataUrl ? `<img src="${logoDataUrl}" alt="County logo" />` : ''}
+            <div class="republic">REPUBLIC OF KENYA</div>
+            <div class="county">County Government of Machakos</div>
+          </div>
+          <h1>Combined Budget Report</h1>
+          <div class="meta">
+            Generated: ${escapeHtml(generatedAt)}<br />
+            Budget: ${escapeHtml(combinedBudgetView.combinedBudget.budgetName || 'Combined Budget')}<br />
+            Financial Year: ${escapeHtml(combinedBudgetView.combinedBudget.finYearName || 'N/A')}
+          </div>
+          <table class="summary">
+            <tr>
+              <td><strong>Containers</strong></td>
+              <td>${Number(combinedBudgetView.containerCount || 0).toLocaleString()}</td>
+              <td><strong>Total Items</strong></td>
+              <td>${Number(combinedBudgetView.totalItems || 0).toLocaleString()}</td>
+              <td><strong>Grand Total</strong></td>
+              <td class="amount">${escapeHtml(formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal)))}</td>
+            </tr>
+          </table>
+          ${containerSections || '<p>No budget containers found.</p>'}
+          <div class="grand-total">GRAND TOTAL: ${escapeHtml(formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal)))}</div>
+        </body>
+        </html>
+      `;
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `combined_budget_${combinedBudgetView.combinedBudget.budgetName?.replace(/[^a-z0-9]/gi, '_') || 'export'}_${dateStr}.doc`;
+      downloadWordDocument(html, filename);
+      setSnackbar({
+        open: true,
+        message: `Exported combined budget with ${combinedBudgetView.totalItems} item(s) to Word successfully!`,
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error exporting combined budget to Word:', err);
+      setSnackbar({ open: true, message: 'Failed to export to Word. Please try again.', severity: 'error' });
+    } finally {
+      setExportingWord(false);
+    }
+  };
+
+  const handleExportCombinedBudgetToPDF = async () => {
     setExportingPdf(true);
     try {
       if (!combinedBudgetView || !combinedBudgetView.containerItems) {
@@ -1280,28 +1832,32 @@ function BudgetManagementPage() {
       }
 
       const doc = new jsPDF('landscape', 'pt', 'a4');
-      let startY = 40;
-      
-      // Add title
-      doc.setFontSize(18);
+      const logoDataUrl = await getCountyLogoDataUrl();
+      let startY = drawCountyOfficialHeader(doc, {
+        unit: 'pt',
+        logoDataUrl,
+        title: 'Combined Budget Report',
+      });
+
+      doc.setFontSize(13);
       doc.setFont(undefined, 'bold');
+      doc.setTextColor(33, 37, 41);
       doc.text(combinedBudgetView.combinedBudget.budgetName || 'Combined Budget', 40, startY);
-      
-      startY += 25;
+      startY += 18;
+
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
+      doc.setTextColor(33, 37, 41);
       doc.text(`Financial Year: ${combinedBudgetView.combinedBudget.finYearName || 'N/A'}`, 40, startY);
-      startY += 15;
-      doc.text(`Containers: ${combinedBudgetView.containerCount || 0}`, 40, startY);
-      startY += 15;
-      doc.text(`Total Items: ${combinedBudgetView.totalItems || 0}`, 40, startY);
-      startY += 15;
+      doc.text(`Containers: ${combinedBudgetView.containerCount || 0}`, 260, startY);
+      doc.text(`Total Items: ${combinedBudgetView.totalItems || 0}`, 390, startY);
+      startY += 18;
       doc.setFont(undefined, 'bold');
-      doc.text(`Grand Total: ${formatCurrency(combinedBudgetView.grandTotal || 0)}`, 40, startY);
+      doc.text(`Grand Total: ${formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal))}`, 40, startY);
       startY += 25;
 
       // Process each container
-      combinedBudgetView.containerItems.forEach((containerData, containerIndex) => {
+      combinedBudgetView.containerItems.forEach((containerData) => {
         const container = containerData.container;
         const items = containerData.items || [];
         
@@ -1309,7 +1865,11 @@ function BudgetManagementPage() {
           // Add container header
           if (startY > 650) {
             doc.addPage();
-            startY = 40;
+            startY = drawCountyOfficialHeader(doc, {
+              unit: 'pt',
+              logoDataUrl,
+              title: 'Combined Budget Report',
+            });
           }
           
           doc.setFontSize(12);
@@ -1321,7 +1881,7 @@ function BudgetManagementPage() {
           doc.setFontSize(9);
           doc.setFont(undefined, 'normal');
           doc.setTextColor(0, 0, 0);
-          doc.text(`${formatToSentenceCase(container.departmentName) || 'No Department'} • Subtotal: ${formatCurrency(parseFloat(container.totalAmount) || 0)}`, 40, startY);
+          doc.text(`${formatToSentenceCase(container.departmentName) || 'No Department'} • Subtotal: ${formatCurrency(parseBudgetAmount(container.totalAmount))}`, 40, startY);
           startY += 20;
 
           // Prepare table data for this container
@@ -1332,7 +1892,7 @@ function BudgetManagementPage() {
             item.departmentName || 'N/A',
             formatToSentenceCase(item.subcountyName) || 'N/A',
             formatToSentenceCase(item.wardName) || 'N/A',
-            formatCurrency(item.amount || 0)
+            formatCurrency(parseBudgetAmount(item.amount))
           ]);
 
           // Add subtotal row
@@ -1342,7 +1902,7 @@ function BudgetManagementPage() {
             '',
             '',
             '',
-            formatCurrency(parseFloat(container.totalAmount) || 0)
+            formatCurrency(parseBudgetAmount(container.totalAmount))
           ]);
 
           // Add table
@@ -1379,13 +1939,17 @@ function BudgetManagementPage() {
       // Add grand total
       if (startY > 650) {
         doc.addPage();
-        startY = 40;
+        startY = drawCountyOfficialHeader(doc, {
+          unit: 'pt',
+          logoDataUrl,
+          title: 'Combined Budget Report',
+        });
       }
       
       doc.setFontSize(14);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(76, 175, 80);
-      doc.text(`GRAND TOTAL: ${formatCurrency(combinedBudgetView.grandTotal || 0)}`, 40, startY);
+      doc.text(`GRAND TOTAL: ${formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal))}`, 40, startY);
       startY += 15;
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
@@ -1472,7 +2036,31 @@ function BudgetManagementPage() {
               sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }}
             />
           )}
+          {params.row.adpPlanId && (
+            <Chip 
+              label="ADP"
+              size="small"
+              color="info"
+              variant="outlined"
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }}
+            />
+          )}
         </Box>
+      )
+    },
+    {
+      field: 'adpPlanName',
+      headerName: 'ADP Plan',
+      flex: 1.4,
+      minWidth: 180,
+      renderCell: (params) => (
+        params.row.adpPlanId ? (
+          <Typography variant="body2" noWrap title={params.value || 'ADP linked'}>
+            {params.value || 'ADP linked'}
+          </Typography>
+        ) : (
+          <Chip label="Not linked" size="small" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
+        )
       )
     },
     { 
@@ -1501,7 +2089,7 @@ function BudgetManagementPage() {
       align: 'right',
       renderCell: (params) => (
         <Typography variant="body2" fontWeight={700} color="success.main">
-          {formatCurrency(params.row.totalAmount || 0)}
+          {formatCurrency(parseBudgetAmount(params.row.totalAmount))}
         </Typography>
       )
     },
@@ -1592,13 +2180,14 @@ function BudgetManagementPage() {
         totalItems: 0,
         approvedCount: 0,
         pendingCount: 0,
-        draftCount: 0
+        draftCount: 0,
+        adpBudgetCount: 0
       };
     }
 
     const totalBudgets = containers.length;
     const totalAmount = containers.reduce((sum, container) => {
-      return sum + (parseFloat(container.totalAmount) || 0);
+      return sum + parseBudgetAmount(container.totalAmount);
     }, 0);
     const totalItems = containers.reduce((sum, container) => {
       return sum + (parseInt(container.itemCount) || 0);
@@ -1606,6 +2195,7 @@ function BudgetManagementPage() {
     const approvedCount = containers.filter(c => c.status === 'Approved').length;
     const pendingCount = containers.filter(c => c.status === 'Pending' || c.status === 'Pending Approval').length;
     const draftCount = containers.filter(c => c.status === 'Draft').length;
+    const adpBudgetCount = containers.filter(c => c.adpPlanId).length;
 
     return {
       totalBudgets,
@@ -1613,7 +2203,8 @@ function BudgetManagementPage() {
       totalItems,
       approvedCount,
       pendingCount,
-      draftCount
+      draftCount,
+      adpBudgetCount
     };
   }, [containers]);
 
@@ -1643,6 +2234,24 @@ function BudgetManagementPage() {
           </Box>
         </Box>
         <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<FactCheckIcon />}
+            onClick={() => handleOpenAdpBudgetDialog()}
+            sx={{ 
+              backgroundColor: '#2563eb',
+              '&:hover': { backgroundColor: '#1d4ed8' },
+              color: 'white',
+              fontWeight: 700,
+              borderRadius: '6px',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+              px: 2,
+              py: 0.75
+            }}
+          >
+            Create Budget From ADP
+          </Button>
           <Button
             variant="contained"
             size="small"
@@ -1683,6 +2292,40 @@ function BudgetManagementPage() {
           </Button>
         </Stack>
       </Box>
+
+      {activeTab === 0 && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 1.5,
+            mb: 2,
+            border: 1,
+            borderColor: 'primary.light',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.06)',
+            borderRadius: 1.5
+          }}
+        >
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                <FactCheckIcon color="primary" fontSize="small" />
+                <Typography variant="subtitle2" fontWeight={800}>ADP wishlist to approved budget</Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                Start with an ADP plan, create a budget container, pick only the wishlist items to fund, then approve the budget when allocations are ready.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label="1. Select ADP Plan" color="primary" variant="outlined" />
+              <Chip size="small" label="2. Pick Wishlist Items" color="primary" variant="outlined" />
+              <Chip size="small" label="3. Approve Budget" color="success" variant="outlined" />
+              <Button size="small" variant="contained" startIcon={<FactCheckIcon />} onClick={() => handleOpenAdpBudgetDialog()}>
+                Start
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
 
       {/* Summary Statistics Cards — flex row + horizontal scroll (aligned with project-by-status-dashboard) */}
       {activeTab === 0 && containers.length > 0 && (
@@ -1731,6 +2374,34 @@ function BudgetManagementPage() {
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
                     {summaryStats.totalItems} items
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item sx={{ minWidth: { xs: '110px', sm: '130px', md: '145px' }, flex: '1 1 0', maxWidth: { md: 'none' } }}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #2563eb 0%, #0f766e 100%)',
+                  color: 'white',
+                  border: 'none',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.7rem', fontWeight: 600 }}>
+                      ADP Budgets
+                    </Typography>
+                    <FactCheckIcon sx={{ fontSize: 20, opacity: 0.8 }} />
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.2 }}>
+                    {summaryStats.adpBudgetCount}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.65rem' }}>
+                    Linked to wishlist
                   </Typography>
                 </CardContent>
               </Card>
@@ -2145,6 +2816,23 @@ function BudgetManagementPage() {
                   <Button
                     variant="outlined"
                     size="small"
+                    startIcon={<DescriptionIcon />}
+                    onClick={handleExportCombinedBudgetToWord}
+                    disabled={exportingWord || !combinedBudgetView?.containerItems?.length}
+                    sx={{ 
+                      borderColor: colors.blueAccent[500],
+                      color: colors.blueAccent[700],
+                      '&:hover': {
+                        borderColor: colors.blueAccent[600],
+                        bgcolor: colors.blueAccent[50]
+                      }
+                    }}
+                  >
+                    {exportingWord ? <CircularProgress size={16} /> : 'Word'}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
                     startIcon={<PictureAsPdfIcon />}
                     onClick={handleExportCombinedBudgetToPDF}
                     disabled={exportingPdf || !combinedBudgetView?.containerItems?.length}
@@ -2189,7 +2877,7 @@ function BudgetManagementPage() {
                 <Grid item xs={12} sm={6} md={3}>
                   <Typography variant="caption" color="text.secondary" display="block">Grand Total</Typography>
                   <Typography variant="body2" fontWeight={700} color="success.main" fontSize="1.1rem">
-                    {formatCurrency(combinedBudgetView.grandTotal || 0)}
+                    {formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal))}
                   </Typography>
                 </Grid>
               </Grid>
@@ -2240,7 +2928,7 @@ function BudgetManagementPage() {
               .map((containerData, containerIndex) => {
               const container = containerData.container;
               const items = Array.isArray(containerData.items) ? containerData.items : [];
-              const containerTotal = parseFloat(container.totalAmount) || 0;
+              const containerTotal = parseBudgetAmount(container.totalAmount);
               
               console.log(`Rendering Container ${containerIndex}:`, {
                 name: container.budgetName,
@@ -2367,7 +3055,7 @@ function BudgetManagementPage() {
                                 <TableCell sx={{ py: 1, fontSize: '0.813rem', minWidth: 120 }}>{formatToSentenceCase(item.subcountyName) || 'N/A'}</TableCell>
                                 <TableCell sx={{ py: 1, fontSize: '0.813rem', minWidth: 120 }}>{formatToSentenceCase(item.wardName) || 'N/A'}</TableCell>
                                 <TableCell sx={{ py: 1, align: 'right', fontWeight: 600, fontSize: '0.813rem', color: 'success.main' }}>
-                                  {formatCurrency(item.amount || 0)}
+                                  {formatCurrency(parseBudgetAmount(item.amount))}
                                 </TableCell>
                               </TableRow>
                             );
@@ -2422,7 +3110,7 @@ function BudgetManagementPage() {
                   Grand Total
                 </Typography>
                 <Typography variant="h4" fontWeight={700} color={colors.greenAccent[700]}>
-                  {formatCurrency(combinedBudgetView.grandTotal || 0)}
+                  {formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal))}
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" mt={1}>
@@ -2473,18 +3161,22 @@ function BudgetManagementPage() {
                 </Button>
               </Box>
               <Grid container spacing={2} mt={0.5}>
-                <Grid item xs={6} sm={4}>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="caption" color="text.secondary" display="block">Financial Year</Typography>
                   <Typography variant="body2" fontWeight={600}>{selectedContainer.finYearName || 'N/A'}</Typography>
                 </Grid>
-                <Grid item xs={6} sm={4}>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="caption" color="text.secondary" display="block">Department</Typography>
                   <Typography variant="body2" fontWeight={600}>{selectedContainer.departmentName || 'N/A'}</Typography>
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={6} sm={3}>
+                  <Typography variant="caption" color="text.secondary" display="block">ADP Plan</Typography>
+                  <Typography variant="body2" fontWeight={600}>{selectedContainer.adpPlanName || 'Not linked'}</Typography>
+                </Grid>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="caption" color="text.secondary" display="block">Total Amount</Typography>
                   <Typography variant="body2" fontWeight={700} color="success.main">
-                    {formatCurrency(selectedContainer.totalAmount || 0)}
+                    {formatCurrency(parseBudgetAmount(selectedContainer.totalAmount))}
                   </Typography>
                 </Grid>
               </Grid>
@@ -2496,6 +3188,22 @@ function BudgetManagementPage() {
               )}
             </CardContent>
           </Card>
+
+          <Alert
+            severity={selectedContainer.adpPlanId ? 'info' : 'warning'}
+            sx={{ mb: 2 }}
+            action={
+              selectedContainer.status !== 'Approved' || selectedContainer.isFrozen !== 1 ? (
+                <Button size="small" color="inherit" onClick={handleOpenAdpDialog}>
+                  {selectedContainer.adpPlanId ? 'Pick ADP Items' : 'Link ADP Items'}
+                </Button>
+              ) : null
+            }
+          >
+            {selectedContainer.adpPlanId
+              ? `This budget is linked to ${selectedContainer.adpPlanName || 'an ADP plan'}. Add only the wishlist items that will be funded.`
+              : 'This budget is not linked to an ADP plan yet. You can still add ADP wishlist items and the plan will be linked automatically.'}
+          </Alert>
 
           {/* Compact Budget Items */}
           <Card elevation={0} sx={{ mb: 2, border: 1, borderColor: 'divider' }}>
@@ -2533,6 +3241,24 @@ function BudgetManagementPage() {
                           )}
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Export to Word">
+                        <IconButton
+                          size="small"
+                          onClick={handleExportItemsToWord}
+                          disabled={exportingWord}
+                          sx={{ 
+                            border: 1, 
+                            borderColor: 'divider',
+                            '&:hover': { bgcolor: 'action.hover' }
+                          }}
+                        >
+                          {exportingWord ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <DescriptionIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Export to PDF">
                         <IconButton
                           size="small"
@@ -2553,14 +3279,16 @@ function BudgetManagementPage() {
                       </Tooltip>
                     </>
                   )}
-                  {/* Add Item button disabled - items should be imported only */}
-                  <Chip 
-                    icon={<LockIcon sx={{ fontSize: 14 }} />}
-                    label="Items via Import Only" 
-                    color="info"
+                  <Button
+                    variant="contained"
                     size="small"
-                    sx={{ height: 24 }}
-                  />
+                    startIcon={<FactCheckIcon />}
+                    onClick={handleOpenAdpDialog}
+                    disabled={selectedContainer.status === 'Approved' && selectedContainer.isFrozen === 1}
+                    sx={{ height: 30, textTransform: 'none' }}
+                  >
+                    Add From ADP
+                  </Button>
                 </Stack>
               </Box>
               
@@ -2661,6 +3389,7 @@ function BudgetManagementPage() {
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, width: 50, textAlign: 'center', fontSize: '0.75rem' }}>#</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 200 }}>Project Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 100 }}>Source</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 220, whiteSpace: 'nowrap' }}>Department</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>Subcounty</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>Ward</TableCell>
@@ -2682,28 +3411,48 @@ function BudgetManagementPage() {
                           <TableCell sx={{ py: 0.75, textAlign: 'center', fontWeight: 600, color: 'text.secondary', fontSize: '0.813rem' }}>
                             {index + 1}
                           </TableCell>
-                          <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 200 }}>{formatToSentenceCase(item.projectName) || 'N/A'}</TableCell>
+                          <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 200 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.813rem', fontWeight: 600 }}>
+                              {formatToSentenceCase(item.projectName) || 'N/A'}
+                            </Typography>
+                            {item.adpProgrammeName && (
+                              <Typography variant="caption" color="text.secondary" noWrap display="block">
+                                {item.adpProgrammeName}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ py: 0.75 }}>
+                            <Chip
+                              label={item.adpProjectId ? 'ADP' : 'Project'}
+                              size="small"
+                              color={item.adpProjectId ? 'info' : 'default'}
+                              variant={item.adpProjectId ? 'filled' : 'outlined'}
+                              sx={{ height: 22, fontSize: '0.7rem' }}
+                            />
+                          </TableCell>
                           <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.departmentName || 'N/A'}>
                             {item.departmentName || 'N/A'}
                           </TableCell>
                           <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>{formatToSentenceCase(item.subcountyName) || 'N/A'}</TableCell>
                           <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>{formatToSentenceCase(item.wardName) || 'N/A'}</TableCell>
                           <TableCell sx={{ py: 0.75, align: 'right', fontWeight: 600, fontSize: '0.813rem', color: 'success.main' }}>
-                            {formatCurrency(item.amount || 0)}
+                            {formatCurrency(parseBudgetAmount(item.amount))}
                           </TableCell>
                           <TableCell sx={{ py: 0.5 }} align="center">
                             <Stack direction="row" spacing={1}>
                               {selectedContainer.status !== 'Approved' || selectedContainer.isFrozen !== 1 ? (
                                 <>
-                                  <Tooltip title="Edit">
-                                    <IconButton 
-                                      size="small" 
-                                      color="primary"
-                                      onClick={() => handleOpenEditItemDialog(item)}
-                                    >
-                                      <EditIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
+                                  {!item.adpProjectId && (
+                                    <Tooltip title="Edit">
+                                      <IconButton 
+                                        size="small" 
+                                        color="primary"
+                                        onClick={() => handleOpenEditItemDialog(item)}
+                                      >
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
                                   <Tooltip title="Remove">
                                     <IconButton 
                                       size="small" 
@@ -2727,7 +3476,7 @@ function BudgetManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
                             No items in this budget container
                           </Typography>
@@ -2809,6 +3558,142 @@ function BudgetManagementPage() {
         </Box>
       )}
 
+      <Dialog
+        open={openAdpBudgetDialog}
+        onClose={handleCloseAdpBudgetDialog}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{ sx: { minWidth: { xs: 'calc(100vw - 24px)', sm: 680, md: 860 } } }}
+      >
+        <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <FactCheckIcon />
+          Create Budget From ADP Wishlist
+        </DialogTitle>
+        <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, p: { xs: 2, md: 3 } }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Create a budget container first, then choose the ADP wishlist items to fund. Items not selected remain as unfunded ADP priorities.
+          </Alert>
+          {adpPlans.length === 0 && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button size="small" color="inherit" onClick={fetchAdpPlans} disabled={loadingAdpPlans}>
+                  {loadingAdpPlans ? 'Loading...' : 'Reload'}
+                </Button>
+              }
+            >
+              No ADP plans are loaded yet. Reload plans, then select the ADP plan to budget from.
+            </Alert>
+          )}
+          <Grid container spacing={2.5}>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small" error={Boolean(adpBudgetErrors.adpPlanId)} sx={{ minWidth: { xs: 260, sm: 560 } }}>
+                <InputLabel>ADP Plan *</InputLabel>
+                <Select
+                  value={adpBudgetForm.adpPlanId}
+                  label="ADP Plan *"
+                  onChange={(event) => handleAdpBudgetFormChange('adpPlanId', event.target.value)}
+                  disabled={loadingAdpPlans}
+                  sx={{ minWidth: { xs: 260, sm: 560 } }}
+                  MenuProps={{ PaperProps: { sx: { minWidth: { xs: 260, sm: 560 } } } }}
+                >
+                  {loadingAdpPlans && <MenuItem value="" disabled>Loading ADP plans...</MenuItem>}
+                  {!loadingAdpPlans && adpPlans.length === 0 && <MenuItem value="" disabled>No ADP plans available</MenuItem>}
+                  {adpPlans.map((plan) => (
+                    <MenuItem key={plan.id} value={plan.id}>
+                      {plan.adpName} ({plan.financialYear})
+                    </MenuItem>
+                  ))}
+                </Select>
+                {adpBudgetErrors.adpPlanId && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                    {adpBudgetErrors.adpPlanId}
+                  </Typography>
+                )}
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth size="small" error={Boolean(adpBudgetErrors.finYearId)} sx={{ minWidth: { xs: 260, md: 360 } }}>
+                <InputLabel>Financial Year *</InputLabel>
+                <Select
+                  value={adpBudgetForm.finYearId}
+                  label="Financial Year *"
+                  onChange={(event) => handleAdpBudgetFormChange('finYearId', event.target.value)}
+                  sx={{ minWidth: { xs: 260, md: 360 } }}
+                  MenuProps={{ PaperProps: { sx: { minWidth: { xs: 260, md: 360 } } } }}
+                >
+                  {financialYears.map((fy) => (
+                    <MenuItem key={fy.finYearId} value={fy.finYearId}>
+                      {fy.finYearName}
+                    </MenuItem>
+                  ))}
+                </Select>
+                {adpBudgetErrors.finYearId && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                    {adpBudgetErrors.finYearId}
+                  </Typography>
+                )}
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth size="small" sx={{ minWidth: { xs: 260, md: 360 } }}>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={adpBudgetForm.departmentId}
+                  label="Department"
+                  onChange={(event) => handleAdpBudgetFormChange('departmentId', event.target.value)}
+                  sx={{ minWidth: { xs: 260, md: 360 } }}
+                  MenuProps={{ PaperProps: { sx: { minWidth: { xs: 260, md: 360 } } } }}
+                >
+                  <MenuItem value="">Countywide / All departments</MenuItem>
+                  {departments.map((dept) => (
+                    <MenuItem key={dept.departmentId} value={dept.departmentId}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                size="small"
+                sx={{ minWidth: { xs: 260, sm: 560 } }}
+                label="Budget Name *"
+                value={adpBudgetForm.budgetName}
+                onChange={(event) => handleAdpBudgetFormChange('budgetName', event.target.value)}
+                error={Boolean(adpBudgetErrors.budgetName)}
+                helperText={adpBudgetErrors.budgetName || 'Example: 2025/2026 Budget from ADP'}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                size="small"
+                sx={{ minWidth: { xs: 260, sm: 560 } }}
+                label="Notes"
+                value={adpBudgetForm.description}
+                onChange={(event) => handleAdpBudgetFormChange('description', event.target.value)}
+                multiline
+                minRows={2}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAdpBudgetDialog} disabled={loading}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateAdpBudget}
+            disabled={loading || loadingAdpPlans || adpPlans.length === 0}
+            startIcon={(loading || loadingAdpPlans) ? <CircularProgress size={16} /> : <FactCheckIcon />}
+          >
+            {loadingAdpPlans ? 'Loading ADP Plans...' : 'Create and Pick ADP Items'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Create/Edit Container Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="md">
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2877,6 +3762,25 @@ function BudgetManagementPage() {
                   {departments.map((dept) => (
                     <MenuItem key={dept.departmentId} value={dept.departmentId}>
                       {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControl fullWidth margin="dense" sx={{ minWidth: 260 }}>
+                <InputLabel>ADP Plan</InputLabel>
+                <Select
+                  name="adpPlanId"
+                  label="ADP Plan"
+                  value={formData.adpPlanId}
+                  onChange={handleFormChange}
+                >
+                  <MenuItem value="">Link later</MenuItem>
+                  {adpPlans.map((plan) => (
+                    <MenuItem key={plan.id} value={plan.id}>
+                      {plan.adpName || plan.adp_name} ({plan.financialYear || plan.financial_year})
                     </MenuItem>
                   ))}
                 </Select>
@@ -3003,7 +3907,7 @@ function BudgetManagementPage() {
                 <strong>Department:</strong> {budgetToApprove.departmentName || 'N/A'}
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                <strong>Total Amount:</strong> {formatCurrency(budgetToApprove.totalAmount || 0)}
+                <strong>Total Amount:</strong> {formatCurrency(parseBudgetAmount(budgetToApprove.totalAmount))}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 <strong>Items:</strong> {budgetToApprove.itemCount || 0}
@@ -3040,6 +3944,145 @@ function BudgetManagementPage() {
             startIcon={<CheckCircleIcon />}
           >
             {loading ? <CircularProgress size={20} color="inherit" /> : 'Approve Budget'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openAdpDialog} onClose={handleCloseAdpDialog} fullWidth maxWidth="lg">
+        <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <FactCheckIcon />
+          Add Budget Items From ADP Wishlist
+        </DialogTitle>
+        <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, pt: 2 }}>
+          <Grid container spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+            <Grid item xs={12} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ADP Plan</InputLabel>
+                <Select
+                  value={adpWishlistFilters.planId}
+                  label="ADP Plan"
+                  onChange={(event) => {
+                    const planId = event.target.value;
+                    setAdpWishlistFilters((prev) => ({ ...prev, planId }));
+                    fetchAdpWishlist({ planId });
+                  }}
+                >
+                  <MenuItem value="">All ADP Plans</MenuItem>
+                  {adpPlans.map((plan) => (
+                    <MenuItem key={plan.id} value={plan.id}>
+                      {plan.adpName || plan.adp_name} ({plan.financialYear || plan.financial_year})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Search ADP project"
+                value={adpWishlistFilters.search}
+                onChange={(event) => setAdpWishlistFilters((prev) => ({ ...prev, search: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') fetchAdpWishlist();
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Stack direction="row" spacing={1}>
+                <Button variant="outlined" size="small" onClick={() => fetchAdpWishlist()} disabled={loadingAdpWishlist}>
+                  Search
+                </Button>
+                <Chip label={`${selectedAdpProjectIds.length} selected`} size="small" color={selectedAdpProjectIds.length ? 'primary' : 'default'} />
+              </Stack>
+            </Grid>
+          </Grid>
+
+          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell padding="checkbox" />
+                  <TableCell sx={{ fontWeight: 700, minWidth: 260 }}>ADP Project</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 150 }}>Sector</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Programme</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Location</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 140 }} align="right">Wishlist Cost</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 110 }} align="center">Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loadingAdpWishlist ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <CircularProgress size={24} />
+                    </TableCell>
+                  </TableRow>
+                ) : adpWishlistRows.length > 0 ? (
+                  adpWishlistRows.map((row) => {
+                    const checked = selectedAdpProjectIds.includes(row.id);
+                    return (
+                      <TableRow
+                        key={row.id}
+                        hover
+                        selected={checked}
+                        sx={{ cursor: row.inCurrentBudget ? 'default' : 'pointer' }}
+                        onClick={() => {
+                          if (!row.inCurrentBudget) handleToggleAdpProject(row.id);
+                        }}
+                      >
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            checked={checked || row.inCurrentBudget}
+                            disabled={row.inCurrentBudget}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() => handleToggleAdpProject(row.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>{row.projectName || 'Unnamed ADP project'}</Typography>
+                          {row.outputText && (
+                            <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                              {row.outputText}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>{row.sectorName || 'N/A'}</TableCell>
+                        <TableCell>{row.programmeName || 'N/A'}</TableCell>
+                        <TableCell>{row.locationText || 'Countywide'}</TableCell>
+                        <TableCell align="right">{formatCurrency(row.estimatedCost || 0)}</TableCell>
+                        <TableCell align="center">
+                          {row.inCurrentBudget ? (
+                            <Chip label="In budget" size="small" color="success" variant="outlined" />
+                          ) : (
+                            <Chip label="Wishlist" size="small" variant="outlined" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No ADP wishlist projects found for the current filters.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAdpDialog}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddSelectedAdpItems}
+            disabled={selectedAdpProjectIds.length === 0 || loading || loadingAdpWishlist}
+            startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}
+          >
+            Add Selected
           </Button>
         </DialogActions>
       </Dialog>
@@ -3348,7 +4391,7 @@ function BudgetManagementPage() {
                                 : theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[600],
                             }}
                           >
-                            {container.departmentName || 'No Department'} • {formatCurrency(container.totalAmount || 0)}
+                            {container.departmentName || 'No Department'} • {formatCurrency(parseBudgetAmount(container.totalAmount))}
                           </Typography>
                         </Box>
                         <CheckCircleIcon 

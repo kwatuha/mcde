@@ -66,6 +66,9 @@ Thumbs.db
 !api/migrations/20260615_add_ai_assistant_audit.sql
 !api/migrations/20260615_seed_sector_department_mappings.sql
 !api/migrations/20260615_backfill_project_sublocation_villages.sql
+!api/migrations/20260615_add_adp_implementation_tracking.sql
+!api/migrations/20260615_seed_adp_2025_2026_projects.sql
+!api/migrations/20260616_add_adp_budget_linkage.sql
 *.db
 *.sqlite
 *.sqlite3

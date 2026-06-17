@@ -118,6 +118,7 @@ export const ROUTES = {
     CIDP_PILLARS: '/planning/cidp-pillars',
     PLANNING_CIDP_PERIODS: '/planning/cidp-periods',
     PLANNING_ADP_PERIODS: '/planning/adp-periods',
+    ADP_IMPLEMENTATION: '/planning/adp-implementation',
     PLANNING_PROGRAMMES: '/planning/programmes',
     PLANNING_SECTOR_LIST: '/planning/sector-list',
     PLANNING_BUDGET_ALLOCATION: '/planning/budget-allocation',

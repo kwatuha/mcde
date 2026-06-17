@@ -208,6 +208,29 @@ class BudgetService {
     }
   }
 
+  async getAdpWishlist(params = {}) {
+    try {
+      const response = await axiosInstance.get('/budgets/adp-wishlist', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching ADP wishlist:', error);
+      throw error;
+    }
+  }
+
+  async addAdpBudgetItems(budgetId, items, options = {}) {
+    try {
+      const response = await axiosInstance.post(`/budgets/containers/${budgetId}/adp-items`, {
+        items,
+        ...options
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error adding ADP budget items:', error);
+      throw error;
+    }
+  }
+
   /**
    * Update a budget item
    */
