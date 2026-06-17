@@ -21,11 +21,13 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import reportsService from '../api/reportsService';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const STATUS_OPTIONS = ['', 'Not Started', 'Initiated', 'In Progress', 'Completed', 'At Risk', 'Delayed', 'Stalled', 'On Hold'];
 
 export default function PendingBillsReportPage() {
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     department: '',
     status: '',
@@ -87,6 +89,20 @@ export default function PendingBillsReportPage() {
       { contract: 0, paid: 0, pending: 0 }
     );
   }, [rows]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'pending-bills-report',
+      filters,
+      screenSummary: {
+        projects: rows.length,
+        totalContract: totals.contract,
+        totalPaid: totals.paid,
+        totalPending: totals.pending,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [filters, rows.length, totals, setAIPageContext, clearAIPageContext]);
 
   const handleDownload = async () => {
     setDownloading(true);

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -21,12 +22,11 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import aiAssistantService from '../../api/aiAssistantService';
-
-const STARTER_MESSAGES = [
-  'Summarize projects I can access by status.',
-  'Which projects are stalled or need attention?',
-  'Summarize CIDP linkage for my accessible projects.',
-];
+import {
+  formatAssistantSections,
+  formatDataSourceLabel,
+  getAIStarterMessages,
+} from '../../utils/aiAssistantHelpers';
 
 const REPORT_TYPES = [
   'Project Status Report',
@@ -39,8 +39,36 @@ const REPORT_TYPES = [
 function makeGreeting() {
   return {
     role: 'assistant',
-    content: 'Hello, I am the M&E AI Assistant. I can help with workflows, reports, CIDP/ADP linkage, project monitoring, and system navigation.',
+    content: 'Hello, I am the M&E AI Assistant. I can help with workflows, reports, CIDP/ADP linkage, project monitoring, and system navigation. Ask about the page you are on or request a summary from live data in your access scope.',
   };
+}
+
+function AssistantMessageContent({ content }) {
+  const sections = useMemo(() => formatAssistantSections(content), [content]);
+
+  return (
+    <Stack spacing={1}>
+      {sections.map((section, index) => {
+        if (section.type === 'section') {
+          return (
+            <Box key={`section-${index}`}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.25 }}>
+                {section.title}
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                {section.text}
+              </Typography>
+            </Box>
+          );
+        }
+        return (
+          <Typography key={`paragraph-${index}`} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+            {section.text}
+          </Typography>
+        );
+      })}
+    </Stack>
+  );
 }
 
 export default function AIAssistantPanel({ pageContext }) {
@@ -57,6 +85,11 @@ export default function AIAssistantPanel({ pageContext }) {
   const [reportOutput, setReportOutput] = useState('docx');
   const [reportGenerating, setReportGenerating] = useState(false);
   const messagesEndRef = useRef(null);
+
+  const starterMessages = useMemo(
+    () => getAIStarterMessages(pageContext || {}),
+    [pageContext]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -93,8 +126,12 @@ export default function AIAssistantPanel({ pageContext }) {
         messages: nextMessages,
         context: pageContext,
       });
-      const dataNote = response?.dataContextUsed ? '\n\nData used: live scoped system data.' : '';
-      setMessages((prev) => [...prev, { role: 'assistant', content: `${response?.answer || 'I could not generate a response.'}${dataNote}` }]);
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: response?.answer || 'I could not generate a response.',
+        dataContextUsed: Boolean(response?.dataContextUsed),
+        dataSources: Array.isArray(response?.dataSources) ? response.dataSources : [],
+      }]);
     } catch (err) {
       const message = err?.response?.data?.message || err?.message || 'AI assistant request failed.';
       setError(message);
@@ -220,8 +257,8 @@ export default function AIAssistantPanel({ pageContext }) {
           ) : null}
           {statusLoaded && status.configured ? (
             <Alert severity="info">
-              This assistant can use compact live data summaries for project, status, budget, CIDP, and report questions,
-              restricted to your user access scope.
+              This assistant uses live scoped data for projects, budgets, ADP, CIDP, monitoring, and finance questions.
+              {pageContext?.pageType ? ` Context: ${pageContext.pageType.replace(/-/g, ' ')}.` : ''}
             </Alert>
           ) : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
@@ -240,10 +277,26 @@ export default function AIAssistantPanel({ pageContext }) {
                         borderRadius: 2,
                         bgcolor: isUser ? 'primary.main' : 'grey.100',
                         color: isUser ? 'primary.contrastText' : 'text.primary',
-                        whiteSpace: 'pre-wrap',
                       }}
                     >
-                      <Typography variant="body2">{message.content}</Typography>
+                      {isUser ? (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{message.content}</Typography>
+                      ) : (
+                        <AssistantMessageContent content={message.content} />
+                      )}
+                      {!isUser && message.dataContextUsed ? (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                          <Chip size="small" label="Live data used" color="success" variant="outlined" />
+                          {(message.dataSources || []).slice(0, 6).map((source) => (
+                            <Chip
+                              key={source}
+                              size="small"
+                              label={formatDataSourceLabel(source)}
+                              variant="outlined"
+                            />
+                          ))}
+                        </Stack>
+                      ) : null}
                     </Paper>
                   </Box>
                 );
@@ -260,7 +313,7 @@ export default function AIAssistantPanel({ pageContext }) {
 
           {messages.length <= 1 ? (
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              {STARTER_MESSAGES.map((starter) => (
+              {starterMessages.map((starter) => (
                 <Button
                   key={starter}
                   size="small"

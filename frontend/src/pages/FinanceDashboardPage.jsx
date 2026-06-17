@@ -53,6 +53,7 @@ import projectService from '../api/projectService';
 import reportsService from '../api/reportsService';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import {
   buildProjectOrganizationScopeMeta,
@@ -127,6 +128,7 @@ const FinanceDashboardPage = () => {
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     ministry: '',
     stateDepartment: '',
@@ -386,6 +388,21 @@ const FinanceDashboardPage = () => {
       underAbsorbing,
     };
   }, [filteredProjects, fundingSourceGroups, sectors]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'finance-dashboard',
+      filters,
+      screenSummary: {
+        projects: filteredProjects.length,
+        totalBudget: financialData.totalBudget,
+        totalPaid: financialData.totalPaid,
+        absorption: `${financialData.overallAbsorption}%`,
+        lowAbsorptionProjects: financialData.underAbsorbing?.length ?? 0,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [filters, filteredProjects.length, financialData, setAIPageContext, clearAIPageContext]);
 
   const isLight = theme.palette.mode === 'light';
   const ui = {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -13,7 +13,8 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import { Outlet, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { PageTitleProvider } from '../context/PageTitleContext.jsx';
+import { PageTitleProvider, usePageTitle } from '../context/PageTitleContext.jsx';
+import { AIPageContextProvider, useAIPageContextState } from '../context/AIPageContext.jsx';
 import { ProfileModalProvider, useProfileModal } from '../context/ProfileModalContext.jsx';
 import ProfileModal from '../components/ProfileModal.jsx';
 import { MenuCategoryProvider } from '../context/MenuCategoryContext.jsx';
@@ -56,6 +57,8 @@ function MainLayoutContent() {
   const { isCollapsed } = useSidebar();
   const { isTreeLayout } = useNavigationLayout();
   const { isOpen: isProfileModalOpen, closeModal: closeProfileModal } = useProfileModal();
+  const { pageTitle } = usePageTitle();
+  const { pageContext: aiPageContext } = useAIPageContextState();
   const isAdminLike = isAdmin(user);
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
 
@@ -67,6 +70,12 @@ function MainLayoutContent() {
 
   // Auto-update page title based on route
   usePageTitleEffect();
+
+  const assistantPageContext = useMemo(() => ({
+    path: location.pathname,
+    title: pageTitle || (typeof document !== 'undefined' ? document.title : ''),
+    ...aiPageContext,
+  }), [location.pathname, pageTitle, aiPageContext]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -276,12 +285,7 @@ function MainLayoutContent() {
       
       {/* Floating Chat Button - Hidden for now */}
       {/* <FloatingChatButton /> */}
-      <AIAssistantPanel
-        pageContext={{
-          path: location.pathname,
-          title: typeof document !== 'undefined' ? document.title : '',
-        }}
-      />
+      <AIAssistantPanel pageContext={assistantPageContext} />
 
       {/* Profile Modal */}
       <ProfileModal
@@ -295,13 +299,15 @@ function MainLayoutContent() {
 function MainLayout() {
   return (
     <PageTitleProvider>
-      <ProfileModalProvider>
-        <MenuCategoryProvider>
-          <SidebarProvider>
-            <MainLayoutContent />
-          </SidebarProvider>
-        </MenuCategoryProvider>
-      </ProfileModalProvider>
+      <AIPageContextProvider>
+        <ProfileModalProvider>
+          <MenuCategoryProvider>
+            <SidebarProvider>
+              <MainLayoutContent />
+            </SidebarProvider>
+          </MenuCategoryProvider>
+        </ProfileModalProvider>
+      </AIPageContextProvider>
     </PageTitleProvider>
   );
 }

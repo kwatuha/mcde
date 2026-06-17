@@ -1,6 +1,6 @@
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const DEFAULT_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const DEFAULT_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 900);
+const DEFAULT_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1800);
 const DEFAULT_REPORT_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_REPORT_MAX_OUTPUT_TOKENS || 2200);
 
 function isAssistantEnabled() {
@@ -39,16 +39,27 @@ function buildSystemPrompt({ user, context, dataContext } = {}) {
     const path = context?.path || context?.route || 'unknown page';
     const title = context?.title || '';
 
+    const page = context?.pageType ? context : (context?.page && typeof context.page === 'object' ? context.page : {});
+    const pageHint = page.pageType
+        ? ` Active screen: ${page.pageType}${page.projectName ? ` — ${page.projectName}` : ''}${page.budgetName ? ` — ${page.budgetName}` : ''}${page.adpPlanName ? ` — ${page.adpPlanName}` : ''}.`
+        : '';
+
     const lines = [
         'You are the inbuilt AI assistant for the Machakos County Monitoring and Evaluation System.',
         'Help users understand workflows, project monitoring, CIDP/ADP linkages, budgets, reports, approvals, procurement handoff, and system navigation.',
-        'Use concise, practical language. When giving steps, make them actionable.',
+        'Use practical, officer-friendly language. Prefer specific numbers and named projects when live data is available.',
         'Do not invent database records, counts, or project details that were not provided in the prompt context.',
         'When live system data is provided below, treat it as the authoritative data available to the logged-in user and base figures, counts, and summaries on it.',
         'If live data is not provided, be transparent that you are giving general guidance rather than querying the database.',
         'If the user asks for restricted or sensitive data, explain that you can only use information available to their logged-in account.',
         'AI content is advisory and should be reviewed by responsible officers before official submission.',
-        `Logged-in user: ${username}. Role: ${role}. Current page: ${path}${title ? ` (${title})` : ''}.`,
+        'For analytical questions, structure answers with these Markdown section headings when useful:',
+        '## Findings',
+        '## Notable items',
+        '## Gaps or risks',
+        '## Next steps',
+        'Use bullet lists under each section. Keep sections concise but substantive — avoid one-line generic answers when data supports more detail.',
+        `Logged-in user: ${username}. Role: ${role}. Current page: ${path}${title ? ` (${title})` : ''}.${pageHint}`,
     ];
     if (dataContext?.text) {
         lines.push('\nLIVE DATA CONTEXT:\n' + dataContext.text);

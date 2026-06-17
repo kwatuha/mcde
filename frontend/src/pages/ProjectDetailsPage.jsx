@@ -53,6 +53,7 @@ import {
 import apiService, { API_BASE_URL } from '../api';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
 import ProjectBQTab from '../components/ProjectBQTab';
 import ProjectCertificatesTab from '../components/ProjectCertificatesTab';
@@ -555,6 +556,7 @@ function ProjectDetailsPage() {
     const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
     const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
     const [planningSnapshotError, setPlanningSnapshotError] = useState(null);
+    const { setAIPageContext, clearAIPageContext } = useAIPageContext();
     const canViewProjectDocuments =
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
     const visibleProjectDetailTabs = useMemo(() => {
@@ -1304,6 +1306,41 @@ function ProjectDetailsPage() {
     useEffect(() => {
         checkAccess();
     }, [checkAccess]);
+
+    useEffect(() => {
+        const parsedProjectId = Number(projectId);
+        if (!Number.isFinite(parsedProjectId)) {
+            clearAIPageContext();
+            return undefined;
+        }
+
+        if (!project) {
+            setAIPageContext({
+                pageType: 'project-details',
+                projectId: parsedProjectId,
+            });
+            return () => clearAIPageContext();
+        }
+
+        setAIPageContext({
+            pageType: 'project-details',
+            projectId: parsedProjectId,
+            projectName: project.projectName || project.name || '',
+            status: project.status || '',
+            department: project.departmentAlias || project.departmentName || project.directorate || '',
+            subcounty: project.subcountyNames || project.subcounty || '',
+            ward: project.wardNames || '',
+            sublocation: project.sublocationName || project.sublocation || '',
+            village: project.villageName || project.village || '',
+            budget: parseFloat(project.costOfProject) || 0,
+            paid: parseFloat(project.paidOut) || 0,
+            progress: project.overallProgress != null ? parseFloat(project.overallProgress) || 0 : null,
+            cidpProgramme: planningSnapshot.cidpLink?.programme || planningSnapshot.cidpLink?.programName || '',
+            adpProjectName: planningSnapshot.adpLink?.projectName || planningSnapshot.adpLink?.adpProjectName || '',
+        });
+
+        return () => clearAIPageContext();
+    }, [project, projectId, planningSnapshot, setAIPageContext, clearAIPageContext]);
 
     const fetchProjectDetails = useCallback(async () => {
         setLoading(true);

@@ -39,6 +39,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 
 const emptyForm = {
   projectId: '',
@@ -68,6 +69,7 @@ const csvEscape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 const MonitoringProjectMonitoringPage = () => {
   const navigate = useNavigate();
   const { hasPrivilege } = useAuth();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const canCreate = hasPrivilege('project_monitoring.create');
   const canUpdate = hasPrivilege('project_monitoring.update');
   const canDelete = hasPrivilege('project_monitoring.delete');
@@ -131,8 +133,25 @@ const MonitoringProjectMonitoringPage = () => {
   const totals = useMemo(() => {
     const achievedTotal = rows.reduce((sum, row) => sum + (Number(row.achievedValue) || 0), 0);
     const evidenceTotal = rows.reduce((sum, row) => sum + (Number(row.evidenceCount) || 0), 0);
-    return { recordCount: rows.length, achievedTotal, evidenceTotal };
+    const highWarnings = rows.filter((row) => String(row.warningLevel || '').toLowerCase() === 'high').length;
+    const mediumWarnings = rows.filter((row) => String(row.warningLevel || '').toLowerCase() === 'medium').length;
+    return { recordCount: rows.length, achievedTotal, evidenceTotal, highWarnings, mediumWarnings };
   }, [rows]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'project-monitoring',
+      filters,
+      screenSummary: {
+        records: totals.recordCount,
+        projectsWithRecords: new Set(rows.map((row) => row.projectId).filter(Boolean)).size,
+        highWarnings: totals.highWarnings,
+        mediumWarnings: totals.mediumWarnings,
+        evidenceItems: totals.evidenceTotal,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [filters, rows, totals, setAIPageContext, clearAIPageContext]);
 
   const openCreateDialog = () => {
     setEditingRecord(null);

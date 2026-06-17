@@ -25,6 +25,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
 import { checkUserPrivilege, currencyFormatter, getProjectStatusBackgroundColor, getProjectStatusTextColor, formatStatus } from '../utils/tableHelpers';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
@@ -207,6 +208,7 @@ function rawProjectStatus(p) {
 
 function ProjectManagementPage() {
   const { user, loading: authLoading, hasPrivilege } = useAuth();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const theme = useTheme();
@@ -1495,6 +1497,38 @@ function ProjectManagementPage() {
       statusStats,
     };
   }, [dataGridFilteredProjects]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'project-registry',
+      searchQuery: searchQuery || '',
+      filters: {
+        department: registryFilters.departmentName || '',
+        financialYear: registryFilters.financialYearName || '',
+        subcounty: registryFilters.subcountyNames || '',
+        ward: registryFilters.wardNames || wardGisFilterLabel || '',
+        projectType: registryFilters.projectTypeName || '',
+        cidpLinkStatus: registryFilters.cidpLinkStatus || '',
+      },
+      screenSummary: {
+        filteredProjects: summaryStats.totalProjects,
+        totalBudget: summaryStats.totalBudget,
+        totalPaid: summaryStats.totalPaidOut,
+        completed: summaryStats.completedProjects,
+        ongoing: summaryStats.inProgressProjects,
+        stalled: summaryStats.statusStats?.Stalled ?? 0,
+        completionRate: `${summaryStats.completionRate}%`,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [
+    searchQuery,
+    registryFilters,
+    wardGisFilterLabel,
+    summaryStats,
+    setAIPageContext,
+    clearAIPageContext,
+  ]);
 
   const handleOpenFormDialog = async (project = null) => {
     if (project && !checkUserPrivilege(user, 'project.update')) {

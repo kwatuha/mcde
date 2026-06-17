@@ -21,6 +21,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const fmtCurrency = (v) =>
@@ -52,6 +53,7 @@ function downloadBlob(blob, fileName) {
 }
 
 export default function ProjectFinanceOverviewPage() {
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({ projectName: '', department: '', limit: 500 });
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -91,6 +93,22 @@ export default function ProjectFinanceOverviewPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'project-finance-overview',
+      filters,
+      screenSummary: summary ? {
+        projects: summary.count ?? rows.length,
+        totalBudget: summary.totalBudget ?? 0,
+        totalPaid: summary.totalPaid ?? 0,
+        partnerFunding: summary.totalPartnerFunding ?? 0,
+        certified: summary.totalCertified ?? 0,
+        pendingBills: summary.totalPendingBills ?? 0,
+      } : { projects: rows.length },
+    });
+    return () => clearAIPageContext();
+  }, [filters, summary, rows.length, setAIPageContext, clearAIPageContext]);
 
   const topPartners = useMemo(() => partners.slice(0, 5), [partners]);
 

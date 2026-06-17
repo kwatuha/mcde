@@ -27,6 +27,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
 import reportsService from '../api/reportsService';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/projectStatusColors';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
@@ -281,6 +282,7 @@ function buildGroupedRows(rows, selectedStatus) {
 }
 
 export default function StatusReportPage() {
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_FILTERS }));
   const [rows, setRows] = useState([]);
   const [filterOptions, setFilterOptions] = useState({ departments: [], financialYears: [] });
@@ -297,6 +299,21 @@ export default function StatusReportPage() {
   const totalBudget = useMemo(() => visibleRows.reduce((sum, row) => sum + Number(row.budget || 0), 0), [visibleRows]);
   const totalPaid = useMemo(() => visibleRows.reduce((sum, row) => sum + Number(row.paid || 0), 0), [visibleRows]);
   const totalBalance = useMemo(() => visibleRows.reduce((sum, row) => sum + Number(row.balance || 0), 0), [visibleRows]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'status-report',
+      filters,
+      screenSummary: {
+        projects: visibleRows.length,
+        statusGroups: groupedRows.length,
+        totalBudget,
+        totalPaid,
+        totalBalance,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [filters, visibleRows.length, groupedRows.length, totalBudget, totalPaid, totalBalance, setAIPageContext, clearAIPageContext]);
 
   const departmentOptions = useMemo(
     () => (filterOptions.departments || []).map((item) => item?.name || item?.alias || item).filter(Boolean),

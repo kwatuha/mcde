@@ -39,6 +39,7 @@ import budgetService from '../api/budgetService';
 import metaDataService from '../api/metaDataService';
 import projectService from '../api/projectService';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { tokens } from "../pages/dashboard/theme";
 import { formatCurrency, formatToSentenceCase } from '../utils/helpers';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
@@ -265,6 +266,42 @@ function BudgetManagementPage() {
     selectedContainerIds: []
   });
   const [combinedBudgetView, setCombinedBudgetView] = useState(null); // Stores the combined budget view data
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
+
+  useEffect(() => {
+    if (combinedBudgetView?.combinedBudget) {
+      const combined = combinedBudgetView.combinedBudget;
+      setAIPageContext({
+        pageType: 'budget-management',
+        budgetId: combined.budgetId,
+        budgetName: combined.budgetName,
+        finYearName: combined.finYearName,
+        itemCount: combinedBudgetView.totalItems,
+        totalAmount: combinedBudgetView.grandTotal,
+        combinedView: true,
+        containerCount: combinedBudgetView.containerCount,
+      });
+      return () => clearAIPageContext();
+    }
+
+    if (selectedContainer?.budgetId) {
+      setAIPageContext({
+        pageType: 'budget-management',
+        budgetId: selectedContainer.budgetId,
+        budgetName: selectedContainer.budgetName,
+        finYearName: selectedContainer.finYearName,
+        adpPlanId: selectedContainer.adpPlanId,
+        adpPlanName: selectedContainer.adpPlanName,
+        itemCount: selectedContainer.itemCount,
+        totalAmount: selectedContainer.totalAmount,
+        status: selectedContainer.status,
+      });
+      return () => clearAIPageContext();
+    }
+
+    setAIPageContext({ pageType: 'budget-management' });
+    return () => clearAIPageContext();
+  }, [combinedBudgetView, selectedContainer, setAIPageContext, clearAIPageContext]);
 
   // Row Action Menu States
   const [rowActionMenuAnchor, setRowActionMenuAnchor] = useState(null);

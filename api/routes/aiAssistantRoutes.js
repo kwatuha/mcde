@@ -164,6 +164,7 @@ router.post('/chat', async (req, res) => {
         res.json({
             ...result,
             dataContextUsed: Boolean(dataContext?.used),
+            dataSources: dataContext?.sources || [],
         });
     } catch (error) {
         await recordInteraction({ req, messages, status: 'error', error, dataContext });

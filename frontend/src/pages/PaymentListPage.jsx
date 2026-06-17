@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import reportsService from '../api/reportsService';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 const fmtCurrency = (value) =>
@@ -41,6 +42,7 @@ function fmtDate(value) {
 
 export default function PaymentListPage() {
   const navigate = useNavigate();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -79,6 +81,22 @@ export default function PaymentListPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'payment-list',
+      filters,
+      screenSummary: {
+        paymentRows: summary.rowCount ?? rows.length,
+        projects: summary.projectCount ?? 0,
+        totalPaid: summary.totalPaid ?? 0,
+        totalBudget: summary.totalBudget ?? 0,
+        absorption: summary.absorptionPercentage != null ? `${Number(summary.absorptionPercentage).toFixed(1)}%` : '',
+        totalCertified: summary.totalCertified ?? 0,
+      },
+    });
+    return () => clearAIPageContext();
+  }, [filters, summary, rows.length, setAIPageContext, clearAIPageContext]);
 
   const filterDescription = useMemo(() => {
     const parts = [];

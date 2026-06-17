@@ -37,6 +37,7 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
 function formatNumber(value) {
@@ -103,6 +104,7 @@ export default function ADPImplementationPage() {
   const [deleteRow, setDeleteRow] = useState(null);
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
   const [formErrors, setFormErrors] = useState({});
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
 
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.adpCode === selectedPlanCode) || plans[0] || null,
@@ -171,6 +173,28 @@ export default function ADPImplementationPage() {
   useEffect(() => {
     loadPlans().catch((e) => setError(e?.response?.data?.message || e?.message || 'Failed to load ADP plans.'));
   }, [loadPlans]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'adp-implementation',
+      adpPlanId: selectedPlan?.id,
+      adpPlanName: selectedPlan?.adpName,
+      adpFinancialYear: selectedPlan?.financialYear,
+      adpPlanCode: selectedPlan?.adpCode,
+      summary: {
+        adpPlanId: selectedPlan?.id,
+        plannedProjects: summary.plannedProjects,
+        budgetedAdpProjects: summary.budgetedAdpProjects,
+        linkedProjects: summary.linkedProjects,
+        plannedBudget: summary.plannedBudget,
+        budgetedAmount: summary.budgetedAmount,
+        actualBudget: summary.actualBudget,
+        actualPaid: summary.actualPaid,
+      },
+      filters,
+    });
+    return () => clearAIPageContext();
+  }, [selectedPlan, summary, filters, setAIPageContext, clearAIPageContext]);
 
   useEffect(() => {
     loadReport();
