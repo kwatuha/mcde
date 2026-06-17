@@ -44,8 +44,8 @@ export function getAIStarterMessages(context = {}) {
   if (path.includes('/finance/payment-list') || path.includes('/finance-dashboard')) {
     return [
       'Summarize payment absorption for projects I can access.',
+      'Create a well formatted finance report from this dashboard.',
       'Which projects have low paid-to-budget ratios?',
-      'Highlight finance risks from live project data.',
     ];
   }
 
@@ -90,6 +90,78 @@ export function getAIStarterMessages(context = {}) {
   }
 
   return DEFAULT_STARTERS;
+}
+
+const REPORT_INTENT_PATTERN = /\b(well[- ]formatted|formatted|professional|official|downloadable|printable)\s+(report|document)\b|\b(generate|create|prepare|write|draft|produce|export|download|make|build)\b[\s\S]{0,48}\b(report|document)\b|\b(report|document)\b[\s\S]{0,40}\b(word|pdf|docx|download|formatted)\b|\b(word|pdf|docx)\b[\s\S]{0,24}\b(report|document)\b/i;
+
+export const REPORT_TYPE_OPTIONS = [
+  'Project Status Report',
+  'Finance Summary Report',
+  'CIDP Linkage Report',
+  'Monitoring Summary Report',
+  'General M&E Report',
+];
+
+/** True when the user is asking for a downloadable formatted report, not just a chat answer. */
+export function detectReportIntent(message = '') {
+  return REPORT_INTENT_PATTERN.test(String(message || '').trim());
+}
+
+export function inferReportType(message = '', context = {}) {
+  const text = `${message} ${context.pageType || ''} ${context.path || ''} ${context.title || ''}`.toLowerCase();
+
+  if (
+    /\bfinance|financial|payment|absorption|disbursed|paid|pending bill|funding|budget dashboard\b/.test(text)
+    || ['finance-dashboard', 'payment-list', 'project-finance-overview', 'pending-bills-report'].includes(context.pageType)
+    || /finance-dashboard|payment-list|project-finance-overview|pending-bills/.test(context.path || '')
+  ) {
+    return 'Finance Summary Report';
+  }
+
+  if (
+    /\bmonitor|monitoring|warning level|observation|indicator|evidence\b/.test(text)
+    || context.pageType === 'project-monitoring'
+    || /monitoring/.test(context.path || '')
+  ) {
+    return 'Monitoring Summary Report';
+  }
+
+  if (
+    /\bcidp|adp|linkage|programme|wishlist|annual development\b/.test(text)
+    || ['adp-implementation', 'budget-management'].includes(context.pageType)
+    || /adp-implementation|budget-management/.test(context.path || '')
+  ) {
+    return 'CIDP Linkage Report';
+  }
+
+  if (
+    /\bproject status|stalled|ongoing|completed|registry|status report\b/.test(text)
+    || ['project-details', 'status-report', 'project-registry'].includes(context.pageType)
+    || /\/projects\/\d+|status-report/.test(context.path || '')
+  ) {
+    return 'Project Status Report';
+  }
+
+  return 'General M&E Report';
+}
+
+export function detectReportOutputFormat(message = '') {
+  const text = String(message || '').toLowerCase();
+  if (/\bpdf\b/.test(text) && !/\bword\b|\bdocx\b/.test(text)) return 'pdf';
+  if (/\bword\b|\bdocx\b/.test(text) && !/\bpdf\b/.test(text)) return 'docx';
+  return 'docx';
+}
+
+export function buildReportPromptFromChat(userMessage = '', pageContext = {}) {
+  const pageLabel = pageContext.title
+    || pageContext.pageType?.replace(/-/g, ' ')
+    || pageContext.path
+    || 'the current screen';
+  return [
+    String(userMessage || '').trim(),
+    `Use live data for ${pageLabel}.`,
+    'Include executive summary, key findings, tables where useful, risks or gaps, and actionable recommendations.',
+  ].filter(Boolean).join(' ');
 }
 
 export const DATA_SOURCE_LABELS = {

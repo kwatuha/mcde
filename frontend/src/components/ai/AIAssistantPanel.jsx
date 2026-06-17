@@ -20,27 +20,41 @@ import {
 } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
+import DownloadIcon from '@mui/icons-material/Download';
 import SendIcon from '@mui/icons-material/Send';
 import aiAssistantService from '../../api/aiAssistantService';
 import {
+  buildReportPromptFromChat,
+  detectReportIntent,
+  detectReportOutputFormat,
   formatAssistantSections,
   formatDataSourceLabel,
   getAIStarterMessages,
+  inferReportType,
+  REPORT_TYPE_OPTIONS,
 } from '../../utils/aiAssistantHelpers';
-
-const REPORT_TYPES = [
-  'Project Status Report',
-  'Finance Summary Report',
-  'CIDP Linkage Report',
-  'Monitoring Summary Report',
-  'General M&E Report',
-];
 
 function makeGreeting() {
   return {
     role: 'assistant',
-    content: 'Hello, I am the M&E AI Assistant. I can help with workflows, reports, CIDP/ADP linkage, project monitoring, and system navigation. Ask about the page you are on or request a summary from live data in your access scope.',
+    content: 'Hello, I am the M&E AI Assistant. Ask workflow questions, request live summaries, or say "create a well formatted report" to download a professional Word or PDF document for the page you are on.',
   };
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const match = String(disposition || '').match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}
+
+function downloadReportBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function AssistantMessageContent({ content }) {
@@ -81,7 +95,7 @@ export default function AIAssistantPanel({ pageContext }) {
   const [error, setError] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPrompt, setReportPrompt] = useState('Draft a professional report using my accessible live project data.');
-  const [reportType, setReportType] = useState(REPORT_TYPES[0]);
+  const [reportType, setReportType] = useState(REPORT_TYPE_OPTIONS[0]);
   const [reportOutput, setReportOutput] = useState('docx');
   const [reportGenerating, setReportGenerating] = useState(false);
   const messagesEndRef = useRef(null);
@@ -111,16 +125,136 @@ export default function AIAssistantPanel({ pageContext }) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, sending]);
+  }, [messages, sending, reportGenerating]);
+
+  const runProfessionalReport = async ({
+    prompt,
+    reportType: type,
+    output,
+    sourceMessage = '',
+  }) => {
+    const response = await aiAssistantService.generateReport({
+      prompt,
+      reportType: type,
+      output,
+      context: pageContext,
+    });
+    const extension = output === 'pdf' ? 'pdf' : 'docx';
+    const fileName = filenameFromDisposition(
+      response.headers?.['content-disposition'],
+      `ai-generated-report.${extension}`
+    );
+    const blob = new Blob([response.data], {
+      type: output === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    downloadReportBlob(blob, fileName);
+    return {
+      fileName,
+      output,
+      reportType: type,
+      prompt: sourceMessage || prompt,
+      dataContextUsed: String(response.headers?.['x-ai-data-context-used'] || '').toLowerCase() === 'true',
+    };
+  };
+
+  const handleDownloadReportVariant = async (message, output) => {
+    if (reportGenerating || !message?.reportMeta) return;
+    setReportGenerating(true);
+    setError('');
+    try {
+      const result = await runProfessionalReport({
+        prompt: buildReportPromptFromChat(message.reportMeta.prompt, pageContext),
+        reportType: message.reportMeta.reportType,
+        output,
+        sourceMessage: message.reportMeta.prompt,
+      });
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: `Downloaded ${output.toUpperCase()} report: ${result.fileName}`,
+        reportGenerated: true,
+        reportMeta: {
+          ...message.reportMeta,
+          fileName: result.fileName,
+          lastOutput: output,
+        },
+      }]);
+    } catch (err) {
+      const errMessage = err?.response?.data?.message || err?.message || 'AI report generation failed.';
+      setError(errMessage);
+    } finally {
+      setReportGenerating(false);
+    }
+  };
 
   const sendPrompt = async (promptText = input) => {
     const text = String(promptText || '').trim();
-    if (!text || sending) return;
+    if (!text || sending || reportGenerating) return;
+
     const nextMessages = [...messages, { role: 'user', content: text }];
     setMessages(nextMessages);
     setInput('');
-    setSending(true);
     setError('');
+
+    if (detectReportIntent(text)) {
+      const type = inferReportType(text, pageContext);
+      const output = detectReportOutputFormat(text);
+      const reportPromptText = buildReportPromptFromChat(text, pageContext);
+
+      setSending(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Preparing your ${type} as a professional ${output.toUpperCase()} document using live data from this screen...`,
+          reportGenerating: true,
+        },
+      ]);
+
+      try {
+        const result = await runProfessionalReport({
+          prompt: reportPromptText,
+          reportType: type,
+          output,
+          sourceMessage: text,
+        });
+        setMessages((prev) => {
+          const withoutPlaceholder = prev.filter((message) => !message.reportGenerating);
+          return [
+            ...withoutPlaceholder,
+            {
+              role: 'assistant',
+              content: [
+                `Your ${type} has been generated and downloaded as ${result.fileName}.`,
+                'The document uses the official system template with executive summary, sections, tables, and recommendations.',
+                'Use the buttons below if you need another format.',
+              ].join('\n\n'),
+              reportGenerated: true,
+              dataContextUsed: result.dataContextUsed,
+              reportMeta: {
+                prompt: text,
+                reportType: type,
+                fileName: result.fileName,
+                lastOutput: output,
+              },
+            },
+          ];
+        });
+      } catch (err) {
+        const errMessage = err?.response?.data?.message || err?.message || 'AI report generation failed.';
+        setError(errMessage);
+        setMessages((prev) => {
+          const withoutPlaceholder = prev.filter((message) => !message.reportGenerating);
+          return [...withoutPlaceholder, { role: 'assistant', content: errMessage }];
+        });
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    setSending(true);
     try {
       const response = await aiAssistantService.sendMessage({
         messages: nextMessages,
@@ -133,9 +267,9 @@ export default function AIAssistantPanel({ pageContext }) {
         dataSources: Array.isArray(response?.dataSources) ? response.dataSources : [],
       }]);
     } catch (err) {
-      const message = err?.response?.data?.message || err?.message || 'AI assistant request failed.';
-      setError(message);
-      setMessages((prev) => [...prev, { role: 'assistant', content: message }]);
+      const errMessage = err?.response?.data?.message || err?.message || 'AI assistant request failed.';
+      setError(errMessage);
+      setMessages((prev) => [...prev, { role: 'assistant', content: errMessage }]);
     } finally {
       setSending(false);
     }
@@ -148,56 +282,42 @@ export default function AIAssistantPanel({ pageContext }) {
     }
   };
 
-  const filenameFromDisposition = (disposition, fallback) => {
-    const match = String(disposition || '').match(/filename="?([^";]+)"?/i);
-    return match?.[1] || fallback;
-  };
-
   const handleGenerateReport = async () => {
     const prompt = String(reportPrompt || '').trim();
     if (!prompt || reportGenerating) return;
     setReportGenerating(true);
     setError('');
     try {
-      const response = await aiAssistantService.generateReport({
-        prompt,
+      const result = await runProfessionalReport({
+        prompt: buildReportPromptFromChat(prompt, pageContext),
         reportType,
         output: reportOutput,
-        context: pageContext,
+        sourceMessage: prompt,
       });
-      const extension = reportOutput === 'pdf' ? 'pdf' : 'docx';
-      const fileName = filenameFromDisposition(
-        response.headers?.['content-disposition'],
-        `ai-generated-report.${extension}`
-      );
-      const blob = new Blob([response.data], {
-        type: reportOutput === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
       setReportOpen(false);
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: `Professional ${reportOutput.toUpperCase()} report generated and downloaded. The document was formatted by the system template for consistent official styling.`,
+          content: `Professional ${reportOutput.toUpperCase()} report generated and downloaded (${result.fileName}).`,
+          reportGenerated: true,
+          reportMeta: {
+            prompt,
+            reportType,
+            fileName: result.fileName,
+            lastOutput: reportOutput,
+          },
         },
       ]);
     } catch (err) {
-      const message = err?.response?.data?.message || err?.message || 'AI report generation failed.';
-      setError(message);
+      const errMessage = err?.response?.data?.message || err?.message || 'AI report generation failed.';
+      setError(errMessage);
     } finally {
       setReportGenerating(false);
     }
   };
+
+  const busy = sending || reportGenerating;
 
   return (
     <>
@@ -215,7 +335,7 @@ export default function AIAssistantPanel({ pageContext }) {
               background: 'linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%)',
             },
           }}
-          aria-label="Open AI assistance"
+          aria-label="Open AI assistant"
         >
           <AutoAwesomeIcon />
         </Fab>
@@ -257,7 +377,7 @@ export default function AIAssistantPanel({ pageContext }) {
           ) : null}
           {statusLoaded && status.configured ? (
             <Alert severity="info">
-              This assistant uses live scoped data for projects, budgets, ADP, CIDP, monitoring, and finance questions.
+              Ask questions for live summaries, or request a &quot;well formatted report&quot; to download Word/PDF using the official template.
               {pageContext?.pageType ? ` Context: ${pageContext.pageType.replace(/-/g, ' ')}.` : ''}
             </Alert>
           ) : null}
@@ -279,7 +399,12 @@ export default function AIAssistantPanel({ pageContext }) {
                         color: isUser ? 'primary.contrastText' : 'text.primary',
                       }}
                     >
-                      {isUser ? (
+                      {message.reportGenerating ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="body2">{message.content}</Typography>
+                        </Box>
+                      ) : isUser ? (
                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{message.content}</Typography>
                       ) : (
                         <AssistantMessageContent content={message.content} />
@@ -297,11 +422,33 @@ export default function AIAssistantPanel({ pageContext }) {
                           ))}
                         </Stack>
                       ) : null}
+                      {!isUser && message.reportGenerated && message.reportMeta ? (
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<DownloadIcon />}
+                            disabled={busy}
+                            onClick={() => handleDownloadReportVariant(message, 'docx')}
+                          >
+                            Download Word
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<DownloadIcon />}
+                            disabled={busy}
+                            onClick={() => handleDownloadReportVariant(message, 'pdf')}
+                          >
+                            Download PDF
+                          </Button>
+                        </Stack>
+                      ) : null}
                     </Paper>
                   </Box>
                 );
               })}
-              {sending ? (
+              {sending && !messages.some((message) => message.reportGenerating) ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CircularProgress size={16} />
                   <Typography variant="caption" color="text.secondary">AI is thinking...</Typography>
@@ -319,7 +466,7 @@ export default function AIAssistantPanel({ pageContext }) {
                   size="small"
                   variant="outlined"
                   onClick={() => sendPrompt(starter)}
-                  disabled={sending || (statusLoaded && !status.configured)}
+                  disabled={busy || (statusLoaded && !status.configured)}
                 >
                   {starter}
                 </Button>
@@ -332,7 +479,7 @@ export default function AIAssistantPanel({ pageContext }) {
               variant="outlined"
               size="small"
               onClick={() => setReportOpen(true)}
-              disabled={sending || reportGenerating || (statusLoaded && !status.configured)}
+              disabled={busy || (statusLoaded && !status.configured)}
             >
               Generate Professional Report
             </Button>
@@ -345,19 +492,19 @@ export default function AIAssistantPanel({ pageContext }) {
               minRows={2}
               maxRows={5}
               size="small"
-              placeholder="Ask about workflows, reports, CIDP linkage, project monitoring..."
+              placeholder="Ask a question, or say: create a well formatted report for this page..."
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={sending || (statusLoaded && !status.configured)}
+              disabled={busy || (statusLoaded && !status.configured)}
             />
             <Button
               variant="contained"
               onClick={() => sendPrompt()}
-              disabled={!input.trim() || sending || (statusLoaded && !status.configured)}
+              disabled={!input.trim() || busy || (statusLoaded && !status.configured)}
               sx={{ minWidth: 44, height: 40 }}
             >
-              {sending ? <CircularProgress size={18} color="inherit" /> : <SendIcon fontSize="small" />}
+              {busy ? <CircularProgress size={18} color="inherit" /> : <SendIcon fontSize="small" />}
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary">
@@ -371,7 +518,7 @@ export default function AIAssistantPanel({ pageContext }) {
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
-              Low-cost mode: AI drafts structured content, then the system formats the final Word/PDF document using a fixed professional template.
+              AI drafts structured content, then the system formats the final Word/PDF document using a fixed professional template.
             </Alert>
             <TextField
               select
@@ -381,7 +528,7 @@ export default function AIAssistantPanel({ pageContext }) {
               value={reportType}
               onChange={(event) => setReportType(event.target.value)}
             >
-              {REPORT_TYPES.map((type) => (
+              {REPORT_TYPE_OPTIONS.map((type) => (
                 <MenuItem key={type} value={type}>{type}</MenuItem>
               ))}
             </TextField>
