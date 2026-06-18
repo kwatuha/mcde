@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box, Typography, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, CircularProgress, IconButton,
@@ -230,6 +230,8 @@ function BudgetManagementPage() {
     requiresApprovalForChanges: true
   });
   const [adpWishlistRows, setAdpWishlistRows] = useState([]);
+  const [adpWishlistSectors, setAdpWishlistSectors] = useState([]);
+  const [adpWishlistProgrammes, setAdpWishlistProgrammes] = useState([]);
   const [loadingAdpPlans, setLoadingAdpPlans] = useState(false);
   const [adpBudgetForm, setAdpBudgetForm] = useState({
     budgetName: '',
@@ -243,6 +245,8 @@ function BudgetManagementPage() {
   const [selectedAdpProjectIds, setSelectedAdpProjectIds] = useState([]);
   const [adpWishlistFilters, setAdpWishlistFilters] = useState({
     planId: '',
+    sector: '',
+    programme: '',
     search: ''
   });
   const [loadingAdpWishlist, setLoadingAdpWishlist] = useState(false);
@@ -315,6 +319,7 @@ function BudgetManagementPage() {
   // Context Menu States (Right-click)
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedContainerForContextMenu, setSelectedContainerForContextMenu] = useState(null);
+  const dataGridRef = useRef(null);
 
   // Fetch metadata
   const fetchMetadata = useCallback(async () => {
@@ -715,7 +720,7 @@ function BudgetManagementPage() {
         setPendingChanges(created.pendingChanges || []);
         setActiveTab(1);
         setSelectedAdpProjectIds([]);
-        setAdpWishlistFilters({ planId: adpBudgetForm.adpPlanId, search: '' });
+        setAdpWishlistFilters({ planId: adpBudgetForm.adpPlanId, sector: '', programme: '', search: '' });
         setOpenAdpDialog(true);
         await fetchAdpWishlist({ budgetId: createdBudgetId, planId: adpBudgetForm.adpPlanId, search: '' });
       }
@@ -763,22 +768,57 @@ function BudgetManagementPage() {
   };
 
   const handleViewContainer = async (container) => {
-    console.log('handleViewContainer called with:', container);
-    console.log('isCombined value:', container.isCombined, 'Type:', typeof container.isCombined);
-    
-    // Check if it's a combined budget (handle both number and boolean)
+    if (!container?.budgetId) return;
+
     if (isConsolidatedBudget(container)) {
-      console.log('Detected as consolidated budget, calling handleViewCombinedBudget');
       setActiveTab(1);
       await handleViewCombinedBudget(container.budgetId);
     } else {
-      console.log('Detected as regular container, calling fetchContainerDetails');
-      // Handle regular container view
       setSelectedContainer(container);
       setActiveTab(1);
       await fetchContainerDetails(container.budgetId);
     }
   };
+
+  const handleRowContextMenu = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rowElement = event.target.closest('.MuiDataGrid-row');
+    if (!rowElement) return;
+
+    const rowId = rowElement.getAttribute('data-id');
+    if (!rowId) return;
+
+    const container = containers.find((row) => String(row.budgetId) === String(rowId));
+    if (!container) return;
+
+    setContextMenu({
+      mouseX: event.clientX + 2,
+      mouseY: event.clientY - 6,
+    });
+    setSelectedContainerForContextMenu(container);
+  }, [containers]);
+
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu(null);
+    setSelectedContainerForContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    const gridContainer = dataGridRef.current;
+    if (!gridContainer) return;
+
+    const handleContextMenu = (event) => {
+      const rowElement = event.target.closest('.MuiDataGrid-row');
+      if (rowElement && !event.target.closest('.MuiDataGrid-columnHeader')) {
+        handleRowContextMenu(event);
+      }
+    };
+
+    gridContainer.addEventListener('contextmenu', handleContextMenu);
+    return () => gridContainer.removeEventListener('contextmenu', handleContextMenu);
+  }, [handleRowContextMenu]);
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
@@ -1050,6 +1090,8 @@ function BudgetManagementPage() {
       const params = {
         budgetId: effectiveBudgetId,
         planId: overrides.planId ?? adpWishlistFilters.planId ?? selectedContainer?.adpPlanId ?? '',
+        sector: overrides.sector ?? adpWishlistFilters.sector ?? '',
+        programme: overrides.programme ?? adpWishlistFilters.programme ?? '',
         search: overrides.search ?? adpWishlistFilters.search ?? ''
       };
       const cleanParams = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== ''));
@@ -1062,9 +1104,14 @@ function BudgetManagementPage() {
         })));
       }
       setAdpWishlistRows(data.projects || []);
+      setAdpWishlistSectors(data.sectors || []);
+      setAdpWishlistProgrammes(data.programmes || []);
       setAdpWishlistFilters((prev) => ({
         ...prev,
-        planId: params.planId || data.selectedPlanId || ''
+        planId: params.planId || data.selectedPlanId || '',
+        sector: params.sector || '',
+        programme: params.programme || '',
+        search: params.search || ''
       }));
     } catch (err) {
       console.error('Fetch ADP wishlist error:', err);
@@ -1076,17 +1123,28 @@ function BudgetManagementPage() {
     } finally {
       setLoadingAdpWishlist(false);
     }
-  }, [selectedContainer?.budgetId, selectedContainer?.adpPlanId, adpWishlistFilters.planId, adpWishlistFilters.search]);
+  }, [
+    selectedContainer?.budgetId,
+    selectedContainer?.adpPlanId,
+    adpWishlistFilters.planId,
+    adpWishlistFilters.sector,
+    adpWishlistFilters.programme,
+    adpWishlistFilters.search,
+  ]);
 
   const handleOpenAdpDialog = async () => {
     setSelectedAdpProjectIds([]);
     setAdpWishlistFilters({
       planId: selectedContainer?.adpPlanId || '',
+      sector: '',
+      programme: '',
       search: ''
     });
     setOpenAdpDialog(true);
     await fetchAdpWishlist({
       planId: selectedContainer?.adpPlanId || '',
+      sector: '',
+      programme: '',
       search: ''
     });
   };
@@ -2662,6 +2720,7 @@ function BudgetManagementPage() {
           {/* Compact Containers Table */}
           <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
             <Box
+              ref={dataGridRef}
               height="calc(100vh - 320px)"
               minHeight={400}
               sx={{
@@ -2744,13 +2803,10 @@ function BudgetManagementPage() {
                 onPageChange={(newPage) => setPagination(prev => ({ ...prev, page: newPage + 1 }))}
                 onPageSizeChange={(newPageSize) => setPagination(prev => ({ ...prev, limit: newPageSize, page: 1 }))}
                 rowsPerPageOptions={[25, 50, 100]}
-                onRowContextMenu={(params, event) => {
-                  event.preventDefault();
-                  setSelectedContainerForContextMenu(params.row);
-                  setContextMenu({
-                    mouseX: event.clientX + 2,
-                    mouseY: event.clientY - 6,
-                  });
+                disableRowSelectionOnClick
+                onRowDoubleClick={(params, event) => {
+                  if (event?.target?.closest?.('[data-field="actions"]')) return;
+                  handleViewContainer(params.row);
                 }}
                 sx={{
                   '& .MuiDataGrid-row': {
@@ -3985,8 +4041,11 @@ function BudgetManagementPage() {
           Add Budget Items From ADP Wishlist
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, pt: 2 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Sector and programme options come directly from imported ADP data, so you can filter even when names do not match standard county metadata.
+          </Alert>
           <Grid container spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel>ADP Plan</InputLabel>
                 <Select
@@ -3994,8 +4053,8 @@ function BudgetManagementPage() {
                   label="ADP Plan"
                   onChange={(event) => {
                     const planId = event.target.value;
-                    setAdpWishlistFilters((prev) => ({ ...prev, planId }));
-                    fetchAdpWishlist({ planId });
+                    setAdpWishlistFilters((prev) => ({ ...prev, planId, sector: '', programme: '' }));
+                    fetchAdpWishlist({ planId, sector: '', programme: '' });
                   }}
                 >
                   <MenuItem value="">All ADP Plans</MenuItem>
@@ -4007,11 +4066,51 @@ function BudgetManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={5}>
+            <Grid item xs={12} md={3}>
+              <Autocomplete
+                size="small"
+                options={adpWishlistSectors}
+                value={adpWishlistFilters.sector || null}
+                onChange={(_, value) => {
+                  const sector = value || '';
+                  setAdpWishlistFilters((prev) => ({ ...prev, sector, programme: '' }));
+                  fetchAdpWishlist({ sector, programme: '' });
+                }}
+                disabled={loadingAdpWishlist}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Sector (from ADP)"
+                    placeholder="All sectors"
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Autocomplete
+                size="small"
+                options={adpWishlistProgrammes}
+                value={adpWishlistFilters.programme || null}
+                onChange={(_, value) => {
+                  const programme = value || '';
+                  setAdpWishlistFilters((prev) => ({ ...prev, programme }));
+                  fetchAdpWishlist({ programme });
+                }}
+                disabled={loadingAdpWishlist}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Programme (from ADP)"
+                    placeholder="All programmes"
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
                 size="small"
-                label="Search ADP project"
+                label="Search project, location..."
                 value={adpWishlistFilters.search}
                 onChange={(event) => setAdpWishlistFilters((prev) => ({ ...prev, search: event.target.value }))}
                 onKeyDown={(event) => {
@@ -4019,11 +4118,23 @@ function BudgetManagementPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
-              <Stack direction="row" spacing={1}>
+            <Grid item xs={12}>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
                 <Button variant="outlined" size="small" onClick={() => fetchAdpWishlist()} disabled={loadingAdpWishlist}>
-                  Search
+                  Apply filters
                 </Button>
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={() => {
+                    setAdpWishlistFilters((prev) => ({ ...prev, sector: '', programme: '', search: '' }));
+                    fetchAdpWishlist({ sector: '', programme: '', search: '' });
+                  }}
+                  disabled={loadingAdpWishlist || (!adpWishlistFilters.sector && !adpWishlistFilters.programme && !adpWishlistFilters.search)}
+                >
+                  Clear filters
+                </Button>
+                <Chip label={`${adpWishlistRows.length} shown`} size="small" variant="outlined" />
                 <Chip label={`${selectedAdpProjectIds.length} selected`} size="small" color={selectedAdpProjectIds.length ? 'primary' : 'default'} />
               </Stack>
             </Grid>
@@ -4361,10 +4472,7 @@ function BudgetManagementPage() {
       {/* Context Menu (Right-click) */}
       <Menu
         open={contextMenu !== null}
-        onClose={() => {
-          setContextMenu(null);
-          setSelectedContainerForContextMenu(null);
-        }}
+        onClose={handleContextMenuClose}
         anchorReference="anchorPosition"
         anchorPosition={
           contextMenu !== null
@@ -4381,8 +4489,7 @@ function BudgetManagementPage() {
           return [
             <MenuItem key="view" onClick={() => {
               handleViewContainer(selectedContainerForContextMenu);
-              setContextMenu(null);
-              setSelectedContainerForContextMenu(null);
+              handleContextMenuClose();
             }}>
               <ListItemIcon>
                 <ViewIcon fontSize="small" />
@@ -4392,8 +4499,7 @@ function BudgetManagementPage() {
             canUpdate && !isFrozen && (
               <MenuItem key="edit" onClick={() => {
                 handleOpenEditDialog(selectedContainerForContextMenu);
-                setContextMenu(null);
-                setSelectedContainerForContextMenu(null);
+                handleContextMenuClose();
               }}>
                 <ListItemIcon>
                   <EditIcon fontSize="small" />
@@ -4404,8 +4510,7 @@ function BudgetManagementPage() {
             canApprove && (
               <MenuItem key="approve" onClick={() => {
                 handleOpenApproveDialog(selectedContainerForContextMenu.budgetId);
-                setContextMenu(null);
-                setSelectedContainerForContextMenu(null);
+                handleContextMenuClose();
               }}>
                 <ListItemIcon>
                   <CheckCircleIcon fontSize="small" color="success" />

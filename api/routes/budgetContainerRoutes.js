@@ -502,7 +502,7 @@ router.get('/adp-wishlist', auth, async (req, res) => {
             return res.status(400).json({ message: 'ADP budget wishlist is only available on PostgreSQL deployments.' });
         }
 
-        const { budgetId, planId, search, sector } = req.query;
+        const { budgetId, planId, search, sector, programme } = req.query;
         let effectivePlanId = planId || null;
 
         if (!effectivePlanId && budgetId) {
@@ -523,6 +523,11 @@ router.get('/adp-wishlist', auth, async (req, res) => {
             params.push(sector);
         }
 
+        if (programme) {
+            where.push('prog.programme_name = ?');
+            params.push(programme);
+        }
+
         if (search) {
             where.push(`(
                 ap.project_name ILIKE ?
@@ -530,11 +535,31 @@ router.get('/adp-wishlist', auth, async (req, res) => {
                 OR ap.activity_description ILIKE ?
                 OR ap.performance_indicator ILIKE ?
                 OR prog.programme_name ILIKE ?
+                OR prog.sector_name ILIKE ?
             )`);
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
         }
 
-        const projectsResult = await pool.query(`
+        const sectorWhere = ['COALESCE(ap.voided, false) = false', `prog.sector_name IS NOT NULL`, `TRIM(prog.sector_name) <> ''`];
+        const sectorParams = [];
+        if (effectivePlanId) {
+            sectorWhere.push('ap.adp_plan_id = ?');
+            sectorParams.push(effectivePlanId);
+        }
+
+        const programmeWhere = ['COALESCE(ap.voided, false) = false', `prog.programme_name IS NOT NULL`, `TRIM(prog.programme_name) <> ''`];
+        const programmeParams = [];
+        if (effectivePlanId) {
+            programmeWhere.push('ap.adp_plan_id = ?');
+            programmeParams.push(effectivePlanId);
+        }
+        if (sector) {
+            programmeWhere.push('prog.sector_name = ?');
+            programmeParams.push(sector);
+        }
+
+        const [projectsResult, plansResult, sectorsResult, programmesResult] = await Promise.all([
+            pool.query(`
             SELECT
                 ap.id,
                 ap.adp_plan_id AS "adpPlanId",
@@ -565,18 +590,40 @@ router.get('/adp-wishlist', auth, async (req, res) => {
             WHERE ${where.join(' AND ')}
             ORDER BY prog.sector_name NULLS LAST, prog.programme_name NULLS LAST, ap.project_name
             LIMIT 500
-        `, params);
-
-        const plansResult = await pool.query(`
+        `, params),
+            pool.query(`
             SELECT id, adp_code AS "adpCode", adp_name AS "adpName", financial_year AS "financialYear"
             FROM adp_plans
             WHERE COALESCE(voided, false) = false
             ORDER BY active DESC, start_date DESC NULLS LAST, id DESC
-        `);
+        `),
+            pool.query(`
+            SELECT DISTINCT TRIM(prog.sector_name) AS "sectorName"
+            FROM adp_projects ap
+            INNER JOIN adp_plans plan ON plan.id = ap.adp_plan_id
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            WHERE ${sectorWhere.join(' AND ')}
+            ORDER BY "sectorName"
+        `, sectorParams),
+            pool.query(`
+            SELECT DISTINCT TRIM(prog.programme_name) AS "programmeName"
+            FROM adp_projects ap
+            INNER JOIN adp_plans plan ON plan.id = ap.adp_plan_id
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            WHERE ${programmeWhere.join(' AND ')}
+            ORDER BY "programmeName"
+        `, programmeParams),
+        ]);
 
         return res.json({
             plans: rowsFromResult(plansResult),
             projects: rowsFromResult(projectsResult),
+            sectors: rowsFromResult(sectorsResult)
+                .map((row) => row.sectorName)
+                .filter((name) => Boolean(name && String(name).trim())),
+            programmes: rowsFromResult(programmesResult)
+                .map((row) => row.programmeName)
+                .filter((name) => Boolean(name && String(name).trim())),
             selectedPlanId: effectivePlanId
         });
     } catch (error) {

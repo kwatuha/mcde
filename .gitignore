@@ -26,6 +26,7 @@ scripts/deploy-procurement-workflow.sh
 scripts/export-procurement-and-rbac-pg.sh
 docs/
 newDocs/
+tmp_cimes_extract/
 
 
 
