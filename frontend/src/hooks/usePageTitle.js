@@ -8,7 +8,8 @@ const routeTitles = {
   // Dashboard routes
   '/': { title: 'Dashboard', subtitle: 'Overview & Analytics' },
   '/dashboard': { title: 'Dashboard', subtitle: 'Overview & Analytics' },
-  '/raw-data': { title: 'Raw Data', subtitle: 'Data Management' },
+  '/raw-data': { title: 'Beneficiary Registry', subtitle: 'Beneficiaries and programme participants' },
+  '/beneficiary-registry': { title: 'Beneficiary Registry', subtitle: 'Individuals, groups, households, and institutions' },
   '/projects': { title: 'Projects', subtitle: 'Project Management' },
   '/projects/documents-by-project': { title: 'Project Documents', subtitle: 'Attachments by project' },
   '/projects/milestones': { title: 'Project Milestone List', subtitle: 'Projects - milestones, targets, periods, and remarks' },
@@ -89,6 +90,30 @@ const routeTitles = {
     title: 'ADP Implementation',
     subtitle: 'Annual development plan priorities linked to actual projects',
   },
+  '/planning/rri-programmes': {
+    title: 'RRI Programmes',
+    subtitle: 'Internal delivery programmes with beneficiary and multi-site tracking',
+  },
+  '/planning/cidp-programme-progress': {
+    title: 'CIDP Programme Progress',
+    subtitle: 'County roll-up of CIDP linkage, budget, and implementation progress',
+  },
+  '/planning/adp-programme-progress': {
+    title: 'ADP Programme Progress',
+    subtitle: 'Annual plan programme roll-up of ADP rows, linkages, and delivery progress',
+  },
+  '/planning/county-overview': {
+    title: 'County Planning Overview',
+    subtitle: 'Cross-programme snapshot of CIDP, ADP, and RRI linkages',
+  },
+  '/planning/budget-traceability': {
+    title: 'Budget Traceability',
+    subtitle: 'Budget item to ADP row to registry project chain with paid amounts',
+  },
+  '/monitoring/ward-accountability': {
+    title: 'Ward Accountability',
+    subtitle: 'Ward-level projects, budgets, progress, and PMC report activity',
+  },
   '/planning/programmes': {
     title: 'Programme List',
     subtitle: 'Planning - programmes, objectives, sectors, and SDG linkages',
@@ -132,7 +157,7 @@ const routeTitles = {
   '/approval-levels-management': { title: 'Approvals & workflows', subtitle: 'Approval levels & workflow configuration' },
   '/kenya-wards': { title: 'Wards', subtitle: 'Machakos County ward reference (IEBC)' },
   '/sublocation-villages': { title: 'Sublocations & Villages', subtitle: 'Machakos sublocation and village reference' },
-  '/yearly-trends-report': { title: 'Yearly Trends Report', subtitle: 'Project counts by location and year' },
+  '/yearly-trends-report': { title: 'Projects by Location & Year', subtitle: 'Project counts, budget, and payments by start year and location' },
   '/status-report': { title: 'Status Report', subtitle: 'Projects grouped and color-coded by status' },
   '/feedback-management': { title: 'Feedback Management', subtitle: 'Citizen Feedback' },
   '/metadata-management': { title: 'Metadata Management', subtitle: 'Data Configuration' },
@@ -217,6 +242,13 @@ export const usePageTitleEffect = () => {
       }
     }
     
+    // Handle dynamic RRI programme routes
+    if (!titleInfo && path.startsWith('/planning/rri-programmes/')) {
+      if (path.match(/^\/planning\/rri-programmes\/\d+$/)) {
+        titleInfo = { title: 'RRI Programme', subtitle: 'Monitoring hub — coverage, projects, beneficiaries' };
+      }
+    }
+
     // Handle dynamic strategic planning routes
     if (!titleInfo && path.startsWith('/strategic-planning/')) {
       if (path.match(/^\/strategic-planning\/\d+$/)) {

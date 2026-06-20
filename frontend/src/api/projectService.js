@@ -506,6 +506,13 @@ const projectService = {
       );
       return response.data;
     },
+    signOffInspection: async (projectId, inspectionId, payload) => {
+      const response = await axiosInstance.post(
+        `/projects/${projectId}/inspections/${inspectionId}/sign-off`,
+        payload
+      );
+      return response.data;
+    },
   },
 
   funding: {

@@ -1,11 +1,11 @@
 // src/components/kdsp/KdspEsohsgScreeningForm.jsx
 import React from 'react';
 import {
-  Box, TextField, Grid, FormControl, InputLabel,
-  Select, MenuItem, FormControlLabel, Switch
+  Box, TextField, Grid, FormControlLabel, Switch
 } from '@mui/material';
-import JsonInputList from '../common/JsonInputList.jsx'; // Adjust path if needed
-import { screeningOutcomes } from '../../utils/helpers'; // Assuming screeningOutcomes is defined in helpers
+import JsonInputList from '../common/JsonInputList.jsx';
+import { screeningOutcomes } from '../../utils/helpers';
+import KdspSearchableSelect from './KdspSearchableSelect';
 
 function KdspEsohsgScreeningForm({ formData, handleFormChange, setFormData }) {
   return (
@@ -107,20 +107,14 @@ function KdspEsohsgScreeningForm({ formData, handleFormChange, setFormData }) {
           />
         </Grid>
         <Grid item xs={12}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Screening Result Outcome</InputLabel>
-            <Select
-              name="screeningResultOutcome"
-              value={formData.screeningResultOutcome || ''}
-              onChange={handleFormChange}
-              label="Screening Result Outcome"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {screeningOutcomes.map(outcome => (
-                <MenuItem key={outcome} value={outcome}>{outcome}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Screening Result Outcome"
+            name="screeningResultOutcome"
+            value={formData.screeningResultOutcome || ''}
+            options={screeningOutcomes}
+            onChange={handleFormChange}
+            minWidth={320}
+          />
         </Grid>
         <Grid item xs={12}>
           <TextField

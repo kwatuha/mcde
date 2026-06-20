@@ -70,17 +70,16 @@ const IMPORT_TYPES = [
   //   templateEndpoint: '/maps/template',
   //   color: 'success'
   // },
-  // Participants - Hidden
-  // {
-  //   id: 'participants',
-  //   name: 'Participants',
-  //   description: 'Import participant and stakeholder data',
-  //   icon: <AccountTreeIcon />,
-  //   privilege: 'participants.create',
-  //   endpoint: '/participants/import-data',
-  //   templateEndpoint: '/participants/template',
-  //   color: 'warning'
-  // },
+  {
+    id: 'participants',
+    name: 'Beneficiaries',
+    description: 'Import beneficiary / participant registry records (individual or group)',
+    icon: <AccountTreeIcon />,
+    privilege: 'project.create',
+    endpoint: '/participants/import-data',
+    templateEndpoint: '/beneficiaries/template',
+    color: 'warning'
+  },
   // Comprehensive Project Details - Hidden
   // {
   //   id: 'comprehensive-projects',
@@ -146,8 +145,11 @@ const TEMPLATE_HEADERS = {
     'GeoJSON', 'Description', 'County', 'Sub-County', 'Ward'
   ],
   participants: [
-    'Individual ID', 'First Name', 'Last Name', 'Gender', 'Date of Birth', 'Phone', 'Email',
-    'County', 'Sub-County', 'Ward', 'Village', 'Enrollment Date', 'Notes'
+    'Beneficiary Type', 'Registry Code', 'Display Name', 'First Name', 'Last Name', 'Gender', 'Age',
+    'ID Number', 'Phone', 'Email',
+    'Group Type', 'Member Count', 'Lead Contact Name', 'Lead Contact Phone',
+    'County', 'Sub-County', 'Ward', 'Village',
+    'Project', 'RRI Programme', 'RRI Site ID', 'Sector', 'Enrollment Date (YYYY-MM-DD)', 'Notes',
   ]
 };
 
@@ -263,7 +265,7 @@ function CentralImportPage() {
           response = await apiService.projectMaps.previewMapDataImport(formData);
           break;
         case 'participants':
-          response = await apiService.participants.previewParticipantImport(formData);
+          response = await apiService.beneficiaries.previewImport(formData);
           break;
         case 'comprehensive-projects':
           response = await apiService.comprehensiveProjects.previewComprehensiveImport(formData);
@@ -291,6 +293,11 @@ function CentralImportPage() {
         message: response.message,
         details: {
           unrecognizedHeaders: response.unrecognizedHeaders || [],
+          errors: response.details?.errors || [],
+          warnings: response.details?.warnings || [],
+          errorCount: response.details?.errorCount ?? (response.details?.errors?.length || 0),
+          warningCount: response.details?.warningCount ?? (response.details?.warnings?.length || 0),
+          totalRows: response.details?.totalRows,
         }
       });
 
@@ -496,7 +503,7 @@ function CentralImportPage() {
           response = await apiService.projectMaps.confirmMapDataImport({ dataToImport: fullParsedData });
           break;
         case 'participants':
-          response = await apiService.participants.confirmParticipantImport({ dataToImport: fullParsedData });
+          response = await apiService.beneficiaries.confirmImport({ dataToImport: fullParsedData });
           break;
         case 'comprehensive-projects':
           response = await apiService.comprehensiveProjects.confirmComprehensiveImport({ dataToImport: fullParsedData });
@@ -520,6 +527,8 @@ function CentralImportPage() {
 
       const rowsProcessed =
         Number(response?.details?.rowsProcessed ?? 0) ||
+        Number(response?.total ?? 0) ||
+        (Number(response?.inserted ?? 0) + Number(response?.updated ?? 0)) ||
         Number(response?.details?.projectsCreated ?? 0) + Number(response?.details?.projectsUpdated ?? 0);
       const hasSavedRows = rowsProcessed > 0;
 
@@ -528,7 +537,10 @@ function CentralImportPage() {
         message: response.message,
         severity: hasSavedRows ? 'success' : 'warning'
       });
-      setImportReport(response);
+      setImportReport({
+        ...response,
+        success: response.success !== false && (response.success === true || hasSavedRows),
+      });
 
       if (hasSavedRows) {
         setSelectedFile(null);
@@ -549,7 +561,7 @@ function CentralImportPage() {
               navigate('/maps');
               break;
             case 'participants':
-              navigate('/participants');
+              navigate('/beneficiary-registry');
               break;
             case 'comprehensive-projects':
               navigate('/projects');
@@ -601,6 +613,28 @@ function CentralImportPage() {
     setSnackbar({ open: true, message: 'Import process cancelled.', severity: 'info' });
   };
 
+  const handleDownloadKalamaSample = async () => {
+    setLoading(true);
+    try {
+      const data = await apiService.beneficiaries.downloadKalamaRriSample();
+      const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'beneficiary-import-kalama-rri-2025-26.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setSnackbar({ open: true, message: 'Kalama RRI sample file downloaded (8 mixed-type beneficiaries).', severity: 'success' });
+    } catch (error) {
+      console.error('Sample download error:', error);
+      setSnackbar({ open: true, message: 'Failed to download Kalama RRI sample file.', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDownloadTemplate = async () => {
     if (!currentImportType) {
       setSnackbar({ open: true, message: 'Please select an import type first.', severity: 'warning' });
@@ -649,7 +683,7 @@ function CentralImportPage() {
           response = await apiService.projectMaps.downloadMapDataTemplate();
           break;
         case 'participants':
-          response = await apiService.participants.downloadParticipantTemplate();
+          response = await apiService.beneficiaries.downloadTemplate();
           break;
         case 'comprehensive-projects':
           response = await apiService.comprehensiveProjects.downloadComprehensiveTemplate();
@@ -699,8 +733,19 @@ function CentralImportPage() {
       try {
         const headers = TEMPLATE_HEADERS[currentImportType.id] || [];
         if (headers.length === 0) throw new Error('No fallback headers defined for this import type.');
-        // Build a second row with variants where available
         let data = [headers];
+        if (currentImportType.id === 'participants') {
+          data.push([
+            'individual', '', 'Jane Wambua (example — delete before import)', 'Jane', 'Wambua', 'Female', 34,
+            '12345678', '0712345678', 'jane.wambua@example.com', '', '', '', '', 'Machakos', '', '', 'Kathome',
+            '', '', '', 'Agriculture', '2025-01-15', 'Sample individual row — delete before import.',
+          ]);
+          data.push([
+            'group', '', 'Mumbuni Women SHG (example — delete before import)', '', '', '', '',
+            '', '0722112233', 'mumbuni.shg@example.com', 'SHG', 42, 'Mary Kamau', '0733445566', 'Machakos', '', '', 'Mumbuni',
+            '', '', '', 'Agriculture', '2025-02-01', 'Sample group row — delete before import.',
+          ]);
+        }
         const variantsMap = (TEMPLATE_HEADER_VARIANTS[currentImportType.id] || {});
         const variantRow = headers.map((h) => {
           const variants = variantsMap[h];
@@ -714,7 +759,7 @@ function CentralImportPage() {
         // Optional: Freeze top row
         worksheet['!freeze'] = { xSplit: 0, ySplit: 1 };
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Template');
+        XLSX.utils.book_append_sheet(workbook, worksheet, currentImportType.id === 'participants' ? 'Beneficiaries' : 'Template');
         const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
         const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = window.URL.createObjectURL(blob);
@@ -937,6 +982,20 @@ function CentralImportPage() {
                 Download Template
               </Button>
             </Grid>
+            {selectedImportType === 'participants' && (
+              <Grid item xs={12} sm={4} md={3}>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<DownloadIcon />}
+                  onClick={handleDownloadKalamaSample}
+                  fullWidth
+                  disabled={loading}
+                >
+                  Kalama RRI Sample
+                </Button>
+              </Grid>
+            )}
             
             <Grid item xs={12} sm={8} md={6}>
               <Box sx={{ display: 'flex', gap: 1 }}>
@@ -1041,6 +1100,34 @@ function CentralImportPage() {
                   </TableBody>
                 </Table>
               </TableContainer>
+              {importReport && importReport.details && importReport.details.warnings && importReport.details.warnings.length > 0 && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                    Warnings ({importReport.details.warningCount || importReport.details.warnings.length}):
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2, m: 0, maxHeight: 160, overflow: 'auto' }}>
+                    {importReport.details.warnings.map((warning, idx) => (
+                      <li key={idx}>
+                        <Typography variant="caption" component="span">{warning}</Typography>
+                      </li>
+                    ))}
+                  </Box>
+                </Alert>
+              )}
+              {importReport && importReport.details && importReport.details.errors && importReport.details.errors.length > 0 && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                    Errors ({importReport.details.errorCount || importReport.details.errors.length}) — fix these before importing:
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2, m: 0, maxHeight: 160, overflow: 'auto' }}>
+                    {importReport.details.errors.map((errMsg, idx) => (
+                      <li key={idx}>
+                        <Typography variant="caption" component="span">{errMsg}</Typography>
+                      </li>
+                    ))}
+                  </Box>
+                </Alert>
+              )}
               {importReport && importReport.details && importReport.details.unrecognizedHeaders && importReport.details.unrecognizedHeaders.length > 0 && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   <Typography variant="caption" sx={{ fontSize: '0.8rem' }}>
@@ -1831,7 +1918,8 @@ function CentralImportPage() {
                     disabled={
                       loading || 
                       !checkUserPrivilege(user, currentImportType.privilege) ||
-                      ((currentImportType?.id === 'projects' || currentImportType?.id === 'budgets') && mappingSummary && !showMappingPreview)
+                      ((currentImportType?.id === 'projects' || currentImportType?.id === 'budgets') && mappingSummary && !showMappingPreview) ||
+                      (currentImportType?.id === 'participants' && (importReport?.details?.errorCount > 0 || importReport?.details?.errors?.length > 0))
                     }
                     sx={{ minWidth: 160 }}
                   >
@@ -1903,7 +1991,14 @@ function CentralImportPage() {
                       <Typography variant="body2">Links Created: {importReport.details.linksCreated}</Typography>
                     </Box>
                   )}
-                  {importReport.details && !importReport.details.errors && !importReport.details.error && importReport.details.projectsCreated === undefined && (
+                  {importReport.details.inserted !== undefined && importReport.details.projectsCreated === undefined && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2">Inserted: {importReport.details.inserted}</Typography>
+                      <Typography variant="body2">Updated: {importReport.details.updated}</Typography>
+                      <Typography variant="body2">Total: {importReport.details.total ?? importReport.details.rowsProcessed}</Typography>
+                    </Box>
+                  )}
+                  {importReport.details && !importReport.details.errors && !importReport.details.error && importReport.details.projectsCreated === undefined && importReport.details.inserted === undefined && (
                     <Box sx={{ mt: 1 }}>
                       <Typography variant="body2">Details:</Typography>
                       <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.8rem' }}>

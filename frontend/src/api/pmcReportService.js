@@ -56,6 +56,18 @@ const pmcReportService = {
     });
     return response;
   },
+
+  getHistory: async (reportId) => {
+    const response = await axiosInstance.get(`/pmc-reports/${reportId}/history`);
+    return response.data;
+  },
+
+  downloadHistoryFile: async (reportId, actionId) => {
+    const response = await axiosInstance.get(`/pmc-reports/${reportId}/actions/${actionId}/file`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
 };
 
 export default pmcReportService;

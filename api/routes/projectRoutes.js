@@ -5301,7 +5301,16 @@ router.get('/', async (req, res) => {
                 p.location->>'village' AS "villageName",
                 COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), kw_geo.sub_from_kw) AS "subcountyNames",
                 COALESCE(site_counts.site_count, 0) AS "coverageCount",
-                COALESCE(job_counts.jobs_count, 0) AS "jobsCount"
+                COALESCE(job_counts.jobs_count, 0) AS "jobsCount",
+                adp_link.adp_project_id AS "adpProjectId",
+                adp_link.adp_project_name AS "adpProjectName",
+                CASE WHEN adp_link.adp_project_id IS NOT NULL THEN 'linked' ELSE 'pending' END AS "adpLinkStatus",
+                CASE
+                    WHEN (p.budget->>'budget_id') ~ '^[0-9]+$' THEN 'budgeted'
+                    WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                         AND (p.budget->>'allocated_amount_kes')::numeric > 0 THEN 'allocated'
+                    ELSE 'unbudgeted'
+                END AS "budgetStatus"
         ` : `
             SELECT
                 p.id,
@@ -5419,6 +5428,19 @@ router.get('/', async (req, res) => {
                 WHERE voided = false
                 GROUP BY project_id
             ) job_counts ON p.project_id = job_counts.project_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    apl.adp_project_id,
+                    adpp.project_name AS adp_project_name
+                FROM adp_project_links apl
+                INNER JOIN adp_projects adpp
+                    ON adpp.id = apl.adp_project_id
+                   AND COALESCE(adpp.voided, false) = false
+                WHERE apl.project_id = p.project_id
+                  AND COALESCE(apl.voided, false) = false
+                ORDER BY apl.id DESC
+                LIMIT 1
+            ) adp_link ON true
         ` : `
             FROM
                 projects p

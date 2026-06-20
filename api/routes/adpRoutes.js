@@ -11,8 +11,9 @@ const isPostgres = DB_TYPE === 'postgresql';
 const canRead = privilege(['project.read_all', 'strategic_plan.read_all'], { anyOf: true });
 const canWrite = privilege(['project.update', 'strategic_plan.update', 'strategic_plan.create'], { anyOf: true });
 const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
-const projectBudgetExpr = (alias = 'p') => `CASE WHEN (${alias}.budget->>'allocated_amount_kes') ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (${alias}.budget->>'allocated_amount_kes')::numeric ELSE 0 END`;
-const projectPaidExpr = (alias = 'p') => `CASE WHEN (${alias}.budget->>'disbursed_amount_kes') ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (${alias}.budget->>'disbursed_amount_kes')::numeric ELSE 0 END`;
+const projectBudgetExpr = (alias = 'p') => `COALESCE(NULLIF(BTRIM(${alias}.budget->>'allocated_amount_kes'), ''), '0')::numeric`;
+const projectPaidExpr = (alias = 'p') => `COALESCE(NULLIF(BTRIM(${alias}.budget->>'disbursed_amount_kes'), ''), '0')::numeric`;
+const projectProgressExpr = (alias = 'p') => `COALESCE(NULLIF(BTRIM(${alias}.progress->>'percentage_complete'), ''), '0')::numeric`;
 
 function requirePostgres(req, res, next) {
   if (!isPostgres) {
@@ -209,6 +210,105 @@ async function fetchSuggestions(projectId) {
 
 router.use(requirePostgres);
 
+router.get('/programme-progress', canRead, async (req, res) => {
+  try {
+    const adpCode = textOrNull(req.query.adpCode);
+    const params = [];
+    let planFilter = '';
+    if (adpCode) {
+      params.push(adpCode);
+      planFilter = `AND ap.adp_code = $${params.length}`;
+    }
+
+    const result = await pool.query(
+      `
+      WITH project_metrics AS (
+        SELECT
+          p.project_id,
+          ${projectBudgetExpr('p')} AS budget_amount,
+          ${projectProgressExpr('p')} AS progress_pct,
+          lower(COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), '')) AS status_norm
+        FROM projects p
+        WHERE COALESCE(p.voided, false) = false
+      ),
+      adp_project_linkage AS (
+        SELECT
+          adpp.adp_programme_id,
+          adpp.id AS adp_project_id,
+          COALESCE(adpp.estimated_cost, 0)::numeric AS planned_cost,
+          l.project_id,
+          pm.budget_amount,
+          pm.progress_pct,
+          pm.status_norm
+        FROM adp_projects adpp
+        INNER JOIN adp_plans ap ON ap.id = adpp.adp_plan_id
+        LEFT JOIN adp_project_links l
+          ON l.adp_project_id = adpp.id
+         AND COALESCE(l.voided, false) = false
+        LEFT JOIN project_metrics pm ON pm.project_id = l.project_id
+        WHERE COALESCE(adpp.voided, false) = false
+          AND COALESCE(ap.voided, false) = false
+          ${planFilter}
+      ),
+      programme_rollups AS (
+        SELECT
+          adp_programme_id,
+          COUNT(*)::int AS adp_projects,
+          COUNT(*) FILTER (WHERE project_id IS NOT NULL)::int AS linked_adp_projects,
+          COUNT(DISTINCT project_id)::int AS linked_registry_projects,
+          COALESCE(SUM(planned_cost), 0)::numeric AS planned_budget,
+          COALESCE(SUM(COALESCE(budget_amount, 0)), 0)::numeric AS project_budget,
+          COALESCE(AVG(progress_pct) FILTER (WHERE project_id IS NOT NULL), 0)::numeric AS avg_progress,
+          COUNT(*) FILTER (
+            WHERE project_id IS NOT NULL
+              AND (status_norm LIKE '%stall%' OR status_norm LIKE '%hold%' OR progress_pct < 10)
+          )::int AS stalled_projects
+        FROM adp_project_linkage
+        WHERE adp_programme_id IS NOT NULL
+        GROUP BY adp_programme_id
+      )
+      SELECT
+        adpg.id AS "programmeId",
+        adpg.sector_name AS "sectorName",
+        adpg.programme_name AS "programmeName",
+        adpg.subprogramme_name AS "subprogrammeName",
+        ap.adp_code AS "adpCode",
+        ap.financial_year AS "financialYear",
+        COALESCE(pr.adp_projects, 0)::int AS "adpProjects",
+        COALESCE(pr.linked_adp_projects, 0)::int AS "linkedAdpProjects",
+        COALESCE(pr.linked_registry_projects, 0)::int AS "linkedRegistryProjects",
+        COALESCE(pr.planned_budget, 0)::numeric AS "plannedBudget",
+        COALESCE(pr.project_budget, 0)::numeric AS "projectBudget",
+        COALESCE(pr.avg_progress, 0)::numeric AS "avgProgress",
+        COALESCE(pr.stalled_projects, 0)::int AS "stalledProjects",
+        CASE
+          WHEN COALESCE(pr.adp_projects, 0) = 0 THEN 0
+          ELSE ROUND(100.0 * COALESCE(pr.linked_adp_projects, 0) / pr.adp_projects, 1)
+        END::numeric AS "linkagePercent"
+      FROM adp_programmes adpg
+      INNER JOIN adp_plans ap ON ap.id = adpg.adp_plan_id
+      LEFT JOIN programme_rollups pr ON pr.adp_programme_id = adpg.id
+      WHERE COALESCE(adpg.voided, false) = false
+        AND COALESCE(ap.voided, false) = false
+        ${planFilter}
+      ORDER BY COALESCE(pr.linked_registry_projects, 0) DESC,
+               COALESCE(pr.project_budget, 0) DESC,
+               adpg.sector_name ASC NULLS LAST,
+               adpg.programme_name ASC NULLS LAST
+      `,
+      params
+    );
+
+    res.json({
+      adpCode: adpCode || null,
+      rows: result.rows || [],
+    });
+  } catch (error) {
+    console.error('ADP programme progress failed:', error);
+    res.status(500).json({ message: 'Failed to load ADP programme progress.', error: error.message });
+  }
+});
+
 router.get('/plans', canRead, async (req, res) => {
   try {
     const result = await pool.query(
@@ -323,6 +423,18 @@ router.get('/projects', canRead, async (req, res) => {
     addTextFilter('adpp.plan_status', req.query.status);
     addTextFilter('adpp.project_name', req.query.search);
     addTextFilter('adpp.location_text', req.query.location);
+    addTextFilter('adpp.ward', req.query.ward);
+
+    const gap = textOrNull(req.query.gap)?.toLowerCase();
+    if (gap === 'unbudgeted') {
+      where.push('COALESCE(bap.budget_count, 0) = 0');
+    } else if (gap === 'unlinked') {
+      where.push('COALESCE(slp.linked_project_count, 0) = 0');
+    } else if (gap === 'needs_action') {
+      where.push('(COALESCE(bap.budget_count, 0) = 0 OR COALESCE(slp.linked_project_count, 0) = 0)');
+    } else if (gap === 'ready') {
+      where.push('COALESCE(bap.budget_count, 0) > 0 AND COALESCE(slp.linked_project_count, 0) > 0');
+    }
 
     const projectScopeWhere = ['COALESCE(p.voided, false) = false'];
     await addProjectScopeWhere(req, projectScopeWhere, params, 'p');
@@ -378,7 +490,12 @@ router.get('/projects', canRead, async (req, res) => {
         COALESCE(bap.budgeted_amount, 0)::numeric AS "budgetedAmount",
         COALESCE(slp.linked_project_count, 0)::int AS "linkedProjectCount",
         COALESCE(slp.actual_budget, 0)::numeric AS "actualBudget",
-        COALESCE(slp.actual_paid, 0)::numeric AS "actualPaid"
+        COALESCE(slp.actual_paid, 0)::numeric AS "actualPaid",
+        CASE
+          WHEN COALESCE(bap.budget_count, 0) = 0 AND COALESCE(slp.linked_project_count, 0) = 0 THEN 'high'
+          WHEN COALESCE(bap.budget_count, 0) = 0 OR COALESCE(slp.linked_project_count, 0) = 0 THEN 'medium'
+          ELSE 'low'
+        END AS "priorityLevel"
       FROM adp_projects adpp
       INNER JOIN adp_plans ap ON ap.id = adpp.adp_plan_id
       LEFT JOIN adp_programmes adpg ON adpg.id = adpp.adp_programme_id AND COALESCE(adpg.voided, false) = false
@@ -686,6 +803,100 @@ router.patch('/project-link-suggestions/:suggestionId', canWrite, async (req, re
   }
 });
 
+router.get('/plans/:planId/link-suggestions', canRead, async (req, res) => {
+  try {
+    const planId = normalizeId(req.params.planId);
+    if (!planId) return res.status(400).json({ message: 'Invalid ADP plan id.' });
+
+    const status = textOrNull(req.query.status);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const params = [planId];
+    const where = [
+      'adpp.adp_plan_id = $1',
+      'COALESCE(adpp.voided, false) = false',
+      'COALESCE(p.voided, false) = false',
+    ];
+    if (status) {
+      params.push(status);
+      where.push(`s.status = $${params.length}`);
+    }
+
+    const countResult = await pool.query(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM adp_project_link_suggestions s
+      INNER JOIN adp_projects adpp ON adpp.id = s.adp_project_id
+      INNER JOIN projects p ON p.project_id = s.project_id
+      WHERE ${where.join(' AND ')}
+      `,
+      params
+    );
+
+    params.push(limit, offset);
+    const listResult = await pool.query(
+      `
+      SELECT
+        s.id,
+        s.project_id AS "projectId",
+        s.adp_project_id AS "adpProjectId",
+        s.confidence::float AS confidence,
+        s.match_reason AS "matchReason",
+        s.status,
+        s.reviewed_at AS "reviewedAt",
+        s.updated_at AS "updatedAt",
+        p.name AS "projectName",
+        adpp.project_name AS "adpProjectName",
+        adpp.location_text AS "locationText",
+        adpp.ward,
+        adpg.sector_name AS "sectorName",
+        adpg.programme_name AS "programmeName"
+      FROM adp_project_link_suggestions s
+      INNER JOIN adp_projects adpp ON adpp.id = s.adp_project_id
+      INNER JOIN projects p ON p.project_id = s.project_id
+      LEFT JOIN adp_programmes adpg ON adpg.id = adpp.adp_programme_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        CASE s.status WHEN 'review_pending' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END,
+        s.confidence DESC,
+        s.id ASC
+      LIMIT $${params.length - 1}
+      OFFSET $${params.length}
+      `,
+      params
+    );
+
+    const summaryResult = await pool.query(
+      `
+      SELECT s.status, COUNT(*)::int AS count
+      FROM adp_project_link_suggestions s
+      INNER JOIN adp_projects adpp ON adpp.id = s.adp_project_id
+      INNER JOIN projects p ON p.project_id = s.project_id
+      WHERE adpp.adp_plan_id = $1
+        AND COALESCE(adpp.voided, false) = false
+        AND COALESCE(p.voided, false) = false
+      GROUP BY s.status
+      `,
+      [planId]
+    );
+    const summary = { review_pending: 0, accepted: 0, rejected: 0 };
+    (summaryResult.rows || []).forEach((row) => {
+      if (row.status in summary) summary[row.status] = row.count;
+    });
+
+    res.json({
+      rows: listResult.rows || [],
+      totalCount: countResult.rows?.[0]?.total || 0,
+      summary,
+      limit,
+      offset,
+    });
+  } catch (error) {
+    console.error('ADP plan link suggestions fetch failed:', error);
+    res.status(500).json({ message: 'Failed to load ADP link suggestions.', error: error.message });
+  }
+});
+
 router.post('/plans/:planId/generate-suggestions', canWrite, async (req, res) => {
   try {
     const planId = normalizeId(req.params.planId);
@@ -777,7 +988,30 @@ router.post('/plans/:planId/generate-suggestions', canWrite, async (req, res) =>
       `,
       params
     );
-    res.json({ insertedOrUpdated: result.rowCount || 0 });
+
+    const summaryResult = await pool.query(
+      `
+      SELECT s.status, COUNT(*)::int AS count
+      FROM adp_project_link_suggestions s
+      INNER JOIN adp_projects adpp ON adpp.id = s.adp_project_id
+      INNER JOIN projects p ON p.project_id = s.project_id
+      WHERE adpp.adp_plan_id = $1
+        AND COALESCE(adpp.voided, false) = false
+        AND COALESCE(p.voided, false) = false
+      GROUP BY s.status
+      `,
+      [planId]
+    );
+    const summary = { review_pending: 0, accepted: 0, rejected: 0 };
+    (summaryResult.rows || []).forEach((row) => {
+      if (row.status in summary) summary[row.status] = row.count;
+    });
+
+    res.json({
+      insertedOrUpdated: result.rowCount || 0,
+      summary,
+      pendingCount: summary.review_pending,
+    });
   } catch (error) {
     console.error('ADP suggestion generation failed:', error);
     res.status(500).json({ message: 'Failed to generate ADP link suggestions.', error: error.message });

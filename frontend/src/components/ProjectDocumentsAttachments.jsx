@@ -35,6 +35,7 @@ import { workflowChipProps, workflowDetailLine } from '../utils/certificateWorkf
 
 // Document type options for various project aspects
 const documentTypeOptions = [
+    { value: 'concept_note', label: 'Concept Note', icon: '📑' },
     { value: 'award_letter', label: 'Award Letter', icon: '📋' },
     { value: 'inspection_certificate', label: 'Inspection Certificate', icon: '🔍' },
     { value: 'evaluation_report', label: 'Evaluation Report', icon: '📊' },
@@ -64,17 +65,19 @@ function isMilestoneProjectDocument(doc) {
 
 const DOCUMENT_CATEGORY_ORDER = {
     milestone: 0,
-    general: 1,
-    payment: 2,
-    photos: 3,
-    certificates: 4,
-    inspection: 5,
+    inception: 1,
+    general: 2,
+    payment: 3,
+    photos: 4,
+    certificates: 5,
+    inspection: 6,
 };
 
 function formatDocumentCategoryHeading(category) {
     const key = String(category || 'general').toLowerCase();
     const labels = {
         milestone: 'Milestone documents & progress',
+        inception: 'Inception & concept note',
         general: 'General documents',
         payment: 'Payment documents',
         photos: 'Photos',
@@ -1016,8 +1019,14 @@ const ProjectDocumentsAttachments = ({ projectId }) => {
                     if (!formData.has('projectId')) {
                         formData.append('projectId', projectId);
                     }
+                    const docType = formData.get('documentType');
                     if (!formData.has('documentCategory')) {
-                        formData.append('documentCategory', 'general');
+                        formData.append(
+                            'documentCategory',
+                            docType === 'concept_note' ? 'inception' : 'general'
+                        );
+                    } else if (docType === 'concept_note') {
+                        formData.set('documentCategory', 'inception');
                     }
                     if (!formData.has('status')) {
                         formData.append('status', 'pending_review');

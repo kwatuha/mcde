@@ -14,6 +14,8 @@ const projectTableColumns = [
   { id: 'paidOut', label: 'Paid', minWidth: 100, show: false, sortable: true },
   { id: 'tenderContractNo', label: 'Tender No', minWidth: 130, show: true, sortable: true },
   { id: 'cidpLink', label: 'CIDP Link', minWidth: 240, width: 280, show: true, sortable: true },
+  { id: 'adpLink', label: 'ADP Link', minWidth: 180, width: 200, show: true, sortable: true },
+  { id: 'budgetStatus', label: 'Budget Status', minWidth: 120, width: 130, show: true, sortable: true },
   { id: 'overallProgress', label: 'Progress', minWidth: 120, width: 130, show: true, sortable: true },
   { id: 'coverageCount', label: 'Sites', minWidth: 70, width: 80, show: true, sortable: true },
   { id: 'jobsCount', label: 'Jobs', minWidth: 70, width: 80, show: true, sortable: true },

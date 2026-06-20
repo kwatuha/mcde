@@ -1,9 +1,8 @@
 // src/components/kdsp/KdspRisksForm.jsx
 import React from 'react';
-import {
-  Box, TextField, Grid, FormControl, InputLabel, Select, MenuItem
-} from '@mui/material';
-import { riskLevels } from '../../utils/helpers'; // Assuming riskLevels is defined in helpers
+import { Box, TextField, Grid } from '@mui/material';
+import { riskLevels } from '../../utils/helpers';
+import KdspSearchableSelect from './KdspSearchableSelect';
 
 function KdspRisksForm({ formData, handleFormChange }) {
   return (
@@ -22,36 +21,24 @@ function KdspRisksForm({ formData, handleFormChange }) {
           />
         </Grid>
         <Grid item xs={12} sm={6}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Likelihood</InputLabel>
-            <Select
-              name="likelihood"
-              value={formData.likelihood || ''}
-              onChange={handleFormChange}
-              label="Likelihood"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {riskLevels.map(level => (
-                <MenuItem key={level} value={level}>{level}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Likelihood"
+            name="likelihood"
+            value={formData.likelihood || ''}
+            options={riskLevels}
+            onChange={handleFormChange}
+            minWidth={260}
+          />
         </Grid>
         <Grid item xs={12} sm={6}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Impact</InputLabel>
-            <Select
-              name="impact"
-              value={formData.impact || ''}
-              onChange={handleFormChange}
-              label="Impact"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {riskLevels.map(level => (
-                <MenuItem key={level} value={level}>{level}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Impact"
+            name="impact"
+            value={formData.impact || ''}
+            options={riskLevels}
+            onChange={handleFormChange}
+            minWidth={260}
+          />
         </Grid>
         <Grid item xs={12}>
           <TextField

@@ -48,6 +48,7 @@ import {
     Work as WorkIcon,
     Feedback as FeedbackIcon,
     FactCheck as FactCheckIcon,
+    Description as DescriptionIcon,
     AssignmentTurnedIn as AssignmentTurnedInIcon,
     AccountBalanceWallet as AccountBalanceWalletIcon,
 } from '@mui/icons-material';
@@ -153,6 +154,8 @@ import {
 import ProjectEvaluationPage from './ProjectEvaluationPage';
 import ProjectCidpImplementationLinksPage from './ProjectCidpImplementationLinksPage';
 import ProjectAdpImplementationLinksPage from './ProjectAdpImplementationLinksPage';
+import ProjectInceptionPanel from '../components/project/ProjectInceptionPanel';
+import ProjectPaymentRequestsPanel from '../components/project/ProjectPaymentRequestsPanel';
 
 const checkUserPrivilege = (user, privilegeName) => {
     return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
@@ -171,6 +174,8 @@ const PROJECT_DETAIL_TAB_ALIASES = {
     map: 8,
     'implementation-plan': 9,
     implementation: 9,
+    inception: 10,
+    payments: 11,
 };
 
 const PROJECT_DETAIL_TAB_KEYS = {
@@ -184,11 +189,15 @@ const PROJECT_DETAIL_TAB_KEYS = {
     7: 'certificates',
     8: 'map',
     9: 'implementation-plan',
+    10: 'inception',
+    11: 'payments',
 };
 
 const PROJECT_DETAIL_TAB_DEFINITIONS = [
     { value: 0, key: 'overview', label: 'Overview', icon: InfoIcon },
     { value: 9, key: 'implementation-plan', label: 'Plan', icon: AccountTreeIcon },
+    { value: 10, key: 'inception', label: 'Inception', icon: DescriptionIcon },
+    { value: 11, key: 'payments', label: 'Payments', icon: PaidIcon },
     { value: 1, key: 'financials', label: 'Financials', icon: MoneyIcon },
     { value: 2, key: 'sites', label: 'Sites', icon: LocationOnIcon },
     { value: 3, key: 'jobs', label: 'Jobs', icon: WorkIcon },
@@ -522,6 +531,9 @@ function ProjectDetailsPage() {
     const [inspectionBqItems, setInspectionBqItems] = useState([]);
     const [loadingInspectionBqItems, setLoadingInspectionBqItems] = useState(false);
     const [uploadingInspectionFiles, setUploadingInspectionFiles] = useState(false);
+    const [signOffDialog, setSignOffDialog] = useState({ open: false, inspection: null });
+    const [signOffForm, setSignOffForm] = useState({ signedByName: '', signedByRole: '', signOffNotes: '' });
+    const [submittingSignOff, setSubmittingSignOff] = useState(false);
     const [partners, setPartners] = useState([]);
     const [projectFundingEntries, setProjectFundingEntries] = useState([]);
     const [loadingFunding, setLoadingFunding] = useState(false);
@@ -1043,6 +1055,42 @@ function ProjectDetailsPage() {
             setSnackbar({ open: true, message: err?.message || 'Upload failed.', severity: 'error' });
         } finally {
             setUploadingInspectionFiles(false);
+        }
+    };
+
+    const handleOpenSignOffDialog = (inspection) => {
+        setSignOffForm({
+            signedByName: inspection?.signedByName || user?.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+            signedByRole: inspection?.signedByRole || '',
+            signOffNotes: inspection?.signOffNotes || '',
+        });
+        setSignOffDialog({ open: true, inspection });
+    };
+
+    const handleSubmitSignOff = async () => {
+        if (!signOffDialog.inspection?.inspectionId) return;
+        if (!String(signOffForm.signedByName || '').trim()) {
+            setSnackbar({ open: true, message: 'Signed-by name is required.', severity: 'error' });
+            return;
+        }
+        try {
+            setSubmittingSignOff(true);
+            await projectService.inspections.signOffInspection(
+                projectId,
+                signOffDialog.inspection.inspectionId,
+                signOffForm
+            );
+            setSnackbar({ open: true, message: 'Inspection sign-off recorded.', severity: 'success' });
+            setSignOffDialog({ open: false, inspection: null });
+            fetchProjectInspections();
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: err?.response?.data?.error || err?.message || 'Sign-off failed.',
+                severity: 'error',
+            });
+        } finally {
+            setSubmittingSignOff(false);
         }
     };
 
@@ -5887,6 +5935,17 @@ function ProjectDetailsPage() {
                                                     <Button size="small" variant="text" onClick={() => handleOpenInspectionDialog(inspection)} disabled={!canModifyOrCreateProjects}>
                                                         Edit
                                                     </Button>
+                                                    {!inspection.signOffStatus ? (
+                                                        <Button size="small" variant="outlined" onClick={() => handleOpenSignOffDialog(inspection)} disabled={!canModifyOrCreateProjects}>
+                                                            Sign off
+                                                        </Button>
+                                                    ) : (
+                                                        <Chip
+                                                            size="small"
+                                                            color="success"
+                                                            label={`Signed: ${inspection.signedByName || 'Yes'}`}
+                                                        />
+                                                    )}
                                                 </Stack>
                                                 {observations.length > 0 ? (
                                                     <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
@@ -7190,6 +7249,21 @@ function ProjectDetailsPage() {
                     </Box>
                 )}
 
+                {activeTab === 10 && (
+                    <Box>
+                        <ProjectInceptionPanel projectId={projectId} embedded />
+                    </Box>
+                )}
+
+                {activeTab === 11 && (
+                    <Box>
+                        <ProjectPaymentRequestsPanel
+                            projectId={projectId}
+                            onOpenCertificatesTab={() => setActiveTab(7)}
+                        />
+                    </Box>
+                )}
+
             </Box>
 
             <Dialog
@@ -7306,6 +7380,41 @@ function ProjectDetailsPage() {
                     />
                 </>
             )}
+
+            <Dialog open={signOffDialog.open} onClose={() => setSignOffDialog({ open: false, inspection: null })} maxWidth="sm" fullWidth>
+                <DialogTitle>Inspection sign-off</DialogTitle>
+                <DialogContent dividers>
+                    <Stack spacing={2} sx={{ pt: 1 }}>
+                        <TextField
+                            label="Signed by (name)"
+                            value={signOffForm.signedByName}
+                            onChange={(e) => setSignOffForm((prev) => ({ ...prev, signedByName: e.target.value }))}
+                            fullWidth
+                            required
+                        />
+                        <TextField
+                            label="Role / title"
+                            value={signOffForm.signedByRole}
+                            onChange={(e) => setSignOffForm((prev) => ({ ...prev, signedByRole: e.target.value }))}
+                            fullWidth
+                        />
+                        <TextField
+                            label="Notes"
+                            value={signOffForm.signOffNotes}
+                            onChange={(e) => setSignOffForm((prev) => ({ ...prev, signOffNotes: e.target.value }))}
+                            fullWidth
+                            multiline
+                            minRows={2}
+                        />
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setSignOffDialog({ open: false, inspection: null })}>Cancel</Button>
+                    <Button variant="contained" onClick={handleSubmitSignOff} disabled={submittingSignOff}>
+                        {submittingSignOff ? <CircularProgress size={20} /> : 'Record sign-off'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Project Sites Modal */}
             <ProjectSitesModal

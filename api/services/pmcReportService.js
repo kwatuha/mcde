@@ -74,7 +74,152 @@ async function ensurePmcReportSchema() {
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_pmc_ward_reports_project ON pmc_ward_reports (project_id) WHERE voided = false');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_pmc_ward_reports_status ON pmc_ward_reports (status) WHERE voided = false');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS pmc_ward_report_actions (
+            action_id BIGSERIAL PRIMARY KEY,
+            report_id BIGINT NOT NULL,
+            action_type TEXT NOT NULL,
+            from_status TEXT NULL,
+            to_status TEXT NULL,
+            comment TEXT NULL,
+            actor_user_id BIGINT NULL,
+            signed_file_name TEXT NULL,
+            signed_file_path TEXT NULL,
+            metadata JSONB NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_pmc_ward_report_actions_report
+        ON pmc_ward_report_actions (report_id, created_at ASC)
+    `);
     schemaEnsured = true;
+}
+
+async function logReportAction(reportId, {
+    actionType,
+    fromStatus = null,
+    toStatus = null,
+    comment = null,
+    actorUserId = null,
+    signedFileName = null,
+    signedFilePath = null,
+    metadata = null,
+} = {}) {
+    const id = Number(reportId);
+    if (!Number.isFinite(id) || !actionType) return null;
+    const metaJson = metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : '{}';
+    const result = await pool.query(
+        `
+        INSERT INTO pmc_ward_report_actions (
+            report_id, action_type, from_status, to_status, comment,
+            actor_user_id, signed_file_name, signed_file_path, metadata, created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW())
+        RETURNING action_id
+        `,
+        [
+            id,
+            actionType,
+            fromStatus,
+            toStatus,
+            cleanText(comment) || null,
+            actorUserId,
+            cleanText(signedFileName) || null,
+            cleanText(signedFilePath) || null,
+            metaJson,
+        ]
+    );
+    return result.rows?.[0]?.action_id ?? null;
+}
+
+function mapActionRow(row) {
+    if (!row) return null;
+    return {
+        actionId: row.actionId,
+        reportId: row.reportId,
+        actionType: row.actionType,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        comment: row.comment,
+        actorUserId: row.actorUserId,
+        actorName: row.actorName,
+        signedFileName: row.signedFileName,
+        hasSignedFile: Boolean(row.signedFilePath),
+        metadata: row.metadata || {},
+        createdAt: row.createdAt,
+    };
+}
+
+async function listReportActions(reportId, user) {
+    const report = await getReportById(reportId, user);
+    if (!report) {
+        const err = new Error('PMC report not found.');
+        err.statusCode = 404;
+        throw err;
+    }
+    const result = await pool.query(
+        `
+        SELECT
+            a.action_id AS "actionId",
+            a.report_id AS "reportId",
+            a.action_type AS "actionType",
+            a.from_status AS "fromStatus",
+            a.to_status AS "toStatus",
+            a.comment,
+            a.actor_user_id AS "actorUserId",
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.firstname, u.lastname)), ''), u.username, 'System') AS "actorName",
+            a.signed_file_name AS "signedFileName",
+            a.signed_file_path AS "signedFilePath",
+            a.metadata,
+            a.created_at AS "createdAt"
+        FROM pmc_ward_report_actions a
+        LEFT JOIN users u ON u.userid = a.actor_user_id
+        WHERE a.report_id = $1
+        ORDER BY a.created_at ASC, a.action_id ASC
+        `,
+        [Number(reportId)]
+    );
+    return (result.rows || []).map(mapActionRow);
+}
+
+async function getActionFileMeta(reportId, actionId, user) {
+    const report = await getReportById(reportId, user);
+    if (!report) {
+        const err = new Error('PMC report not found.');
+        err.statusCode = 404;
+        throw err;
+    }
+    const result = await pool.query(
+        `
+        SELECT signed_file_path AS "signedFilePath", signed_file_name AS "signedFileName"
+        FROM pmc_ward_report_actions
+        WHERE action_id = $1 AND report_id = $2
+        LIMIT 1
+        `,
+        [Number(actionId), Number(reportId)]
+    );
+    const row = result.rows?.[0];
+    if (!row?.signedFilePath) {
+        const err = new Error('Historical signed document not found for this action.');
+        err.statusCode = 404;
+        throw err;
+    }
+    return row;
+}
+
+async function hasPriorSubmitAction(reportId) {
+    const result = await pool.query(
+        `
+        SELECT 1
+        FROM pmc_ward_report_actions
+        WHERE report_id = $1
+          AND action_type IN ('submitted', 'resubmitted')
+        LIMIT 1
+        `,
+        [Number(reportId)]
+    );
+    return (result.rows || []).length > 0;
 }
 
 async function addProjectScopeWhere(user, where, params, alias = 'p') {
@@ -88,15 +233,48 @@ async function addProjectScopeWhere(user, where, params, alias = 'p') {
         where.push('FALSE');
         return;
     }
+
     const hasProjectScopes = await orgScope.userHasProjectAccessScopeContext(authUserId);
-    if (!hasProjectScopes) return;
+    const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+    if (!hasProjectScopes && !(scopeRows || []).length) return;
 
     let nextIndex = params.length + 1;
-    const rawScopeFragment = orgScope.buildExplicitProjectScopeFragment(alias);
-    const scopeParams = orgScope.explicitProjectScopeParams(authUserId);
-    const scopeFragment = rawScopeFragment.replace(/\?/g, () => `$${nextIndex++}`);
+    const rawFragment = hasProjectScopes
+        ? orgScope.buildExplicitProjectScopeFragment(alias)
+        : orgScope.buildProjectListScopeFragment(alias);
+    const scopeFragment = rawFragment.replace(/\?/g, () => `$${nextIndex++}`);
     where.push(scopeFragment);
-    params.push(...scopeParams);
+    params.push(...(hasProjectScopes
+        ? orgScope.explicitProjectScopeParams(authUserId)
+        : orgScope.projectScopeParamTriple(authUserId)));
+}
+
+async function addPmcWardScopeWhere(user, where, params, reportAlias = 'r') {
+    const authUserId = getUserId(user);
+    if (!authUserId || isSuperAdminRequester(user) || orgScope.userHasOrganizationBypass(user?.privileges || [])) {
+        return;
+    }
+    if (!(await orgScope.organizationScopeTableExists())) return;
+
+    const wardScopes = await pool.query(
+        `
+        SELECT DISTINCT trim(scope_value) AS ward
+        FROM user_project_scopes
+        WHERE user_id = $1
+          AND upper(trim(scope_type)) = 'WARD'
+          AND COALESCE(voided, false) = false
+          AND NULLIF(trim(scope_value), '') IS NOT NULL
+        `,
+        [authUserId]
+    );
+    const wards = (wardScopes.rows || []).map((row) => row.ward).filter(Boolean);
+    if (!wards.length) return;
+
+    const wardConditions = wards.map((ward) => {
+        params.push(ward);
+        return `regexp_replace(lower(trim(COALESCE(${reportAlias}.ward, ''))), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(trim($${params.length})), '[^a-z0-9]+', '', 'g')`;
+    });
+    where.push(`(${wardConditions.join(' OR ')})`);
 }
 
 async function fetchProjectLocation(projectId, user) {
@@ -224,6 +402,7 @@ async function listReports(user, filters = {}) {
     }
 
     await addProjectScopeWhere(user, where, params, 'p');
+    await addPmcWardScopeWhere(user, where, params, 'r');
 
     params.push(Math.min(Number(filters.limit) || 500, 2000));
     const result = await pool.query(
@@ -245,6 +424,7 @@ async function getReportById(reportId, user) {
     const params = [id];
     const where = ['r.report_id = $1', 'COALESCE(r.voided, false) = false', 'COALESCE(p.voided, false) = false'];
     await addProjectScopeWhere(user, where, params, 'p');
+    await addPmcWardScopeWhere(user, where, params, 'r');
     const result = await pool.query(
         `
         ${reportSelectSql}
@@ -308,7 +488,15 @@ async function createReport(user, payload = {}) {
             userId,
         ]
     );
-    return getReportById(result.rows?.[0]?.report_id, user);
+    const reportId = result.rows?.[0]?.report_id;
+    await logReportAction(reportId, {
+        actionType: 'created',
+        fromStatus: null,
+        toStatus: 'draft',
+        actorUserId: userId,
+        comment: 'PMC ward report draft created.',
+    });
+    return getReportById(reportId, user);
 }
 
 async function updateReport(reportId, user, payload = {}) {
@@ -355,6 +543,13 @@ async function updateReport(reportId, user, payload = {}) {
             cleanText(payload.ward) || null,
         ]
     );
+    await logReportAction(reportId, {
+        actionType: 'updated',
+        fromStatus: report.status,
+        toStatus: report.status,
+        actorUserId: getUserId(user),
+        comment: report.status === 'returned' ? 'Report revised after return.' : 'Report details updated.',
+    });
     return getReportById(reportId, user);
 }
 
@@ -389,6 +584,15 @@ async function attachSignedFile(reportId, user, fileMeta = {}) {
             fileMeta.fileSize != null ? Number(fileMeta.fileSize) : null,
         ]
     );
+    await logReportAction(reportId, {
+        actionType: 'file_uploaded',
+        fromStatus: report.status,
+        toStatus: report.status,
+        actorUserId: getUserId(user),
+        signedFileName: fileMeta.fileName,
+        signedFilePath: fileMeta.filePath,
+        comment: report.status === 'returned' ? 'Revised signed document uploaded.' : 'Signed document uploaded.',
+    });
     return getReportById(reportId, user);
 }
 
@@ -416,6 +620,13 @@ async function submitReport(reportId, user) {
     }
 
     const userId = getUserId(user);
+    const isResubmit = report.status === 'returned' || await hasPriorSubmitAction(reportId);
+    const fileRow = await pool.query(
+        `SELECT signed_file_name, signed_file_path FROM pmc_ward_reports WHERE report_id = $1`,
+        [Number(reportId)]
+    );
+    const signedFileName = fileRow.rows?.[0]?.signed_file_name || report.signedFileName;
+    const signedFilePath = fileRow.rows?.[0]?.signed_file_path || null;
     await pool.query(
         `
         UPDATE pmc_ward_reports
@@ -430,6 +641,15 @@ async function submitReport(reportId, user) {
         `,
         [Number(reportId), userId]
     );
+    await logReportAction(reportId, {
+        actionType: isResubmit ? 'resubmitted' : 'submitted',
+        fromStatus: report.status,
+        toStatus: 'submitted',
+        actorUserId: userId,
+        signedFileName,
+        signedFilePath,
+        comment: isResubmit ? 'Report resubmitted for sub-county review.' : 'Report submitted for sub-county review.',
+    });
     const updated = await getReportById(reportId, user);
     notifyPmcSubmitted(updated).catch((error) => {
         console.warn('[pmc_report] submit notification error:', error.message);
@@ -456,6 +676,7 @@ async function approveReport(reportId, user, comment = '') {
     }
 
     const userId = getUserId(user);
+    const reviewComment = cleanText(comment) || null;
     await pool.query(
         `
         UPDATE pmc_ward_reports
@@ -466,8 +687,15 @@ async function approveReport(reportId, user, comment = '') {
             updated_at = NOW()
         WHERE report_id = $1
         `,
-        [Number(reportId), userId, cleanText(comment) || null]
+        [Number(reportId), userId, reviewComment]
     );
+    await logReportAction(reportId, {
+        actionType: 'approved',
+        fromStatus: 'submitted',
+        toStatus: 'approved',
+        actorUserId: userId,
+        comment: reviewComment || 'Report approved.',
+    });
     return getReportById(reportId, user);
 }
 
@@ -495,6 +723,7 @@ async function returnReport(reportId, user, comment = '') {
     }
 
     const userId = getUserId(user);
+    const reviewComment = cleanText(comment);
     await pool.query(
         `
         UPDATE pmc_ward_reports
@@ -505,8 +734,15 @@ async function returnReport(reportId, user, comment = '') {
             updated_at = NOW()
         WHERE report_id = $1
         `,
-        [Number(reportId), userId, cleanText(comment)]
+        [Number(reportId), userId, reviewComment]
     );
+    await logReportAction(reportId, {
+        actionType: 'returned',
+        fromStatus: 'submitted',
+        toStatus: 'returned',
+        actorUserId: userId,
+        comment: reviewComment,
+    });
     const updated = await getReportById(reportId, user);
     notifyPmcReturned(updated).catch((error) => {
         console.warn('[pmc_report] return notification error:', error.message);
@@ -652,6 +888,13 @@ async function voidReport(reportId, user) {
         `UPDATE pmc_ward_reports SET voided = true, updated_at = NOW() WHERE report_id = $1`,
         [Number(reportId)]
     );
+    await logReportAction(reportId, {
+        actionType: 'deleted',
+        fromStatus: report.status,
+        toStatus: null,
+        actorUserId: getUserId(user),
+        comment: 'PMC report deleted.',
+    });
     return { success: true };
 }
 
@@ -660,6 +903,8 @@ module.exports = {
     listReports,
     getReportById,
     getReportFileMeta,
+    listReportActions,
+    getActionFileMeta,
     createReport,
     updateReport,
     attachSignedFile,

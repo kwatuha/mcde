@@ -246,7 +246,7 @@ export default function YearlyTrendsReportPage() {
         });
       }
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to load yearly trends report.');
+      setError(e?.response?.data?.message || e?.message || 'Failed to load Projects by Location & Year report.');
       setRows([]);
       setYears([]);
       setTotals({ countsByYear: {}, budgetByYear: {}, paidByYear: {}, total: 0, totalBudget: 0, totalPaid: 0 });
@@ -432,8 +432,8 @@ export default function YearlyTrendsReportPage() {
       ...reportColumns.map((column) => ({ wch: column.width || 14 })),
     ];
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Yearly Trends');
-    XLSX.writeFile(workbook, `yearly-trends-report-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Projects by Location');
+    XLSX.writeFile(workbook, `projects-by-location-year-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const handleExportWord = async () => {
@@ -465,7 +465,7 @@ export default function YearlyTrendsReportPage() {
         <html>
         <head>
           <meta charset="utf-8" />
-          <title>Yearly Trends Report</title>
+          <title>Projects by Location &amp; Year</title>
           <style>
             body { font-family: Arial, sans-serif; font-size: 10pt; color: #111827; }
             .official-header { text-align: center; margin-bottom: 14px; border-bottom: 2px solid #166088; padding-bottom: 10px; }
@@ -487,7 +487,7 @@ export default function YearlyTrendsReportPage() {
             <div class="county">County Government of Machakos</div>
             <div class="subtitle">Government Projects Reporting Platform</div>
           </div>
-          <h1>Yearly Trends Report</h1>
+          <h1>Projects by Location &amp; Year</h1>
           <div class="meta">Generated: ${escapeHtml(generatedAt)}<br />Filters: ${escapeHtml(activeFiltersText)}</div>
           <table class="summary">
             <thead>
@@ -511,13 +511,13 @@ export default function YearlyTrendsReportPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `yearly-trends-report-${new Date().toISOString().slice(0, 10)}.doc`;
+      link.download = `projects-by-location-year-${new Date().toISOString().slice(0, 10)}.doc`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e?.message || 'Failed to export yearly trends report Word document.');
+      setError(e?.message || 'Failed to export Projects by Location & Year Word document.');
     } finally {
       setExportingWord(false);
     }
@@ -531,7 +531,7 @@ export default function YearlyTrendsReportPage() {
       let y = drawCountyOfficialHeader(doc, {
         unit: 'pt',
         logoDataUrl,
-        title: 'Yearly Trends Report',
+        title: 'Projects by Location & Year',
       });
 
       doc.setFontSize(9);
@@ -563,9 +563,9 @@ export default function YearlyTrendsReportPage() {
         margin: { top: 40, left: 30, right: 30 },
       });
 
-      doc.save(`yearly-trends-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      doc.save(`projects-by-location-year-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e) {
-      setError(e?.message || 'Failed to export yearly trends report PDF.');
+      setError(e?.message || 'Failed to export Projects by Location & Year PDF.');
     } finally {
       setExportingPdf(false);
     }
@@ -613,10 +613,10 @@ export default function YearlyTrendsReportPage() {
     <Box sx={{ p: { xs: 1.5, md: 2 } }}>
       <Paper sx={{ p: { xs: 1.5, md: 2 } }}>
         <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.25 }}>
-          Yearly Trends Report
+          Projects by Location & Year
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Counts projects by start year across sub-county, ward, sublocation, and village.
+          Project counts, budget, and payments by start year across sub-county, ward, sublocation, and village.
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
@@ -775,7 +775,7 @@ export default function YearlyTrendsReportPage() {
         {loading ? (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 4 }}>
             <CircularProgress size={22} />
-            <Typography>Loading yearly trends...</Typography>
+            <Typography>Loading report...</Typography>
           </Stack>
         ) : (
           <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: '70vh' }}>

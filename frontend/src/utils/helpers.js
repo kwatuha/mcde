@@ -3,6 +3,31 @@ export const checkUserPrivilege = (user, privilegeName) => {
   return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
 };
 
+/** Inception / KDSP section keys used on Project Details → Inception tab */
+export const KDSP_INCEPTION_TYPES = new Set([
+  'conceptNote',
+  'needsAssessment',
+  'financials',
+  'fyBreakdown',
+  'sustainability',
+  'implementationPlan',
+  'mAndE',
+  'risks',
+  'stakeholders',
+  'readiness',
+  'hazardAssessment',
+  'climateRisk',
+  'esohsgScreening',
+]);
+
+/** Matches DB privileges like kdsp_conceptNote.create as well as legacy conceptNote.create */
+export const checkKdpsSectionPrivilege = (user, type, action) => {
+  if (checkUserPrivilege(user, `${type}.${action}`)) return true;
+  if (checkUserPrivilege(user, `kdsp_${type}.${action}`)) return true;
+  if (KDSP_INCEPTION_TYPES.has(type) && checkUserPrivilege(user, 'project.update')) return true;
+  return false;
+};
+
 export const formatBooleanForDisplay = (value) => {
   if (value === true || value === 'true') {
     return 'Yes';

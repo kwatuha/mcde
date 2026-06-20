@@ -1,9 +1,8 @@
 // src/components/kdsp/KdspClimateRiskForm.jsx
 import React from 'react';
-import {
-  Box, TextField, Grid, FormControl, InputLabel, Select, MenuItem
-} from '@mui/material';
-import { formatNumberForInput, riskLevels } from '../../utils/helpers'; // Assuming riskLevels is defined in helpers
+import { Box, TextField, Grid } from '@mui/material';
+import { formatNumberForInput, riskLevels } from '../../utils/helpers';
+import KdspSearchableSelect from './KdspSearchableSelect';
 
 function KdspClimateRiskForm({ formData, handleFormChange }) {
   return (
@@ -20,52 +19,34 @@ function KdspClimateRiskForm({ formData, handleFormChange }) {
           />
         </Grid>
         <Grid item xs={12} sm={6}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Hazard Exposure</InputLabel>
-            <Select
-              name="hazardExposure"
-              value={formData.hazardExposure || ''}
-              onChange={handleFormChange}
-              label="Hazard Exposure"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {riskLevels.map(level => (
-                <MenuItem key={level} value={level}>{level}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Hazard Exposure"
+            name="hazardExposure"
+            value={formData.hazardExposure || ''}
+            options={riskLevels}
+            onChange={handleFormChange}
+            minWidth={260}
+          />
         </Grid>
         <Grid item xs={12} sm={6}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Vulnerability</InputLabel>
-            <Select
-              name="vulnerability"
-              value={formData.vulnerability || ''}
-              onChange={handleFormChange}
-              label="Vulnerability"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {riskLevels.map(level => (
-                <MenuItem key={level} value={level}>{level}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Vulnerability"
+            name="vulnerability"
+            value={formData.vulnerability || ''}
+            options={riskLevels}
+            onChange={handleFormChange}
+            minWidth={260}
+          />
         </Grid>
         <Grid item xs={12}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Risk Level</InputLabel>
-            <Select
-              name="riskLevel"
-              value={formData.riskLevel || ''}
-              onChange={handleFormChange}
-              label="Risk Level"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {riskLevels.map(level => (
-                <MenuItem key={level} value={level}>{level}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Risk Level"
+            name="riskLevel"
+            value={formData.riskLevel || ''}
+            options={riskLevels}
+            onChange={handleFormChange}
+            minWidth={280}
+          />
         </Grid>
         <Grid item xs={12}>
           <TextField

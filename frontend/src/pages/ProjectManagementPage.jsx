@@ -462,6 +462,8 @@ function ProjectManagementPage() {
       'projectType',
       'tenderContractNo',
       'cidpLink',
+      'adpLink',
+      'budgetStatus',
       'status',
       'subcountyNames',
       'sublocationName',
@@ -2287,6 +2289,41 @@ function ProjectManagementPage() {
               </Button>
             </Stack>
           );
+        };
+        break;
+      case 'adpLink':
+        dataGridColumn.valueGetter = (params) => {
+          const project = params?.row || {};
+          return project.adpLinkStatus === 'linked'
+            ? (project.adpProjectName || 'Linked')
+            : 'Pending';
+        };
+        dataGridColumn.renderCell = (params) => {
+          const project = params?.row || {};
+          const linked = project.adpLinkStatus === 'linked';
+          return (
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+              <Chip
+                label={linked ? 'Linked' : 'Pending'}
+                size="small"
+                color={linked ? 'info' : 'warning'}
+                variant={linked ? 'filled' : 'outlined'}
+                sx={{ height: 24, fontWeight: 700, flexShrink: 0 }}
+              />
+              <Typography variant="caption" noWrap title={project.adpProjectName || ''}>
+                {project.adpProjectName || 'No ADP link'}
+              </Typography>
+            </Stack>
+          );
+        };
+        break;
+      case 'budgetStatus':
+        dataGridColumn.valueGetter = (params) => params?.row?.budgetStatus || 'unbudgeted';
+        dataGridColumn.renderCell = (params) => {
+          const status = String(params?.row?.budgetStatus || 'unbudgeted').toLowerCase();
+          const color = status === 'budgeted' ? 'success' : status === 'allocated' ? 'info' : 'default';
+          const label = status === 'budgeted' ? 'Budgeted' : status === 'allocated' ? 'Allocated' : 'Unbudgeted';
+          return <Chip label={label} size="small" color={color} variant="outlined" sx={{ fontWeight: 600 }} />;
         };
         break;
       case 'status':

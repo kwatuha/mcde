@@ -61,6 +61,7 @@ export const ROUTES = {
 
     // Main layout routes
     RAW_DATA: '/raw-data',
+    BENEFICIARY_REGISTRY: '/beneficiary-registry',
     PROJECTS: '/projects',
     /** Cross-project implementation readiness workbench; drills into Project Details > Implementation Plan. */
     PROJECT_IMPLEMENTATION_PLANS: '/projects/implementation-plans',
@@ -77,6 +78,7 @@ export const ROUTES = {
     /** CIMES-style project monitoring records list (sidebar under Monitoring). */
     MONITORING_PROJECT_MONITORING: '/monitoring/project-monitoring',
     PMC_WARD_REPORTS: '/monitoring/pmc-ward-reports',
+    WARD_ACCOUNTABILITY: '/monitoring/ward-accountability',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
     /** Completed procurements (handed off to contractor; audit trail on project). */
@@ -120,6 +122,12 @@ export const ROUTES = {
     PLANNING_CIDP_PERIODS: '/planning/cidp-periods',
     PLANNING_ADP_PERIODS: '/planning/adp-periods',
     ADP_IMPLEMENTATION: '/planning/adp-implementation',
+    RRI_PROGRAMMES: '/planning/rri-programmes',
+    RRI_PROGRAMME_DETAIL: '/planning/rri-programmes/:programmeId',
+    CIDP_PROGRAMME_PROGRESS: '/planning/cidp-programme-progress',
+    ADP_PROGRAMME_PROGRESS: '/planning/adp-programme-progress',
+    COUNTY_PLANNING_OVERVIEW: '/planning/county-overview',
+    BUDGET_TRACEABILITY: '/planning/budget-traceability',
     PLANNING_PROGRAMMES: '/planning/programmes',
     PLANNING_SECTOR_LIST: '/planning/sector-list',
     PLANNING_BUDGET_ALLOCATION: '/planning/budget-allocation',

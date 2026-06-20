@@ -1,10 +1,10 @@
 // src/components/kdsp/KdspFinancialsForm.jsx
 import React from 'react';
 import {
-  Box, TextField, Grid, Divider, FormControl, InputLabel,
-  Select, MenuItem, FormControlLabel, Switch
+  Box, TextField, Grid, Divider, FormControlLabel, Switch
 } from '@mui/material';
 import { formatNumberForInput, financingSources } from '../../utils/helpers';
+import KdspSearchableSelect from './KdspSearchableSelect';
 
 function KdspFinancialsForm({ formData, handleFormChange }) {
   return (
@@ -157,20 +157,16 @@ function KdspFinancialsForm({ formData, handleFormChange }) {
           />
         </Grid>
         <Grid item xs={12}>
-          <FormControl fullWidth margin="dense">
-            <InputLabel>Proposed Source of Financing</InputLabel>
-            <Select
-              name="proposedSourceFinancing"
-              value={formData.proposedSourceFinancing || ''}
-              onChange={handleFormChange}
-              label="Proposed Source of Financing"
-            >
-              <MenuItem value=""><em>None</em></MenuItem>
-              {financingSources.map(source => (
-                <MenuItem key={source} value={source}>{source}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <KdspSearchableSelect
+            label="Proposed Source of Financing"
+            name="proposedSourceFinancing"
+            value={formData.proposedSourceFinancing || ''}
+            options={financingSources}
+            onChange={handleFormChange}
+            minWidth={320}
+            freeSolo
+            helperText="Pick a county financing source or type your own."
+          />
         </Grid>
         <Grid item xs={12}>
           <TextField

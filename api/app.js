@@ -14,6 +14,7 @@ const userRoutes = require('./routes/userRoutes');
 const orgRoutes = require('./routes/orgRoutes');
 const strategyRoutes = require('./routes/strategic.routes');
 const participantRoutes = require('./routes/participantRoutes');
+const beneficiaryRoutes = require('./routes/beneficiaryRoutes');
 const generalRoutes = require('./routes/generalRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const metaDataRoutes = require('./routes/metaDataRoutes');
@@ -23,7 +24,7 @@ const taskAssigneesRoutes = require('./routes/taskAssigneesRoutes');
 const taskDependenciesRoutes = require('./routes/taskDependenciesRoutes');
 /* SCOPE_DOWN: contractors/contractor_users tables removed. Re-enable when restoring for wider market. */
 const contractorRoutes = require('./routes/contractorRoutes');
-// const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
+const paymentRequestRoutes = require('./routes/paymentRequestRoutes');
 const contractorPhotoRoutes = require('./routes/contractorPhotoRoutes');
 const hrRoutes = require('./routes/humanResourceRoutes');
 const projectDocumentsRoutes = require('./routes/projectDocumentsRoutes');
@@ -61,6 +62,8 @@ const procurementRoutes = require('./routes/procurementRoutes')
 const aiAssistantRoutes = require('./routes/aiAssistantRoutes')
 const adpRoutes = require('./routes/adpRoutes');
 const pmcReportRoutes = require('./routes/pmcReportRoutes');
+const rriRoutes = require('./routes/rriRoutes');
+const accountabilityRoutes = require('./routes/accountabilityRoutes');
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -130,6 +133,8 @@ app.use('/api/procurement', procurementRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/adp', adpRoutes);
 app.use('/api/pmc-reports', pmcReportRoutes);
+app.use('/api/rri', rriRoutes);
+app.use('/api/payment-requests', paymentRequestRoutes);
 app.use('/api/projects', projectRouter);
 
 // Mount other top-level routers
@@ -139,6 +144,7 @@ app.use('/api/organization', orgRoutes);
 app.use('/api/strategy', strategyRoutes);
 app.use('/api/planning', planningIndicatorsRoutes);
 app.use('/api/participants', participantRoutes);
+app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/general', generalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/metadata', metaDataRoutes);
@@ -168,6 +174,7 @@ app.use('/api/citizen-proposals', citizenProposalsRoutes);
 app.use('/api/comprehensive-projects', comprehensiveProjectRoutes);
 app.use('/api/budgets', budgetContainerRoutes); // New budget container system routes (register first to avoid conflicts)
 app.use('/api/budgets', budgetRoutes);
+app.use('/api/accountability', accountabilityRoutes);
 
 // Mount photo router for photo approval endpoints
 const { photoRouter } = require('./routes/projectPhotoRoutes');

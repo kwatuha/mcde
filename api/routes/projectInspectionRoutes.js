@@ -98,6 +98,11 @@ async function ensureInspectionTables() {
             created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `);
+    await pool.query(`ALTER TABLE project_inspections ADD COLUMN IF NOT EXISTS sign_off_status TEXT NULL`);
+    await pool.query(`ALTER TABLE project_inspections ADD COLUMN IF NOT EXISTS signed_by_name TEXT NULL`);
+    await pool.query(`ALTER TABLE project_inspections ADD COLUMN IF NOT EXISTS signed_by_role TEXT NULL`);
+    await pool.query(`ALTER TABLE project_inspections ADD COLUMN IF NOT EXISTS signed_at TIMESTAMP WITHOUT TIME ZONE NULL`);
+    await pool.query(`ALTER TABLE project_inspections ADD COLUMN IF NOT EXISTS sign_off_notes TEXT NULL`);
     await ensureInspectionChecklistColumns();
 }
 
@@ -259,6 +264,11 @@ async function getInspectionsForProject(projectId) {
             pi.checklist_answers AS "checklistAnswers",
             pi.bq_item_id AS "bqItemId",
             pi.inspection_outcome AS "inspectionOutcome",
+            pi.sign_off_status AS "signOffStatus",
+            pi.signed_by_name AS "signedByName",
+            pi.signed_by_role AS "signedByRole",
+            pi.signed_at AS "signedAt",
+            pi.sign_off_notes AS "signOffNotes",
             bq.activity_name AS "bqActivityName",
             bq.milestone_name AS "bqMilestoneName"
         FROM project_inspections pi
@@ -715,6 +725,62 @@ router.post('/:projectId/inspections/:inspectionId/files', upload.array('files')
     } catch (err) {
         console.error('Error uploading inspection files:', err);
         return res.status(500).json({ error: 'Failed to upload inspection files.', details: err.message });
+    }
+});
+
+router.post('/:projectId/inspections/:inspectionId/sign-off', async (req, res) => {
+    const projectId = parseInt(String(req.params.projectId), 10);
+    const inspectionId = parseInt(String(req.params.inspectionId), 10);
+    const { signedByName, signedByRole, signOffNotes, signOffStatus = 'approved' } = req.body || {};
+    if (!Number.isFinite(projectId) || !Number.isFinite(inspectionId)) {
+        return res.status(400).json({ error: 'Invalid project or inspection id.' });
+    }
+    if (!String(signedByName || '').trim()) {
+        return res.status(400).json({ error: 'signedByName is required for sign-off.' });
+    }
+
+    try {
+        await ensureInspectionTables();
+        const check = await pool.query(
+            `SELECT inspection_id FROM project_inspections
+             WHERE inspection_id = $1 AND project_id = $2 AND COALESCE(voided, false) = false`,
+            [inspectionId, projectId]
+        );
+        if (!check.rows?.[0]) return res.status(404).json({ error: 'Inspection not found.' });
+
+        await pool.query(
+            `
+            UPDATE project_inspections
+            SET sign_off_status = $1,
+                signed_by_name = $2,
+                signed_by_role = $3,
+                sign_off_notes = $4,
+                signed_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE inspection_id = $5
+            `,
+            [
+                String(signOffStatus || 'approved').trim(),
+                String(signedByName).trim(),
+                String(signedByRole || '').trim() || null,
+                String(signOffNotes || '').trim() || null,
+                inspectionId,
+            ]
+        );
+
+        const rows = await getInspectionsForProject(projectId);
+        const updated = rows.find((r) => r.inspectionId === inspectionId);
+        void recordAudit({
+            req,
+            action: AUDIT_ACTIONS.INSPECTION_UPDATE,
+            entityType: 'inspection',
+            entityId: String(inspectionId),
+            details: { projectId, signOffStatus, signedByName },
+        });
+        return res.status(200).json(updated || { inspectionId, signOffStatus });
+    } catch (err) {
+        console.error('Inspection sign-off failed:', err);
+        return res.status(500).json({ error: 'Failed to record inspection sign-off.', details: err.message });
     }
 });
 

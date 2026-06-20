@@ -25,8 +25,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
@@ -453,7 +451,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   }, [handleLogoHomeNavigation]);
   
   // Get sidebar collapse state from context
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed } = useSidebar();
   
   // Get filtered menu categories (tree layout uses CIMES-style category order)
   const menuCategories = useMemo(() => {
@@ -793,57 +791,6 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
               }
             : {}),
         }}>
-          {/* Toggle Button */}
-          <Box sx={{
-            position: 'absolute',
-            top: isTreeLayout ? 4 : 8,
-            right: isCollapsed ? 4 : 8,
-            zIndex: 1000,
-            transition: 'right 0.3s ease-in-out',
-          }}>
-            <Tooltip title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'} placement="right" arrow>
-              <IconButton
-                onClick={toggleSidebar}
-                size="small"
-                sx={{
-                  backgroundColor: theme.palette.mode === 'dark' 
-                    ? 'rgba(255,255,255,0.1)' 
-                    : treeChromeLight
-                      ? 'rgba(255,255,255,0.12)'
-                      : 'rgba(255,255,255,0.8)',
-                  color: theme.palette.mode === 'dark' 
-                    ? colors.blueAccent[400] 
-                    : treeChromeLight
-                      ? '#ffffff'
-                      : '#0284c7',
-                  border: `1px solid ${theme.palette.mode === 'dark' 
-                    ? 'rgba(255,255,255,0.2)' 
-                    : treeChromeLight
-                      ? TREE_BORDER
-                      : 'rgba(0,0,0,0.1)'}`,
-                  '&:hover': {
-                    backgroundColor: theme.palette.mode === 'dark' 
-                      ? 'rgba(255,255,255,0.2)' 
-                      : treeChromeLight
-                        ? 'rgba(255,255,255,0.22)'
-                        : 'rgba(255,255,255,1)',
-                    transform: 'scale(1.1)',
-                  },
-                  transition: 'all 0.2s ease-in-out',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                  width: isTreeLayout ? 26 : 28,
-                  height: isTreeLayout ? 26 : 28,
-                }}
-              >
-                {isCollapsed ? (
-                  <ChevronRightIcon sx={{ fontSize: isTreeLayout ? 15 : 16 }} />
-                ) : (
-                  <ChevronLeftIcon sx={{ fontSize: isTreeLayout ? 15 : 16 }} />
-                )}
-              </IconButton>
-            </Tooltip>
-          </Box>
-
           {isTreeLayout ? (
             <>
               {/* CIMES-style brand strip (tree layout only; emblem matches AppBar) */}
@@ -861,7 +808,6 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
                     mt: treeBrandMt,
                     mb: 0.5,
                     px: 1,
-                    pr: 4.5,
                     minHeight: 36,
                     cursor: 'pointer',
                     borderRadius: 1,

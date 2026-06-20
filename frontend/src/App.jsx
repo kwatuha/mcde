@@ -57,6 +57,13 @@ import PlanningProjectRisksPage from './pages/PlanningProjectRisksPage';
 import PlanningReportingFrequencyPage from './pages/PlanningReportingFrequencyPage';
 import PlanningCimesListPage from './pages/PlanningCimesListPage';
 import ADPImplementationPage from './pages/ADPImplementationPage';
+import RriProgrammesPage from './pages/RriProgrammesPage';
+import RriProgrammeDetailPage from './pages/RriProgrammeDetailPage';
+import CidpProgrammeProgressPage from './pages/CidpProgrammeProgressPage';
+import AdpProgrammeProgressPage from './pages/AdpProgrammeProgressPage';
+import CountyPlanningOverviewPage from './pages/CountyPlanningOverviewPage';
+import BudgetTraceabilityPage from './pages/BudgetTraceabilityPage';
+import WardAccountabilityPage from './pages/WardAccountabilityPage';
 import {
   ProjectPlanningActivityLinksPage,
   ProjectPlanningRiskLinksPage,
@@ -150,6 +157,7 @@ import DashboardConfigManager from './components/DashboardConfigManager';
 import { modernTheme } from './theme/modernTheme';
 // Add CentralImportPage for unified import hub
 import CentralImportPage from './pages/CentralImportPage';
+import RawDataPage from './pages/RawDataPage';
 import { ROUTES } from './configs/appConfig';
 import { canAccessProjectBySectorDashboard, isMdaIctAdminOrSuperAdmin } from './utils/privilegeUtils';
 import { isSuperAdminUser } from './utils/roleUtils';
@@ -321,6 +329,10 @@ const router = createBrowserRouter([
         element: <PmcWardReportsPage />,
       },
       {
+        path: 'monitoring/ward-accountability',
+        element: <WardAccountabilityPage />,
+      },
+      {
         path: 'projects/teams',
         element: <ProjectTeamsPage />,
       },
@@ -453,6 +465,10 @@ const router = createBrowserRouter([
         element: <CentralImportPage />,
       },
       {
+        path: 'beneficiary-registry',
+        element: <RawDataPage />,
+      },
+      {
         path: 'user-management',
         element: <UserManagementPage />,
       },
@@ -503,6 +519,30 @@ const router = createBrowserRouter([
       {
         path: 'planning/adp-implementation',
         element: <ADPImplementationPage />,
+      },
+      {
+        path: 'planning/rri-programmes',
+        element: <RriProgrammesPage />,
+      },
+      {
+        path: 'planning/rri-programmes/:programmeId',
+        element: <RriProgrammeDetailPage />,
+      },
+      {
+        path: 'planning/cidp-programme-progress',
+        element: <CidpProgrammeProgressPage />,
+      },
+      {
+        path: 'planning/adp-programme-progress',
+        element: <AdpProgrammeProgressPage />,
+      },
+      {
+        path: 'planning/county-overview',
+        element: <CountyPlanningOverviewPage />,
+      },
+      {
+        path: 'planning/budget-traceability',
+        element: <BudgetTraceabilityPage />,
       },
       {
         path: 'planning/programmes',

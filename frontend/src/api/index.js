@@ -5,6 +5,7 @@ import projectService from './projectService';
 import organizationService from './organizationService';
 import strategyService from './strategyService';
 import participantService from './participantService';
+import beneficiaryService from './beneficiaryService';
 import generalService from './generalService';
 import dashboardService from './dashboardService';
 import metaDataService from './metaDataService';
@@ -27,6 +28,7 @@ import partnersService from './partnersService';
 import procurementService from './procurementService';
 import aiAssistantService from './aiAssistantService';
 import adpService from './adpService';
+import rriService from './rriService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -105,6 +107,7 @@ const apiService = {
   organization: organizationService,
   strategy: strategyService,
   participants: participantService,
+  beneficiaries: beneficiaryService,
   general: generalService,
   dashboard: dashboardService,
   metadata: metaDataService,
@@ -127,6 +130,7 @@ const apiService = {
   procurement: procurementService,
   aiAssistant: aiAssistantService,
   adp: adpService,
+  rri: rriService,
   projectPhotos,
 };
 

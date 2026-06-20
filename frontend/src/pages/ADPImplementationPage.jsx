@@ -32,11 +32,15 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useNavigate } from 'react-router-dom';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
+import { ROUTES } from '../configs/appConfig';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
@@ -46,6 +50,11 @@ function formatNumber(value) {
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 });
+}
+
+function confidenceLabel(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? `${Math.round(num * 100)}%` : '—';
 }
 
 function KpiCard({ title, value, helper }) {
@@ -93,7 +102,7 @@ export default function ADPImplementationPage() {
   const [selectedPlanCode, setSelectedPlanCode] = useState('');
   const [summary, setSummary] = useState({});
   const [rows, setRows] = useState([]);
-  const [filters, setFilters] = useState({ search: '', sector: '', status: '' });
+  const [filters, setFilters] = useState({ search: '', sector: '', status: '', ward: '', gap: '' });
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -104,6 +113,12 @@ export default function ADPImplementationPage() {
   const [deleteRow, setDeleteRow] = useState(null);
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
   const [formErrors, setFormErrors] = useState({});
+  const [suggestionRows, setSuggestionRows] = useState([]);
+  const [suggestionSummary, setSuggestionSummary] = useState({ review_pending: 0, accepted: 0, rejected: 0 });
+  const [suggestionTotal, setSuggestionTotal] = useState(0);
+  const [suggestionFilter, setSuggestionFilter] = useState('review_pending');
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionActionId, setSuggestionActionId] = useState(null);
   const { setAIPageContext, clearAIPageContext } = useAIPageContext();
 
   const selectedPlan = useMemo(
@@ -120,6 +135,24 @@ export default function ADPImplementationPage() {
     const values = new Set(rows.map((row) => row.planStatus).filter(Boolean));
     return [...values].sort((a, b) => a.localeCompare(b));
   }, [rows]);
+
+  const wardOptions = useMemo(() => {
+    const values = new Set(rows.map((row) => row.ward).filter(Boolean));
+    return [...values].sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const priorityCounts = useMemo(() => ({
+    high: rows.filter((row) => row.priorityLevel === 'high').length,
+    medium: rows.filter((row) => row.priorityLevel === 'medium').length,
+    low: rows.filter((row) => row.priorityLevel === 'low').length,
+    needsAction: rows.filter((row) => (row.budgetCount || 0) === 0 || (row.linkedProjectCount || 0) === 0).length,
+  }), [rows]);
+
+  const priorityColor = (level) => {
+    if (level === 'high') return 'error';
+    if (level === 'medium') return 'warning';
+    return 'success';
+  };
 
   const exportRows = useMemo(() => rows.map((row, index) => ({
     '#': index + 1,
@@ -170,6 +203,29 @@ export default function ADPImplementationPage() {
     }
   }, [filters, selectedPlan]);
 
+  const loadSuggestions = useCallback(async (status = suggestionFilter) => {
+    if (!selectedPlan?.id) {
+      setSuggestionRows([]);
+      setSuggestionSummary({ review_pending: 0, accepted: 0, rejected: 0 });
+      setSuggestionTotal(0);
+      return;
+    }
+    setSuggestionLoading(true);
+    try {
+      const params = { limit: 100, offset: 0 };
+      if (status) params.status = status;
+      const data = await apiService.adp.getPlanLinkSuggestions(selectedPlan.id, params);
+      setSuggestionRows(Array.isArray(data?.rows) ? data.rows : []);
+      setSuggestionSummary(data?.summary || { review_pending: 0, accepted: 0, rejected: 0 });
+      setSuggestionTotal(Number(data?.totalCount || 0));
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to load ADP link suggestions.');
+      setSuggestionRows([]);
+    } finally {
+      setSuggestionLoading(false);
+    }
+  }, [selectedPlan, suggestionFilter]);
+
   useEffect(() => {
     loadPlans().catch((e) => setError(e?.response?.data?.message || e?.message || 'Failed to load ADP plans.'));
   }, [loadPlans]);
@@ -200,6 +256,10 @@ export default function ADPImplementationPage() {
     loadReport();
   }, [loadReport]);
 
+  useEffect(() => {
+    loadSuggestions(suggestionFilter);
+  }, [loadSuggestions, suggestionFilter, selectedPlan?.id]);
+
   const handleGenerateSuggestions = async () => {
     if (!selectedPlan?.id) return;
     setGenerating(true);
@@ -207,11 +267,50 @@ export default function ADPImplementationPage() {
     setMessage('');
     try {
       const result = await apiService.adp.generateSuggestions(selectedPlan.id);
-      setMessage(`Generated or refreshed ${formatNumber(result?.insertedOrUpdated || 0)} ADP link suggestions.`);
+      const pending = Number(result?.pendingCount ?? result?.summary?.review_pending ?? 0);
+      setMessage(
+        `Generated or refreshed ${formatNumber(result?.insertedOrUpdated || 0)} ADP link suggestion pair(s). `
+        + `${formatNumber(pending)} pending review — see the Link Suggestions panel below (also on each project’s ADP Implementation Link dialog).`
+      );
+      setSuggestionFilter('review_pending');
+      await Promise.all([loadSuggestions('review_pending'), loadReport()]);
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to generate ADP link suggestions.');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (suggestion) => {
+    if (!suggestion?.projectId || !suggestion?.adpProjectId) return;
+    setSuggestionActionId(suggestion.id);
+    setError('');
+    try {
+      await apiService.adp.updateProjectLink(suggestion.projectId, {
+        adpProjectId: suggestion.adpProjectId,
+        suggestionId: suggestion.id,
+      });
+      setMessage(`Linked registry project to ADP row "${suggestion.adpProjectName}".`);
+      await Promise.all([loadSuggestions(suggestionFilter), loadReport()]);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to accept ADP link suggestion.');
+    } finally {
+      setSuggestionActionId(null);
+    }
+  };
+
+  const handleRejectSuggestion = async (suggestionId) => {
+    if (!suggestionId) return;
+    setSuggestionActionId(suggestionId);
+    setError('');
+    try {
+      await apiService.adp.updateSuggestionStatus(suggestionId, 'rejected');
+      setMessage('ADP link suggestion rejected.');
+      await loadSuggestions(suggestionFilter);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to reject ADP link suggestion.');
+    } finally {
+      setSuggestionActionId(null);
     }
   };
 
@@ -516,7 +615,45 @@ export default function ADPImplementationPage() {
               {statusOptions.map((status) => <MenuItem key={status} value={status}>{status}</MenuItem>)}
             </TextField>
           </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              sx={{ minWidth: 150 }}
+              label="Ward"
+              value={filters.ward}
+              onChange={(event) => setFilters((prev) => ({ ...prev, ward: event.target.value }))}
+            >
+              <MenuItem value="">All wards</MenuItem>
+              {wardOptions.map((ward) => <MenuItem key={ward} value={ward}>{ward}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              sx={{ minWidth: 190 }}
+              label="Priority queue"
+              value={filters.gap}
+              onChange={(event) => setFilters((prev) => ({ ...prev, gap: event.target.value }))}
+            >
+              <MenuItem value="">All ADP rows</MenuItem>
+              <MenuItem value="needs_action">Needs action (unbudgeted or unlinked)</MenuItem>
+              <MenuItem value="unbudgeted">Unbudgeted only</MenuItem>
+              <MenuItem value="unlinked">Not linked to registry</MenuItem>
+              <MenuItem value="ready">Budgeted and linked</MenuItem>
+            </TextField>
+          </Grid>
         </Grid>
+
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+          <Chip size="small" label={`Needs action: ${formatNumber(priorityCounts.needsAction)}`} color="error" variant="outlined" />
+          <Chip size="small" label={`High priority: ${formatNumber(priorityCounts.high)}`} color="error" variant="outlined" />
+          <Chip size="small" label={`Medium: ${formatNumber(priorityCounts.medium)}`} color="warning" variant="outlined" />
+          <Chip size="small" label={`Ready: ${formatNumber(priorityCounts.low)}`} color="success" variant="outlined" />
+        </Stack>
 
         <Grid container spacing={1} sx={{ mb: 1.25 }}>
           <Grid item xs={6} sm={2.4}>
@@ -536,6 +673,129 @@ export default function ADPImplementationPage() {
           </Grid>
         </Grid>
 
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1} sx={{ mb: 1 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Link Suggestions</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Keyword matches between registry projects and ADP rows. Review here or on each project under Planning → ADP Implementation Link.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+              <Chip size="small" label={`Pending: ${formatNumber(suggestionSummary.review_pending)}`} color="warning" variant="outlined" />
+              <Chip size="small" label={`Accepted: ${formatNumber(suggestionSummary.accepted)}`} color="success" variant="outlined" />
+              <Chip size="small" label={`Rejected: ${formatNumber(suggestionSummary.rejected)}`} variant="outlined" />
+              <TextField
+                select
+                size="small"
+                label="Show"
+                value={suggestionFilter}
+                onChange={(event) => setSuggestionFilter(event.target.value)}
+                sx={{ minWidth: 160 }}
+              >
+                <MenuItem value="review_pending">Pending review</MenuItem>
+                <MenuItem value="accepted">Accepted</MenuItem>
+                <MenuItem value="rejected">Rejected</MenuItem>
+                <MenuItem value="">All statuses</MenuItem>
+              </TextField>
+              <Button size="small" variant="outlined" onClick={() => loadSuggestions(suggestionFilter)} disabled={suggestionLoading}>
+                Refresh
+              </Button>
+            </Stack>
+          </Stack>
+
+          {suggestionLoading ? (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2">Loading link suggestions...</Typography>
+            </Stack>
+          ) : (
+            <TableContainer sx={{ maxHeight: 320 }}>
+              <Table stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Registry Project</TableCell>
+                    <TableCell>ADP Project</TableCell>
+                    <TableCell>Match reason</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {suggestionRows.map((suggestion) => (
+                    <TableRow key={suggestion.id} hover>
+                      <TableCell sx={{ minWidth: 200 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.projectName}</Typography>
+                        <Typography variant="caption" color="text.secondary">Project ID {suggestion.projectId}</Typography>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 220 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.adpProjectName}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {[suggestion.sectorName, suggestion.programmeName, suggestion.locationText || suggestion.ward].filter(Boolean).join(' | ')}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 200 }}>
+                        <Typography variant="body2">{suggestion.matchReason}</Typography>
+                        <Chip size="small" label={confidenceLabel(suggestion.confidence)} sx={{ mt: 0.5 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Chip size="small" label={suggestion.status} color={suggestion.status === 'accepted' ? 'success' : suggestion.status === 'review_pending' ? 'warning' : 'default'} />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+                          {suggestion.status === 'review_pending' && (
+                            <>
+                              <Button
+                                size="small"
+                                startIcon={<CheckCircleIcon />}
+                                disabled={suggestionActionId === suggestion.id}
+                                onClick={() => handleAcceptSuggestion(suggestion)}
+                              >
+                                Accept
+                              </Button>
+                              <Button
+                                size="small"
+                                color="inherit"
+                                startIcon={<ThumbDownIcon />}
+                                disabled={suggestionActionId === suggestion.id}
+                                onClick={() => handleRejectSuggestion(suggestion.id)}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            size="small"
+                            component={RouterLink}
+                            to={ROUTES.PROJECT_DETAILS.replace(':projectId', String(suggestion.projectId))}
+                            endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+                          >
+                            Project
+                          </Button>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {suggestionRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5}>
+                        <Alert severity="info">
+                          No link suggestions for this filter yet. Click <strong>Generate Link Suggestions</strong> to match registry projects to ADP rows by shared keywords (name, sector, location, indicators).
+                        </Alert>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          {suggestionTotal > suggestionRows.length && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              Showing {formatNumber(suggestionRows.length)} of {formatNumber(suggestionTotal)} suggestions. Use the status filter or open a registry project for its full suggestion list.
+            </Typography>
+          )}
+        </Paper>
+
         {loading ? (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 4 }}>
             <CircularProgress size={22} />
@@ -550,6 +810,7 @@ export default function ADPImplementationPage() {
                   <TableCell>Sector / Programme</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Priority</TableCell>
                   <TableCell align="right">ADP Cost</TableCell>
                   <TableCell align="right">Budgeted</TableCell>
                   <TableCell align="right">Linked Projects</TableCell>
@@ -572,6 +833,18 @@ export default function ADPImplementationPage() {
                     <TableCell>{row.locationText || [row.ward, row.sublocation, row.village].filter(Boolean).join(' / ') || 'County wide'}</TableCell>
                     <TableCell>
                       <Chip size="small" label={row.planStatus || 'Unspecified'} color={String(row.planStatus || '').toLowerCase().includes('ongoing') ? 'warning' : 'default'} />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={
+                          row.priorityLevel === 'high' ? 'High — budget & link'
+                            : row.priorityLevel === 'medium' ? 'Medium — partial'
+                              : 'Ready'
+                        }
+                        color={priorityColor(row.priorityLevel)}
+                        variant="outlined"
+                      />
                     </TableCell>
                     <TableCell align="right">{formatCurrency(row.estimatedCost)}</TableCell>
                     <TableCell align="right">{formatCurrency(row.budgetedAmount)}</TableCell>
@@ -596,7 +869,7 @@ export default function ADPImplementationPage() {
                 ))}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10}>
+                    <TableCell colSpan={11}>
                       <Alert severity="info">No ADP projects found yet. Import reviewed ADP project rows to activate this report.</Alert>
                     </TableCell>
                   </TableRow>

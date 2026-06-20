@@ -2,6 +2,7 @@ import {
   Box, 
   IconButton, 
   useTheme, 
+  useMediaQuery,
   Typography, 
   Avatar, 
   Menu, 
@@ -13,6 +14,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import MenuIcon from "@mui/icons-material/Menu";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LockIcon from "@mui/icons-material/Lock";
@@ -24,14 +26,17 @@ import { useProfileModal } from '../context/ProfileModalContext';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { ROUTES } from '../configs/appConfig';
 import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
+import { useSidebar } from '../context/SidebarContext.jsx';
 import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 const Topbar = () => {
   const theme = useTheme();
+  const isDesktopUp = useMediaQuery(theme.breakpoints.up('sm'));
   const navigate = useNavigate();
   const { user } = useAuth();
   const { layoutMode, toggleLayoutMode } = useNavigationLayout();
+  const { isCollapsed, toggleSidebar } = useSidebar();
   const { pageTitle, pageSubtitle } = usePageTitle();
   const { openModal: openProfileModal } = useProfileModal();
   const [anchorEl, setAnchorEl] = useState(null);
@@ -87,14 +92,34 @@ const Topbar = () => {
       }}
     >
       {/* PAGE TITLE SECTION */}
-      <Box display="flex" alignItems="center" flexGrow={1}>
+      <Box display="flex" alignItems="center" flexGrow={1} minWidth={0}>
+        {isDesktopUp && (
+          <Tooltip title={isCollapsed ? 'Show sidebar menu' : 'Hide sidebar menu'} enterTouchDelay={0}>
+            <IconButton
+              size="small"
+              onClick={toggleSidebar}
+              aria-label={isCollapsed ? 'Show sidebar menu' : 'Hide sidebar menu'}
+              aria-expanded={!isCollapsed}
+              sx={{
+                color: 'white',
+                mr: 1,
+                flexShrink: 0,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+              }}
+            >
+              <MenuIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Typography 
           variant="h6" 
           fontWeight="bold" 
+          noWrap
           sx={{ 
             color: 'white',
             mr: 1.5,
-            fontSize: '1rem'
+            fontSize: '1rem',
+            minWidth: 0,
           }}
         >
           {pageTitle}
@@ -103,6 +128,7 @@ const Topbar = () => {
           <Typography
             component="span"
             variant="body2"
+            noWrap
             sx={{
               color: 'rgba(255, 255, 255, 0.94)',
               ml: 0.75,
@@ -111,6 +137,9 @@ const Topbar = () => {
               lineHeight: 1.35,
               letterSpacing: '0.01em',
               textShadow: '0 1px 2px rgba(0, 0, 0, 0.22)',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
             {pageSubtitle}

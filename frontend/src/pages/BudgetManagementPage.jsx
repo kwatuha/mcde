@@ -3471,16 +3471,19 @@ function BudgetManagementPage() {
               </Box>
               
               <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-                <Table size="small" sx={{ '& .MuiTableCell-root': { fontSize: '0.813rem' }, minWidth: 950 }}>
+                <Table size="small" sx={{ '& .MuiTableCell-root': { fontSize: '0.813rem' }, minWidth: 1200 }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, width: 50, textAlign: 'center', fontSize: '0.75rem' }}>#</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 200 }}>Project Name</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 100 }}>Source</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 180 }}>Registry Project</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 220, whiteSpace: 'nowrap' }}>Department</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>Subcounty</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>Ward</TableCell>
-                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 150, whiteSpace: 'nowrap' }} align="right">Amount</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 130, whiteSpace: 'nowrap' }} align="right">Budget Amount</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 110, whiteSpace: 'nowrap' }} align="right">Paid</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem', minWidth: 90 }} align="right">Absorption</TableCell>
                       <TableCell sx={{ fontWeight: 700, py: 0.75, fontSize: '0.813rem' }} align="center" width={90}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
@@ -3517,6 +3520,20 @@ function BudgetManagementPage() {
                               sx={{ height: 22, fontSize: '0.7rem' }}
                             />
                           </TableCell>
+                          <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 180 }}>
+                            {item.registryProjectId ? (
+                              <Typography
+                                component="a"
+                                href={`/projects/${item.registryProjectId}`}
+                                variant="body2"
+                                sx={{ fontWeight: 600, color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                              >
+                                {formatToSentenceCase(item.registryProjectName) || `Project #${item.registryProjectId}`}
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">Not linked</Typography>
+                            )}
+                          </TableCell>
                           <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.departmentName || 'N/A'}>
                             {item.departmentName || 'N/A'}
                           </TableCell>
@@ -3524,6 +3541,14 @@ function BudgetManagementPage() {
                           <TableCell sx={{ py: 0.75, fontSize: '0.813rem', minWidth: 120 }}>{formatToSentenceCase(item.wardName) || 'N/A'}</TableCell>
                           <TableCell sx={{ py: 0.75, align: 'right', fontWeight: 600, fontSize: '0.813rem', color: 'success.main' }}>
                             {formatCurrency(parseBudgetAmount(item.amount))}
+                          </TableCell>
+                          <TableCell sx={{ py: 0.75, align: 'right', fontSize: '0.813rem' }}>
+                            {item.registryPaid != null ? formatCurrency(Number(item.registryPaid)) : '—'}
+                          </TableCell>
+                          <TableCell sx={{ py: 0.75, align: 'right', fontSize: '0.813rem' }}>
+                            {item.registryAllocated > 0 && item.registryPaid != null
+                              ? `${Math.min(100, Math.round((Number(item.registryPaid) / Number(item.registryAllocated)) * 100))}%`
+                              : '—'}
                           </TableCell>
                           <TableCell sx={{ py: 0.5 }} align="center">
                             <Stack direction="row" spacing={1}>

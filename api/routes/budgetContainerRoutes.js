@@ -1260,6 +1260,14 @@ router.get('/containers/:budgetId/items', auth, async (req, res) => {
         if (isPostgres) {
             await ensureBudgetTables();
             const itemsResult = await pool.query(`
+                WITH adp_registry AS (
+                    SELECT DISTINCT ON (l.adp_project_id)
+                        l.adp_project_id,
+                        l.project_id AS registry_project_id
+                    FROM adp_project_links l
+                    WHERE COALESCE(l.voided, false) = false
+                    ORDER BY l.adp_project_id, l.updated_at DESC NULLS LAST, l.id DESC
+                )
                 SELECT
                     bi.itemid AS "itemId",
                     bi.budgetid AS "budgetId",
@@ -1280,6 +1288,18 @@ router.get('/containers/:budgetId/items', auth, async (req, res) => {
                     ap.plan_status AS "adpStatus",
                     ap.estimated_cost AS "adpEstimatedCost",
                     prog.programme_name AS "adpProgrammeName",
+                    COALESCE(bi.projectid, ar.registry_project_id) AS "registryProjectId",
+                    rp.name AS "registryProjectName",
+                    CASE
+                        WHEN rp.budget->>'allocated_amount_kes' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                        THEN (rp.budget->>'allocated_amount_kes')::numeric
+                        ELSE NULL
+                    END AS "registryAllocated",
+                    CASE
+                        WHEN rp.budget->>'disbursed_amount_kes' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                        THEN (rp.budget->>'disbursed_amount_kes')::numeric
+                        ELSE NULL
+                    END AS "registryPaid",
                     bi.remarks,
                     bi.addedafterapproval AS "addedAfterApproval",
                     bi.changerequestid AS "changeRequestId",
@@ -1290,6 +1310,9 @@ router.get('/containers/:budgetId/items', auth, async (req, res) => {
                 LEFT JOIN projects p ON p.project_id = bi.projectid AND COALESCE(p.voided, false) = false
                 LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
                 LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+                LEFT JOIN adp_registry ar ON ar.adp_project_id = bi.adpprojectid
+                LEFT JOIN projects rp ON rp.project_id = COALESCE(bi.projectid, ar.registry_project_id)
+                    AND COALESCE(rp.voided, false) = false
                 WHERE bi.budgetid = ? AND COALESCE(bi.voided, false) = false
                 ORDER BY bi.createdat DESC
             `, [budgetId]);
@@ -3397,27 +3420,93 @@ router.get('/template', async (req, res) => {
     }
 });
 
-module.exports = router;
-
 /**
- * @route GET /api/budgets/template
- * @description Download budget import template
- * @access Private
+ * @route GET /api/budgets/traceability
+ * @description Budget item → ADP row → registry project chain with absorption metrics
  */
-router.get('/template', async (req, res) => {
+router.get('/traceability', auth, async (req, res) => {
     try {
-        const templatePath = path.resolve(__dirname, '..', 'templates', 'budget_import_template.xlsx');
-        if (!fs.existsSync(templatePath)) {
-            return res.status(404).json({ message: 'Budget template not found on server' });
+        if (!isPostgres) {
+            return res.status(501).json({ message: 'Budget traceability is available on PostgreSQL deployments only.' });
         }
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename="budget_import_template.xlsx"');
-        return res.sendFile(templatePath);
+        await ensureBudgetTables();
+        const budgetId = req.query.budgetId ? Number(req.query.budgetId) : null;
+        const params = [];
+        let budgetFilter = '';
+        if (Number.isFinite(budgetId) && budgetId > 0) {
+            params.push(budgetId);
+            budgetFilter = `AND b.budgetid = $${params.length}`;
+        }
+
+        const result = await pool.query(
+            `
+            WITH adp_registry AS (
+                SELECT DISTINCT ON (l.adp_project_id)
+                    l.adp_project_id,
+                    l.project_id AS registry_project_id
+                FROM adp_project_links l
+                WHERE COALESCE(l.voided, false) = false
+                ORDER BY l.adp_project_id, l.updated_at DESC NULLS LAST, l.id DESC
+            )
+            SELECT
+                b.budgetid AS "budgetId",
+                b.budgetname AS "budgetName",
+                b.status AS "budgetStatus",
+                bi.itemid AS "itemId",
+                COALESCE(bi.amount, 0)::numeric AS "budgetItemAmount",
+                bi.adpprojectid AS "adpProjectId",
+                ap.project_name AS "adpProjectName",
+                prog.programme_name AS "adpProgrammeName",
+                COALESCE(bi.projectid, ar.registry_project_id) AS "registryProjectId",
+                rp.name AS "registryProjectName",
+                CASE
+                    WHEN NULLIF(BTRIM(rp.budget->>'allocated_amount_kes'), '') IS NOT NULL
+                    THEN NULLIF(BTRIM(rp.budget->>'allocated_amount_kes'), '')::numeric
+                    ELSE 0
+                END AS "projectBudget",
+                CASE
+                    WHEN NULLIF(BTRIM(rp.budget->>'disbursed_amount_kes'), '') IS NOT NULL
+                    THEN NULLIF(BTRIM(rp.budget->>'disbursed_amount_kes'), '')::numeric
+                    ELSE 0
+                END AS "projectPaid",
+                CASE
+                    WHEN NULLIF(BTRIM(rp.progress->>'percentage_complete'), '') IS NOT NULL
+                    THEN NULLIF(BTRIM(rp.progress->>'percentage_complete'), '')::numeric
+                    ELSE 0
+                END AS "projectProgress"
+            FROM budgets b
+            INNER JOIN budget_items bi ON bi.budgetid = b.budgetid AND COALESCE(bi.voided, false) = false
+            LEFT JOIN adp_projects ap ON ap.id = bi.adpprojectid AND COALESCE(ap.voided, false) = false
+            LEFT JOIN adp_programmes prog ON prog.id = ap.adp_programme_id
+            LEFT JOIN adp_registry ar ON ar.adp_project_id = bi.adpprojectid
+            LEFT JOIN projects rp ON rp.project_id = COALESCE(bi.projectid, ar.registry_project_id)
+                AND COALESCE(rp.voided, false) = false
+            WHERE COALESCE(b.voided, false) = false
+              ${budgetFilter}
+            ORDER BY b.budgetname ASC, bi.itemid ASC
+            `,
+            params
+        );
+
+        const rows = result.rows || [];
+        res.json({
+            budgetId: budgetId || null,
+            rows,
+            summary: {
+                items: rows.length,
+                linkedRegistryProjects: rows.filter((row) => row.registryProjectId).length,
+                totalBudgetItems: rows.reduce((sum, row) => sum + Number(row.budgetItemAmount || 0), 0),
+                totalProjectBudget: rows.reduce((sum, row) => sum + Number(row.projectBudget || 0), 0),
+                totalProjectPaid: rows.reduce((sum, row) => sum + Number(row.projectPaid || 0), 0),
+            },
+        });
     } catch (err) {
-        console.error('Error serving budget template:', err);
-        return res.status(500).json({ message: 'Failed to serve budget template' });
+        console.error('Budget traceability failed:', err);
+        res.status(500).json({ message: 'Failed to load budget traceability.', error: err.message });
     }
 });
+
+module.exports = router;
 
 module.exports = router;
 

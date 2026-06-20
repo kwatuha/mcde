@@ -14,7 +14,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { checkUserPrivilege, CARD_CONTENT_MAX_HEIGHT } from '../../utils/helpers';
+import { checkUserPrivilege, checkKdpsSectionPrivilege, KDSP_INCEPTION_TYPES, CARD_CONTENT_MAX_HEIGHT } from '../../utils/helpers';
 
 /**
  * A reusable component to display a section of data in a card format.
@@ -32,11 +32,17 @@ import { checkUserPrivilege, CARD_CONTENT_MAX_HEIGHT } from '../../utils/helpers
 function DataDisplayCard({ title, data, type, onAdd, onEdit, onDelete, children }) {
   const { user } = useAuth();
   const hasData = Array.isArray(data) ? data.length > 0 : !!data;
+  const isListSection = Array.isArray(data);
 
-  // Determine permissions based on the 'type' prop
-  const canCreate = checkUserPrivilege(user, `${type}.create`);
-  const canUpdate = checkUserPrivilege(user, `${type}.update`);
-  const canDelete = checkUserPrivilege(user, `${type}.delete`);
+  const privilege = (action) => (
+    KDSP_INCEPTION_TYPES.has(type)
+      ? checkKdpsSectionPrivilege(user, type, action)
+      : checkUserPrivilege(user, `${type}.${action}`)
+  );
+
+  const canCreate = privilege('create');
+  const canUpdate = privilege('update');
+  const canDelete = privilege('delete');
 
   const handleEditClick = () => {
     // Pass the entire data object or the specific item for editing
@@ -78,10 +84,9 @@ function DataDisplayCard({ title, data, type, onAdd, onEdit, onDelete, children 
               )}
             </>
           )}
-          {/* Render the Add button if data does NOT exist for single-item sections
-              or if the section is a list (hasData check is skipped) */}
-          {!hasData && canCreate && onAdd && (
-            <Button startIcon={<AddIcon />} variant="contained" onClick={() => onAdd(type)}>
+          {/* Add for empty single-record sections, or always for list sections (risks, stakeholders, etc.) */}
+          {canCreate && onAdd && (!hasData || isListSection) && (
+            <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={() => onAdd(type)}>
               Add {title}
             </Button>
           )}

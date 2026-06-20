@@ -50,6 +50,16 @@ const adpService = {
     const { data } = await axiosInstance.post(`/adp/plans/${planId}/generate-suggestions`);
     return data;
   },
+
+  getPlanLinkSuggestions: async (planId, params = {}) => {
+    const { data } = await axiosInstance.get(`/adp/plans/${planId}/link-suggestions`, { params });
+    return data;
+  },
+
+  getProgrammeProgress: async (params = {}) => {
+    const { data } = await axiosInstance.get('/adp/programme-progress', { params });
+    return data;
+  },
 };
 
 export default adpService;

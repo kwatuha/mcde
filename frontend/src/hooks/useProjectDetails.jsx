@@ -48,6 +48,12 @@ const useProjectDetails = (projectId) => {
         return newData;
       };
 
+      const normalizeList = (data) => {
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === 'object') return [data];
+        return [];
+      };
+
       await Promise.all([
         apiService.kdspIIService.getProjectConceptNote(projectId).catch(() => null).then(setConceptNote),
         apiService.kdspIIService.getProjectNeedsAssessment(projectId).catch(() => null).then(setNeedsAssessment),
@@ -57,19 +63,21 @@ const useProjectDetails = (projectId) => {
           'capitalCostOther', 'recurrentCostLabor', 'recurrentCostOperating',
           'recurrentCostMaintenance', 'recurrentCostOther', 'landExpropriationExpenses'
         ]))),
-        apiService.kdspIIService.getProjectFyBreakdown(projectId).catch(() => []).then(setFyBreakdown),
+        apiService.kdspIIService.getProjectFyBreakdown(projectId).catch(() => []).then((data) => setFyBreakdown(normalizeList(data))),
         apiService.kdspIIService.getProjectSustainability(projectId).catch(() => null).then(data => setSustainability(parseNumericFields(data, [
           'avgAnnualPersonnelCost', 'annualOperationMaintenanceCost', 'otherOperatingCosts'
         ]))),
         apiService.kdspIIService.getProjectImplementationPlan(projectId).catch(() => null).then(setImplementationPlan),
         apiService.kdspIIService.getProjectMAndE(projectId).catch(() => null).then(setMAndE),
-        apiService.kdspIIService.getProjectRisks(projectId).catch(() => []).then(setRisks),
-        apiService.kdspIIService.getProjectStakeholders(projectId).catch(() => []).then(setStakeholders),
+        apiService.kdspIIService.getProjectRisks(projectId).catch(() => []).then((data) => setRisks(normalizeList(data))),
+        apiService.kdspIIService.getProjectStakeholders(projectId).catch(() => []).then((data) => setStakeholders(normalizeList(data))),
         apiService.kdspIIService.getProjectReadiness(projectId).catch(() => null).then(setReadiness),
-        apiService.kdspIIService.getProjectHazardAssessment(projectId).catch(() => []).then(setHazardAssessment),
-        apiService.kdspIIService.getProjectClimateRisk(projectId).catch(() => null).then(data => setClimateRisk(parseNumericFields(data, [
-          'riskReductionCosts'
-        ]))),
+        apiService.kdspIIService.getProjectHazardAssessment(projectId).catch(() => []).then((data) => setHazardAssessment(normalizeList(data))),
+        apiService.kdspIIService.getProjectClimateRisk(projectId).catch(() => []).then((data) => {
+          setClimateRisk(
+            normalizeList(data).map((item) => parseNumericFields(item, ['riskReductionCosts']) || item)
+          );
+        }),
         apiService.kdspIIService.getProjectEsohsgScreening(projectId).catch(() => null).then(setEsohsgScreening),
       ]);
 

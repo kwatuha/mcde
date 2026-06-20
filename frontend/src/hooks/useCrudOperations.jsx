@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
-import { checkUserPrivilege } from '../utils/helpers';
+import { checkUserPrivilege, checkKdpsSectionPrivilege, KDSP_INCEPTION_TYPES } from '../utils/helpers';
 
 /**
  * A custom hook for handling CRUD operations and PDF downloads across different services.
@@ -12,11 +12,19 @@ import { checkUserPrivilege } from '../utils/helpers';
  * @param {function} fetchDataCallback - A callback function to refresh data after a successful operation.
  * @param {function} setSnackbar - The state setter for displaying snackbar messages.
  */
-const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
+const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar, defaultParentId = null) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
+  const KDSP_TYPES = KDSP_INCEPTION_TYPES;
+
+  const isKdspType = (type) => serviceType === 'kdsp' || KDSP_TYPES.has(type);
+
   const hasCrudPrivilege = (type, action) => {
+    if (isKdspType(type)) {
+      return checkKdpsSectionPrivilege(user, type, action);
+    }
+
     const directPrivilege = `${type}.${action}`;
     if (checkUserPrivilege(user, directPrivilege)) return true;
 
@@ -114,8 +122,16 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
         case 'activity':
             return apiService.strategy.activities;
         case 'milestoneActivity':
-            return apiService.strategy.milestoneActivities; // NEW: Added case for milestone activities
+            return apiService.strategy.milestoneActivities;
+        case 'strategic_plan_pdf':
+        case 'program_pdf':
+            return apiService.strategy;
+        case 'project_pdf':
+            return apiService.kdspIIService;
         default:
+            if (isKdspType(type)) {
+              return apiService.kdspIIService;
+            }
             return apiService.strategy;
     }
   };
@@ -143,9 +159,10 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
    * @param {function} handleCloseDialog - Callback to close the dialog.
    * @param {string|number} parentId - The ID of the parent resource for a new record.
    */
-  const handleSubmit = async (dialogType, currentRecord, formData, handleCloseDialog, parentId) => {
+  const handleSubmit = async (dialogType, currentRecord, formData, handleCloseDialog, submitParentId) => {
     setLoading(true);
     try {
+      const resourceParentId = submitParentId ?? defaultParentId;
       const isUpdate =
         !!currentRecord &&
         (dialogType === 'strategicPlan'
@@ -167,21 +184,29 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
         apiCallArgs = [recordId, payload];
       } else {
         if (dialogType === 'subprogram') {
-            payload = { ...formData, programId: parentId };
+            payload = { ...formData, programId: resourceParentId };
         } else if (dialogType === 'program') {
-            payload = { ...formData, cidpid: parentId };
+            payload = { ...formData, cidpid: resourceParentId };
         } else if (dialogType === 'workplan') {
-            payload = { ...formData, subProgramId: parentId };
+            payload = { ...formData, subProgramId: resourceParentId };
         } else if (dialogType === 'activity') {
-            payload = { ...formData, workplanId: parentId };
+            payload = { ...formData, workplanId: resourceParentId };
         }
-        apiCallArgs = [payload];
+
+        if (isKdspType(dialogType)) {
+          if (!resourceParentId) {
+            throw new Error('Project id is required to save inception records.');
+          }
+          apiCallArgs = [resourceParentId, payload];
+        } else {
+          apiCallArgs = [payload];
+        }
       }
       
       if (dialogType === 'attachment' && formData instanceof FormData) {
         if (!isUpdate) {
           formData.append('entityType', 'plan');
-          formData.append('entityId', parentId);
+          formData.append('entityId', resourceParentId);
         }
         apiCallArgs = [formData];
       }
@@ -303,7 +328,53 @@ const useCrudOperations = (serviceType, fetchDataCallback, setSnackbar) => {
     }
   };
 
-  return { loading, handleSubmit, handleDelete, handleDownloadPdf };
+  /** Download inception report as PDF or Word (.docx). */
+  const handleDownloadInceptionReport = async (format, name, projectId) => {
+    if (!checkUserPrivilege(user, 'kdsp_project_pdf.download')) {
+      setSnackbar({ open: true, message: `You don't have permission to download inception reports.`, severity: 'error' });
+      return;
+    }
+    const isDocx = format === 'docx';
+    setLoading(true);
+    setSnackbar({
+      open: true,
+      message: isDocx ? 'Generating Word document, please wait...' : 'Generating PDF report, please wait...',
+      severity: 'info',
+    });
+    try {
+      const methodName = isDocx ? 'downloadProjectDocx' : 'downloadProjectPdf';
+      if (typeof apiService.kdspIIService?.[methodName] !== 'function') {
+        throw new Error(`Download method '${methodName}' not found.`);
+      }
+      const response = await apiService.kdspIIService[methodName](projectId);
+      const ext = isDocx ? 'docx' : 'pdf';
+      const mime = isDocx
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/pdf';
+      const url = window.URL.createObjectURL(new Blob([response], { type: mime }));
+      const link = document.createElement('a');
+      link.href = url;
+      const cleanName = name ? name.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_') : 'Inception_Report';
+      link.setAttribute('download', `${cleanName}_${projectId}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setSnackbar({
+        open: true,
+        message: isDocx ? 'Word document downloaded successfully!' : 'PDF report downloaded successfully!',
+        severity: 'success',
+      });
+    } catch (err) {
+      console.error(`Error downloading inception ${format}:`, err);
+      const errorMessage = err.message || `Failed to download ${isDocx ? 'Word document' : 'PDF report'}. Please try again.`;
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { loading, handleSubmit, handleDelete, handleDownloadPdf, handleDownloadInceptionReport };
 };
 
 export default useCrudOperations;

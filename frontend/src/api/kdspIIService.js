@@ -487,11 +487,22 @@ const kdspIIService = {
   downloadProjectPdf: async (projectId) => {
     try {
       const response = await axiosInstance.get(`/projects/${projectId}/export-pdf`, {
-        responseType: 'blob', // Important: Ensures the response is treated as a binary file
+        responseType: 'blob',
       });
       return response.data;
     } catch (error) {
       console.error('Error downloading project PDF:', error);
+      throw error;
+    }
+  },
+  downloadProjectDocx: async (projectId) => {
+    try {
+      const response = await axiosInstance.get(`/projects/${projectId}/export-docx`, {
+        responseType: 'blob',
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error downloading project Word document:', error);
       throw error;
     }
   },

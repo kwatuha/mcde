@@ -174,6 +174,91 @@ async function validateProgramme(programId, subProgramId) {
   return { ok: true, program, subprogram };
 }
 
+router.get('/cidp/programme-progress', requirePostgres, canRead, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      WITH scoped_projects AS (
+        SELECT
+          p.project_id,
+          CASE
+            WHEN COALESCE(p.notes->>'program_id', '') ~ '^[0-9]+$' THEN (p.notes->>'program_id')::bigint
+            ELSE NULL
+          END AS program_id,
+          CASE
+            WHEN COALESCE(p.notes->>'subprogram_id', '') ~ '^[0-9]+$' THEN (p.notes->>'subprogram_id')::bigint
+            ELSE NULL
+          END AS subprogram_id,
+          CASE
+            WHEN NULLIF(BTRIM(p.budget->>'allocated_amount_kes'), '') IS NOT NULL
+              THEN NULLIF(BTRIM(p.budget->>'allocated_amount_kes'), '')::numeric
+            WHEN NULLIF(BTRIM(p.budget->>'contract_value_kes'), '') IS NOT NULL
+              THEN NULLIF(BTRIM(p.budget->>'contract_value_kes'), '')::numeric
+            WHEN NULLIF(BTRIM(p.budget->>'paid_amount_kes'), '') IS NOT NULL
+              THEN NULLIF(BTRIM(p.budget->>'paid_amount_kes'), '')::numeric
+            WHEN NULLIF(BTRIM(p.budget->>'disbursed_amount_kes'), '') IS NOT NULL
+              THEN NULLIF(BTRIM(p.budget->>'disbursed_amount_kes'), '')::numeric
+            ELSE 0
+          END AS budget_amount,
+          COALESCE(NULLIF(BTRIM(p.progress->>'percentage_complete'), ''), '0')::numeric AS progress_pct,
+          lower(COALESCE(p.progress->>'status', '')) AS status_norm
+        FROM projects p
+        WHERE COALESCE(p.voided, false) = false
+      ),
+      project_rollups AS (
+        SELECT
+          program_id,
+          COUNT(*)::int AS total_projects,
+          COUNT(*) FILTER (WHERE program_id IS NOT NULL OR subprogram_id IS NOT NULL)::int AS linked_projects,
+          COALESCE(SUM(budget_amount), 0)::numeric AS linked_project_budget,
+          COALESCE(AVG(progress_pct), 0)::numeric AS linked_avg_progress,
+          COUNT(*) FILTER (
+            WHERE status_norm LIKE '%stall%' OR status_norm LIKE '%hold%' OR progress_pct < 10
+          )::int AS stalled_projects
+        FROM scoped_projects
+        WHERE program_id IS NOT NULL
+        GROUP BY program_id
+      ),
+      cidp_budgets AS (
+        SELECT
+          subp."programId" AS program_id,
+          COALESCE(SUM(subp."totalBudget"), 0)::numeric AS cidp_indicative_budget
+        FROM subprograms subp
+        WHERE COALESCE(subp.voided, false) = false
+        GROUP BY subp."programId"
+      )
+      SELECT
+        pr."programId" AS "programId",
+        pr."programCode" AS "programCode",
+        COALESCE(pr.programme, pr."programName") AS "programme",
+        pr.description AS "sectorName",
+        COALESCE(proll.total_projects, 0)::int AS "totalProjects",
+        COALESCE(proll.linked_projects, 0)::int AS "linkedProjects",
+        0::int AS "unlinkedProjects",
+        COALESCE(proll.stalled_projects, 0)::int AS "stalledProjects",
+        COALESCE(proll.linked_project_budget, 0)::numeric AS "projectBudget",
+        COALESCE(cb.cidp_indicative_budget, 0)::numeric AS "cidpIndicativeBudget",
+        COALESCE(proll.linked_avg_progress, 0)::numeric AS "avgProgress",
+        CASE
+          WHEN COALESCE(proll.total_projects, 0) = 0 THEN 0
+          ELSE ROUND(100.0 * COALESCE(proll.linked_projects, 0) / proll.total_projects, 1)
+        END::numeric AS "linkagePercent"
+      FROM programs pr
+      LEFT JOIN project_rollups proll ON proll.program_id = pr."programId"
+      LEFT JOIN cidp_budgets cb ON cb.program_id = pr."programId"
+      WHERE lower(COALESCE(pr.cidpid, '')) = lower($1)
+        AND COALESCE(pr.voided, false) = false
+      ORDER BY COALESCE(proll.total_projects, 0) DESC, COALESCE(proll.linked_project_budget, 0) DESC, pr."programCode" ASC NULLS LAST
+      `,
+      [CIDP_CODE]
+    );
+    res.json({ cidpCode: CIDP_CODE, rows: result.rows || [] });
+  } catch (e) {
+    console.error('CIDP programme progress failed:', e);
+    res.status(500).json({ message: 'Failed to load CIDP programme progress.', error: e.message });
+  }
+});
+
 router.get('/cidp/catalog', requirePostgres, canRead, async (req, res) => {
   try {
     const [programmesResult, subprogrammesResult] = await Promise.all([

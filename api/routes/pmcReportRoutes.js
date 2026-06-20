@@ -64,6 +64,33 @@ router.get('/', canRead, async (req, res) => {
     }
 });
 
+router.get('/:reportId/history', canRead, async (req, res) => {
+    try {
+        const actions = await pmcReportService.listReportActions(req.params.reportId, req.user);
+        res.json({ actions });
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ message: error.message || 'Failed to fetch PMC report history.' });
+    }
+});
+
+router.get('/:reportId/actions/:actionId/file', canRead, async (req, res) => {
+    try {
+        const meta = await pmcReportService.getActionFileMeta(
+            req.params.reportId,
+            req.params.actionId,
+            req.user
+        );
+        if (!meta?.signedFilePath || !fs.existsSync(meta.signedFilePath)) {
+            return res.status(404).json({ message: 'Historical signed document not found.' });
+        }
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${meta.signedFileName || 'pmc-report'}"`);
+        return res.sendFile(path.resolve(meta.signedFilePath));
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ message: error.message || 'Failed to download historical PMC report file.' });
+    }
+});
+
 router.get('/:reportId/file', canRead, async (req, res) => {
     try {
         const meta = await pmcReportService.getReportFileMeta(req.params.reportId, req.user);

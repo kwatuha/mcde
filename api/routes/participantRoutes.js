@@ -4,7 +4,69 @@ const router = express.Router();
 const pool = require('../config/db'); // Import the database connection pool
 const ExcelJS = require('exceljs'); // For Excel export
 const puppeteer = require('puppeteer'); // For PDF export
+const multer = require('multer');
+const XLSX = require('xlsx');
 const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
+const beneficiaryRegistry = require('../services/beneficiaryRegistryService');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+const PARTICIPANT_TEMPLATE_HEADERS = [
+    'Individual ID', 'Household ID', 'Gender', 'Age', 'County', 'Sub-County', 'Ward',
+    'Occupation', 'Education Level', 'Project ID', 'RRI Programme ID', 'Notes',
+];
+
+function normalizeHeader(value) {
+    return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+}
+
+function mapParticipantImportRow(row = {}) {
+    const lookup = {};
+    Object.entries(row).forEach(([key, value]) => {
+        lookup[normalizeHeader(key)] = value;
+    });
+    const pick = (...keys) => {
+        for (const key of keys) {
+            const val = lookup[normalizeHeader(key)];
+            if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+        }
+        return null;
+    };
+    const individualId = pick('Individual ID', 'individualId');
+    const ageRaw = pick('Age', 'age');
+    const age = ageRaw != null && Number.isFinite(Number(ageRaw)) ? Number(ageRaw) : null;
+    const projectIdRaw = pick('Project ID', 'projectId');
+    const projectId = projectIdRaw != null && Number.isFinite(Number(projectIdRaw)) ? Number(projectIdRaw) : null;
+    const rriProgrammeIdRaw = pick('RRI Programme ID', 'rriProgrammeId', 'rri_programme_id');
+    const rriProgrammeId = rriProgrammeIdRaw != null && Number.isFinite(Number(rriProgrammeIdRaw))
+        ? Number(rriProgrammeIdRaw)
+        : null;
+    return {
+        individualId: individualId != null ? Number(individualId) : null,
+        householdId: pick('Household ID', 'householdId'),
+        gender: pick('Gender', 'gender'),
+        age,
+        county: pick('County', 'county'),
+        subCounty: pick('Sub-County', 'Sub County', 'subCounty'),
+        ward: pick('Ward', 'ward'),
+        occupation: pick('Occupation', 'occupation'),
+        educationLevel: pick('Education Level', 'educationLevel'),
+        projectId,
+        rri_programme_id: rriProgrammeId,
+        notes: pick('Notes', 'notes'),
+    };
+}
+
+function parseImportWorkbook(buffer) {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+}
+
+async function getNextIndividualId() {
+    const [rows] = await pool.query('SELECT COALESCE(MAX(individualId), 0) + 1 AS nextId FROM studyparticipants');
+    return rows?.[0]?.nextId ?? rows?.[0]?.nextid ?? 1;
+}
 
 // --- CRUD Operations for Study Participants (studyparticipants) ---
 
@@ -15,132 +77,35 @@ const { getPuppeteerLaunchOptions } = require('../utils/puppeteerLaunch');
  * @access Private
  */
 router.post('/study_participants/filtered', async (req, res) => {
-    // For this simplified version, we'll ignore page, pageSize, offset
-    // and just apply filters and sorting.
-    const { filters, orderBy = 'individualId', order = 'ASC' } = req.body;
-
-    // Base query parts
-    let whereClause = 'WHERE 1=1'; // Start with a true condition for easy AND concatenation
-    const filterParameters = []; // This array will hold parameters specifically for filters
-
-    // Apply filters
-    if (filters) {
-        if (filters.county) {
-            whereClause += ' AND county = ?';
-            filterParameters.push(filters.county);
-        }
-        if (filters.subCounty) {
-            whereClause += ' AND subCounty = ?';
-            filterParameters.push(filters.subCounty);
-        }
-        if (filters.gender) {
-            whereClause += ' AND gender = ?';
-            filterParameters.push(filters.gender);
-        }
-        if (filters.ageGroup) {
-            const ageParts = String(filters.ageGroup).split('-'); // Ensure it's a string before split
-            if (ageParts.length === 2) {
-                const minAge = parseInt(ageParts[0]);
-                const maxAge = parseInt(ageParts[1]);
-                if (!isNaN(minAge) && !isNaN(maxAge)) {
-                    whereClause += ' AND age BETWEEN ? AND ?';
-                    filterParameters.push(minAge, maxAge);
-                }
-            } else if (String(filters.ageGroup).includes('+')) { // Handle "50+" case
-                const minAge = parseInt(String(filters.ageGroup).replace('+', ''));
-                if (!isNaN(minAge)) {
-                    whereClause += ' AND age >= ?';
-                    filterParameters.push(minAge);
-                }
-            }
-        }
-        if (filters.diseaseStatusMalaria) {
-            whereClause += ' AND diseaseStatusMalaria = ?';
-            filterParameters.push(filters.diseaseStatusMalaria);
-        }
-        if (filters.diseaseStatusDengue) {
-            whereClause += ' AND diseaseStatusDengue = ?';
-            filterParameters.push(filters.diseaseStatusDengue);
-        }
-        if (filters.educationLevel) {
-            whereClause += ' AND educationLevel = ?';
-            filterParameters.push(filters.educationLevel);
-        }
-        if (filters.occupation) {
-            whereClause += ' AND occupation = ?';
-            filterParameters.push(filters.occupation);
-        }
-        if (filters.housingType) {
-            whereClause += ' AND housingType = ?';
-            filterParameters.push(filters.housingType);
-        }
-        if (filters.waterSource) {
-            whereClause += ' AND waterSource = ?';
-            filterParameters.push(filters.waterSource);
-        }
-        if (filters.mosquitoNetUse) {
-            whereClause += ' AND mosquitoNetUse = ?';
-            filterParameters.push(filters.mosquitoNetUse);
-        }
-        if (filters.accessToHealthcare) {
-            whereClause += ' AND accessToHealthcare = ?';
-            filterParameters.push(filters.accessToHealthcare);
-        }
-        if (filters.projectId) {
-            whereClause += ' AND projectId = ?';
-            filterParameters.push(filters.projectId);
-        }
-    }
-
-    // Add sorting
-    const validOrderByColumns = [
-        'individualId', 'householdId', 'gpsLatitudeIndividual', 'gpsLongitudeIndividual',
-        'county', 'subCounty', 'gender', 'age', 'occupation', 'educationLevel',
-        'diseaseStatusMalaria', 'diseaseStatusDengue', 'mosquitoNetUse',
-        'waterStoragePractices', 'climatePerception', 'recentRainfall',
-        'averageTemperatureC', 'householdSize', 'accessToHealthcare', 'projectId'
-    ];
-    const safeOrderBy = validOrderByColumns.includes(orderBy) ? orderBy : 'individualId';
-    const safeOrder = (order.toUpperCase() === 'ASC' || order.toUpperCase() === 'DESC') ? order.toUpperCase() : 'ASC';
-
-    // Construct the full data query - HARDCODED LIMIT for small dataset
-    const dataQuery = `SELECT * FROM studyparticipants ${whereClause} ORDER BY ${safeOrderBy} ${safeOrder} LIMIT 10000`; // Hardcoded limit
-    const dataQueryParams = filterParameters; // Only filter params, no limit/offset params needed for hardcoded limit
-
-    // Construct the full count query
-    const countQuery = `SELECT COUNT(*) as totalCount FROM studyparticipants ${whereClause}`;
-    const countQueryParams = filterParameters; // Only filter parameters for count
+    const { filters, orderBy = 'beneficiaryId', order = 'ASC', page = 1, pageSize = 10000 } = req.body;
 
     try {
-        // Log queries and parameters for debugging
-        console.log('--- Debugging Participant Filtered Data (Simplified) ---');
-        console.log('Final Data Query:', dataQuery);
-        console.log('Final Data Query Parameters:', dataQueryParams);
-        console.log('Final Count Query:', countQuery);
-        console.log('Final Count Query Parameters:', countQueryParams);
+        if (await beneficiaryRegistry.tableExists()) {
+            const result = await beneficiaryRegistry.listBeneficiaries(
+                { ...filters, orderBy: orderBy === 'individualId' ? 'beneficiaryId' : orderBy, order },
+                { page, pageSize }
+            );
+            return res.status(200).json({
+                data: result.rows,
+                totalCount: result.totalCount,
+                page: result.page,
+                pageSize: result.pageSize,
+                totalPages: result.totalPages,
+            });
+        }
 
-        // Execute count query first to get total number of rows
-        const [countRows] = await pool.execute(countQuery, countQueryParams);
-        const totalCount = countRows[0].totalCount;
-
-        // Execute data query
-        const [rows] = await pool.execute(dataQuery, dataQueryParams);
-
-        // Log the retrieved rows to inspect the data for individualId and householdId
-        console.log('Retrieved study participants rows:', rows);
-
-        res.status(200).json({
-            data: rows,
-            totalCount: totalCount,
-            // For a hardcoded limit, page/pageSize/totalPages become less relevant for frontend pagination control
-            // but we can return them based on the totalCount for consistency if the frontend still expects them.
-            page: 1,
-            pageSize: totalCount, // Indicate all data is returned in one "page"
-            totalPages: 1
-        });
+        // Legacy fallback when beneficiaries table not migrated yet
+        let whereClause = 'WHERE 1=1';
+        const filterParameters = [];
+        if (filters?.county) { whereClause += ' AND county = ?'; filterParameters.push(filters.county); }
+        if (filters?.subCounty) { whereClause += ' AND subCounty = ?'; filterParameters.push(filters.subCounty); }
+        if (filters?.projectId) { whereClause += ' AND projectId = ?'; filterParameters.push(filters.projectId); }
+        const result = await pool.query(`SELECT * FROM studyparticipants ${whereClause} ORDER BY "individualId" ASC LIMIT 10000`, filterParameters);
+        const rows = result.rows || [];
+        res.status(200).json({ data: rows, totalCount: rows.length, page: 1, pageSize: rows.length, totalPages: 1 });
     } catch (error) {
-        console.error('Error fetching filtered study participants:', error);
-        res.status(500).json({ message: 'Error fetching filtered study participants', error: error.message });
+        console.error('Error fetching beneficiaries:', error);
+        res.status(500).json({ message: 'Error fetching beneficiaries', error: error.message });
     }
 });
 
@@ -382,6 +347,54 @@ router.post('/study_participants/export/pdf', async (req, res) => {
                 console.warn('participants export/pdf: browser.close failed:', e.message);
             }
         }
+    }
+});
+
+
+router.get('/template', async (req, res) => {
+    try {
+        const { buildBeneficiaryImportWorkbook } = require('../services/beneficiaryTemplateService');
+        const workbook = await buildBeneficiaryImportWorkbook();
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="beneficiaries_import_template.xlsx"');
+        await workbook.xlsx.write(res);
+        return res.end();
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to generate beneficiary template.', error: error.message });
+    }
+});
+
+router.post('/import-data', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'Import file is required.' });
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames.includes('Beneficiaries') ? 'Beneficiaries' : workbook.SheetNames[0];
+        const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+        const result = await beneficiaryRegistry.previewImportRows(rawRows);
+        res.json(beneficiaryRegistry.formatImportPreviewResponse(result));
+    } catch (error) {
+        console.error('Participant import preview failed:', error);
+        res.status(500).json({ message: 'Failed to preview beneficiary import.', error: error.message });
+    }
+});
+
+router.post('/confirm-import-data', async (req, res) => {
+    try {
+        const dataToImport = Array.isArray(req.body?.dataToImport) ? req.body.dataToImport : [];
+        if (dataToImport.length === 0) {
+            return res.status(400).json({ message: 'No beneficiary rows supplied for import.' });
+        }
+        const userId = Number(req.user?.id ?? req.user?.userId) || null;
+        const { inserted, updated, total } = await beneficiaryRegistry.confirmImportRows(dataToImport, userId);
+        res.json({
+            message: `Imported ${total} beneficiary record(s).`,
+            inserted,
+            updated,
+            total,
+        });
+    } catch (error) {
+        console.error('Participant import confirm failed:', error);
+        res.status(500).json({ message: 'Failed to import beneficiaries.', error: error.message });
     }
 });
 

@@ -12,6 +12,9 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  List,
+  ListItem,
+  ListItemText,
   MenuItem,
   Paper,
   Snackbar,
@@ -28,6 +31,7 @@ import {
   Edit as EditIcon,
   Refresh as RefreshIcon,
   Replay as ReplayIcon,
+  History as HistoryIcon,
   Send as SendIcon,
   UploadFile as UploadFileIcon,
   Visibility as VisibilityIcon,
@@ -71,6 +75,32 @@ function statusLabel(status) {
   return String(status || 'draft').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const ACTION_LABELS = {
+  created: 'Draft created',
+  updated: 'Details updated',
+  file_uploaded: 'Signed document uploaded',
+  submitted: 'Submitted for review',
+  resubmitted: 'Resubmitted for review',
+  returned: 'Returned for revision',
+  approved: 'Approved',
+  deleted: 'Deleted',
+};
+
+const ACTION_COLORS = {
+  created: 'default',
+  updated: 'default',
+  file_uploaded: 'info',
+  submitted: 'warning',
+  resubmitted: 'warning',
+  returned: 'error',
+  approved: 'success',
+  deleted: 'default',
+};
+
+function actionLabel(actionType) {
+  return ACTION_LABELS[actionType] || statusLabel(actionType);
+}
+
 export default function PmcWardReportsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -99,6 +129,10 @@ export default function PmcWardReportsPage() {
   const [signedFile, setSignedFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState({ open: false, severity: 'success', message: '' });
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRow, setHistoryRow] = useState(null);
+  const [historyActions, setHistoryActions] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const canCreate = hasPrivilege('pmc_report.create') || hasPrivilege('pmc_report.update') || hasPrivilege('project.update');
   const canSubmit = hasPrivilege('pmc_report.submit') || hasPrivilege('pmc_report.update');
@@ -264,6 +298,47 @@ export default function PmcWardReportsPage() {
     setReviewRow({ ...row, mode });
     setReviewComment('');
     setReviewOpen(true);
+    loadHistory(row.reportId, false);
+  };
+
+  const loadHistory = useCallback(async (reportId, openDialog = true) => {
+    if (!reportId) return;
+    if (openDialog) {
+      const row = rows.find((item) => item.reportId === reportId) || { reportId };
+      setHistoryRow(row);
+      setHistoryOpen(true);
+    }
+    setHistoryActions([]);
+    setHistoryLoading(true);
+    try {
+      const data = await pmcReportService.getHistory(reportId);
+      setHistoryActions(Array.isArray(data?.actions) ? data.actions : []);
+    } catch (error) {
+      setHistoryActions([]);
+      if (openDialog) {
+        showToast('error', error?.response?.data?.message || error?.message || 'Failed to load revision history.');
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [rows]);
+
+  const handleDownloadHistoryFile = async (reportId, action) => {
+    if (!reportId || !action?.actionId) return;
+    try {
+      const response = await pmcReportService.downloadHistoryFile(reportId, action.actionId);
+      const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = action.signedFileName || `pmc-report-${reportId}-action-${action.actionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      showToast('error', error?.response?.data?.message || error?.message || 'Failed to download historical document.');
+    }
   };
 
   const handleReview = async () => {
@@ -284,6 +359,7 @@ export default function PmcWardReportsPage() {
       }
       setReviewOpen(false);
       setReviewRow(null);
+      setHistoryActions([]);
       fetchRows();
     } catch (error) {
       showToast('error', error?.response?.data?.message || error?.message || 'Review action failed.');
@@ -346,13 +422,32 @@ export default function PmcWardReportsPage() {
       valueFormatter: (value) => formatDate(value),
     },
     {
+      field: 'reviewComment',
+      headerName: 'Latest comment',
+      flex: 1,
+      minWidth: 160,
+      valueGetter: (_, row) => row.reviewComment || '',
+      renderCell: ({ row }) => (
+        row.reviewComment ? (
+          <Typography variant="body2" sx={{ whiteSpace: 'normal', lineHeight: 1.3, py: 0.5 }}>
+            {row.reviewComment}
+          </Typography>
+        ) : '—'
+      ),
+    },
+    {
       field: 'actions',
       headerName: 'Actions',
-      width: 280,
+      width: 320,
       sortable: false,
       filterable: false,
       renderCell: ({ row }) => (
         <Stack direction="row" spacing={0.5}>
+          <Tooltip title="Revision history">
+            <IconButton size="small" onClick={() => loadHistory(row.reportId)}>
+              <HistoryIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="View project">
             <IconButton size="small" onClick={() => navigate(`/projects/${row.projectId}`)}>
               <VisibilityIcon fontSize="small" />
@@ -424,7 +519,7 @@ export default function PmcWardReportsPage() {
         </Stack>
       ),
     },
-  ], [canCreate, canReview, canSubmit, navigate, submitting]);
+  ], [canCreate, canReview, canSubmit, loadHistory, navigate, submitting]);
 
   return (
     <Box m="20px">
@@ -578,6 +673,28 @@ export default function PmcWardReportsPage() {
             <Typography variant="body2">
               {reviewRow?.reportTitle} — {reviewRow?.projectName} ({reviewRow?.ward || 'ward n/a'})
             </Typography>
+            {historyActions.length > 0 ? (
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Revision history</Typography>
+                <Paper variant="outlined" sx={{ maxHeight: 180, overflow: 'auto', p: 1 }}>
+                  <List dense disablePadding>
+                    {historyActions.slice(-5).map((action) => (
+                      <ListItem key={action.actionId} disableGutters sx={{ py: 0.25 }}>
+                        <ListItemText
+                          primary={`${actionLabel(action.actionType)} · ${action.actorName || 'Unknown'}`}
+                          secondary={[
+                            formatDate(action.createdAt),
+                            action.comment,
+                          ].filter(Boolean).join(' — ')}
+                          primaryTypographyProps={{ variant: 'caption', fontWeight: 600 }}
+                          secondaryTypographyProps={{ variant: 'caption' }}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              </Box>
+            ) : null}
             <TextField
               label={reviewRow?.mode === 'approve' ? 'Approval comment (optional)' : 'Return comment (required)'}
               value={reviewComment}
@@ -593,6 +710,73 @@ export default function PmcWardReportsPage() {
           <Button variant="contained" color={reviewRow?.mode === 'approve' ? 'success' : 'warning'} onClick={handleReview} disabled={submitting}>
             {submitting ? <CircularProgress size={18} color="inherit" /> : (reviewRow?.mode === 'approve' ? 'Approve' : 'Return to Ward')}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>
+          Revision history
+          {historyRow?.reportTitle ? ` — ${historyRow.reportTitle}` : ''}
+        </DialogTitle>
+        <DialogContent dividers>
+          {historyLoading ? (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2">Loading revision history...</Typography>
+            </Stack>
+          ) : historyActions.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No revision history recorded yet.</Typography>
+          ) : (
+            <Stack spacing={1.5}>
+              {historyActions.map((action, index) => (
+                <Paper key={action.actionId} variant="outlined" sx={{ p: 1.5 }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <Chip
+                        size="small"
+                        label={actionLabel(action.actionType)}
+                        color={ACTION_COLORS[action.actionType] || 'default'}
+                      />
+                      {action.fromStatus && action.toStatus && action.fromStatus !== action.toStatus ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {statusLabel(action.fromStatus)} → {statusLabel(action.toStatus)}
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatDate(action.createdAt)}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.75 }}>
+                    {action.actorName || 'Unknown user'}
+                  </Typography>
+                  {action.comment ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
+                      {action.comment}
+                    </Typography>
+                  ) : null}
+                  {action.hasSignedFile ? (
+                    <Button
+                      size="small"
+                      startIcon={<DownloadIcon />}
+                      sx={{ mt: 1 }}
+                      onClick={() => handleDownloadHistoryFile(historyRow?.reportId, action)}
+                    >
+                      {action.signedFileName || 'Download document'}
+                    </Button>
+                  ) : null}
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHistoryOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
