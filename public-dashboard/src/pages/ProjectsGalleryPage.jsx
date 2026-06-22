@@ -37,7 +37,9 @@ import {
   getDepartments,
   getProjectTypes,
   getSubCounties,
-  getWardStats
+  getWards,
+  getSublocations,
+  getVillages
 } from '../services/publicApi';
 import { formatCurrency, formatDate, getStatusColor, truncateText, formatStatus } from '../utils/formatters';
 import ProjectFeedbackModal from '../components/ProjectFeedbackModal';
@@ -57,11 +59,12 @@ const ProjectsGalleryPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
-  const [selectedMinistry, setSelectedMinistry] = useState('all');
-  const [selectedStateDepartment, setSelectedStateDepartment] = useState('all');
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [selectedProjectType, setSelectedProjectType] = useState('all');
   const [selectedSubcounty, setSelectedSubcounty] = useState('all');
   const [selectedWard, setSelectedWard] = useState('all');
+  const [selectedSublocation, setSelectedSublocation] = useState('all');
+  const [selectedVillage, setSelectedVillage] = useState('all');
   
   // Filter Options
   const [financialYears, setFinancialYears] = useState([]);
@@ -69,7 +72,8 @@ const ProjectsGalleryPage = () => {
   const [projectTypes, setProjectTypes] = useState([]);
   const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
-  const [stateDepartments, setStateDepartments] = useState([]);
+  const [sublocations, setSublocations] = useState([]);
+  const [villages, setVillages] = useState([]);
 
   const statuses = ['Completed', 'Ongoing', 'Not Started', 'Under Procurement', 'Stalled'];
 
@@ -79,17 +83,40 @@ const ProjectsGalleryPage = () => {
 
   useEffect(() => {
     fetchProjects();
-  }, [pagination.page, selectedYear, selectedStatus, selectedMinistry, selectedStateDepartment, selectedProjectType, selectedSubcounty, selectedWard, searchTerm]);
+  }, [pagination.page, selectedYear, selectedStatus, selectedDepartment, selectedProjectType, selectedSubcounty, selectedWard, selectedSublocation, selectedVillage, searchTerm]);
 
   useEffect(() => {
-    // Update wards when subcounty changes
     if (selectedSubcounty && selectedSubcounty !== 'all') {
       fetchWardsForSubcounty(selectedSubcounty);
     } else {
       setWards([]);
       setSelectedWard('all');
     }
+    setSublocations([]);
+    setSelectedSublocation('all');
+    setVillages([]);
+    setSelectedVillage('all');
   }, [selectedSubcounty]);
+
+  useEffect(() => {
+    if (selectedWard && selectedWard !== 'all') {
+      fetchSublocationsForWard(selectedWard);
+    } else {
+      setSublocations([]);
+      setSelectedSublocation('all');
+    }
+    setVillages([]);
+    setSelectedVillage('all');
+  }, [selectedWard, selectedSubcounty]);
+
+  useEffect(() => {
+    if (selectedSublocation && selectedSublocation !== 'all') {
+      fetchVillagesForSublocation(selectedSublocation);
+    } else {
+      setVillages([]);
+      setSelectedVillage('all');
+    }
+  }, [selectedSublocation, selectedWard, selectedSubcounty]);
 
   const fetchFilterOptions = async () => {
     try {
@@ -110,15 +137,35 @@ const ProjectsGalleryPage = () => {
 
   const fetchWardsForSubcounty = async (subcountyId) => {
     try {
-      const wardData = await getWardStats(selectedYear !== 'all' ? selectedYear : null);
-      // Filter wards by subcounty ID
-      const filteredWards = (wardData || []).filter(ward => 
-        ward.subcounty_id === subcountyId || ward.subcountyId === subcountyId
-      );
-      setWards(filteredWards);
+      const wardData = await getWards(subcountyId);
+      setWards(wardData || []);
     } catch (err) {
       console.error('Error fetching wards:', err);
       setWards([]);
+    }
+  };
+
+  const fetchSublocationsForWard = async (wardId) => {
+    try {
+      const data = await getSublocations(wardId, selectedSubcounty !== 'all' ? selectedSubcounty : null);
+      setSublocations(data || []);
+    } catch (err) {
+      console.error('Error fetching sublocations:', err);
+      setSublocations([]);
+    }
+  };
+
+  const fetchVillagesForSublocation = async (sublocationId) => {
+    try {
+      const data = await getVillages(
+        sublocationId,
+        selectedWard !== 'all' ? selectedWard : null,
+        selectedSubcounty !== 'all' ? selectedSubcounty : null
+      );
+      setVillages(data || []);
+    } catch (err) {
+      console.error('Error fetching villages:', err);
+      setVillages([]);
     }
   };
 
@@ -132,11 +179,12 @@ const ProjectsGalleryPage = () => {
 
       if (selectedYear !== 'all') filters.finYearId = selectedYear;
       if (selectedStatus !== 'all') filters.status = selectedStatus;
-      if (selectedMinistry !== 'all') filters.ministry = selectedMinistry;
-      if (selectedStateDepartment !== 'all') filters.stateDepartment = selectedStateDepartment;
+      if (selectedDepartment !== 'all') filters.departmentId = selectedDepartment;
       if (selectedProjectType !== 'all') filters.projectType = selectedProjectType;
       if (selectedSubcounty !== 'all') filters.subCountyId = selectedSubcounty;
       if (selectedWard !== 'all') filters.wardId = selectedWard;
+      if (selectedSublocation !== 'all') filters.sublocationId = selectedSublocation;
+      if (selectedVillage !== 'all') filters.villageId = selectedVillage;
       if (searchTerm) filters.search = searchTerm;
 
       const response = await getProjects(filters);
@@ -147,14 +195,6 @@ const ProjectsGalleryPage = () => {
         total: response.pagination?.total || 0,
         totalPages: response.pagination?.totalPages || 0
       }));
-      
-      // Extract unique state departments from all projects for filter dropdown
-      const uniqueStateDepts = Array.from(new Set(
-        projectsData
-          .map(p => p.state_department || p.stateDepartment)
-          .filter(Boolean)
-      )).sort();
-      setStateDepartments(uniqueStateDepts);
       
       setError(null);
     } catch (err) {
@@ -174,11 +214,12 @@ const ProjectsGalleryPage = () => {
     setSearchTerm('');
     setSelectedYear('all');
     setSelectedStatus('all');
-    setSelectedMinistry('all');
-    setSelectedStateDepartment('all');
+    setSelectedDepartment('all');
     setSelectedProjectType('all');
     setSelectedSubcounty('all');
     setSelectedWard('all');
+    setSelectedSublocation('all');
+    setSelectedVillage('all');
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
@@ -272,20 +313,11 @@ const ProjectsGalleryPage = () => {
             </Typography>
           </Box>
 
-          {(project.ministry || project.department_name) && (
+          {(project.department_name || project.ministry) && (
             <Box sx={{ mb: 0.75, display: 'flex', alignItems: 'center', gap: 0.75 }}>
               <Business sx={{ fontSize: 16, color: 'text.secondary' }} />
               <Typography variant="caption" color="text.secondary">
-                Ministry: {project.ministry || project.department_name}
-              </Typography>
-            </Box>
-          )}
-
-          {(project.state_department || project.stateDepartment) && (
-            <Box sx={{ mb: 0.75, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Business sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary">
-                State Department: {project.state_department || project.stateDepartment}
+                Department: {project.department_name || project.ministry}
               </Typography>
             </Box>
           )}
@@ -438,46 +470,23 @@ const ProjectsGalleryPage = () => {
             </FormControl>
           </Grid>
 
-          {/* Ministry */}
+          {/* Department */}
           <Grid item xs={6} sm={3.5} md={2}>
             <FormControl fullWidth size="small">
-              <InputLabel sx={{ fontSize: '0.8125rem' }}>Ministry</InputLabel>
+              <InputLabel sx={{ fontSize: '0.8125rem' }}>Department</InputLabel>
               <Select
-                value={selectedMinistry}
-                label="Ministry"
+                value={selectedDepartment}
+                label="Department"
                 onChange={(e) => {
-                  setSelectedMinistry(e.target.value);
+                  setSelectedDepartment(e.target.value);
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}
                 sx={{ height: '32px', fontSize: '0.8125rem' }}
               >
                 <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
                 {departments.map((dept) => (
-                  <MenuItem key={dept.id} value={dept.name} sx={{ fontSize: '0.8125rem' }}>
+                  <MenuItem key={dept.id} value={dept.id} sx={{ fontSize: '0.8125rem' }}>
                     {dept.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          {/* State Department */}
-          <Grid item xs={6} sm={3.5} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel sx={{ fontSize: '0.8125rem' }}>State Department</InputLabel>
-              <Select
-                value={selectedStateDepartment}
-                label="State Department"
-                onChange={(e) => {
-                  setSelectedStateDepartment(e.target.value);
-                  setPagination(prev => ({ ...prev, page: 1 }));
-                }}
-                sx={{ height: '32px', fontSize: '0.8125rem' }}
-              >
-                <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
-                {stateDepartments.map((stateDept) => (
-                  <MenuItem key={stateDept} value={stateDept} sx={{ fontSize: '0.8125rem' }}>
-                    {stateDept}
                   </MenuItem>
                 ))}
               </Select>
@@ -522,7 +531,7 @@ const ProjectsGalleryPage = () => {
               >
                 <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
                 {subcounties.map((subcounty) => (
-                  <MenuItem key={subcounty.subcountyId || subcounty.id} value={subcounty.subcountyId || subcounty.id} sx={{ fontSize: '0.8125rem' }}>
+                  <MenuItem key={subcounty.id || subcounty.subcountyId} value={subcounty.id || subcounty.subcountyId} sx={{ fontSize: '0.8125rem' }}>
                     {subcounty.name}
                   </MenuItem>
                 ))}
@@ -545,8 +554,54 @@ const ProjectsGalleryPage = () => {
               >
                 <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
                 {wards.map((ward) => (
-                  <MenuItem key={ward.wardId || ward.id} value={ward.wardId || ward.id} sx={{ fontSize: '0.8125rem' }}>
+                  <MenuItem key={ward.id || ward.wardId} value={ward.id || ward.wardId} sx={{ fontSize: '0.8125rem' }}>
                     {ward.name || ward.ward_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Sublocation */}
+          <Grid item xs={6} sm={3.5} md={2}>
+            <FormControl fullWidth size="small" disabled={selectedWard === 'all'}>
+              <InputLabel sx={{ fontSize: '0.8125rem' }}>Sublocation</InputLabel>
+              <Select
+                value={selectedSublocation}
+                label="Sublocation"
+                onChange={(e) => {
+                  setSelectedSublocation(e.target.value);
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                sx={{ height: '32px', fontSize: '0.8125rem' }}
+              >
+                <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
+                {sublocations.map((row) => (
+                  <MenuItem key={row.id || row.sublocation_id} value={row.id || row.sublocation_id} sx={{ fontSize: '0.8125rem' }}>
+                    {row.name || row.sublocation_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Village */}
+          <Grid item xs={6} sm={3.5} md={2}>
+            <FormControl fullWidth size="small" disabled={selectedSublocation === 'all'}>
+              <InputLabel sx={{ fontSize: '0.8125rem' }}>Village</InputLabel>
+              <Select
+                value={selectedVillage}
+                label="Village"
+                onChange={(e) => {
+                  setSelectedVillage(e.target.value);
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                sx={{ height: '32px', fontSize: '0.8125rem' }}
+              >
+                <MenuItem value="all" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
+                {villages.map((row) => (
+                  <MenuItem key={row.id || row.village_id} value={row.id || row.village_id} sx={{ fontSize: '0.8125rem' }}>
+                    {row.name || row.village_name}
                   </MenuItem>
                 ))}
               </Select>
@@ -574,7 +629,7 @@ const ProjectsGalleryPage = () => {
       </Paper>
 
       {/* Results Summary - Filters Applied Chip */}
-      {(selectedYear !== 'all' || selectedStatus !== 'all' || selectedMinistry !== 'all' || selectedStateDepartment !== 'all' || selectedProjectType !== 'all' || selectedSubcounty !== 'all' || selectedWard !== 'all' || searchTerm) && (
+      {(selectedYear !== 'all' || selectedStatus !== 'all' || selectedDepartment !== 'all' || selectedProjectType !== 'all' || selectedSubcounty !== 'all' || selectedWard !== 'all' || selectedSublocation !== 'all' || selectedVillage !== 'all' || searchTerm) && (
         <Box sx={{ mb: 0.75, display: 'flex', justifyContent: 'flex-end' }}>
           <Chip 
             label="Filters Applied" 

@@ -586,11 +586,46 @@ router.get('/users/project-scope-options', async (req, res) => {
             wards: wardRows,
             sublocations: sublocationRows,
             villages: villageRows,
+            municipalities: await (async () => {
+                try {
+                    const countyRole = require('../services/countyRoleService');
+                    const rows = await countyRole.fetchCountyMunicipalities();
+                    if (rows.length > 0) return rows;
+                } catch (_) { /* fall through */ }
+                return safeRows(`
+                    SELECT DISTINCT NULLIF(TRIM(location->>'municipality'), '') AS name
+                    FROM projects
+                    WHERE COALESCE(voided, false) = false
+                      AND NULLIF(TRIM(location->>'municipality'), '') IS NOT NULL
+                    ORDER BY name
+                `);
+            })(),
             departmentSectorMappings: mappings,
         });
     } catch (error) {
         console.error('Error fetching project scope options:', error);
         res.status(500).json({ error: 'Failed to fetch project scope options.' });
+    }
+});
+
+/**
+ * @route GET /api/users/county-position-role-map
+ * @description Admin only: county governance positions from roles.xlsx with resolved role/UI profile ids.
+ */
+router.get('/county-position-role-map', async (req, res) => {
+    if (!isAdminLikeRequester(req.user)) {
+        return res.status(403).json({ error: 'Only administrators can view the county position role map.' });
+    }
+    if ((process.env.DB_TYPE || 'mysql') !== 'postgresql') {
+        return res.status(501).json({ error: 'County position role map is available on PostgreSQL deployments only.' });
+    }
+    try {
+        const countyRole = require('../services/countyRoleService');
+        const rows = await countyRole.fetchCountyPositionRoleMap();
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error fetching county position role map:', error);
+        res.status(500).json({ error: 'Failed to fetch county position role map.' });
     }
 });
 

@@ -14,7 +14,7 @@ import {
   Search,
   Clear
 } from '@mui/icons-material';
-import { getDepartments, getSubCounties, getWardStats } from '../services/publicApi';
+import { getDepartments, getSubCounties, getWards, getSublocations, getVillages } from '../services/publicApi';
 
 const FilterBar = ({ 
   financialYears, 
@@ -26,12 +26,16 @@ const FilterBar = ({
   const [departments, setDepartments] = useState([]);
   const [subcounties, setSubcounties] = useState([]);
   const [wards, setWards] = useState([]);
+  const [sublocations, setSublocations] = useState([]);
+  const [villages, setVillages] = useState([]);
   const [loading, setLoading] = useState(false);
   
   // Filter states
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedSubcounty, setSelectedSubcounty] = useState('');
   const [selectedWard, setSelectedWard] = useState('');
+  const [selectedSublocation, setSelectedSublocation] = useState('');
+  const [selectedVillage, setSelectedVillage] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [projectSearch, setProjectSearch] = useState('');
 
@@ -40,26 +44,50 @@ const FilterBar = ({
   }, []);
 
   useEffect(() => {
-    // Update wards when subcounty changes
     if (selectedSubcounty) {
       fetchWardsForSubcounty(selectedSubcounty);
     } else {
       setWards([]);
       setSelectedWard('');
     }
+    setSublocations([]);
+    setSelectedSublocation('');
+    setVillages([]);
+    setSelectedVillage('');
   }, [selectedSubcounty, finYearId]);
 
   useEffect(() => {
-    // Apply filters whenever any filter changes
+    if (selectedWard) {
+      fetchSublocationsForWard(selectedWard);
+    } else {
+      setSublocations([]);
+      setSelectedSublocation('');
+    }
+    setVillages([]);
+    setSelectedVillage('');
+  }, [selectedWard, selectedSubcounty]);
+
+  useEffect(() => {
+    if (selectedSublocation) {
+      fetchVillagesForSublocation(selectedSublocation);
+    } else {
+      setVillages([]);
+      setSelectedVillage('');
+    }
+  }, [selectedSublocation, selectedWard, selectedSubcounty]);
+
+  useEffect(() => {
     const filters = {
       department: selectedDepartment,
       subcounty: selectedSubcounty,
       ward: selectedWard,
+      sublocation: selectedSublocation,
+      village: selectedVillage,
       status: selectedStatus,
       projectSearch: projectSearch.trim()
     };
     onFiltersChange(filters);
-  }, [selectedDepartment, selectedSubcounty, selectedWard, selectedStatus, projectSearch]); // Remove onFiltersChange from dependencies to prevent infinite loops
+  }, [selectedDepartment, selectedSubcounty, selectedWard, selectedSublocation, selectedVillage, selectedStatus, projectSearch]);
 
   const fetchMetadata = async () => {
     try {
@@ -80,16 +108,31 @@ const FilterBar = ({
 
   const fetchWardsForSubcounty = async (subcountyId) => {
     try {
-      const wardData = await getWardStats(finYearId || null);
-      // Filter wards by subcounty ID
-      const filteredWards = (wardData || []).filter(ward => {
-        const wardSubcountyId = ward.subcounty_id || ward.subcountyId;
-        return wardSubcountyId && (wardSubcountyId.toString() === subcountyId.toString() || wardSubcountyId === subcountyId);
-      });
-      setWards(filteredWards);
+      const wardData = await getWards(subcountyId);
+      setWards(wardData || []);
     } catch (err) {
       console.error('Error fetching wards:', err);
       setWards([]);
+    }
+  };
+
+  const fetchSublocationsForWard = async (wardId) => {
+    try {
+      const data = await getSublocations(wardId, selectedSubcounty || null);
+      setSublocations(data || []);
+    } catch (err) {
+      console.error('Error fetching sublocations:', err);
+      setSublocations([]);
+    }
+  };
+
+  const fetchVillagesForSublocation = async (sublocationId) => {
+    try {
+      const data = await getVillages(sublocationId, selectedWard || null, selectedSubcounty || null);
+      setVillages(data || []);
+    } catch (err) {
+      console.error('Error fetching villages:', err);
+      setVillages([]);
     }
   };
 
@@ -97,11 +140,13 @@ const FilterBar = ({
     setSelectedDepartment('');
     setSelectedSubcounty('');
     setSelectedWard('');
+    setSelectedSublocation('');
+    setSelectedVillage('');
     setSelectedStatus('');
     setProjectSearch('');
   };
 
-  const hasActiveFilters = selectedDepartment || selectedSubcounty || selectedWard || selectedStatus || projectSearch.trim();
+  const hasActiveFilters = selectedDepartment || selectedSubcounty || selectedWard || selectedSublocation || selectedVillage || selectedStatus || projectSearch.trim();
 
   const statuses = ['Completed', 'Ongoing', 'Not Started', 'Under Procurement', 'Stalled', 'Suspended'];
 
@@ -141,11 +186,11 @@ const FilterBar = ({
         {/* Department Filter */}
         <Grid item xs={6} sm={3} md={2}>
           <FormControl fullWidth size="small">
-            <InputLabel id="department-label" sx={{ fontSize: '0.8125rem' }}>Department</InputLabel>
+            <InputLabel id="department-label" sx={{ fontSize: '0.8125rem' }}>Ministry</InputLabel>
             <Select
               labelId="department-label"
               value={selectedDepartment}
-              label="Department"
+              label="Ministry"
               onChange={(e) => setSelectedDepartment(e.target.value)}
               sx={{ height: '32px', fontSize: '0.8125rem' }}
             >
@@ -153,7 +198,7 @@ const FilterBar = ({
                 All
               </MenuItem>
               {departments.map((dept) => (
-                <MenuItem key={dept.departmentId || dept.id} value={dept.departmentId || dept.id} sx={{ fontSize: '0.8125rem' }}>
+                <MenuItem key={dept.id || dept.departmentId} value={dept.id || dept.departmentId} sx={{ fontSize: '0.8125rem' }}>
                   {dept.name}
                 </MenuItem>
               ))}
@@ -176,7 +221,7 @@ const FilterBar = ({
                 All
               </MenuItem>
               {subcounties.map((subcounty) => (
-                <MenuItem key={subcounty.subcountyId || subcounty.id} value={subcounty.subcountyId || subcounty.id} sx={{ fontSize: '0.8125rem' }}>
+                <MenuItem key={subcounty.id || subcounty.subcountyId} value={subcounty.id || subcounty.subcountyId} sx={{ fontSize: '0.8125rem' }}>
                   {subcounty.name}
                 </MenuItem>
               ))}
@@ -199,8 +244,50 @@ const FilterBar = ({
                 All
               </MenuItem>
               {wards.map((ward) => (
-                <MenuItem key={ward.wardId || ward.id || ward.ward_id} value={ward.wardId || ward.id || ward.ward_id} sx={{ fontSize: '0.8125rem' }}>
+                <MenuItem key={ward.id || ward.wardId || ward.ward_id} value={ward.id || ward.wardId || ward.ward_id} sx={{ fontSize: '0.8125rem' }}>
                   {ward.name || ward.ward_name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {/* Sublocation Filter */}
+        <Grid item xs={6} sm={3} md={2}>
+          <FormControl fullWidth size="small" disabled={!selectedWard}>
+            <InputLabel id="sublocation-label" sx={{ fontSize: '0.8125rem' }}>Sublocation</InputLabel>
+            <Select
+              labelId="sublocation-label"
+              value={selectedSublocation}
+              label="Sublocation"
+              onChange={(e) => setSelectedSublocation(e.target.value)}
+              sx={{ height: '32px', fontSize: '0.8125rem' }}
+            >
+              <MenuItem value="" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
+              {sublocations.map((row) => (
+                <MenuItem key={row.id || row.sublocation_id} value={row.id || row.sublocation_id} sx={{ fontSize: '0.8125rem' }}>
+                  {row.name || row.sublocation_name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {/* Village Filter */}
+        <Grid item xs={6} sm={3} md={2}>
+          <FormControl fullWidth size="small" disabled={!selectedSublocation}>
+            <InputLabel id="village-label" sx={{ fontSize: '0.8125rem' }}>Village</InputLabel>
+            <Select
+              labelId="village-label"
+              value={selectedVillage}
+              label="Village"
+              onChange={(e) => setSelectedVillage(e.target.value)}
+              sx={{ height: '32px', fontSize: '0.8125rem' }}
+            >
+              <MenuItem value="" sx={{ fontSize: '0.8125rem' }}>All</MenuItem>
+              {villages.map((row) => (
+                <MenuItem key={row.id || row.village_id} value={row.id || row.village_id} sx={{ fontSize: '0.8125rem' }}>
+                  {row.name || row.village_name}
                 </MenuItem>
               ))}
             </Select>

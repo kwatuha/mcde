@@ -121,8 +121,80 @@ async function ensurePublicFeedbackAdminColumnsPostgres() {
     }
 }
 
+async function ensurePublicFeedbackEvaluationColumnsPostgres() {
+    if (!isPostgresDb()) return;
+    const stmts = [
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_relevance SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_coherence SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_effectiveness SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_efficiency SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_impact SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS rating_sustainability SMALLINT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS open_achievements TEXT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS open_challenges TEXT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS open_lessons TEXT NULL',
+        'ALTER TABLE public_feedback ADD COLUMN IF NOT EXISTS open_recommendations TEXT NULL',
+    ];
+    for (const sql of stmts) {
+        try {
+            await pool.query(sql);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+function feedbackHasEvaluationResponse(body = {}) {
+    const ratings = [
+        body.ratingRelevance,
+        body.ratingCoherence,
+        body.ratingEffectiveness,
+        body.ratingEfficiency,
+        body.ratingImpact,
+        body.ratingSustainability,
+        body.ratingOverallSupport,
+        body.ratingQualityOfLifeImpact,
+        body.ratingCommunityAlignment,
+        body.ratingTransparency,
+        body.ratingFeasibilityConfidence,
+    ];
+    const openEnded = [
+        body.openAchievements,
+        body.openChallenges,
+        body.openLessons,
+        body.openRecommendations,
+    ];
+    const hasRating = ratings.some((rating) => rating !== undefined && rating !== null && rating !== '');
+    const hasOpen = openEnded.some((text) => String(text || '').trim());
+    const hasMessage = String(body.message || '').trim();
+    return hasRating || hasOpen || hasMessage;
+}
+
 /**
- * WHERE fragments for approved public projects (PostgreSQL JSONB `projects` table).
+ * Location key expressions — must match queryPgPublicProjectsForStats grouping.
+ */
+const PG_LOCATION_SUBCOUNTY_KEY_SQL = `COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), NULLIF(TRIM(p.location->>'county'), ''), 'Unassigned')`;
+const PG_LOCATION_WARD_KEY_SQL = `COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unassigned')`;
+const PG_LOCATION_SUBLOCATION_KEY_SQL = `COALESCE(NULLIF(TRIM(p.location->>'sublocation'), ''), 'Unassigned')`;
+const PG_LOCATION_VILLAGE_KEY_SQL = `COALESCE(NULLIF(TRIM(p.location->>'village'), ''), 'Unassigned')`;
+const PG_DEPARTMENT_KEY_SQL = `COALESCE(
+    NULLIF(TRIM((SELECT d.name FROM departments d WHERE d."departmentId" = p."departmentId" AND COALESCE(d.voided, false) = false LIMIT 1)), ''),
+    NULLIF(TRIM(p.state_department), ''),
+    NULLIF(TRIM(p.ministry), ''),
+    'Unassigned'
+)`;
+const PG_DIRECTORATE_KEY_SQL = `COALESCE(
+    NULLIF(TRIM((SELECT s.name FROM sections s WHERE s."sectionId" = p."sectionId" AND COALESCE(s.voided, false) = false LIMIT 1)), ''),
+    NULLIF(TRIM(p.implementing_agency), ''),
+    'Unassigned'
+)`;
+
+async function pgPublicProjectBaseWhere() {
+    const { parts, params } = await buildPgPublicProjectWhereParts({});
+    return { whereClause: parts.join(' AND '), params };
+}
+
+/**
  * Supports the same query keys used by the citizen dashboard and gallery.
  */
 async function buildPgPublicProjectWhereParts(q) {
@@ -152,47 +224,63 @@ async function buildPgPublicProjectWhereParts(q) {
 
     const rawDept = q.departmentId != null && String(q.departmentId).trim() !== '' ? String(q.departmentId).trim() : '';
     if (rawDept) {
-        let deptPattern = rawDept;
         if (/^\d+$/.test(rawDept)) {
-            try {
-                const dr = await pool.query('SELECT name FROM departments WHERE "departmentId" = $1 LIMIT 1', [parseInt(rawDept, 10)]);
-                if (dr.rows?.[0]?.name) {
-                    deptPattern = dr.rows[0].name;
-                }
-            } catch (e) {
-                /* ignore */
-            }
+            parts.push(`p."departmentId" = $${n++}`);
+            params.push(parseInt(rawDept, 10));
+        } else {
+            parts.push(`LOWER(${PG_DEPARTMENT_KEY_SQL}) = LOWER($${n++})`);
+            params.push(rawDept);
         }
-        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
-        params.push(`%${deptPattern}%`);
     } else if (q.department != null && String(q.department).trim() !== '') {
-        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
-        params.push(`%${String(q.department).trim()}%`);
+        parts.push(`LOWER(${PG_DEPARTMENT_KEY_SQL}) = LOWER($${n++})`);
+        params.push(String(q.department).trim());
     } else if (q.ministry != null && String(q.ministry).trim() !== '') {
-        parts.push(`COALESCE(p.ministry, '') ILIKE $${n++}`);
-        params.push(`%${String(q.ministry).trim()}%`);
+        parts.push(`LOWER(${PG_DEPARTMENT_KEY_SQL}) = LOWER($${n++})`);
+        params.push(String(q.ministry).trim());
     }
 
     if (q.stateDepartment != null && String(q.stateDepartment).trim() !== '') {
-        parts.push(`COALESCE(p.state_department, '') ILIKE $${n++}`);
-        params.push(`%${String(q.stateDepartment).trim()}%`);
+        parts.push(`LOWER(COALESCE(NULLIF(TRIM(p.state_department), ''), '')) = LOWER($${n++})`);
+        params.push(String(q.stateDepartment).trim());
+    }
+
+    const rawDir = [q.directorateId, q.sectionId, q.directorate].find((v) => v != null && String(v).trim() !== '');
+    const rawDirTrimmed = rawDir != null ? String(rawDir).trim() : '';
+    if (rawDirTrimmed) {
+        if (/^\d+$/.test(rawDirTrimmed)) {
+            parts.push(`p."sectionId" = $${n++}`);
+            params.push(parseInt(rawDirTrimmed, 10));
+        } else {
+            parts.push(`LOWER(${PG_DIRECTORATE_KEY_SQL}) = LOWER($${n++})`);
+            params.push(rawDirTrimmed);
+        }
     }
 
     const rawSub = [q.subcountyId, q.subCountyId].find((v) => v != null && String(v).trim() !== '');
     const rawSubTrimmed = rawSub != null ? String(rawSub).trim() : '';
     if (rawSubTrimmed) {
-        parts.push(`(
-            COALESCE(p.location->>'subcounty', '') ILIKE $${n}
-            OR COALESCE(p.location->>'county', '') ILIKE $${n}
-        )`);
-        params.push(`%${rawSubTrimmed}%`);
-        n++;
+        parts.push(`LOWER(${PG_LOCATION_SUBCOUNTY_KEY_SQL}) = LOWER($${n++})`);
+        params.push(rawSubTrimmed);
     }
 
     const rawWard = q.wardId != null && String(q.wardId).trim() !== '' ? String(q.wardId).trim() : '';
     if (rawWard) {
-        parts.push(`COALESCE(p.location->>'ward', '') ILIKE $${n++}`);
-        params.push(`%${rawWard}%`);
+        parts.push(`LOWER(${PG_LOCATION_WARD_KEY_SQL}) = LOWER($${n++})`);
+        params.push(rawWard);
+    }
+
+    const rawSublocation = [q.sublocationId, q.sublocation].find((v) => v != null && String(v).trim() !== '');
+    const rawSublocationTrimmed = rawSublocation != null ? String(rawSublocation).trim() : '';
+    if (rawSublocationTrimmed) {
+        parts.push(`LOWER(${PG_LOCATION_SUBLOCATION_KEY_SQL}) = LOWER($${n++})`);
+        params.push(rawSublocationTrimmed);
+    }
+
+    const rawVillage = [q.villageId, q.village].find((v) => v != null && String(v).trim() !== '');
+    const rawVillageTrimmed = rawVillage != null ? String(rawVillage).trim() : '';
+    if (rawVillageTrimmed) {
+        parts.push(`LOWER(${PG_LOCATION_VILLAGE_KEY_SQL}) = LOWER($${n++})`);
+        params.push(rawVillageTrimmed);
     }
 
     return { parts, params };
@@ -210,13 +298,12 @@ async function queryPgPublicProjectsForStats(q) {
                 THEN (p.budget->>'allocated_amount_kes')::numeric
                 ELSE 0
             END AS "costOfProject",
-            COALESCE(NULLIF(TRIM(p.ministry), ''), 'Unassigned') AS ministry_key,
-            COALESCE(
-                NULLIF(TRIM(p.location->>'subcounty'), ''),
-                NULLIF(TRIM(p.location->>'county'), ''),
-                'Unassigned'
-            ) AS subcounty_key,
-            COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unassigned') AS ward_key
+            p."departmentId" AS department_id,
+            ${PG_DEPARTMENT_KEY_SQL} AS department_key,
+            ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS subcounty_key,
+            ${PG_LOCATION_WARD_KEY_SQL} AS ward_key,
+            ${PG_LOCATION_SUBLOCATION_KEY_SQL} AS sublocation_key,
+            ${PG_LOCATION_VILLAGE_KEY_SQL} AS village_key
         FROM projects p
         WHERE ${whereClause}
     `;
@@ -296,7 +383,189 @@ function aggregateOverviewFromPgRows(rows, statusFilter) {
     };
 }
 
+async function queryPgPublicProjectsForYearlyTrends(q) {
+    const trendQuery = { ...q };
+    delete trendQuery.finYearId;
+    const { parts, params } = await buildPgPublicProjectWhereParts(trendQuery);
+    const whereClause = parts.join(' AND ');
+    const sql = `
+        SELECT
+            p.project_id AS id,
+            COALESCE(p.progress->>'status', '') AS status,
+            CASE
+                WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                THEN (p.budget->>'allocated_amount_kes')::numeric
+                ELSE 0
+            END AS "costOfProject",
+            COALESCE(NULLIF(TRIM(p.timeline->>'financial_year'), ''), 'Unassigned') AS financial_year_key,
+            ${PG_DEPARTMENT_KEY_SQL} AS department_key,
+            ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS subcounty_key,
+            ${PG_LOCATION_WARD_KEY_SQL} AS ward_key
+        FROM projects p
+        WHERE ${whereClause}
+    `;
+    const result = await pool.query(sql, params);
+    return result.rows || [];
+}
+
+function aggregateYearlyTrendsFromPgRows(rows) {
+    const byYear = new Map();
+    rows.forEach((row) => {
+        const year = row.financial_year_key || 'Unassigned';
+        if (!byYear.has(year)) byYear.set(year, []);
+        byYear.get(year).push(row);
+    });
+
+    const results = [];
+    byYear.forEach((projects, year) => {
+        const departments = new Set();
+        const subcounties = new Set();
+        const wards = new Set();
+        let totalBudget = 0;
+        let completedProjects = 0;
+        let ongoingProjects = 0;
+        let notStartedProjects = 0;
+        let stalledProjects = 0;
+
+        projects.forEach((project) => {
+            totalBudget += parseFloat(project.costOfProject) || 0;
+            const st = project.status || '';
+            if (project.department_key && project.department_key !== 'Unassigned') {
+                departments.add(project.department_key);
+            }
+            if (project.subcounty_key && project.subcounty_key !== 'Unassigned') {
+                subcounties.add(project.subcounty_key);
+            }
+            if (project.ward_key && project.ward_key !== 'Unassigned') {
+                wards.add(project.ward_key);
+            }
+            if (matchesStatusCategory(st, 'Completed')) completedProjects++;
+            else if (matchesStatusCategory(st, 'Ongoing')) ongoingProjects++;
+            else if (matchesStatusCategory(st, 'Not Started')) notStartedProjects++;
+            else if (matchesStatusCategory(st, 'Stalled')) stalledProjects++;
+        });
+
+        results.push({
+            year,
+            totalProjects: projects.length,
+            totalBudget,
+            completedProjects,
+            ongoingProjects,
+            notStartedProjects,
+            plannedProjects: notStartedProjects,
+            stalledProjects,
+            departments: departments.size,
+            subcounties: subcounties.size,
+            wards: wards.size,
+        });
+    });
+
+    return results;
+}
+
 // ==================== QUICK STATS ====================
+
+/**
+ * @route GET /api/public/stats/yearly-trends
+ * @description Public project statistics grouped by financial year (respects filters; ignores finYearId)
+ * @access Public
+ */
+router.get('/stats/yearly-trends', async (req, res) => {
+    try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForYearlyTrends(req.query);
+            const trends = aggregateYearlyTrendsFromPgRows(rows);
+            const fyResult = await pool.query(`
+                SELECT "finYearId" AS id, "finYearName" AS name, "startDate" AS "startDate"
+                FROM financialyears
+                WHERE COALESCE(voided, false) = false
+            `);
+            const fyByName = new Map((fyResult.rows || []).map((fy) => [fy.name, fy]));
+            trends.forEach((row) => {
+                const fy = fyByName.get(row.year);
+                if (fy) {
+                    row.finYearId = fy.id;
+                    row.startDate = fy.startDate;
+                }
+            });
+            trends.sort((a, b) => {
+                if (a.year === 'Unassigned') return 1;
+                if (b.year === 'Unassigned') return -1;
+                const aTime = a.startDate ? new Date(a.startDate).getTime() : 0;
+                const bTime = b.startDate ? new Date(b.startDate).getTime() : 0;
+                return bTime - aTime;
+            });
+            return res.json(trends);
+        }
+
+        const { departmentId, subcountyId, wardId, search } = req.query;
+        let whereConditions = ['p.voided = 0', 'p.approved_for_public = 1'];
+        const queryParams = [];
+
+        if (departmentId) {
+            whereConditions.push('p.departmentId = ?');
+            queryParams.push(departmentId);
+        }
+        if (subcountyId) {
+            whereConditions.push(`EXISTS (
+                SELECT 1 FROM project_subcounties psc
+                WHERE psc.projectId = p.id AND psc.subcountyId = ? AND psc.voided = 0
+            )`);
+            queryParams.push(subcountyId);
+        }
+        if (wardId) {
+            whereConditions.push(`EXISTS (
+                SELECT 1 FROM project_wards pw
+                WHERE pw.projectId = p.id AND pw.wardId = ? AND pw.voided = 0
+            )`);
+            queryParams.push(wardId);
+        }
+        if (search) {
+            whereConditions.push('(p.projectName LIKE ? OR p.projectDescription LIKE ?)');
+            queryParams.push(`%${search}%`, `%${search}%`);
+        }
+
+        const query = `
+            SELECT
+                fy.finYearId AS finYearId,
+                fy.finYearName AS year,
+                fy.startDate AS startDate,
+                COUNT(p.id) AS totalProjects,
+                COALESCE(SUM(p.costOfProject), 0) AS totalBudget,
+                SUM(CASE WHEN p.status = 'Completed' OR LOWER(p.status) LIKE '%completed%' THEN 1 ELSE 0 END) AS completedProjects,
+                SUM(CASE WHEN p.status = 'Ongoing' OR LOWER(p.status) LIKE '%ongoing%' THEN 1 ELSE 0 END) AS ongoingProjects,
+                SUM(CASE WHEN p.status = 'Not Started' OR LOWER(p.status) LIKE '%not started%' THEN 1 ELSE 0 END) AS notStartedProjects,
+                COUNT(DISTINCT p.departmentId) AS departments,
+                COUNT(DISTINCT psc.subcountyId) AS subcounties,
+                COUNT(DISTINCT pw.wardId) AS wards
+            FROM projects p
+            JOIN financialyears fy ON p.finYearId = fy.finYearId
+            LEFT JOIN project_subcounties psc ON p.id = psc.projectId AND psc.voided = 0
+            LEFT JOIN project_wards pw ON p.id = pw.projectId AND pw.voided = 0
+            WHERE ${whereConditions.join(' AND ')}
+            GROUP BY fy.finYearId, fy.finYearName, fy.startDate
+            HAVING COUNT(p.id) > 0
+            ORDER BY fy.startDate DESC
+        `;
+        const [results] = await pool.query(query, queryParams);
+        const mapped = (results || []).map((row) => ({
+            ...row,
+            plannedProjects: Number(row.notStartedProjects) || 0,
+            totalProjects: Number(row.totalProjects) || 0,
+            totalBudget: parseFloat(row.totalBudget) || 0,
+            completedProjects: Number(row.completedProjects) || 0,
+            ongoingProjects: Number(row.ongoingProjects) || 0,
+            notStartedProjects: Number(row.notStartedProjects) || 0,
+            departments: Number(row.departments) || 0,
+            subcounties: Number(row.subcounties) || 0,
+            wards: Number(row.wards) || 0,
+        }));
+        return res.json(mapped);
+    } catch (error) {
+        console.error('Error fetching yearly trends:', error);
+        res.status(500).json({ error: 'Failed to fetch yearly trends' });
+    }
+});
 
 /**
  * @route GET /api/public/stats/overview
@@ -474,6 +743,36 @@ router.get('/stats/overview', async (req, res) => {
  */
 router.get('/financial-years', async (req, res) => {
     try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+
+        if (DB_TYPE === 'postgresql') {
+            const result = await pool.query(`
+                SELECT
+                    fy."finYearId" AS id,
+                    fy."finYearName" AS name,
+                    fy."startDate",
+                    fy."endDate",
+                    COUNT(p.project_id) AS project_count,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+)?$'
+                            THEN (p.budget->>'allocated_amount_kes')::numeric
+                            ELSE 0
+                        END
+                    ), 0) AS total_budget
+                FROM financialyears fy
+                LEFT JOIN projects p ON
+                    COALESCE(p.timeline->>'financial_year', '') = fy."finYearName"::text
+                    AND p.voided = false
+                    AND LOWER(COALESCE(p.is_public->>'approved', 'false')) = 'true'
+                WHERE COALESCE(fy.voided, false) = false
+                GROUP BY fy."finYearId", fy."finYearName", fy."startDate", fy."endDate"
+                HAVING COUNT(p.project_id) > 0
+                ORDER BY fy."startDate" DESC NULLS LAST
+            `);
+            return res.json(result.rows || []);
+        }
+
         const query = `
             SELECT 
                 fy.finYearId as id,
@@ -562,10 +861,16 @@ router.get('/projects', async (req, res) => {
                         ELSE NULL
                     END AS "completionPercentage",
                     p.created_at AS "createdAt",
-                    p.ministry AS department_name,
+                    p.ministry AS ministry,
+                    p.state_department AS state_department,
+                    ${PG_DEPARTMENT_KEY_SQL} AS department_name,
+                    p."sectionId" AS section_id,
+                    ${PG_DIRECTORATE_KEY_SQL} AS directorate_name,
                     p.sector AS "projectType",
                     p.location->>'subcounty' AS subcounty_name,
                     p.location->>'ward' AS ward_name,
+                    p.location->>'sublocation' AS sublocation_name,
+                    p.location->>'village' AS village_name,
                     (
                         SELECT pp."filePath"
                         FROM project_photos pp
@@ -885,11 +1190,17 @@ router.get('/projects/:id', async (req, res) => {
                         ELSE NULL
                     END AS "completionPercentage",
                     p.created_at AS "createdAt",
-                    p.ministry AS department_name,
+                    p.ministry AS ministry,
+                    p.state_department AS state_department,
+                    ${PG_DEPARTMENT_KEY_SQL} AS department_name,
+                    p."sectionId" AS section_id,
+                    ${PG_DIRECTORATE_KEY_SQL} AS directorate_name,
                     p.sector AS "projectType",
                     p.timeline->>'financial_year' AS "financialYear",
                     p.location->>'subcounty' AS subcounty_name,
                     p.location->>'ward' AS ward_name,
+                    p.location->>'sublocation' AS sublocation_name,
+                    p.location->>'village' AS village_name,
                     (
                         SELECT pp."filePath"
                         FROM project_photos pp
@@ -1036,10 +1347,10 @@ router.get('/stats/by-department', async (req, res) => {
             const rows = await queryPgPublicProjectsForStats(req.query);
             const departmentMap = new Map();
             rows.forEach((row) => {
-                const key = row.ministry_key || 'Unassigned';
+                const key = row.department_key || 'Unassigned';
                 if (!departmentMap.has(key)) {
                     departmentMap.set(key, {
-                        department_id: key,
+                        department_id: row.department_id || key,
                         department_name: key,
                         departmentAlias: null,
                         projects: []
@@ -1456,6 +1767,114 @@ router.get('/stats/by-ward', async (req, res) => {
     }
 });
 
+/**
+ * @route GET /api/public/stats/by-sublocation
+ * @description Get project statistics grouped by sublocation (within ward)
+ * @access Public
+ */
+router.get('/stats/by-sublocation', async (req, res) => {
+    try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            const byKey = new Map();
+            rows.forEach((row) => {
+                const sk = row.subcounty_key || 'Unassigned';
+                const wk = row.ward_key || 'Unassigned';
+                const slk = row.sublocation_key || 'Unassigned';
+                if (slk === 'Unassigned') return;
+                const key = `${sk}\0${wk}\0${slk}`;
+                if (!byKey.has(key)) {
+                    byKey.set(key, {
+                        subcounty_name: sk,
+                        ward_name: wk,
+                        sublocation_name: slk,
+                        projects: []
+                    });
+                }
+                byKey.get(key).projects.push(row);
+            });
+            const results = [];
+            byKey.forEach((g) => {
+                const ps = g.projects;
+                results.push({
+                    sublocation_id: g.sublocation_name,
+                    sublocation_name: g.sublocation_name,
+                    ward_id: g.ward_name,
+                    ward_name: g.ward_name,
+                    subcounty_id: g.subcounty_name,
+                    subcounty_name: g.subcounty_name,
+                    project_count: ps.length,
+                    total_budget: ps.reduce((sum, p) => sum + (parseFloat(p.costOfProject) || 0), 0),
+                    completed_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Completed')).length,
+                    ongoing_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Ongoing')).length
+                });
+            });
+            results.sort((a, b) => (parseFloat(b.total_budget) || 0) - (parseFloat(a.total_budget) || 0));
+            return res.json(results);
+        }
+        res.json([]);
+    } catch (error) {
+        console.error('Error fetching sublocation stats:', error);
+        res.status(500).json({ error: 'Failed to fetch sublocation statistics' });
+    }
+});
+
+/**
+ * @route GET /api/public/stats/by-village
+ * @description Get project statistics grouped by village (within sublocation)
+ * @access Public
+ */
+router.get('/stats/by-village', async (req, res) => {
+    try {
+        if (isPostgresDb()) {
+            const rows = await queryPgPublicProjectsForStats(req.query);
+            const byKey = new Map();
+            rows.forEach((row) => {
+                const sk = row.subcounty_key || 'Unassigned';
+                const wk = row.ward_key || 'Unassigned';
+                const slk = row.sublocation_key || 'Unassigned';
+                const vk = row.village_key || 'Unassigned';
+                if (vk === 'Unassigned') return;
+                const key = `${sk}\0${wk}\0${slk}\0${vk}`;
+                if (!byKey.has(key)) {
+                    byKey.set(key, {
+                        subcounty_name: sk,
+                        ward_name: wk,
+                        sublocation_name: slk,
+                        village_name: vk,
+                        projects: []
+                    });
+                }
+                byKey.get(key).projects.push(row);
+            });
+            const results = [];
+            byKey.forEach((g) => {
+                const ps = g.projects;
+                results.push({
+                    village_id: g.village_name,
+                    village_name: g.village_name,
+                    sublocation_id: g.sublocation_name,
+                    sublocation_name: g.sublocation_name,
+                    ward_id: g.ward_name,
+                    ward_name: g.ward_name,
+                    subcounty_id: g.subcounty_name,
+                    subcounty_name: g.subcounty_name,
+                    project_count: ps.length,
+                    total_budget: ps.reduce((sum, p) => sum + (parseFloat(p.costOfProject) || 0), 0),
+                    completed_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Completed')).length,
+                    ongoing_count: ps.filter((p) => matchesStatusCategory(p.status || '', 'Ongoing')).length
+                });
+            });
+            results.sort((a, b) => (parseFloat(b.total_budget) || 0) - (parseFloat(a.total_budget) || 0));
+            return res.json(results);
+        }
+        res.json([]);
+    } catch (error) {
+        console.error('Error fetching village stats:', error);
+        res.status(500).json({ error: 'Failed to fetch village statistics' });
+    }
+});
+
 // ==================== PROJECT TYPES ====================
 
 /**
@@ -1506,11 +1925,67 @@ router.get('/stats/by-project-type', async (req, res) => {
  */
 router.get('/metadata/departments', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            const result = await pool.query(
+                `SELECT DISTINCT d."departmentId" AS id, d.name
+                 FROM projects p
+                 JOIN departments d ON d."departmentId" = p."departmentId"
+                 WHERE ${whereClause}
+                   AND COALESCE(d.voided, false) = false
+                 ORDER BY d.name`,
+                params
+            );
+            return res.json(result.rows || []);
+        }
+
         const query = 'SELECT departmentId as id, name FROM departments WHERE voided = 0 ORDER BY name';
         const [results] = await pool.query(query);
         res.json(results);
     } catch (error) {
         console.error('Error fetching departments:', error);
+        res.json([]);
+    }
+});
+
+/**
+ * @route GET /api/public/metadata/directorates
+ * @description Directorates (sections) with public projects
+ * @access Public
+ */
+router.get('/metadata/directorates', async (req, res) => {
+    try {
+        if (isPostgresDb()) {
+            const { departmentId } = req.query;
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            let sql = `
+                SELECT DISTINCT s."sectionId" AS id, s.name, s."departmentId" AS "departmentId"
+                FROM projects p
+                JOIN sections s ON s."sectionId" = p."sectionId"
+                WHERE ${whereClause}
+                  AND COALESCE(s.voided, false) = false`;
+            const queryParams = [...params];
+            if (departmentId != null && String(departmentId).trim() !== '') {
+                sql += ` AND s."departmentId" = $${queryParams.length + 1}`;
+                queryParams.push(parseInt(String(departmentId), 10));
+            }
+            sql += ' ORDER BY s.name';
+            const result = await pool.query(sql, queryParams);
+            return res.json(result.rows || []);
+        }
+
+        const { departmentId } = req.query;
+        let query = 'SELECT sectionId as id, name, departmentId FROM sections WHERE voided = 0';
+        const queryParams = [];
+        if (departmentId) {
+            query += ' AND departmentId = ?';
+            queryParams.push(departmentId);
+        }
+        query += ' ORDER BY name';
+        const [results] = await pool.query(query, queryParams);
+        res.json(results);
+    } catch (error) {
+        console.error('Error fetching directorates:', error);
         res.json([]);
     }
 });
@@ -1522,6 +1997,24 @@ router.get('/metadata/departments', async (req, res) => {
  */
 router.get('/metadata/subcounties', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            const result = await pool.query(
+                `SELECT DISTINCT ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS name
+                 FROM projects p
+                 WHERE ${whereClause}
+                   AND ${PG_LOCATION_SUBCOUNTY_KEY_SQL} <> 'Unassigned'
+                 ORDER BY 1`,
+                params
+            );
+            const rows = (result.rows || []).map((row) => ({
+                id: row.name,
+                name: row.name,
+                subcountyId: row.name,
+            }));
+            return res.json(rows);
+        }
+
         const query = 'SELECT subcountyId as id, name, countyId FROM subcounties ORDER BY name';
         const [results] = await pool.query(query);
         res.json(results);
@@ -1539,21 +2032,158 @@ router.get('/metadata/subcounties', async (req, res) => {
 router.get('/metadata/wards', async (req, res) => {
     try {
         const { subCountyId } = req.query;
-        
+
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            let sql = `
+                SELECT DISTINCT
+                    ${PG_LOCATION_WARD_KEY_SQL} AS name,
+                    ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS subcounty_name
+                FROM projects p
+                WHERE ${whereClause}
+                  AND ${PG_LOCATION_WARD_KEY_SQL} <> 'Unassigned'`;
+            const queryParams = [...params];
+            if (subCountyId != null && String(subCountyId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_SUBCOUNTY_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(subCountyId).trim());
+            }
+            sql += ' ORDER BY 1';
+            const result = await pool.query(sql, queryParams);
+            const rows = (result.rows || []).map((row) => ({
+                id: row.name,
+                name: row.name,
+                wardId: row.name,
+                ward_id: row.name,
+                ward_name: row.name,
+                subcounty_id: row.subcounty_name,
+                subcounty_name: row.subcounty_name,
+            }));
+            return res.json(rows);
+        }
+
         let query = 'SELECT wardId as id, name, subcountyId FROM wards';
         const queryParams = [];
-        
+
         if (subCountyId) {
             query += ' WHERE subcountyId = ?';
             queryParams.push(subCountyId);
         }
-        
+
         query += ' ORDER BY name';
-        
+
         const [results] = await pool.query(query, queryParams);
         res.json(results);
     } catch (error) {
         console.error('Error fetching wards:', error);
+        res.json([]);
+    }
+});
+
+/**
+ * @route GET /api/public/metadata/sublocations
+ * @description Sublocations with public projects (optionally scoped by ward / sub-county)
+ * @access Public
+ */
+router.get('/metadata/sublocations', async (req, res) => {
+    try {
+        const { wardId, subCountyId } = req.query;
+
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            let sql = `
+                SELECT DISTINCT
+                    ${PG_LOCATION_SUBLOCATION_KEY_SQL} AS name,
+                    ${PG_LOCATION_WARD_KEY_SQL} AS ward_name,
+                    ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS subcounty_name
+                FROM projects p
+                WHERE ${whereClause}
+                  AND ${PG_LOCATION_SUBLOCATION_KEY_SQL} <> 'Unassigned'`;
+            const queryParams = [...params];
+            if (wardId != null && String(wardId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_WARD_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(wardId).trim());
+            }
+            if (subCountyId != null && String(subCountyId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_SUBCOUNTY_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(subCountyId).trim());
+            }
+            sql += ' ORDER BY 1';
+            const result = await pool.query(sql, queryParams);
+            const rows = (result.rows || []).map((row) => ({
+                id: row.name,
+                name: row.name,
+                sublocationId: row.name,
+                sublocation_id: row.name,
+                sublocation_name: row.name,
+                ward_id: row.ward_name,
+                ward_name: row.ward_name,
+                subcounty_id: row.subcounty_name,
+                subcounty_name: row.subcounty_name,
+            }));
+            return res.json(rows);
+        }
+
+        res.json([]);
+    } catch (error) {
+        console.error('Error fetching sublocations:', error);
+        res.json([]);
+    }
+});
+
+/**
+ * @route GET /api/public/metadata/villages
+ * @description Villages with public projects (optionally scoped by sublocation / ward / sub-county)
+ * @access Public
+ */
+router.get('/metadata/villages', async (req, res) => {
+    try {
+        const { sublocationId, wardId, subCountyId } = req.query;
+
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            let sql = `
+                SELECT DISTINCT
+                    ${PG_LOCATION_VILLAGE_KEY_SQL} AS name,
+                    ${PG_LOCATION_SUBLOCATION_KEY_SQL} AS sublocation_name,
+                    ${PG_LOCATION_WARD_KEY_SQL} AS ward_name,
+                    ${PG_LOCATION_SUBCOUNTY_KEY_SQL} AS subcounty_name
+                FROM projects p
+                WHERE ${whereClause}
+                  AND ${PG_LOCATION_VILLAGE_KEY_SQL} <> 'Unassigned'`;
+            const queryParams = [...params];
+            if (sublocationId != null && String(sublocationId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_SUBLOCATION_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(sublocationId).trim());
+            }
+            if (wardId != null && String(wardId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_WARD_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(wardId).trim());
+            }
+            if (subCountyId != null && String(subCountyId).trim() !== '') {
+                sql += ` AND LOWER(${PG_LOCATION_SUBCOUNTY_KEY_SQL}) = LOWER($${queryParams.length + 1})`;
+                queryParams.push(String(subCountyId).trim());
+            }
+            sql += ' ORDER BY 1';
+            const result = await pool.query(sql, queryParams);
+            const rows = (result.rows || []).map((row) => ({
+                id: row.name,
+                name: row.name,
+                villageId: row.name,
+                village_id: row.name,
+                village_name: row.name,
+                sublocation_id: row.sublocation_name,
+                sublocation_name: row.sublocation_name,
+                ward_id: row.ward_name,
+                ward_name: row.ward_name,
+                subcounty_id: row.subcounty_name,
+                subcounty_name: row.subcounty_name,
+            }));
+            return res.json(rows);
+        }
+
+        res.json([]);
+    } catch (error) {
+        console.error('Error fetching villages:', error);
         res.json([]);
     }
 });
@@ -1565,6 +2195,20 @@ router.get('/metadata/wards', async (req, res) => {
  */
 router.get('/metadata/project-types', async (req, res) => {
     try {
+        if (isPostgresDb()) {
+            const { whereClause, params } = await pgPublicProjectBaseWhere();
+            const result = await pool.query(
+                `SELECT DISTINCT NULLIF(TRIM(p.sector), '') AS name
+                 FROM projects p
+                 WHERE ${whereClause}
+                   AND NULLIF(TRIM(p.sector), '') IS NOT NULL
+                 ORDER BY 1`,
+                params
+            );
+            const rows = (result.rows || []).map((row) => ({ id: row.name, name: row.name }));
+            return res.json(rows);
+        }
+
         const query = 'SELECT categoryId as id, categoryName as name FROM categories WHERE voided = 0 ORDER BY categoryName';
         const [results] = await pool.query(query);
         res.json(results);
@@ -1618,6 +2262,16 @@ router.post('/feedback', async (req, res) => {
             subject, 
             message, 
             projectId,
+            ratingRelevance,
+            ratingCoherence,
+            ratingEffectiveness,
+            ratingEfficiency,
+            ratingImpact,
+            ratingSustainability,
+            openAchievements,
+            openChallenges,
+            openLessons,
+            openRecommendations,
             ratingOverallSupport,
             ratingQualityOfLifeImpact,
             ratingCommunityAlignment,
@@ -1625,13 +2279,17 @@ router.post('/feedback', async (req, res) => {
             ratingFeasibilityConfidence
         } = req.body;
 
-        // Validate required fields
-        if (!message) {
-            return res.status(400).json({ error: 'Message is required' });
+        if (!feedbackHasEvaluationResponse(req.body)) {
+            return res.status(400).json({ error: 'At least one rating or written response is required' });
         }
 
-        // Validate ratings if provided (must be between 1-5)
         const ratings = [
+            ratingRelevance,
+            ratingCoherence,
+            ratingEffectiveness,
+            ratingEfficiency,
+            ratingImpact,
+            ratingSustainability,
             ratingOverallSupport,
             ratingQualityOfLifeImpact,
             ratingCommunityAlignment,
@@ -1640,12 +2298,15 @@ router.post('/feedback', async (req, res) => {
         ];
 
         for (const rating of ratings) {
-            if (rating !== undefined && rating !== null && (rating < 1 || rating > 5)) {
+            if (rating !== undefined && rating !== null && rating !== '' && (rating < 1 || rating > 5)) {
                 return res.status(400).json({ error: 'Ratings must be between 1 and 5' });
             }
         }
 
+        const normalizedMessage = String(message || '').trim();
+
         if (DB_TYPE === 'postgresql') {
+            await ensurePublicFeedbackEvaluationColumnsPostgres();
             // Ensure table exists in PostgreSQL deployments where legacy `public_feedback` may be missing.
             await pool.query(`
                 CREATE TABLE IF NOT EXISTS public_feedback (
@@ -1654,13 +2315,23 @@ router.post('/feedback', async (req, res) => {
                     email VARCHAR(255) NULL,
                     phone VARCHAR(64) NULL,
                     subject VARCHAR(500) NULL,
-                    message TEXT NOT NULL,
+                    message TEXT NOT NULL DEFAULT '',
                     project_id INTEGER NULL,
                     rating_overall_support SMALLINT NULL,
                     rating_quality_of_life_impact SMALLINT NULL,
                     rating_community_alignment SMALLINT NULL,
                     rating_transparency SMALLINT NULL,
                     rating_feasibility_confidence SMALLINT NULL,
+                    rating_relevance SMALLINT NULL,
+                    rating_coherence SMALLINT NULL,
+                    rating_effectiveness SMALLINT NULL,
+                    rating_efficiency SMALLINT NULL,
+                    rating_impact SMALLINT NULL,
+                    rating_sustainability SMALLINT NULL,
+                    open_achievements TEXT NULL,
+                    open_challenges TEXT NULL,
+                    open_lessons TEXT NULL,
+                    open_recommendations TEXT NULL,
                     status VARCHAR(50) NOT NULL DEFAULT 'pending',
                     moderation_status VARCHAR(50) NOT NULL DEFAULT 'pending',
                     moderation_notes TEXT NULL,
@@ -1679,19 +2350,38 @@ router.post('/feedback', async (req, res) => {
                 `
                 INSERT INTO public_feedback (
                     name, email, phone, subject, message, project_id,
+                    rating_relevance, rating_coherence, rating_effectiveness,
+                    rating_efficiency, rating_impact, rating_sustainability,
+                    open_achievements, open_challenges, open_lessons, open_recommendations,
                     rating_overall_support, rating_quality_of_life_impact,
                     rating_community_alignment, rating_transparency,
                     rating_feasibility_confidence, created_at, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9, $10, $11, $12,
+                    $13, $14, $15, $16,
+                    $17, $18, $19, $20, $21,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
                 `,
                 [
                     name || null,
                     email || null,
                     phone || null,
                     subject || null,
-                    message,
+                    normalizedMessage,
                     projectId || null,
+                    ratingRelevance || null,
+                    ratingCoherence || null,
+                    ratingEffectiveness || null,
+                    ratingEfficiency || null,
+                    ratingImpact || null,
+                    ratingSustainability || null,
+                    openAchievements?.trim() || null,
+                    openChallenges?.trim() || null,
+                    openLessons?.trim() || null,
+                    openRecommendations?.trim() || null,
                     ratingOverallSupport || null,
                     ratingQualityOfLifeImpact || null,
                     ratingCommunityAlignment || null,
@@ -1709,11 +2399,14 @@ router.post('/feedback', async (req, res) => {
         const query = `
             INSERT INTO public_feedback (
                 name, email, phone, subject, message, project_id, 
+                rating_relevance, rating_coherence, rating_effectiveness,
+                rating_efficiency, rating_impact, rating_sustainability,
+                open_achievements, open_challenges, open_lessons, open_recommendations,
                 rating_overall_support, rating_quality_of_life_impact, 
                 rating_community_alignment, rating_transparency, 
                 rating_feasibility_confidence, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         `;
 
         await pool.query(query, [
@@ -1721,8 +2414,18 @@ router.post('/feedback', async (req, res) => {
             email, 
             phone, 
             subject, 
-            message, 
+            normalizedMessage, 
             projectId || null,
+            ratingRelevance || null,
+            ratingCoherence || null,
+            ratingEffectiveness || null,
+            ratingEfficiency || null,
+            ratingImpact || null,
+            ratingSustainability || null,
+            openAchievements?.trim() || null,
+            openChallenges?.trim() || null,
+            openLessons?.trim() || null,
+            openRecommendations?.trim() || null,
             ratingOverallSupport || null,
             ratingQualityOfLifeImpact || null,
             ratingCommunityAlignment || null,
@@ -1826,7 +2529,9 @@ router.put('/feedback/:id/status', async (req, res) => {
  */
 router.get('/feedback', async (req, res) => {
     try {
-        const { 
+        await ensurePublicFeedbackEvaluationColumnsPostgres();
+
+        const {
             status, 
             projectId,
             search,
@@ -1892,6 +2597,16 @@ router.get('/feedback', async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
+                f.rating_relevance,
+                f.rating_coherence,
+                f.rating_effectiveness,
+                f.rating_efficiency,
+                f.rating_impact,
+                f.rating_sustainability,
+                f.open_achievements,
+                f.open_challenges,
+                f.open_lessons,
+                f.open_recommendations,
                 ${projectNameExpr}
             FROM public_feedback f
             ${projectJoin}
@@ -1927,6 +2642,7 @@ router.get('/feedback', async (req, res) => {
 router.get('/feedback/admin', async (req, res) => {
     try {
         await ensurePublicFeedbackAdminColumnsPostgres();
+        await ensurePublicFeedbackEvaluationColumnsPostgres();
 
         const { 
             status, 
@@ -2012,6 +2728,16 @@ router.get('/feedback/admin', async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
+                f.rating_relevance,
+                f.rating_coherence,
+                f.rating_effectiveness,
+                f.rating_efficiency,
+                f.rating_impact,
+                f.rating_sustainability,
+                f.open_achievements,
+                f.open_challenges,
+                f.open_lessons,
+                f.open_recommendations,
                 ${projectNameExpr},
                 ${moderatorNameExpr}
             FROM public_feedback f

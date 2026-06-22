@@ -103,6 +103,16 @@ router.get('/queue', auth, async (req, res) => {
                 f.rating_community_alignment,
                 f.rating_transparency,
                 f.rating_feasibility_confidence,
+                f.rating_relevance,
+                f.rating_coherence,
+                f.rating_effectiveness,
+                f.rating_efficiency,
+                f.rating_impact,
+                f.rating_sustainability,
+                f.open_achievements,
+                f.open_challenges,
+                f.open_lessons,
+                f.open_recommendations,
                 ${projectNameExpr},
                 ${moderatorNameExpr}
             FROM public_feedback f
@@ -302,6 +312,12 @@ router.get('/analytics', auth, async (req, res) => {
         const ratingsQuery = `
             SELECT 
                 moderation_status,
+                ROUND(AVG(rating_relevance), 2) as avg_relevance,
+                ROUND(AVG(rating_coherence), 2) as avg_coherence,
+                ROUND(AVG(rating_effectiveness), 2) as avg_effectiveness,
+                ROUND(AVG(rating_efficiency), 2) as avg_efficiency,
+                ROUND(AVG(rating_impact), 2) as avg_impact,
+                ROUND(AVG(rating_sustainability), 2) as avg_sustainability,
                 ROUND(AVG(rating_overall_support), 2) as avg_overall_support,
                 ROUND(AVG(rating_quality_of_life_impact), 2) as avg_quality_impact,
                 ROUND(AVG(rating_community_alignment), 2) as avg_community_alignment,

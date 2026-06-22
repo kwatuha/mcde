@@ -68,6 +68,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import ModerationAnalytics from '../components/ModerationAnalytics';
+import FeedbackEvaluationSummary from '../components/feedback/FeedbackEvaluationSummary';
 import axiosInstance from '../api/axiosInstance';
 import { isAdmin } from '../utils/privilegeUtils.js';
 import {
@@ -439,7 +440,7 @@ const FeedbackModerationPage = () => {
           </Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem', ml: 5 }}>
-          Review citizen feedback before it is shown publicly
+          Review citizen project evaluations before they are shown publicly
         </Typography>
       </Box>
 
@@ -740,9 +741,13 @@ const FeedbackModerationPage = () => {
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 1.5 }}>
                 <Box sx={{ mb: 1.5 }}>
-                  <Typography variant="body2" sx={{ mb: 1.5, fontSize: '0.875rem' }}>
-                    {feedback.message}
-                  </Typography>
+                  {feedback.message?.trim() && (
+                    <Typography variant="body2" sx={{ mb: 1.5, fontSize: '0.875rem' }}>
+                      {feedback.message}
+                    </Typography>
+                  )}
+
+                  <FeedbackEvaluationSummary feedback={feedback} />
                   
                   {feedback.project_name && (
                     <Box sx={{ mb: 1 }}>
@@ -963,9 +968,12 @@ const FeedbackModerationPage = () => {
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Subject: {selectedFeedback.subject || 'No Subject'}
               </Typography>
-              <Typography variant="body1" sx={{ mb: 2 }}>
-                {selectedFeedback.message}
-              </Typography>
+              {selectedFeedback.message?.trim() && (
+                <Typography variant="body1" sx={{ mb: 2 }}>
+                  {selectedFeedback.message}
+                </Typography>
+              )}
+              <FeedbackEvaluationSummary feedback={selectedFeedback} />
             </Box>
           )}
 
@@ -1109,9 +1117,12 @@ const FeedbackModerationPage = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   Subject: {countyResponseTarget.subject || 'No subject'}
                 </Typography>
-                <Typography variant="body1" sx={{ mt: 1 }}>
-                  {countyResponseTarget.message}
-                </Typography>
+                {countyResponseTarget.message?.trim() && (
+                  <Typography variant="body1" sx={{ mt: 1 }}>
+                    {countyResponseTarget.message}
+                  </Typography>
+                )}
+                <FeedbackEvaluationSummary feedback={countyResponseTarget} />
               </Box>
               <TextField
                 fullWidth
@@ -1226,9 +1237,13 @@ const FeedbackModerationPage = () => {
                       />
                     </Box>
                     
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      {feedback.message}
-                    </Typography>
+                    {feedback.message?.trim() && (
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        {feedback.message}
+                      </Typography>
+                    )}
+
+                    <FeedbackEvaluationSummary feedback={feedback} />
                     
                     {feedback.project_name && (
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>

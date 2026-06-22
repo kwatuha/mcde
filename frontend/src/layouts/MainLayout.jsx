@@ -91,7 +91,9 @@ function MainLayoutContent() {
         navigate(ROUTES.CONTRACTOR_DASHBOARD, { replace: true });
         return;
     }
-    const isExecutiveViewer = normalizedRole === 'executive_viewer' || normalizedRole === 'project_lead';
+    const isExecutiveViewer = normalizedRole === 'executive_viewer'
+      || normalizedRole === 'project_lead'
+      || normalizedRole === 'executive_supervisor';
     if (isExecutiveViewer && (location.pathname === ROUTES.DASHBOARD || location.pathname === '/dashboard')) {
       navigate(ROUTES.SYSTEM_DASHBOARD, { replace: true });
     }

@@ -21,13 +21,14 @@ import {
   LocationOn,
   Visibility,
   TrendingUp,
-  Assessment
+  Assessment,
+  NavigateNext,
 } from '@mui/icons-material';
 import SubCountyProjectsModal from './SubCountyProjectsModal';
 import { getSubCountyStats } from '../services/publicApi';
 import { formatCurrency } from '../utils/formatters';
 
-const SubCountySummaryTable = ({ finYearId, filters = {} }) => {
+const SubCountySummaryTable = ({ finYearId, filters = {}, onDrillDown }) => {
   const theme = useTheme();
   const [subCounties, setSubCounties] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -178,15 +179,33 @@ const SubCountySummaryTable = ({ finYearId, filters = {} }) => {
                   </Typography>
                 </TableCell>
                 <TableCell align="center">
-                  <Tooltip title="View Sub-County Projects">
-                    <IconButton
-                      size="small"
-                      color="success"
-                      onClick={() => handleSubCountyClick(subCounty)}
-                    >
-                      <Visibility />
-                    </IconButton>
-                  </Tooltip>
+                  <Box display="flex" justifyContent="center" gap={0.5}>
+                    {onDrillDown && (
+                      <Tooltip title="Explore wards in this sub-county">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() =>
+                            onDrillDown({
+                              subcounty_name: subCounty.subcounty_name,
+                              subcounty_id: subCounty.subcounty_id,
+                            })
+                          }
+                        >
+                          <NavigateNext />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="View Sub-County Projects">
+                      <IconButton
+                        size="small"
+                        color="success"
+                        onClick={() => handleSubCountyClick(subCounty)}
+                      >
+                        <Visibility />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}

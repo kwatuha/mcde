@@ -18,13 +18,13 @@ export default defineConfig({
       '/api': {
         // In Docker: use service name 'api'
         // Override with VITE_PROXY_TARGET env var if needed
-        target: process.env.VITE_PROXY_TARGET || 'http://api:3000',
+        target: process.env.VITE_PROXY_TARGET || 'http://host.docker.internal:3002',
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
         // Proxy uploads to API server for local development
-        target: process.env.VITE_PROXY_TARGET || 'http://api:3000',
+        target: process.env.VITE_PROXY_TARGET || 'http://host.docker.internal:3002',
         changeOrigin: true,
         secure: false,
       },

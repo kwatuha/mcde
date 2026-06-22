@@ -60,6 +60,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../api/axiosInstance';
 import FeedbackAnalytics from '../components/feedback/FeedbackAnalytics';
+import FeedbackEvaluationSummary from '../components/feedback/FeedbackEvaluationSummary';
 import {
   downloadFeedbackOfficialResponsePdf,
   downloadFeedbackListOfficialPdf,
@@ -257,6 +258,22 @@ const FeedbackManagementPage = () => {
     });
   };
 
+  const flatStatCardSx = (accentColor) => ({
+    height: '100%',
+    minWidth: 0,
+    cursor: 'pointer',
+    border: '1px solid',
+    borderColor: 'divider',
+    borderLeft: `4px solid ${accentColor}`,
+    backgroundColor: 'background.paper',
+    boxShadow: 'none',
+    transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
+    '&:hover': {
+      boxShadow: 1,
+      borderColor: accentColor,
+    },
+  });
+
   const handleDownloadFeedbackPdf = (feedback) => {
     try {
       setError(null);
@@ -293,7 +310,7 @@ const FeedbackManagementPage = () => {
           Public Feedback Management
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Review and respond to citizen feedback, analyze implementation and supervision ratings
+          Review and respond to citizen evaluations — relevance, impact, sustainability, and open-ended responses
         </Typography>
       </Box>
 
@@ -380,105 +397,65 @@ const FeedbackManagementPage = () => {
           maxWidth: '100%',
         }}
       >
-          <Card 
-            sx={{ 
-              height: '100%',
-              minWidth: 0,
-              background: 'linear-gradient(135deg, #2196f3 0%, #42a5f5 100%)', 
-              color: 'white',
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease-in-out',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 6
-              }
-            }}
+          <Card
+            elevation={0}
+            sx={flatStatCardSx('#2196f3')}
             onClick={() => handleStatCardClick('all', 'Total Citizen Feedback')}
           >
             <CardContent sx={{ textAlign: 'center', py: 1.5 }}>
-              <Comment sx={{ fontSize: '2rem', mb: 0.5 }} />
-              <Typography variant="h5" fontWeight="bold">
+              <Comment sx={{ fontSize: '2rem', mb: 0.5, color: '#2196f3' }} />
+              <Typography variant="h5" fontWeight="bold" color="text.primary">
                 {feedbacks.length}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
                 Total Citizen Feedback
               </Typography>
             </CardContent>
           </Card>
 
-          <Card 
-            sx={{ 
-              height: '100%',
-              minWidth: 0,
-              background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)', 
-              color: 'white',
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease-in-out',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 6
-              }
-            }}
+          <Card
+            elevation={0}
+            sx={flatStatCardSx('#ff9800')}
             onClick={() => handleStatCardClick('pending', 'Awaiting Response')}
           >
             <CardContent sx={{ textAlign: 'center', py: 1.5 }}>
-              <Schedule sx={{ fontSize: '2rem', mb: 0.5 }} />
-              <Typography variant="h5" fontWeight="bold">
+              <Schedule sx={{ fontSize: '2rem', mb: 0.5, color: '#ff9800' }} />
+              <Typography variant="h5" fontWeight="bold" color="text.primary">
                 {feedbacks.filter(f => f.status === 'pending').length}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
                 Awaiting Response
               </Typography>
             </CardContent>
           </Card>
 
-          <Card 
-            sx={{ 
-              height: '100%',
-              minWidth: 0,
-              background: 'linear-gradient(135deg, #4caf50 0%, #66bb6a 100%)', 
-              color: 'white',
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease-in-out',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 6
-              }
-            }}
+          <Card
+            elevation={0}
+            sx={flatStatCardSx('#4caf50')}
             onClick={() => handleStatCardClick('responded', 'Responded')}
           >
             <CardContent sx={{ textAlign: 'center', py: 1.5 }}>
-              <CheckCircle sx={{ fontSize: '2rem', mb: 0.5 }} />
-              <Typography variant="h5" fontWeight="bold">
+              <CheckCircle sx={{ fontSize: '2rem', mb: 0.5, color: '#4caf50' }} />
+              <Typography variant="h5" fontWeight="bold" color="text.primary">
                 {feedbacks.filter(f => f.status === 'responded').length}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
                 Responded
               </Typography>
             </CardContent>
           </Card>
 
-          <Card 
-            sx={{ 
-              height: '100%',
-              minWidth: 0,
-              background: 'linear-gradient(135deg, #9c27b0 0%, #ba68c8 100%)', 
-              color: 'white',
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease-in-out',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 6
-              }
-            }}
+          <Card
+            elevation={0}
+            sx={flatStatCardSx('#9c27b0')}
             onClick={() => handleStatCardClick('reviewed', 'Under Review')}
           >
             <CardContent sx={{ textAlign: 'center', py: 1.5 }}>
-              <Reply sx={{ fontSize: '2rem', mb: 0.5 }} />
-              <Typography variant="h5" fontWeight="bold">
+              <Reply sx={{ fontSize: '2rem', mb: 0.5, color: '#9c27b0' }} />
+              <Typography variant="h5" fontWeight="bold" color="text.primary">
                 {feedbacks.filter(f => f.status === 'reviewed').length}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
                 Under Review
               </Typography>
             </CardContent>
@@ -660,185 +637,19 @@ const FeedbackManagementPage = () => {
                         </Box>
                       )}
                       
-                      <Typography variant="body1" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
-                        {feedback.message}
-                      </Typography>
+                      {feedback.message?.trim() && (
+                        <Typography variant="body1" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
+                          {feedback.message}
+                        </Typography>
+                      )}
+
+                      <FeedbackEvaluationSummary feedback={feedback} />
                       
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
                         Submitted on {formatDate(feedback.created_at)}
                       </Typography>
                     </Paper>
                   </Box>
-
-                  {/* Ratings Display */}
-                  {(feedback.rating_overall_support || 
-                    feedback.rating_quality_of_life_impact || 
-                    feedback.rating_community_alignment || 
-                    feedback.rating_transparency || 
-                    feedback.rating_feasibility_confidence) && (
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="subtitle2" color="primary" fontWeight="bold" gutterBottom>
-                        CITIZEN RATINGS
-                      </Typography>
-                      
-                      <Paper 
-                        elevation={0} 
-                        sx={{ 
-                          p: 2, 
-                          backgroundColor: '#fff3e0',
-                          borderLeft: '4px solid #ff9800',
-                          borderRadius: '8px'
-                        }}
-                      >
-                        <Grid container spacing={2}>
-                          {feedback.rating_overall_support && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Overall Support
-                                </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="h6" fontWeight="bold">
-                                    {feedback.rating_overall_support}/5
-                                  </Typography>
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <LinearProgress 
-                                      variant="determinate" 
-                                      value={(feedback.rating_overall_support / 5) * 100}
-                                      sx={{ 
-                                        height: 8, 
-                                        borderRadius: 4,
-                                        backgroundColor: '#e0e0e0',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: feedback.rating_overall_support >= 4 ? '#4caf50' : feedback.rating_overall_support >= 3 ? '#fdd835' : '#f44336'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )}
-                          
-                          {feedback.rating_quality_of_life_impact && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Quality of Life Impact
-                                </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="h6" fontWeight="bold">
-                                    {feedback.rating_quality_of_life_impact}/5
-                                  </Typography>
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <LinearProgress 
-                                      variant="determinate" 
-                                      value={(feedback.rating_quality_of_life_impact / 5) * 100}
-                                      sx={{ 
-                                        height: 8, 
-                                        borderRadius: 4,
-                                        backgroundColor: '#e0e0e0',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: feedback.rating_quality_of_life_impact >= 4 ? '#4caf50' : feedback.rating_quality_of_life_impact >= 3 ? '#fdd835' : '#f44336'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )}
-                          
-                          {feedback.rating_community_alignment && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Community Alignment
-                                </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="h6" fontWeight="bold">
-                                    {feedback.rating_community_alignment}/5
-                                  </Typography>
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <LinearProgress 
-                                      variant="determinate" 
-                                      value={(feedback.rating_community_alignment / 5) * 100}
-                                      sx={{ 
-                                        height: 8, 
-                                        borderRadius: 4,
-                                        backgroundColor: '#e0e0e0',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: feedback.rating_community_alignment >= 4 ? '#4caf50' : feedback.rating_community_alignment >= 3 ? '#fdd835' : '#f44336'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )}
-                          
-                          {feedback.rating_transparency && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Implementation/Supervision
-                                </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="h6" fontWeight="bold">
-                                    {feedback.rating_transparency}/5
-                                  </Typography>
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <LinearProgress 
-                                      variant="determinate" 
-                                      value={(feedback.rating_transparency / 5) * 100}
-                                      sx={{ 
-                                        height: 8, 
-                                        borderRadius: 4,
-                                        backgroundColor: '#e0e0e0',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: feedback.rating_transparency >= 4 ? '#4caf50' : feedback.rating_transparency >= 3 ? '#fdd835' : '#f44336'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )}
-                          
-                          {feedback.rating_feasibility_confidence && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Feasibility Confidence
-                                </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="h6" fontWeight="bold">
-                                    {feedback.rating_feasibility_confidence}/5
-                                  </Typography>
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <LinearProgress 
-                                      variant="determinate" 
-                                      value={(feedback.rating_feasibility_confidence / 5) * 100}
-                                      sx={{ 
-                                        height: 8, 
-                                        borderRadius: 4,
-                                        backgroundColor: '#e0e0e0',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: feedback.rating_feasibility_confidence >= 4 ? '#4caf50' : feedback.rating_feasibility_confidence >= 3 ? '#fdd835' : '#f44336'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )}
-                        </Grid>
-                      </Paper>
-                    </Box>
-                  )}
 
                   {/* Official Response */}
                   {feedback.status === 'responded' && feedback.admin_response && (
@@ -991,6 +802,7 @@ const FeedbackManagementPage = () => {
                 <Typography variant="body1" sx={{ mt: 1 }}>
                   {selectedFeedback.message}
                 </Typography>
+                <FeedbackEvaluationSummary feedback={selectedFeedback} />
               </Box>
 
               <TextField
@@ -1100,6 +912,8 @@ const FeedbackManagementPage = () => {
                     <Typography variant="body2" sx={{ mb: 1 }}>
                       {feedback.message}
                     </Typography>
+
+                    <FeedbackEvaluationSummary feedback={feedback} />
                     
                     {feedback.project_name && (
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>

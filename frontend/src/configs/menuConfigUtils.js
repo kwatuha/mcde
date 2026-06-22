@@ -55,7 +55,11 @@ const ADMIN_ROLE_NAMES = new Set([
   'administrator',
   'ict_admin',
 ]);
-const EXECUTIVE_VIEWER_ROLE_NAMES = new Set(['executive_viewer', 'project_lead']);
+const EXECUTIVE_VIEWER_ROLE_NAMES = new Set([
+  'executive_viewer',
+  'project_lead',
+  'executive_supervisor',
+]);
 
 export const hasConfiguredRole = (user, roles) => {
   if (!user || !Array.isArray(roles) || roles.length === 0) return false;
@@ -143,7 +147,10 @@ const submenuVisibilityKeys = (category, submenu) => [
   `menu:${category.id}:${submenu.route || submenu.title || submenu.to || ''}`,
 ].filter(Boolean);
 
-const applyUiProfileMenuVisibility = (categories, user) => {
+const applyUiProfileMenuVisibility = (categories, user, isAdmin = false) => {
+  // Full admins see the complete menu; UI profiles are for scoped county roles only.
+  if (isAdmin || isSuperAdminUser(user)) return categories;
+
   const visibleKeys = getProfileMenuVisibilitySet(user);
   if (!visibleKeys) return categories;
 
@@ -213,7 +220,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
   if (!isExecutiveViewer) {
-    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user);
+    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user, isAdmin);
   }
 
   // Executive Viewer: allow dashboards plus Projects tab with Registry only.
@@ -267,7 +274,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         .filter((submenu) => !submenu.hidden && allowedProjectsRoutes.has(submenu.route));
       return { ...category, submenus: filteredSubmenus };
     })
-    .filter((category) => (category.submenus || []).length > 0), user);
+    .filter((category) => (category.submenus || []).length > 0), user, isAdmin);
 };
 
 // Get menu configuration

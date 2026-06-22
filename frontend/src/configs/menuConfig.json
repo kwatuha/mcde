@@ -491,6 +491,12 @@
           "route": "REPORT_LIBRARY"
         },
         {
+          "title": "PMC Ward Reports",
+          "icon": "AssignmentTurnedInIcon",
+          "route": "PMC_WARD_REPORTS",
+          "permissionsAny": ["pmc_report.read", "pmc_report.create", "pmc_report.submit", "pmc_report.review", "project.read_all"]
+        },
+        {
           "title": "County Operations",
           "icon": "AssessmentIcon",
           "route": "COUNTY_OPERATIONS_REPORT",

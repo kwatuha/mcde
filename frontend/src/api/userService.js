@@ -65,6 +65,16 @@ const userService = {
     }
   },
 
+  getCountyPositionRoleMap: async () => {
+    try {
+      const response = await axiosInstance.get('/users/county-position-role-map');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching county position role map:', error);
+      throw error;
+    }
+  },
+
   getDepartmentSectorMappings: async () => {
     try {
       const response = await axiosInstance.get('/users/users/department-sector-mappings');

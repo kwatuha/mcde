@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
@@ -139,6 +140,14 @@ const SECTIONS = [
     description: 'Charts, evaluation exports, field tools, and raw tables.',
     icon: AssessmentIcon,
     links: [
+      {
+        title: 'PMC Ward Reports',
+        description: 'Ward upload and sub-county approval of signed PMC progress reports.',
+        to: ROUTES.PMC_WARD_REPORTS,
+        tags: ['pmc', 'ward', 'monitoring', 'progress'],
+        icon: AssignmentTurnedInIcon,
+        featured: true,
+      },
       {
         title: 'Project evaluation',
         description: 'M&E evaluation grid and structured export.',

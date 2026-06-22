@@ -24,13 +24,14 @@ import {
   LocationCity,
   Visibility,
   TrendingUp,
-  ExpandMore
+  ExpandMore,
+  NavigateNext,
 } from '@mui/icons-material';
 import WardProjectsModal from './WardProjectsModal';
 import { getWardStats } from '../services/publicApi';
 import { formatCurrency } from '../utils/formatters';
 
-const WardSummaryTable = ({ finYearId, filters = {} }) => {
+const WardSummaryTable = ({ finYearId, filters = {}, onDrillDown }) => {
   const theme = useTheme();
   const [wardsBySubCounty, setWardsBySubCounty] = useState({});
   const [loading, setLoading] = useState(true);
@@ -378,22 +379,38 @@ const WardSummaryTable = ({ finYearId, filters = {} }) => {
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Tooltip title="View Ward Projects" arrow>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleWardClick(ward)}
-                              sx={{
-                                color: 'secondary.main',
-                                '&:hover': {
-                                  background: alpha(theme.palette.secondary.main, 0.1),
-                                  transform: 'scale(1.1)'
-                                },
-                                transition: 'all 0.2s ease'
-                              }}
-                            >
-                              <Visibility fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <Box display="flex" justifyContent="center" gap={0.25}>
+                            {onDrillDown && (
+                              <Tooltip title="Explore sublocations in this ward" arrow>
+                                <IconButton
+                                  size="small"
+                                  sx={{ color: 'primary.main' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDrillDown(ward);
+                                  }}
+                                >
+                                  <NavigateNext fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="View Ward Projects" arrow>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleWardClick(ward)}
+                                sx={{
+                                  color: 'secondary.main',
+                                  '&:hover': {
+                                    background: alpha(theme.palette.secondary.main, 0.1),
+                                    transform: 'scale(1.1)'
+                                  },
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     ))}

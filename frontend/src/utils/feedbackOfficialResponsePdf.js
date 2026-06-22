@@ -4,6 +4,7 @@ import {
   getCountyLogoDataUrl,
   getCountyOfficialName,
 } from './countyOfficialPdfHeader';
+import { formatFeedbackEvaluationForPdf } from '../constants/evaluationQuestions';
 
 const COL = {
   ink: [33, 37, 41],
@@ -120,6 +121,11 @@ function appendFeedbackOfficialContent(doc, feedback, formatDate, opts = {}) {
   writeField('Subject', feedback.subject || '—');
   hr();
   writeField('Citizen message', feedback.message || '—');
+  const evaluationText = formatFeedbackEvaluationForPdf(feedback);
+  if (evaluationText) {
+    hr();
+    writeField('Citizen evaluation (ratings & open responses)', evaluationText);
+  }
   hr();
   writeField(
     'Official county response',

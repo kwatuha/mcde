@@ -9,25 +9,31 @@ import {
   Alert,
   CircularProgress,
   Grid,
-  Divider
+  Divider,
 } from '@mui/material';
 import { Send } from '@mui/icons-material';
 import { submitFeedback } from '../services/publicApi';
-import RatingInput from '../components/RatingInput';
+import RatingInput from './RatingInput';
+import BilingualQuestionField from './BilingualQuestionField';
+import {
+  EVALUATION_INTRO,
+  EVALUATION_CRITERIA,
+  OPEN_ENDED_QUESTIONS,
+  EMPTY_EVALUATION_FORM,
+  hasEvaluationResponse,
+} from '../constants/evaluationQuestions';
+
+const baseForm = {
+  name: '',
+  email: '',
+  phone: '',
+  subject: '',
+  message: '',
+  ...EMPTY_EVALUATION_FORM,
+};
 
 const FeedbackPage = () => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    subject: '',
-    message: '',
-    ratingOverallSupport: null,
-    ratingQualityOfLifeImpact: null,
-    ratingCommunityAlignment: null,
-    ratingTransparency: null,
-    ratingFeasibilityConfidence: null
-  });
+  const [formData, setFormData] = useState(baseForm);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
@@ -35,16 +41,15 @@ const FeedbackPage = () => {
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validation
-    if (!formData.message) {
-      setError('Message is required');
+
+    if (!hasEvaluationResponse(formData)) {
+      setError('Please provide at least one rating or written response.');
       return;
     }
 
@@ -53,20 +58,7 @@ const FeedbackPage = () => {
       setError(null);
       await submitFeedback(formData);
       setSuccess(true);
-      // Reset form
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        subject: '',
-        message: '',
-        ratingOverallSupport: null,
-        ratingQualityOfLifeImpact: null,
-        ratingCommunityAlignment: null,
-        ratingTransparency: null,
-        ratingFeasibilityConfidence: null
-      });
-      // Hide success message after 5 seconds
+      setFormData(baseForm);
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
       console.error('Error submitting feedback:', err);
@@ -80,10 +72,13 @@ const FeedbackPage = () => {
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Submit Feedback
+          {EVALUATION_INTRO.titleEn} / {EVALUATION_INTRO.titleSw}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          We value your feedback and suggestions. Help us improve our services.
+          {EVALUATION_INTRO.instructionEn}
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          {EVALUATION_INTRO.instructionSw}
         </Typography>
       </Box>
 
@@ -101,127 +96,67 @@ const FeedbackPage = () => {
 
       <Paper elevation={2} sx={{ p: 4 }}>
         <form onSubmit={handleSubmit}>
-          {/* Your Feedback - FIRST (Required) */}
           <Typography variant="h6" fontWeight="bold" gutterBottom>
-            Your Feedback
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Share your thoughts, suggestions, or concerns. Your feedback is valuable and can be submitted anonymously.
+            Evaluation Criteria (Optional) / Vigezo vya Tathmini (Si lazima)
           </Typography>
 
-          <Grid container spacing={3}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                required
-                multiline
-                rows={6}
-                label="Your Message"
-                name="message"
-                value={formData.message}
-                onChange={handleChange}
-                disabled={loading}
-                placeholder="Please share your feedback, suggestions, or questions..."
-                helperText="Your message helps us improve our services"
-              />
-            </Grid>
-          </Grid>
+          {EVALUATION_CRITERIA.map((criterion, index) => (
+            <RatingInput
+              key={criterion.name}
+              criterionEn={`${index + 1}. ${criterion.criterionEn}`}
+              criterionSw={criterion.criterionSw}
+              statementEn={criterion.statementEn}
+              statementSw={criterion.statementSw}
+              name={criterion.name}
+              value={formData[criterion.name]}
+              onChange={handleChange}
+              disabled={loading}
+            />
+          ))}
 
           <Divider sx={{ my: 4 }} />
 
-          {/* Rating Section - SECOND (Optional) */}
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              Rate County Projects (Optional)
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              If your feedback is about a specific project, please provide ratings to help us understand your sentiment better.
-            </Typography>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            Open-Ended Questions (Optional)
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
+            Maswali ya Maoni ya Ziada (Si lazima)
+          </Typography>
 
-            <RatingInput
-              label="1. Overall Satisfaction/Support for the Project"
-              name="ratingOverallSupport"
-              value={formData.ratingOverallSupport}
+          {OPEN_ENDED_QUESTIONS.map((question) => (
+            <BilingualQuestionField
+              key={question.name}
+              labelEn={question.en}
+              labelSw={question.sw}
+              name={question.name}
+              value={formData[question.name]}
               onChange={handleChange}
               disabled={loading}
-              descriptions={[
-                'Strongly Oppose - The project should not proceed in its current form',
-                'Oppose - I have significant concerns or reservations about the project',
-                'Neutral - I have mixed feelings or no strong opinion on the project',
-                'Support - I generally agree with the project and its goals',
-                'Strongly Support - The project is excellent and I fully agree with it'
-              ]}
             />
-
-            <RatingInput
-              label="2. Perceived Impact on Personal/Community Quality of Life"
-              name="ratingQualityOfLifeImpact"
-              value={formData.ratingQualityOfLifeImpact}
-              onChange={handleChange}
-              disabled={loading}
-              descriptions={[
-                'Highly Negative Impact - Will significantly worsen quality of life',
-                'Moderately Negative Impact - Will cause some inconvenience or harm',
-                'No Significant Change - The project will have little to no impact',
-                'Moderately Positive Impact - Will lead to noticeable improvements',
-                'Highly Positive Impact - Will significantly improve quality of life'
-              ]}
-            />
-
-            <RatingInput
-              label="3. Alignment with Community Needs and Priorities"
-              name="ratingCommunityAlignment"
-              value={formData.ratingCommunityAlignment}
-              onChange={handleChange}
-              disabled={loading}
-              descriptions={[
-                'Not Aligned at All - This project is unnecessary or misplaced',
-                'Poorly Aligned - This is not a priority for the community',
-                'Somewhat Aligned - This is a secondary need, but acceptable',
-                'Well Aligned - This addresses an important community need',
-                'Perfectly Aligned - This is a top priority need for the community'
-              ]}
-            />
-
-            <RatingInput
-              label="4. Implementation/Supervision"
-              name="ratingTransparency"
-              value={formData.ratingTransparency}
-              onChange={handleChange}
-              disabled={loading}
-              descriptions={[
-                'Very Poor Implementation - Implementation teams were unprofessional and unresponsive',
-                'Poor Implementation - Implementation teams showed poor management and communication',
-                'Adequate Implementation - Implementation teams were acceptable but had some issues',
-                'Good Implementation - Implementation teams managed the process well with minor issues',
-                'Excellent Implementation - Implementation teams were highly professional and effective'
-              ]}
-            />
-
-            <RatingInput
-              label="5. Confidence in the Project's Timeline and Budget (Feasibility)"
-              name="ratingFeasibilityConfidence"
-              value={formData.ratingFeasibilityConfidence}
-              onChange={handleChange}
-              disabled={loading}
-              descriptions={[
-                'Very Low Confidence - Do not believe the project can be completed successfully',
-                'Low Confidence - Significant concerns about delays and costs',
-                'Moderate Confidence - Expect delays or minor budget overruns',
-                'High Confidence - Mostly confident, with only minor doubts',
-                'Very High Confidence - Trust the project will be delivered as promised'
-              ]}
-            />
-          </Box>
+          ))}
 
           <Divider sx={{ my: 4 }} />
 
-          {/* Contact Information - THIRD (Optional) */}
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            Additional Comments (Optional)
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Your feedback"
+            name="message"
+            value={formData.message}
+            onChange={handleChange}
+            disabled={loading}
+            placeholder="Any other comments..."
+            sx={{ mb: 3 }}
+          />
+
+          <Divider sx={{ my: 4 }} />
+
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             Contact Information (Optional)
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Provide your contact details only if you'd like us to respond. You can submit feedback anonymously.
           </Typography>
 
           <Grid container spacing={3}>
@@ -233,7 +168,6 @@ const FeedbackPage = () => {
                 value={formData.name}
                 onChange={handleChange}
                 disabled={loading}
-                placeholder="Enter your name if you'd like us to contact you"
               />
             </Grid>
 
@@ -246,7 +180,6 @@ const FeedbackPage = () => {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={loading}
-                placeholder="your.email@example.com"
               />
             </Grid>
 
@@ -258,7 +191,6 @@ const FeedbackPage = () => {
                 value={formData.phone}
                 onChange={handleChange}
                 disabled={loading}
-                placeholder="+254 700 000 000"
               />
             </Grid>
 
@@ -270,7 +202,6 @@ const FeedbackPage = () => {
                 value={formData.subject}
                 onChange={handleChange}
                 disabled={loading}
-                placeholder="Brief subject of your feedback"
               />
             </Grid>
 
@@ -289,27 +220,8 @@ const FeedbackPage = () => {
           </Grid>
         </form>
       </Paper>
-
-      {/* Contact Information */}
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" fontWeight="bold" gutterBottom>
-          Contact Information
-        </Typography>
-        <Paper elevation={1} sx={{ p: 3 }}>
-          <Typography variant="body1" gutterBottom>
-            <strong>Email:</strong> info@machos.go.ke
-          </Typography>
-          <Typography variant="body1" gutterBottom>
-            <strong>Phone:</strong> +254 700 123 456
-          </Typography>
-          <Typography variant="body1">
-            <strong>Office Hours:</strong> Monday - Friday, 8:00 AM - 5:00 PM
-          </Typography>
-        </Paper>
-      </Box>
     </Container>
   );
 };
 
 export default FeedbackPage;
-

@@ -45,6 +45,11 @@ import {
   Close
 } from '@mui/icons-material';
 import axiosInstance from '../api/axiosInstance';
+import FeedbackEvaluationSummary from './feedback/FeedbackEvaluationSummary';
+import {
+  FEEDBACK_RATING_ANALYTICS,
+  LEGACY_RATING_ANALYTICS,
+} from '../constants/evaluationQuestions';
 
 const ModerationAnalytics = () => {
   const [analytics, setAnalytics] = useState(null);
@@ -362,59 +367,45 @@ const ModerationAnalytics = () => {
             Ratings analysis by review status
           </Typography>
           {analytics.ratingsByStatus && analytics.ratingsByStatus.length > 0 ? (
-            <TableContainer>
-              <Table>
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Status</TableCell>
                     <TableCell align="center">Count</TableCell>
-                    <TableCell align="center">Overall Support</TableCell>
-                    <TableCell align="center">Quality Impact</TableCell>
-                    <TableCell align="center">Community Alignment</TableCell>
-                    <TableCell align="center">Transparency</TableCell>
-                    <TableCell align="center">Feasibility</TableCell>
+                    {FEEDBACK_RATING_ANALYTICS.map(({ shortLabel, avgKey }) => (
+                      <TableCell key={avgKey} align="center">{shortLabel}</TableCell>
+                    ))}
+                    {LEGACY_RATING_ANALYTICS.map(({ shortLabel, avgKey }) => (
+                      <TableCell key={avgKey} align="center" sx={{ color: 'text.secondary' }}>
+                        {shortLabel}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {analytics.ratingsByStatus.map((rating, index) => (
+                  {analytics.ratingsByStatus.map((rating) => (
                     <TableRow key={rating.moderation_status}>
                       <TableCell>
-                        <Chip 
-                          label={rating.moderation_status} 
+                        <Chip
+                          label={rating.moderation_status}
                           color={getStatusColor(rating.moderation_status)}
                           size="small"
                         />
                       </TableCell>
                       <TableCell align="center">
-                        <Typography variant="body2" fontWeight="bold">
-                          {rating.count}
-                        </Typography>
+                        <Typography variant="body2" fontWeight="bold">{rating.count}</Typography>
                       </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2">
-                          {rating.avg_overall_support || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2">
-                          {rating.avg_quality_impact || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2">
-                          {rating.avg_community_alignment || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2">
-                          {rating.avg_transparency || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2">
-                          {rating.avg_feasibility_confidence || 'N/A'}
-                        </Typography>
-                      </TableCell>
+                      {FEEDBACK_RATING_ANALYTICS.map(({ avgKey }) => (
+                        <TableCell key={avgKey} align="center">
+                          <Typography variant="body2">{rating[avgKey] ?? 'N/A'}</Typography>
+                        </TableCell>
+                      ))}
+                      {LEGACY_RATING_ANALYTICS.map(({ avgKey }) => (
+                        <TableCell key={avgKey} align="center">
+                          <Typography variant="body2" color="text.secondary">{rating[avgKey] ?? 'N/A'}</Typography>
+                        </TableCell>
+                      ))}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -544,9 +535,13 @@ const ModerationAnalytics = () => {
                       />
                     </Box>
                     
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      {feedback.message}
-                    </Typography>
+                    {feedback.message?.trim() && (
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        {feedback.message}
+                      </Typography>
+                    )}
+
+                    <FeedbackEvaluationSummary feedback={feedback} />
                     
                     {feedback.project_name && (
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>

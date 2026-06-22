@@ -536,11 +536,14 @@ function UserManagementPage() {
     wards: [],
     sublocations: [],
     villages: [],
+    municipalities: [],
     departmentSectorMappings: [],
   });
   const [newProjectScopeType, setNewProjectScopeType] = useState('SECTOR');
   const [newProjectScopeValues, setNewProjectScopeValues] = useState([]);
   const [uiProfiles, setUiProfiles] = useState([]);
+  const [countyPositions, setCountyPositions] = useState([]);
+  const [selectedCountyPositionId, setSelectedCountyPositionId] = useState('');
   const [loadingUiProfiles, setLoadingUiProfiles] = useState(false);
   const [openUiProfileManagementDialog, setOpenUiProfileManagementDialog] = useState(false);
   const [openUiProfileDialog, setOpenUiProfileDialog] = useState(false);
@@ -1085,6 +1088,7 @@ function UserManagementPage() {
         wards: Array.isArray(data?.wards) ? data.wards : [],
         sublocations: Array.isArray(data?.sublocations) ? data.sublocations : [],
         villages: Array.isArray(data?.villages) ? data.villages : [],
+        municipalities: Array.isArray(data?.municipalities) ? data.municipalities : [],
         departmentSectorMappings: Array.isArray(data?.departmentSectorMappings) ? data.departmentSectorMappings : [],
       });
     } catch (err) {
@@ -1105,6 +1109,52 @@ function UserManagementPage() {
       setLoadingUiProfiles(false);
     }
   }, [isSuperAdmin]);
+
+  const fetchCountyPositions = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const data = await apiService.getCountyPositionRoleMap();
+      setCountyPositions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn('Could not load county position role map:', err);
+      setCountyPositions([]);
+    }
+  }, [isSuperAdmin]);
+
+  const handleCountyPositionSelect = (positionId) => {
+    setSelectedCountyPositionId(positionId);
+    const position = countyPositions.find((p) => String(p.id) === String(positionId));
+    if (!position) return;
+
+    const matchedRole = roles.find(
+      (r) => String(r.roleId) === String(position.roleId)
+        || normalizeOrgText(r.roleName) === normalizeOrgText(position.baseRoleName)
+    );
+
+    setUserFormData((prev) => ({
+      ...prev,
+      role: matchedRole?.roleName || position.baseRoleName || prev.role,
+      uiProfileId: position.uiProfileId ? String(position.uiProfileId) : prev.uiProfileId,
+    }));
+
+    const scopeType = String(position.defaultScopeType || '').toUpperCase();
+    if (scopeType === 'ALL_DEPARTMENTS') {
+      setProjectScopes([{ scopeType: 'ALL_DEPARTMENTS', scopeValue: '*' }]);
+      setNewProjectScopeType('ALL_DEPARTMENTS');
+      setNewProjectScopeValues([]);
+    } else if (scopeType) {
+      setNewProjectScopeType(scopeType);
+      setNewProjectScopeValues([]);
+    }
+
+    setSnackbar({
+      open: true,
+      message: position.notes
+        ? `${position.responsibility}: ${position.notes}`
+        : `Applied ${position.responsibility} — set ${position.defaultScopeArea || scopeType} scope values if needed.`,
+      severity: 'info',
+    });
+  };
 
   const normalizeOrgText = (v) => String(v || '').trim().toLowerCase();
 
@@ -1219,6 +1269,9 @@ function UserManagementPage() {
     if (newProjectScopeType === 'VILLAGE') {
       return unique((projectScopeOptions.villages || []).map((v) => v.villageName || v.name));
     }
+    if (newProjectScopeType === 'MUNICIPALITY') {
+      return unique((projectScopeOptions.municipalities || []).map((m) => m.name || m.municipalityName));
+    }
     return [];
   }, [newProjectScopeType, projectScopeOptions, allCountyDepartmentNames]);
 
@@ -1248,6 +1301,9 @@ function UserManagementPage() {
     }
     if (standaloneProjectScopeType === 'VILLAGE') {
       return unique((projectScopeOptions.villages || []).map((v) => v.villageName || v.name));
+    }
+    if (standaloneProjectScopeType === 'MUNICIPALITY') {
+      return unique((projectScopeOptions.municipalities || []).map((m) => m.name || m.municipalityName));
     }
     return [];
   }, [standaloneProjectScopeType, projectScopeOptions, allCountyDepartmentNames]);
@@ -1282,6 +1338,7 @@ function UserManagementPage() {
       fetchMinistriesCatalog();
       fetchProjectScopeOptions();
       fetchUiProfiles();
+      fetchCountyPositions();
       fetchVoidedUsers();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1304,6 +1361,7 @@ function UserManagementPage() {
         return;
     }
     setCurrentUserToEdit(null);
+    setSelectedCountyPositionId('');
     setOrganizationScopes([]);
     setProjectScopes([]);
     setNewScopeType('STATE_DEPARTMENT_ALL');
@@ -1688,6 +1746,7 @@ function UserManagementPage() {
       WARD: 'Ward',
       SUBLOCATION: 'Sublocation',
       VILLAGE: 'Village',
+      MUNICIPALITY: 'Municipality',
     };
     if (type === 'ALL_DEPARTMENTS') return 'All departments (county-wide project access)';
     return `${labels[type] || 'Project scope'}: ${value}`;
@@ -4607,6 +4666,37 @@ function UserManagementPage() {
               )}
             </>
           )}
+          {isSuperAdmin && countyPositions.length > 0 && (
+            <FormControl
+              fullWidth
+              margin="dense"
+              variant="outlined"
+              sx={{
+                mb: 2,
+                minWidth: 120,
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#ffffff',
+                  borderRadius: 1.5,
+                },
+              }}
+            >
+              <InputLabel sx={{ fontWeight: 600, color: colors.grey[100] }}>County position (optional)</InputLabel>
+              <Select
+                label="County position (optional)"
+                value={selectedCountyPositionId}
+                onChange={(e) => handleCountyPositionSelect(e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>— Select to auto-fill role, UI profile and scope —</em>
+                </MenuItem>
+                {countyPositions.map((position) => (
+                  <MenuItem key={position.id} value={String(position.id)}>
+                    {position.responsibility} — {position.area} ({position.permissionPattern})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <FormControl 
             fullWidth 
             margin="dense" 
@@ -4829,10 +4919,10 @@ function UserManagementPage() {
 
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}>
-            Project access (all departments, sector, department, sub-county, ward, sublocation, village)
+            Project access (all departments, sector, department, sub-county, ward, sublocation, village, municipality)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Prefer this for data access. Use all departments for county-wide project visibility, or narrow access by implementation sector, department, sub-county, ward, sublocation, or village.
+            Prefer this for data access. Use all departments for county-wide project visibility, or narrow access by implementation sector, department, sub-county, ward, sublocation, village, or municipality.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ md: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 180, bgcolor: '#fff', borderRadius: 1 }}>
@@ -4852,6 +4942,7 @@ function UserManagementPage() {
                 <MenuItem value="WARD">Ward</MenuItem>
                 <MenuItem value="SUBLOCATION">Sublocation</MenuItem>
                 <MenuItem value="VILLAGE">Village</MenuItem>
+                <MenuItem value="MUNICIPALITY">Municipality</MenuItem>
               </Select>
             </FormControl>
             <Autocomplete
@@ -5035,6 +5126,7 @@ function UserManagementPage() {
                 <MenuItem value="WARD">Ward</MenuItem>
                 <MenuItem value="SUBLOCATION">Sublocation</MenuItem>
                 <MenuItem value="VILLAGE">Village</MenuItem>
+                <MenuItem value="MUNICIPALITY">Municipality</MenuItem>
               </Select>
             </FormControl>
             <Autocomplete

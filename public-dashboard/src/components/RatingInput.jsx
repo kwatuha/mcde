@@ -8,219 +8,210 @@ import {
   FormControlLabel,
   Radio,
   Paper,
-  Tooltip
+  Tooltip,
 } from '@mui/material';
-import { 
+import {
   SentimentVeryDissatisfied,
   SentimentDissatisfied,
   SentimentNeutral,
   SentimentSatisfied,
-  SentimentVerySatisfied
+  SentimentVerySatisfied,
 } from '@mui/icons-material';
+import { LIKERT_DISPLAY_ORDER, LIKERT_SCALE } from '../constants/evaluationQuestions';
+
+const EMOTICONS_BY_VALUE = {
+  1: <SentimentVeryDissatisfied key="1" />,
+  2: <SentimentDissatisfied key="2" />,
+  3: <SentimentNeutral key="3" />,
+  4: <SentimentSatisfied key="4" />,
+  5: <SentimentVerySatisfied key="5" />,
+};
+
+const COLORS_BY_VALUE = {
+  1: '#f44336',
+  2: '#ff9800',
+  3: '#fdd835',
+  4: '#8bc34a',
+  5: '#4caf50',
+};
 
 /**
- * RatingInput Component - 5-point Likert scale rating input
- * 
- * @param {string} label - The question/label for the rating
- * @param {string} name - Field name for form data
- * @param {number} value - Current rating value (1-5)
- * @param {function} onChange - Handler for value changes
- * @param {array} descriptions - Array of 5 description strings for each rating level
- * @param {boolean} disabled - Whether the input is disabled
+ * Bilingual 5-point Likert scale — Strongly Agree (5) shown first (left).
  */
-const RatingInput = ({ 
-  label, 
-  name, 
-  value, 
-  onChange, 
-  descriptions = [],
-  disabled = false 
+const RatingInput = ({
+  criterionEn,
+  criterionSw,
+  statementEn,
+  statementSw,
+  name,
+  value,
+  onChange,
+  disabled = false,
+  scaleOptions = LIKERT_SCALE,
 }) => {
-  const defaultDescriptions = [
-    'Strongly Oppose / Very Poor',
-    'Oppose / Poor',
-    'Neutral / Adequate',
-    'Support / Good',
-    'Strongly Support / Excellent'
-  ];
-
-  const displayDescriptions = descriptions.length === 5 ? descriptions : defaultDescriptions;
-
-  const emoticons = [
-    <SentimentVeryDissatisfied key="1" />,
-    <SentimentDissatisfied key="2" />,
-    <SentimentNeutral key="3" />,
-    <SentimentSatisfied key="4" />,
-    <SentimentVerySatisfied key="5" />
-  ];
-
-  const colors = [
-    '#f44336', // Red - 1
-    '#ff9800', // Orange - 2
-    '#fdd835', // Yellow - 3
-    '#8bc34a', // Light Green - 4
-    '#4caf50'  // Green - 5
-  ];
+  const scaleByValue = Object.fromEntries(scaleOptions.map((item) => [item.value, item]));
 
   const handleChange = (event) => {
-    const newValue = parseInt(event.target.value);
-    onChange({ target: { name, value: newValue } });
+    onChange({ target: { name, value: parseInt(event.target.value, 10) } });
   };
+
+  const selectedScale = value ? scaleByValue[value] : null;
 
   return (
     <Box sx={{ mb: 3 }}>
       <FormControl component="fieldset" fullWidth disabled={disabled}>
-        <FormLabel 
-          component="legend" 
-          sx={{ 
-            fontWeight: 'bold', 
+        <FormLabel
+          component="legend"
+          sx={{
+            fontWeight: 'bold',
             color: 'text.primary',
-            mb: 2,
+            mb: 1.5,
             fontSize: '1rem',
-            lineHeight: 1.6
+            lineHeight: 1.6,
           }}
         >
-          {label}
+          <Typography component="span" variant="subtitle1" fontWeight="bold" display="block">
+            {criterionEn}
+            {criterionSw ? ` (${criterionSw})` : ''}
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 500 }}>
+            {statementEn}
+          </Typography>
+          {statementSw && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+              {statementSw}
+            </Typography>
+          )}
         </FormLabel>
-        
+
         <RadioGroup
           row
           name={name}
           value={value || ''}
           onChange={handleChange}
-          sx={{ 
-            display: 'flex', 
+          sx={{
+            display: 'flex',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: 1
+            gap: 1,
+            mt: 1,
           }}
         >
-          {[1, 2, 3, 4, 5].map((rating) => (
-            <Tooltip 
-              key={rating} 
-              title={displayDescriptions[rating - 1]} 
-              arrow 
-              placement="top"
-            >
-              <Paper
-                elevation={value === rating ? 4 : 1}
-                sx={{
-                  flex: '1 1 0',
-                  minWidth: { xs: '70px', sm: '85px', md: '100px' },
-                  textAlign: 'center',
-                  borderRadius: '12px',
-                  transition: 'all 0.3s ease',
-                  cursor: disabled ? 'not-allowed' : 'pointer',
-                  border: value === rating 
-                    ? `4px solid ${colors[rating - 1]}` // Thicker border when selected
-                    : '2px solid #e0e0e0',
-                  backgroundColor: value === rating 
-                    ? `${colors[rating - 1]}20` // Slightly more visible background when selected
-                    : 'white',
-                  boxShadow: value === rating 
-                    ? `0 4px 12px ${colors[rating - 1]}40` // Add shadow with rating color
-                    : undefined,
-                  '&:hover': {
-                    transform: disabled ? 'none' : 'translateY(-4px)',
-                    boxShadow: disabled ? 1 : 6,
-                    borderColor: colors[rating - 1],
-                    backgroundColor: `${colors[rating - 1]}08`
-                  }
-                }}
-              >
-                <FormControlLabel
-                  value={rating}
-                  control={
-                    <Radio 
-                      sx={{ 
-                        display: 'none' // Hide default radio button
-                      }} 
-                    />
-                  }
-                  label={
-                    <Box sx={{ py: 2, px: { xs: 0.5, sm: 1, md: 1.5 } }}>
-                      <Box 
-                        sx={{ 
-                          color: colors[rating - 1],
-                          fontSize: { xs: '1.75rem', sm: '2rem' },
-                          display: 'flex',
-                          justifyContent: 'center',
-                          mb: 0.5
-                        }}
-                      >
-                        {emoticons[rating - 1]}
-                      </Box>
-                      <Typography 
-                        variant="h6" 
-                        sx={{ 
-                          fontWeight: 'bold',
-                          fontSize: { xs: '1.1rem', sm: '1.25rem' },
-                          color: 'text.primary' // Always dark for readability
-                        }}
-                      >
-                        {rating}
-                      </Typography>
-                      <Box 
-                        sx={{ 
-                          display: { xs: 'none', md: 'block' },
-                        }}
-                      >
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            color: 'rgba(0, 0, 0, 0.75)', // Always dark for readability
-                            fontSize: '0.75rem',
-                            fontWeight: value === rating ? 600 : 500, // Bolder when selected
-                            lineHeight: 1.3,
-                            mt: 0.5,
-                            minHeight: '38px',
-                            px: 0.5,
-                            wordWrap: 'break-word'
+          {LIKERT_DISPLAY_ORDER.map((rating) => {
+            const scale = scaleByValue[rating];
+            const color = COLORS_BY_VALUE[rating];
+            const tooltip = scale ? `${scale.en} / ${scale.sw}` : '';
+
+            return (
+              <Tooltip key={rating} title={tooltip} arrow placement="top">
+                <Paper
+                  elevation={value === rating ? 4 : 1}
+                  sx={{
+                    flex: '1 1 0',
+                    minWidth: { xs: '70px', sm: '85px', md: '100px' },
+                    textAlign: 'center',
+                    borderRadius: '12px',
+                    transition: 'all 0.3s ease',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    border: value === rating ? `4px solid ${color}` : '2px solid #e0e0e0',
+                    backgroundColor: value === rating ? `${color}20` : 'white',
+                    boxShadow: value === rating ? `0 4px 12px ${color}40` : undefined,
+                    '&:hover': {
+                      transform: disabled ? 'none' : 'translateY(-4px)',
+                      boxShadow: disabled ? 1 : 6,
+                      borderColor: color,
+                      backgroundColor: `${color}08`,
+                    },
+                  }}
+                >
+                  <FormControlLabel
+                    value={rating}
+                    control={<Radio sx={{ display: 'none' }} />}
+                    label={
+                      <Box sx={{ py: 2, px: { xs: 0.5, sm: 1, md: 1.5 } }}>
+                        <Box
+                          sx={{
+                            color,
+                            fontSize: { xs: '1.75rem', sm: '2rem' },
+                            display: 'flex',
+                            justifyContent: 'center',
+                            mb: 0.5,
                           }}
                         >
-                          {displayDescriptions[rating - 1].split('/')[0].trim()}
+                          {EMOTICONS_BY_VALUE[rating]}
+                        </Box>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 'bold',
+                            fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                            color: 'text.primary',
+                          }}
+                        >
+                          {rating}
                         </Typography>
+                        {scale && (
+                          <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: 'rgba(0, 0, 0, 0.75)',
+                                fontSize: '0.7rem',
+                                fontWeight: value === rating ? 600 : 500,
+                                lineHeight: 1.25,
+                                mt: 0.5,
+                                minHeight: '32px',
+                                px: 0.5,
+                                wordWrap: 'break-word',
+                                display: 'block',
+                              }}
+                            >
+                              {scale.en}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: 'text.secondary',
+                                fontSize: '0.68rem',
+                                lineHeight: 1.2,
+                                px: 0.5,
+                                display: 'block',
+                              }}
+                            >
+                              {scale.sw}
+                            </Typography>
+                          </Box>
+                        )}
                       </Box>
-                    </Box>
-                  }
-                  sx={{ 
-                    margin: 0,
-                    width: '100%',
-                    '& .MuiFormControlLabel-label': {
-                      width: '100%'
                     }
-                  }}
-                />
-              </Paper>
-            </Tooltip>
-          ))}
+                    sx={{
+                      margin: 0,
+                      width: '100%',
+                      '& .MuiFormControlLabel-label': { width: '100%' },
+                    }}
+                  />
+                </Paper>
+              </Tooltip>
+            );
+          })}
         </RadioGroup>
 
-        {/* Description for selected rating */}
-        {value && (
-          <Box 
-            sx={{ 
-              mt: 2, 
-              p: 2.5, 
-              backgroundColor: `${colors[value - 1]}15`,
-              borderLeft: `5px solid ${colors[value - 1]}`,
+        {selectedScale && (
+          <Box
+            sx={{
+              mt: 2,
+              p: 2.5,
+              backgroundColor: `${COLORS_BY_VALUE[value]}15`,
+              borderLeft: `5px solid ${COLORS_BY_VALUE[value]}`,
               borderRadius: '8px',
-              boxShadow: `0 2px 8px ${colors[value - 1]}20`
+              boxShadow: `0 2px 8px ${COLORS_BY_VALUE[value]}20`,
             }}
           >
-            <Typography 
-              variant="body1" 
-              sx={{ 
-                color: 'rgba(0, 0, 0, 0.87)',
-                fontWeight: 500,
-                fontSize: '0.95rem',
-                lineHeight: 1.6
-              }}
-            >
-              <Box component="span" sx={{ fontWeight: 700, color: colors[value - 1] }}>
-                Selected Rating {value}/5:
+            <Typography variant="body1" sx={{ color: 'rgba(0, 0, 0, 0.87)', fontWeight: 500, lineHeight: 1.6 }}>
+              <Box component="span" sx={{ fontWeight: 700, color: COLORS_BY_VALUE[value] }}>
+                {value}/5:
               </Box>{' '}
-              {displayDescriptions[value - 1]}
+              {selectedScale.en} / {selectedScale.sw}
             </Typography>
           </Box>
         )}
@@ -230,4 +221,3 @@ const RatingInput = ({
 };
 
 export default RatingInput;
-
