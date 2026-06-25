@@ -7,6 +7,7 @@
 # Defaults match imes deploy-to-production.sh (165.22.227.234, user kunye). Override any time:
 #   DEPLOY_HOST=... DEPLOY_USER=... DEPLOY_PATH=... ./deploy/deploy-to-server.sh
 # Optional: SSH_IDENTITY=~/.ssh/id_asusme
+# Extra rsync excludes (space-separated), e.g. DEPLOY_RSYNC_EXTRA_EXCLUDES="docs/ newDocs/"
 # Media sync defaults ON: DEPLOY_SYNC_UPLOADS=1 (copies uploads/ and api/uploads/ without --delete)
 # Set DEPLOY_SYNC_UPLOADS=0 to skip media sync.
 #
@@ -50,6 +51,7 @@ SSH_IDENTITY="${SSH_IDENTITY:-}"
 DEPLOY_SYNC_UPLOADS="${DEPLOY_SYNC_UPLOADS:-1}"
 DEPLOY_SYNC_DB="${DEPLOY_SYNC_DB:-0}"
 DEPLOY_SYNC_DB_CONFIRM="${DEPLOY_SYNC_DB_CONFIRM:-}"
+DEPLOY_RSYNC_EXTRA_EXCLUDES="${DEPLOY_RSYNC_EXTRA_EXCLUDES:-}"
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
 if [[ -n "$SSH_IDENTITY" ]]; then
@@ -61,23 +63,30 @@ REMOTE="${DEPLOY_USER}@${DEPLOY_HOST}"
 
 echo "==> Syncing repo to ${REMOTE}:${DEPLOY_PATH}"
 # --no-group --no-owner: avoid chgrp/chown failures when the SSH user cannot set ownership on the server.
+RSYNC_EXCLUDE_ARGS=(
+  --exclude '.git'
+  --exclude '.cursor'
+  --exclude '.pgdata'
+  --exclude 'node_modules'
+  --exclude 'frontend/node_modules'
+  --exclude 'api/node_modules'
+  --exclude 'public-dashboard/node_modules'
+  --exclude '**/dist'
+  --exclude '.env'
+  --exclude 'api/.env'
+  --filter='P deploy/.env.deploy'
+  --exclude 'deploy/.env.deploy'
+  --exclude 'uploads'
+  --exclude 'api/uploads'
+)
+for pat in ${DEPLOY_RSYNC_EXTRA_EXCLUDES:-}; do
+  [[ -z "$pat" ]] && continue
+  RSYNC_EXCLUDE_ARGS+=(--exclude "$pat" --filter="P ${pat%/}/")
+done
 rsync -avz --no-group --no-owner --delete \
   --rsh="$RSYNC_RSH" \
   --filter='P .pgdata/' \
-  --exclude '.git' \
-  --exclude '.cursor' \
-  --exclude '.pgdata' \
-  --exclude 'node_modules' \
-  --exclude 'frontend/node_modules' \
-  --exclude 'api/node_modules' \
-  --exclude 'public-dashboard/node_modules' \
-  --exclude '**/dist' \
-  --exclude '.env' \
-  --exclude 'api/.env' \
-  --filter='P deploy/.env.deploy' \
-  --exclude 'deploy/.env.deploy' \
-  --exclude 'uploads' \
-  --exclude 'api/uploads' \
+  "${RSYNC_EXCLUDE_ARGS[@]}" \
   "$ROOT/" "${REMOTE}:${DEPLOY_PATH}/"
 
 if [[ "$DEPLOY_SYNC_UPLOADS" == "1" ]]; then

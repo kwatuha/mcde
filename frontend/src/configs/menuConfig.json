@@ -390,6 +390,12 @@
           "permissionsAny": ["project.read_all", "project.update"]
         },
         {
+          "title": "Budget Procurement Intake",
+          "icon": "AccountBalanceWalletIcon",
+          "route": "PROCUREMENT_BUDGET_ITEMS",
+          "permissionsAny": ["budget.update", "project.create", "project.read_all"]
+        },
+        {
           "title": "Procured Projects",
           "icon": "HistoryIcon",
           "route": "PROCUREMENT_PROCURED_PROJECTS",

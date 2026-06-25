@@ -209,7 +209,8 @@ server.listen(port, bindHost, async () => {
     try {
         const { canSendEmail } = require('./services/accountEmailService');
         if (canSendEmail()) {
-            console.log('Outbound email (SMTP): configured (OTP emails can be sent).');
+            const { getLoginUrl } = require('./services/accountEmailService');
+            console.log(`Outbound email (SMTP): configured (OTP emails can be sent). Login URL: ${getLoginUrl()}`);
         } else {
             console.warn(
                 'Outbound email (SMTP): NOT configured — set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in api/.env (deploy rsync excludes api/.env; copy SMTP block from your laptop manually on the server). Optional: SMTP_BCC=addr for BCC copies of outbound mail when testing.'

@@ -44,6 +44,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3002
+      MACHAKOS_PUBLIC_URL: ${MACHAKOS_PUBLIC_URL:-}
+      APP_LOGIN_URL: ${APP_LOGIN_URL:-${MACHAKOS_PUBLIC_URL}/login}
     volumes:
       - ./api/.env:/app/.env:ro
       - ./api/uploads:/app/uploads

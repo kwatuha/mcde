@@ -67,8 +67,38 @@ async function verifySmtpConnection() {
     await tx.verify();
 }
 
+function normalizePublicBaseUrl(url) {
+    const v = getRequiredEnv(url);
+    if (!v) return null;
+    return v.replace(/\/+$/, '');
+}
+
+/**
+ * Login link for outbound email (OTP, password reset, new account).
+ * Prefer APP_LOGIN_URL; else derive from APP_FRONTEND_URL or MACHAKOS_PUBLIC_URL (deploy/.env.deploy).
+ * Docker env vars override api/.env (dotenv does not overwrite existing process.env).
+ */
 function getLoginUrl() {
-    return process.env.APP_LOGIN_URL || process.env.APP_FRONTEND_URL || 'http://localhost:5178/login';
+    const explicit = getRequiredEnv('APP_LOGIN_URL');
+    if (explicit) return explicit;
+
+    const frontendBase = normalizePublicBaseUrl('APP_FRONTEND_URL');
+    if (frontendBase) {
+        return frontendBase.endsWith('/login') ? frontendBase : `${frontendBase}/login`;
+    }
+
+    const publicBase =
+        normalizePublicBaseUrl('MACHAKOS_PUBLIC_URL') || normalizePublicBaseUrl('PUBLIC_URL');
+    if (publicBase) {
+        return `${publicBase}/login`;
+    }
+
+    if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+        console.warn(
+            '[accountEmail] Set APP_LOGIN_URL or MACHAKOS_PUBLIC_URL — email login links default to localhost.'
+        );
+    }
+    return 'http://localhost:5178/login';
 }
 
 function getFromAddress() {
@@ -244,6 +274,7 @@ module.exports = {
     canSendEmail,
     resetEmailTransporter,
     verifySmtpConnection,
+    getLoginUrl,
     sendInitialCredentialsEmail,
     sendLoginOtpEmail,
     sendPasswordResetEmail,

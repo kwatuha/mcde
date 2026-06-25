@@ -1,27 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Badge,
   Box,
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  FormGroup,
   Grid,
   IconButton,
   MenuItem,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -35,12 +41,24 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import ViewColumnIcon from '@mui/icons-material/ViewColumn';
+import LinkIcon from '@mui/icons-material/Link';
+import ListAltIcon from '@mui/icons-material/ListAlt';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../api';
 import { ROUTES } from '../configs/appConfig';
+import {
+  ADP_COLUMN_STORAGE_KEY,
+  adpImplementationColumns,
+  buildDefaultColumnVisibility,
+  getExportValue,
+  getLocationSummary,
+  getPriorityLabel,
+  loadColumnVisibility,
+} from '../configs/adpImplementationTableConfig';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 
@@ -119,6 +137,9 @@ export default function ADPImplementationPage() {
   const [suggestionFilter, setSuggestionFilter] = useState('review_pending');
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [suggestionActionId, setSuggestionActionId] = useState(null);
+  const [activeMainTab, setActiveMainTab] = useState(0);
+  const [columnVisibility, setColumnVisibility] = useState(() => loadColumnVisibility());
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
   const { setAIPageContext, clearAIPageContext } = useAIPageContext();
 
   const selectedPlan = useMemo(
@@ -154,23 +175,136 @@ export default function ADPImplementationPage() {
     return 'success';
   };
 
-  const exportRows = useMemo(() => rows.map((row, index) => ({
-    '#': index + 1,
-    'ADP Project': row.projectName || '',
-    Sector: row.sectorName || 'Unspecified',
-    Programme: row.programmeName || '',
-    Subprogramme: row.subprogrammeName || '',
-    Location: row.locationText || [row.ward, row.sublocation, row.village].filter(Boolean).join(' / ') || 'County wide',
-    Status: row.planStatus || 'Unspecified',
-    'Performance Indicator': row.performanceIndicator || '',
-    Target: row.target || '',
-    'ADP Cost': Number(row.estimatedCost || 0),
-    'Budgeted Amount': Number(row.budgetedAmount || 0),
-    'Budget Count': Number(row.budgetCount || 0),
-    'Linked Projects': Number(row.linkedProjectCount || 0),
-    'Actual Budget': Number(row.actualBudget || 0),
-    Paid: Number(row.actualPaid || 0),
-  })), [rows]);
+  const visibleColumns = useMemo(
+    () => adpImplementationColumns.filter((col) => columnVisibility[col.id] !== false),
+    [columnVisibility]
+  );
+
+  const exportableColumns = useMemo(
+    () => visibleColumns.filter((col) => col.exportHeader),
+    [visibleColumns]
+  );
+
+  const exportRows = useMemo(() => rows.map((row, index) => {
+    const record = { '#': index + 1 };
+    exportableColumns.forEach((col) => {
+      record[col.exportHeader] = getExportValue(col, row);
+    });
+    return record;
+  }), [rows, exportableColumns]);
+
+  const handleColumnVisibilityChange = (columnId, checked) => {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [columnId]: checked, actions: true };
+      try {
+        localStorage.setItem(ADP_COLUMN_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const handleResetColumns = () => {
+    const defaults = buildDefaultColumnVisibility();
+    setColumnVisibility(defaults);
+    try {
+      localStorage.setItem(ADP_COLUMN_STORAGE_KEY, JSON.stringify(defaults));
+    } catch {
+      // ignore storage errors
+    }
+    setMessage('ADP table columns reset to defaults.');
+  };
+
+  const renderAdpCell = (column, row) => {
+    switch (column.id) {
+      case 'projectName':
+        return (
+          <>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.projectName}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {row.performanceIndicator || row.activityDescription || 'No indicator captured yet'}
+            </Typography>
+          </>
+        );
+      case 'sectorName':
+        return <Typography variant="body2">{row.sectorName || 'Unspecified'}</Typography>;
+      case 'programmeName':
+        return (
+          <Typography variant="body2">
+            {[row.programmeName, row.subprogrammeName].filter(Boolean).join(' / ') || '—'}
+          </Typography>
+        );
+      case 'subprogrammeName':
+        return row.subprogrammeName || '—';
+      case 'locationText':
+        return getLocationSummary(row);
+      case 'ward':
+        return row.ward || '—';
+      case 'sublocation':
+        return row.sublocation || '—';
+      case 'village':
+        return row.village || '—';
+      case 'planStatus':
+        return (
+          <Chip
+            size="small"
+            label={row.planStatus || 'Unspecified'}
+            color={String(row.planStatus || '').toLowerCase().includes('ongoing') ? 'warning' : 'default'}
+          />
+        );
+      case 'priorityLevel':
+        return (
+          <Chip
+            size="small"
+            label={getPriorityLabel(row.priorityLevel)}
+            color={priorityColor(row.priorityLevel)}
+            variant="outlined"
+          />
+        );
+      case 'estimatedCost':
+        return formatCurrency(row.estimatedCost);
+      case 'budgetedAmount':
+        return formatCurrency(row.budgetedAmount);
+      case 'budgetCount':
+        return formatNumber(row.budgetCount);
+      case 'linkedProjectCount':
+        return formatNumber(row.linkedProjectCount);
+      case 'actualBudget':
+        return formatCurrency(row.actualBudget);
+      case 'actualPaid':
+        return formatCurrency(row.actualPaid);
+      case 'activityDescription':
+        return row.activityDescription || '—';
+      case 'performanceIndicator':
+        return row.performanceIndicator || '—';
+      case 'target':
+        return row.target || '—';
+      case 'fundingSource':
+        return row.fundingSource || '—';
+      case 'timeframe':
+        return row.timeframe || '—';
+      case 'implementingAgency':
+        return row.implementingAgency || '—';
+      case 'actions':
+        return (
+          <Stack direction="row" spacing={0.5} justifyContent="center">
+            <Tooltip title="Edit ADP row">
+              <IconButton size="small" color="primary" onClick={() => handleOpenEdit(row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete ADP row">
+              <IconButton size="small" color="error" onClick={() => setDeleteRow(row)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        );
+      default:
+        return '—';
+    }
+  };
 
   const loadPlans = useCallback(async () => {
     const data = await apiService.adp.getPlans();
@@ -270,9 +404,10 @@ export default function ADPImplementationPage() {
       const pending = Number(result?.pendingCount ?? result?.summary?.review_pending ?? 0);
       setMessage(
         `Generated or refreshed ${formatNumber(result?.insertedOrUpdated || 0)} ADP link suggestion pair(s). `
-        + `${formatNumber(pending)} pending review — see the Link Suggestions panel below (also on each project’s ADP Implementation Link dialog).`
+        + `${formatNumber(pending)} pending review — open the Link Suggestions tab (also on each project’s ADP Implementation Link dialog).`
       );
       setSuggestionFilter('review_pending');
+      setActiveMainTab(1);
       await Promise.all([loadSuggestions('review_pending'), loadReport()]);
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to generate ADP link suggestions.');
@@ -408,23 +543,7 @@ export default function ADPImplementationPage() {
 
   const handleExportExcel = () => {
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    worksheet['!cols'] = [
-      { wch: 6 },
-      { wch: 34 },
-      { wch: 28 },
-      { wch: 30 },
-      { wch: 28 },
-      { wch: 24 },
-      { wch: 14 },
-      { wch: 34 },
-      { wch: 14 },
-      { wch: 16 },
-      { wch: 18 },
-      { wch: 12 },
-      { wch: 15 },
-      { wch: 16 },
-      { wch: 16 },
-    ];
+    worksheet['!cols'] = [{ wch: 6 }, ...exportableColumns.map(() => ({ wch: 18 }))];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'ADP Implementation');
     const summarySheet = XLSX.utils.aoa_to_sheet([
@@ -476,33 +595,14 @@ export default function ADPImplementationPage() {
 
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 12,
-        head: [['ADP Project', 'Sector', 'Programme', 'Location', 'Status', 'ADP Cost', 'Budgeted', 'Linked', 'Actual Budget', 'Paid']],
-        body: rows.map((row) => [
-          row.projectName || '',
-          row.sectorName || 'Unspecified',
-          row.programmeName || '',
-          row.locationText || [row.ward, row.sublocation, row.village].filter(Boolean).join(' / ') || 'County wide',
-          row.planStatus || 'Unspecified',
-          formatCurrency(row.estimatedCost),
-          formatCurrency(row.budgetedAmount),
-          formatNumber(row.linkedProjectCount),
-          formatCurrency(row.actualBudget),
-          formatCurrency(row.actualPaid),
-        ]),
+        head: [exportableColumns.map((col) => col.exportHeader)],
+        body: rows.map((row) => exportableColumns.map((col) => {
+          const value = getExportValue(col, row);
+          if (col.numeric) return formatCurrency(value);
+          return value;
+        })),
         styles: { fontSize: 6.5, cellPadding: 3, overflow: 'linebreak' },
         headStyles: { fillColor: [22, 96, 136] },
-        columnStyles: {
-          0: { cellWidth: 130 },
-          1: { cellWidth: 105 },
-          2: { cellWidth: 105 },
-          3: { cellWidth: 90 },
-          4: { cellWidth: 55 },
-          5: { halign: 'right', cellWidth: 65 },
-          6: { halign: 'right', cellWidth: 65 },
-          7: { halign: 'right', cellWidth: 45 },
-          8: { halign: 'right', cellWidth: 65 },
-          9: { halign: 'right', cellWidth: 65 },
-        },
         margin: { top: 40, left: 30, right: 30 },
       });
 
@@ -673,211 +773,250 @@ export default function ADPImplementationPage() {
           </Grid>
         </Grid>
 
-        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
-          <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1} sx={{ mb: 1 }}>
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Link Suggestions</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Keyword matches between registry projects and ADP rows. Review here or on each project under Planning → ADP Implementation Link.
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-              <Chip size="small" label={`Pending: ${formatNumber(suggestionSummary.review_pending)}`} color="warning" variant="outlined" />
-              <Chip size="small" label={`Accepted: ${formatNumber(suggestionSummary.accepted)}`} color="success" variant="outlined" />
-              <Chip size="small" label={`Rejected: ${formatNumber(suggestionSummary.rejected)}`} variant="outlined" />
-              <TextField
-                select
-                size="small"
-                label="Show"
-                value={suggestionFilter}
-                onChange={(event) => setSuggestionFilter(event.target.value)}
-                sx={{ minWidth: 160 }}
-              >
-                <MenuItem value="review_pending">Pending review</MenuItem>
-                <MenuItem value="accepted">Accepted</MenuItem>
-                <MenuItem value="rejected">Rejected</MenuItem>
-                <MenuItem value="">All statuses</MenuItem>
-              </TextField>
-              <Button size="small" variant="outlined" onClick={() => loadSuggestions(suggestionFilter)} disabled={suggestionLoading}>
-                Refresh
-              </Button>
-            </Stack>
-          </Stack>
+        <Paper variant="outlined" sx={{ mb: 1.5 }}>
+          <Tabs
+            value={activeMainTab}
+            onChange={(_, value) => setActiveMainTab(value)}
+            sx={{ px: 1, borderBottom: 1, borderColor: 'divider', minHeight: 42 }}
+          >
+            <Tab
+              icon={<ListAltIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+              label={`ADP Items (${formatNumber(rows.length)})`}
+              sx={{ minHeight: 42, textTransform: 'none', fontWeight: 700 }}
+            />
+            <Tab
+              icon={(
+                <Badge badgeContent={suggestionSummary.review_pending || 0} color="warning" max={999}>
+                  <LinkIcon sx={{ fontSize: 18 }} />
+                </Badge>
+              )}
+              iconPosition="start"
+              label="Link Suggestions"
+              sx={{ minHeight: 42, textTransform: 'none', fontWeight: 700 }}
+            />
+          </Tabs>
 
-          {suggestionLoading ? (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2">Loading link suggestions...</Typography>
-            </Stack>
-          ) : (
-            <TableContainer sx={{ maxHeight: 320 }}>
-              <Table stickyHeader size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Registry Project</TableCell>
-                    <TableCell>ADP Project</TableCell>
-                    <TableCell>Match reason</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {suggestionRows.map((suggestion) => (
-                    <TableRow key={suggestion.id} hover>
-                      <TableCell sx={{ minWidth: 200 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.projectName}</Typography>
-                        <Typography variant="caption" color="text.secondary">Project ID {suggestion.projectId}</Typography>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 220 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.adpProjectName}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {[suggestion.sectorName, suggestion.programmeName, suggestion.locationText || suggestion.ward].filter(Boolean).join(' | ')}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 200 }}>
-                        <Typography variant="body2">{suggestion.matchReason}</Typography>
-                        <Chip size="small" label={confidenceLabel(suggestion.confidence)} sx={{ mt: 0.5 }} />
-                      </TableCell>
-                      <TableCell>
-                        <Chip size="small" label={suggestion.status} color={suggestion.status === 'accepted' ? 'success' : suggestion.status === 'review_pending' ? 'warning' : 'default'} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
-                          {suggestion.status === 'review_pending' && (
-                            <>
-                              <Button
-                                size="small"
-                                startIcon={<CheckCircleIcon />}
-                                disabled={suggestionActionId === suggestion.id}
-                                onClick={() => handleAcceptSuggestion(suggestion)}
-                              >
-                                Accept
-                              </Button>
-                              <Button
-                                size="small"
-                                color="inherit"
-                                startIcon={<ThumbDownIcon />}
-                                disabled={suggestionActionId === suggestion.id}
-                                onClick={() => handleRejectSuggestion(suggestion.id)}
-                              >
-                                Reject
-                              </Button>
-                            </>
-                          )}
-                          <Button
-                            size="small"
-                            component={RouterLink}
-                            to={ROUTES.PROJECT_DETAILS.replace(':projectId', String(suggestion.projectId))}
-                            endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+          {activeMainTab === 0 && (
+            <Box sx={{ p: 1.5 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1} sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  {formatNumber(rows.length)} ADP row(s) shown. Use Manage Columns to fit the table on screen; exports use the same visible columns.
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ViewColumnIcon />}
+                  onClick={() => setColumnDialogOpen(true)}
+                >
+                  Manage Columns
+                </Button>
+              </Stack>
+
+              {loading ? (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 4 }}>
+                  <CircularProgress size={22} />
+                  <Typography>Loading ADP implementation report...</Typography>
+                </Stack>
+              ) : (
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: '70vh' }}>
+                  <Table stickyHeader size="small" sx={{ minWidth: visibleColumns.reduce((sum, col) => sum + col.minWidth, 0) }}>
+                    <TableHead>
+                      <TableRow>
+                        {visibleColumns.map((column) => (
+                          <TableCell
+                            key={column.id}
+                            align={column.align || 'left'}
+                            sx={{ fontWeight: 700, minWidth: column.minWidth, whiteSpace: 'nowrap' }}
                           >
-                            Project
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {suggestionRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5}>
-                        <Alert severity="info">
-                          No link suggestions for this filter yet. Click <strong>Generate Link Suggestions</strong> to match registry projects to ADP rows by shared keywords (name, sector, location, indicators).
-                        </Alert>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                            {column.label}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow key={row.id} hover>
+                          {visibleColumns.map((column) => (
+                            <TableCell
+                              key={`${row.id}-${column.id}`}
+                              align={column.align || 'left'}
+                              sx={{ minWidth: column.minWidth, verticalAlign: column.id === 'actions' ? 'middle' : 'top' }}
+                            >
+                              {renderAdpCell(column, row)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                      {rows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={Math.max(visibleColumns.length, 1)}>
+                            <Alert severity="info">No ADP projects found yet. Import reviewed ADP project rows to activate this report.</Alert>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
           )}
-          {suggestionTotal > suggestionRows.length && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Showing {formatNumber(suggestionRows.length)} of {formatNumber(suggestionTotal)} suggestions. Use the status filter or open a registry project for its full suggestion list.
-            </Typography>
+
+          {activeMainTab === 1 && (
+            <Box sx={{ p: 1.5 }}>
+              <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1} sx={{ mb: 1 }}>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Link Suggestions</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Keyword matches between registry projects and ADP rows. Review here or on each project under Planning → ADP Implementation Link.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                  <Chip size="small" label={`Pending: ${formatNumber(suggestionSummary.review_pending)}`} color="warning" variant="outlined" />
+                  <Chip size="small" label={`Accepted: ${formatNumber(suggestionSummary.accepted)}`} color="success" variant="outlined" />
+                  <Chip size="small" label={`Rejected: ${formatNumber(suggestionSummary.rejected)}`} variant="outlined" />
+                  <TextField
+                    select
+                    size="small"
+                    label="Show"
+                    value={suggestionFilter}
+                    onChange={(event) => setSuggestionFilter(event.target.value)}
+                    sx={{ minWidth: 160 }}
+                  >
+                    <MenuItem value="review_pending">Pending review</MenuItem>
+                    <MenuItem value="accepted">Accepted</MenuItem>
+                    <MenuItem value="rejected">Rejected</MenuItem>
+                    <MenuItem value="">All statuses</MenuItem>
+                  </TextField>
+                  <Button size="small" variant="outlined" onClick={() => loadSuggestions(suggestionFilter)} disabled={suggestionLoading}>
+                    Refresh
+                  </Button>
+                </Stack>
+              </Stack>
+
+              {suggestionLoading ? (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 2 }}>
+                  <CircularProgress size={20} />
+                  <Typography variant="body2">Loading link suggestions...</Typography>
+                </Stack>
+              ) : (
+                <TableContainer sx={{ maxHeight: '70vh' }}>
+                  <Table stickyHeader size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Registry Project</TableCell>
+                        <TableCell>ADP Project</TableCell>
+                        <TableCell>Match reason</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell align="right">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {suggestionRows.map((suggestion) => (
+                        <TableRow key={suggestion.id} hover>
+                          <TableCell sx={{ minWidth: 200 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.projectName}</Typography>
+                            <Typography variant="caption" color="text.secondary">Project ID {suggestion.projectId}</Typography>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 220 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{suggestion.adpProjectName}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {[suggestion.sectorName, suggestion.programmeName, suggestion.locationText || suggestion.ward].filter(Boolean).join(' | ')}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 200 }}>
+                            <Typography variant="body2">{suggestion.matchReason}</Typography>
+                            <Chip size="small" label={confidenceLabel(suggestion.confidence)} sx={{ mt: 0.5 }} />
+                          </TableCell>
+                          <TableCell>
+                            <Chip size="small" label={suggestion.status} color={suggestion.status === 'accepted' ? 'success' : suggestion.status === 'review_pending' ? 'warning' : 'default'} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+                              {suggestion.status === 'review_pending' && (
+                                <>
+                                  <Button
+                                    size="small"
+                                    startIcon={<CheckCircleIcon />}
+                                    disabled={suggestionActionId === suggestion.id}
+                                    onClick={() => handleAcceptSuggestion(suggestion)}
+                                  >
+                                    Accept
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    color="inherit"
+                                    startIcon={<ThumbDownIcon />}
+                                    disabled={suggestionActionId === suggestion.id}
+                                    onClick={() => handleRejectSuggestion(suggestion.id)}
+                                  >
+                                    Reject
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                size="small"
+                                component={RouterLink}
+                                to={ROUTES.PROJECT_DETAILS.replace(':projectId', String(suggestion.projectId))}
+                                endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+                              >
+                                Project
+                              </Button>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {suggestionRows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5}>
+                            <Alert severity="info">
+                              No link suggestions for this filter yet. Click <strong>Generate Link Suggestions</strong> to match registry projects to ADP rows by shared keywords (name, sector, location, indicators).
+                            </Alert>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+              {suggestionTotal > suggestionRows.length && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  Showing {formatNumber(suggestionRows.length)} of {formatNumber(suggestionTotal)} suggestions. Use the status filter or open a registry project for its full suggestion list.
+                </Typography>
+              )}
+            </Box>
           )}
         </Paper>
 
-        {loading ? (
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 4 }}>
-            <CircularProgress size={22} />
-            <Typography>Loading ADP implementation report...</Typography>
-          </Stack>
-        ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: '70vh' }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>ADP Project</TableCell>
-                  <TableCell>Sector / Programme</TableCell>
-                  <TableCell>Location</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Priority</TableCell>
-                  <TableCell align="right">ADP Cost</TableCell>
-                  <TableCell align="right">Budgeted</TableCell>
-                  <TableCell align="right">Linked Projects</TableCell>
-                  <TableCell align="right">Actual Budget</TableCell>
-                  <TableCell align="right">Paid</TableCell>
-                  <TableCell align="center">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id} hover>
-                    <TableCell sx={{ minWidth: 260 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.projectName}</Typography>
-                      <Typography variant="caption" color="text.secondary">{row.performanceIndicator || row.activityDescription || 'No indicator captured yet'}</Typography>
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 220 }}>
-                      <Typography variant="body2">{row.sectorName || 'Unspecified'}</Typography>
-                      <Typography variant="caption" color="text.secondary">{[row.programmeName, row.subprogrammeName].filter(Boolean).join(' / ')}</Typography>
-                    </TableCell>
-                    <TableCell>{row.locationText || [row.ward, row.sublocation, row.village].filter(Boolean).join(' / ') || 'County wide'}</TableCell>
-                    <TableCell>
-                      <Chip size="small" label={row.planStatus || 'Unspecified'} color={String(row.planStatus || '').toLowerCase().includes('ongoing') ? 'warning' : 'default'} />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        label={
-                          row.priorityLevel === 'high' ? 'High — budget & link'
-                            : row.priorityLevel === 'medium' ? 'Medium — partial'
-                              : 'Ready'
-                        }
-                        color={priorityColor(row.priorityLevel)}
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell align="right">{formatCurrency(row.estimatedCost)}</TableCell>
-                    <TableCell align="right">{formatCurrency(row.budgetedAmount)}</TableCell>
-                    <TableCell align="right">{formatNumber(row.linkedProjectCount)}</TableCell>
-                    <TableCell align="right">{formatCurrency(row.actualBudget)}</TableCell>
-                    <TableCell align="right">{formatCurrency(row.actualPaid)}</TableCell>
-                    <TableCell align="center">
-                      <Stack direction="row" spacing={0.5} justifyContent="center">
-                        <Tooltip title="Edit ADP row">
-                          <IconButton size="small" color="primary" onClick={() => handleOpenEdit(row)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete ADP row">
-                          <IconButton size="small" color="error" onClick={() => setDeleteRow(row)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={11}>
-                      <Alert severity="info">No ADP projects found yet. Import reviewed ADP project rows to activate this report.</Alert>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+        <Dialog open={columnDialogOpen} onClose={() => setColumnDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ViewColumnIcon color="primary" />
+            Manage ADP Table Columns
+          </DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Choose which columns appear in the ADP items table and in Excel/PDF exports. Actions always stay visible.
+            </Typography>
+            <FormGroup>
+              {adpImplementationColumns.filter((col) => !col.alwaysVisible).map((column) => (
+                <FormControlLabel
+                  key={column.id}
+                  control={(
+                    <Checkbox
+                      checked={columnVisibility[column.id] !== false}
+                      onChange={(event) => handleColumnVisibilityChange(column.id, event.target.checked)}
+                    />
+                  )}
+                  label={column.label}
+                />
+              ))}
+            </FormGroup>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleResetColumns}>Reset defaults</Button>
+            <Button variant="contained" onClick={() => setColumnDialogOpen(false)}>Done</Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog open={Boolean(editingRow)} onClose={saving ? undefined : handleCloseEdit} fullWidth maxWidth="md">
           <DialogTitle>Edit ADP Project</DialogTitle>

@@ -29,7 +29,8 @@ import {
   PictureAsPdf as PictureAsPdfIcon,
   Description as DescriptionIcon,
   MoreVert as MoreVertIcon,
-  FactCheck as FactCheckIcon
+  FactCheck as FactCheckIcon,
+  RocketLaunch as RocketLaunchIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -42,8 +43,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { tokens } from "../pages/dashboard/theme";
 import { formatCurrency, formatToSentenceCase } from '../utils/helpers';
+import { getBudgetErrorMessage } from '../utils/budgetErrors';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
 import CombineBudgetContainersDialog from '../components/CombineBudgetContainersDialog';
+import CreateRegistryProjectDialog from '../components/budget/CreateRegistryProjectDialog';
 
 const parseBudgetAmount = (value) => {
   if (typeof value === 'number') {
@@ -180,6 +183,16 @@ function BudgetManagementPage() {
       return true;
     });
   }, [containerItems, itemFilters]);
+
+  const filteredItemsTotal = useMemo(
+    () => filteredItems.reduce((sum, item) => sum + parseBudgetAmount(item.amount), 0),
+    [filteredItems]
+  );
+
+  const containerItemsTotal = useMemo(
+    () => containerItems.reduce((sum, item) => sum + parseBudgetAmount(item.amount), 0),
+    [containerItems]
+  );
   
   // Reset filters when container changes
   useEffect(() => {
@@ -191,6 +204,24 @@ function BudgetManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [registryProjectItem, setRegistryProjectItem] = useState(null);
+  const canCreateRegistryProject = hasPrivilege?.('budget.update') || hasPrivilege?.('project.create');
+
+  const handleRegistryProjectSuccess = async (result) => {
+    const projectId = result?.registryProjectId;
+    setRegistryProjectItem(null);
+    if (selectedContainer?.budgetId) {
+      await fetchContainerDetails(selectedContainer.budgetId);
+    }
+    setSnackbar({
+      open: true,
+      severity: 'success',
+      message: projectId
+        ? `Registry project #${projectId} created and linked to this budget line.`
+        : 'Registry project linked successfully.',
+    });
+  };
+
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -247,8 +278,11 @@ function BudgetManagementPage() {
     planId: '',
     sector: '',
     programme: '',
-    search: ''
+    search: '',
+    departmentId: '',
+    includeAllDepartments: false,
   });
+  const [adpWishlistAppliedDepartment, setAdpWishlistAppliedDepartment] = useState(null);
   const [loadingAdpWishlist, setLoadingAdpWishlist] = useState(false);
   const [itemFormData, setItemFormData] = useState({
     projectId: '',
@@ -544,42 +578,7 @@ function BudgetManagementPage() {
       console.error('Full error:', JSON.stringify(err, null, 2));
       
       // Build a more detailed error message
-      // Note: axios interceptor returns error.response.data, so err might be the data object itself
-      let errorMessage = "Failed to load budget containers.";
-      
-      // Handle case where err is the response.data object (from axios interceptor)
-      // The axios interceptor returns error.response.data, so err is the data object
-      if (err && typeof err === 'object') {
-        // Check for common error message fields
-        if (err.message) {
-          errorMessage = err.message;
-        } else if (err.error) {
-          errorMessage = err.error;
-        } else if (err.msg) {
-          errorMessage = err.msg;
-        } else if (typeof err === 'string') {
-          errorMessage = err;
-        } else {
-          // If it's an object but no clear message, stringify it
-          errorMessage = JSON.stringify(err);
-        }
-      } 
-      // Handle case where err is the full error object (shouldn't happen with axios interceptor, but just in case)
-      else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message;
-      } else if (err.response?.data?.error) {
-        errorMessage = err.response.data.error;
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      // Add status code if available
-      if (err.response?.status) {
-        errorMessage += ` (Status: ${err.response.status})`;
-      } else if (err.status) {
-        errorMessage += ` (Status: ${err.status})`;
-      }
-      
+      const errorMessage = getBudgetErrorMessage(err, 'Failed to load department budgets.');
       setError(errorMessage);
       setContainers([]);
       setPagination(prev => ({ ...prev, total: 0, totalPages: 0 }));
@@ -596,11 +595,11 @@ function BudgetManagementPage() {
       setContainerItems(data.items || []);
       setPendingChanges(data.pendingChanges || []);
     } catch (err) {
-      console.error('Error fetching container details:', err);
-      setSnackbar({ 
-        open: true, 
-        message: err.response?.data?.message || 'Failed to load container details.', 
-        severity: 'error' 
+      console.error('Error fetching department budget details:', err);
+      setSnackbar({
+        open: true,
+        message: getBudgetErrorMessage(err, 'Failed to load department budget details.'),
+        severity: 'error',
       });
     }
   }, []);
@@ -654,7 +653,7 @@ function BudgetManagementPage() {
       finYearId: findDefaultFinancialYearId(finalPlanId, sourcePlans),
       departmentId: '',
       adpPlanId: finalPlanId,
-      description: `Budget container created from ${planName}. Select priority wishlist items after creating it.`
+      description: `Department budget created from ${planName}. Select priority wishlist items after creating it.`
     };
   }, [adpPlans, findDefaultFinancialYearId]);
 
@@ -882,10 +881,10 @@ function BudgetManagementPage() {
 
       if (currentBudget) {
         await budgetService.updateBudgetContainer(currentBudget.budgetId, dataToSubmit);
-        setSnackbar({ open: true, message: 'Budget container updated successfully!', severity: 'success' });
+        setSnackbar({ open: true, message: 'Department budget updated successfully!', severity: 'success' });
       } else {
         await budgetService.createBudgetContainer(dataToSubmit);
-        setSnackbar({ open: true, message: 'Budget container created successfully!', severity: 'success' });
+        setSnackbar({ open: true, message: 'Department budget created successfully!', severity: 'success' });
         // Ensure newly created containers are visible in the main list.
         setActiveTab(0);
         setSelectedContainer(null);
@@ -901,15 +900,15 @@ function BudgetManagementPage() {
       setPagination(prev => ({ ...prev, page: 1 }));
       await fetchContainers();
     } catch (err) {
-      console.error("Submit container error:", err);
-      const errorMessage = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save budget container.';
+      console.error("Submit department budget error:", err);
+      const errorMessage = getBudgetErrorMessage(err, 'Failed to save department budget.');
       const errorDetails = err.response?.data?.details;
       const errorHint = err.response?.data?.hint;
       const statusCode = err.response?.status;
       
       let userMessage = errorMessage;
       if (statusCode === 403) {
-        userMessage = 'You do not have permission to create budget containers. Please contact an administrator.';
+        userMessage = 'You do not have permission to create department budgets. Please contact an administrator.';
       } else if (statusCode === 401) {
         userMessage = 'Authentication required. Please log in again.';
       } else if (statusCode === 400) {
@@ -956,13 +955,10 @@ function BudgetManagementPage() {
         await fetchContainerDetails(budgetToApprove.budgetId);
       }
     } catch (err) {
-      console.error("Approve container error:", err);
+      console.error("Approve department budget error:", err);
       console.error("Error response:", err.response);
       console.error("Error response data:", err.response?.data);
-      const errorMessage = err.response?.data?.message || 
-                          err.response?.data?.error || 
-                          err.message || 
-                          'Failed to approve budget. Please check the console for details.';
+      const errorMessage = getBudgetErrorMessage(err, 'Failed to approve department budget.');
       setSnackbar({ 
         open: true, 
         message: errorMessage, 
@@ -995,7 +991,7 @@ function BudgetManagementPage() {
     if (combinedBudgetData.selectedContainerIds.length === 0) {
       setSnackbar({ 
         open: true, 
-        message: 'Please select at least one container to combine', 
+        message: 'Please select at least one department budget to consolidate', 
         severity: 'error' 
       });
       return;
@@ -1054,10 +1050,10 @@ function BudgetManagementPage() {
       setActiveTab(1);
     } catch (err) {
       console.error("Fetch combined budget error:", err);
-      setSnackbar({ 
-        open: true, 
-        message: err.response?.data?.message || err.message || 'Failed to fetch combined budget.', 
-        severity: 'error' 
+      setSnackbar({
+        open: true,
+        message: getBudgetErrorMessage(err, 'Failed to fetch consolidated budget.'),
+        severity: 'error',
       });
     } finally {
       setLoading(false);
@@ -1092,8 +1088,15 @@ function BudgetManagementPage() {
         planId: overrides.planId ?? adpWishlistFilters.planId ?? selectedContainer?.adpPlanId ?? '',
         sector: overrides.sector ?? adpWishlistFilters.sector ?? '',
         programme: overrides.programme ?? adpWishlistFilters.programme ?? '',
-        search: overrides.search ?? adpWishlistFilters.search ?? ''
+        search: overrides.search ?? adpWishlistFilters.search ?? '',
       };
+      const includeAllDepartments = overrides.includeAllDepartments ?? adpWishlistFilters.includeAllDepartments;
+      const departmentId = overrides.departmentId ?? adpWishlistFilters.departmentId;
+      if (includeAllDepartments) {
+        params.includeAllDepartments = '1';
+      } else if (departmentId) {
+        params.departmentId = departmentId;
+      }
       const cleanParams = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== ''));
       const data = await budgetService.getAdpWishlist(cleanParams);
       if (Array.isArray(data.plans) && data.plans.length > 0) {
@@ -1106,12 +1109,21 @@ function BudgetManagementPage() {
       setAdpWishlistRows(data.projects || []);
       setAdpWishlistSectors(data.sectors || []);
       setAdpWishlistProgrammes(data.programmes || []);
+      setAdpWishlistAppliedDepartment(
+        data.appliedDepartmentId
+          ? { id: data.appliedDepartmentId, name: data.appliedDepartmentName || 'Department' }
+          : null
+      );
       setAdpWishlistFilters((prev) => ({
         ...prev,
         planId: params.planId || data.selectedPlanId || '',
         sector: params.sector || '',
         programme: params.programme || '',
-        search: params.search || ''
+        search: params.search || '',
+        departmentId: includeAllDepartments
+          ? ''
+          : (departmentId || (data.appliedDepartmentId ? String(data.appliedDepartmentId) : '')),
+        includeAllDepartments: Boolean(includeAllDepartments),
       }));
     } catch (err) {
       console.error('Fetch ADP wishlist error:', err);
@@ -1130,22 +1142,32 @@ function BudgetManagementPage() {
     adpWishlistFilters.sector,
     adpWishlistFilters.programme,
     adpWishlistFilters.search,
+    adpWishlistFilters.departmentId,
+    adpWishlistFilters.includeAllDepartments,
   ]);
 
   const handleOpenAdpDialog = async () => {
+    const budgetDepartmentId = selectedContainer?.departmentId
+      ? String(selectedContainer.departmentId)
+      : '';
     setSelectedAdpProjectIds([]);
+    setAdpWishlistAppliedDepartment(null);
     setAdpWishlistFilters({
-      planId: selectedContainer?.adpPlanId || '',
+      planId: selectedContainer?.adpPlanId ? String(selectedContainer.adpPlanId) : '',
       sector: '',
       programme: '',
-      search: ''
+      search: '',
+      departmentId: budgetDepartmentId,
+      includeAllDepartments: false,
     });
     setOpenAdpDialog(true);
     await fetchAdpWishlist({
-      planId: selectedContainer?.adpPlanId || '',
+      planId: selectedContainer?.adpPlanId ? String(selectedContainer.adpPlanId) : '',
       sector: '',
       programme: '',
-      search: ''
+      search: '',
+      departmentId: budgetDepartmentId,
+      includeAllDepartments: false,
     });
   };
 
@@ -1427,7 +1449,7 @@ function BudgetManagementPage() {
       // For now, we'll show an error
       setSnackbar({ 
         open: true, 
-        message: 'Container deletion not yet implemented. Use soft delete via voided flag.', 
+        message: 'Department budget deletion not yet implemented. Use soft delete via voided flag.', 
         severity: 'warning' 
       });
       fetchContainers();
@@ -1435,7 +1457,7 @@ function BudgetManagementPage() {
       console.error("Delete container error:", err);
       setSnackbar({ 
         open: true, 
-        message: err.response?.data?.message || err.message || 'Failed to delete budget container.', 
+        message: err.response?.data?.message || err.message || 'Failed to delete department budget.', 
         severity: 'error' 
       });
     } finally {
@@ -1691,7 +1713,7 @@ function BudgetManagementPage() {
       }
 
       const allRows = [];
-      const headers = ['Container', 'Project Name', 'Department', 'Subcounty', 'Ward', 'Amount (KES)', 'Remarks'];
+      const headers = ['Department Budget', 'Project Name', 'Department', 'Subcounty', 'Ward', 'Amount (KES)', 'Remarks'];
       
       // Add header row
       allRows.push(headers);
@@ -1811,7 +1833,7 @@ function BudgetManagementPage() {
 
         return `
           <section class="container-section ${containerIndex > 0 ? 'page-break' : ''}">
-            <h2>${escapeHtml(formatToSentenceCase(container.budgetName) || `Container ${containerIndex + 1}`)}</h2>
+            <h2>${escapeHtml(formatToSentenceCase(container.budgetName) || `Department Budget ${containerIndex + 1}`)}</h2>
             <div class="meta compact">
               Department: ${escapeHtml(formatToSentenceCase(container.departmentName) || 'No Department')}<br />
               Subtotal: ${escapeHtml(formatCurrency(parseBudgetAmount(container.totalAmount)))}<br />
@@ -1883,7 +1905,7 @@ function BudgetManagementPage() {
           </div>
           <table class="summary">
             <tr>
-              <td><strong>Containers</strong></td>
+              <td><strong>Department Budgets</strong></td>
               <td>${Number(combinedBudgetView.containerCount || 0).toLocaleString()}</td>
               <td><strong>Total Items</strong></td>
               <td>${Number(combinedBudgetView.totalItems || 0).toLocaleString()}</td>
@@ -1891,7 +1913,7 @@ function BudgetManagementPage() {
               <td class="amount">${escapeHtml(formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal)))}</td>
             </tr>
           </table>
-          ${containerSections || '<p>No budget containers found.</p>'}
+          ${containerSections || '<p>No department budgets found.</p>'}
           <div class="grand-total">GRAND TOTAL: ${escapeHtml(formatCurrency(parseBudgetAmount(combinedBudgetView.grandTotal)))}</div>
         </body>
         </html>
@@ -1938,7 +1960,7 @@ function BudgetManagementPage() {
       doc.setFont(undefined, 'normal');
       doc.setTextColor(33, 37, 41);
       doc.text(`Financial Year: ${combinedBudgetView.combinedBudget.finYearName || 'N/A'}`, 40, startY);
-      doc.text(`Containers: ${combinedBudgetView.containerCount || 0}`, 260, startY);
+      doc.text(`Department Budgets: ${combinedBudgetView.containerCount || 0}`, 260, startY);
       doc.text(`Total Items: ${combinedBudgetView.totalItems || 0}`, 390, startY);
       startY += 18;
       doc.setFont(undefined, 'bold');
@@ -2043,7 +2065,7 @@ function BudgetManagementPage() {
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
       doc.setTextColor(0, 0, 0);
-      doc.text(`Combined total from ${combinedBudgetView.containerCount} container(s)`, 40, startY);
+      doc.text(`Combined total from ${combinedBudgetView.containerCount} department budget(s)`, 40, startY);
 
       const dateStr = new Date().toISOString().split('T')[0];
       const filename = `combined_budget_${combinedBudgetView.combinedBudget.budgetName?.replace(/[^a-z0-9]/gi, '_') || 'export'}_${dateStr}.pdf`;
@@ -2302,7 +2324,7 @@ function BudgetManagementPage() {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="80vh">
         <CircularProgress />
-        <Typography sx={{ ml: 2 }}>Loading budget containers...</Typography>
+        <Typography sx={{ ml: 2 }}>Loading department budgets...</Typography>
       </Box>
     );
   }
@@ -2318,7 +2340,7 @@ function BudgetManagementPage() {
               ADP-Budget
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-              Manage containers & track approvals
+              Manage department budgets & track approvals
             </Typography>
           </Box>
         </Box>
@@ -2401,7 +2423,7 @@ function BudgetManagementPage() {
                 <Typography variant="subtitle2" fontWeight={800}>ADP wishlist to approved budget</Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary">
-                Start with an ADP plan, create a budget container, pick only the wishlist items to fund, then approve the budget when allocations are ready.
+                Start with an ADP plan, create a department budget, pick only the wishlist items to fund, then approve the budget when allocations are ready.
               </Typography>
             </Box>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -2619,7 +2641,7 @@ function BudgetManagementPage() {
           sx={{ minHeight: 40 }}
         >
           <Tab 
-            label="Containers" 
+            label="Department Budgets" 
             icon={<MoneyIcon sx={{ fontSize: 18 }} />} 
             iconPosition="start"
             sx={{ minHeight: 40, py: 1, textTransform: 'none', fontWeight: 600 }}
@@ -2828,14 +2850,14 @@ function BudgetManagementPage() {
             ) : !loading ? (
               <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" height="100%" gap={1.5} p={4}>
                 <MoneyIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.5 }} />
-                <Typography variant="h6" color="text.secondary">No budget containers found</Typography>
+                <Typography variant="h6" color="text.secondary">No department budgets found</Typography>
                 <Typography variant="body2" color="text.secondary" textAlign="center">
-                  {error ? `Error: ${error}` : 'Create a new container to get started'}
+                  {error ? `Error: ${error}` : 'Create a new department budget to get started'}
                 </Typography>
                 {containers.length === 0 && pagination.total > 0 && (
                   <Box sx={{ mt: 1, textAlign: 'center' }}>
                     <Typography variant="caption" color="warning.main" display="block">
-                      {pagination.total} container(s) may be filtered out. Try clearing filters.
+                      {pagination.total} department budget(s) may be filtered out. Try clearing filters.
                     </Typography>
                     <Button 
                       variant="outlined" 
@@ -2879,7 +2901,7 @@ function BudgetManagementPage() {
                     <Chip label="Consolidated Budget" color="primary" size="small" sx={{ ml: 1.5, height: 24 }} />
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {combinedBudgetView.combinedBudget.finYearName} • {combinedBudgetView.containerCount} container(s) • {combinedBudgetView.totalItems} item(s)
+                    {combinedBudgetView.combinedBudget.finYearName} • {combinedBudgetView.containerCount} department budget(s) • {combinedBudgetView.totalItems} item(s)
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
@@ -2954,7 +2976,7 @@ function BudgetManagementPage() {
                   <Typography variant="body2" fontWeight={600}>{combinedBudgetView.combinedBudget.finYearName || 'N/A'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="caption" color="text.secondary" display="block">Containers</Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">Department Budgets</Typography>
                   <Typography variant="body2" fontWeight={600}>{combinedBudgetView.containerCount || 0}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
@@ -2991,7 +3013,7 @@ function BudgetManagementPage() {
                 <Card elevation={0} sx={{ border: 1, borderColor: 'divider', mb: 2 }}>
                   <CardContent sx={{ p: 3, textAlign: 'center' }}>
                     <Typography variant="body1" color="text.secondary">
-                      No container data available
+                      No department budget data available
                     </Typography>
                   </CardContent>
                 </Card>
@@ -3003,7 +3025,7 @@ function BudgetManagementPage() {
                 <Card elevation={0} sx={{ border: 1, borderColor: 'divider', mb: 2 }}>
                   <CardContent sx={{ p: 3, textAlign: 'center' }}>
                     <Typography variant="body1" color="text.secondary">
-                      No containers found in this combined budget
+                      No department budgets found in this consolidated budget
                     </Typography>
                   </CardContent>
                 </Card>
@@ -3172,7 +3194,7 @@ function BudgetManagementPage() {
                     </TableContainer>
                   ) : (
                     <Typography variant="body2" color="text.secondary" textAlign="center" py={3}>
-                      No items in this container
+                      No items in this department budget
                     </Typography>
                   )}
                 </CardContent>
@@ -3201,7 +3223,7 @@ function BudgetManagementPage() {
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" mt={1}>
-                Combined total from {combinedBudgetView.containerCount} container(s)
+                Combined total from {combinedBudgetView.containerCount} department budget(s)
               </Typography>
             </CardContent>
           </Card>
@@ -3296,15 +3318,30 @@ function BudgetManagementPage() {
           <Card elevation={0} sx={{ mb: 2, border: 1, borderColor: 'divider' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
-                <Typography variant="subtitle1" fontWeight={700}>
-                  Budget Items <Chip label={filteredItems.length} size="small" sx={{ ml: 1, height: 20 }} />
+                <Typography variant="subtitle1" fontWeight={700} component="div" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
+                  Budget Items
+                  <Chip label={filteredItems.length} size="small" sx={{ height: 20 }} />
+                  <Chip
+                    label={formatCurrency(filteredItemsTotal)}
+                    size="small"
+                    color="success"
+                    sx={{ height: 20, fontWeight: 700 }}
+                  />
                   {filteredItems.length !== containerItems.length && (
-                    <Chip 
-                      label={`of ${containerItems.length}`} 
-                      size="small" 
-                      variant="outlined"
-                      sx={{ ml: 0.5, height: 20, fontSize: '0.7rem' }} 
-                    />
+                    <>
+                      <Chip
+                        label={`of ${containerItems.length}`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ height: 20, fontSize: '0.7rem' }}
+                      />
+                      <Chip
+                        label={formatCurrency(containerItemsTotal)}
+                        size="small"
+                        variant="outlined"
+                        sx={{ height: 20, fontSize: '0.7rem', fontWeight: 600 }}
+                      />
+                    </>
                   )}
                 </Typography>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -3551,7 +3588,18 @@ function BudgetManagementPage() {
                               : '—'}
                           </TableCell>
                           <TableCell sx={{ py: 0.5 }} align="center">
-                            <Stack direction="row" spacing={1}>
+                            <Stack direction="row" spacing={1} justifyContent="center">
+                              {!item.registryProjectId && canCreateRegistryProject && (
+                                <Tooltip title="Create registry project">
+                                  <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() => setRegistryProjectItem(item)}
+                                  >
+                                    <RocketLaunchIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
                               {selectedContainer.status !== 'Approved' || selectedContainer.isFrozen !== 1 ? (
                                 <>
                                   {!item.adpProjectId && (
@@ -3590,7 +3638,7 @@ function BudgetManagementPage() {
                       <TableRow>
                         <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
-                            No items in this budget container
+                            No items in this department budget
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -3683,7 +3731,7 @@ function BudgetManagementPage() {
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, p: { xs: 2, md: 3 } }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Create a budget container first, then choose the ADP wishlist items to fund. Items not selected remain as unfunded ADP priorities.
+            Create a department budget first, then choose the ADP wishlist items to fund. Items not selected remain as unfunded ADP priorities.
           </Alert>
           {adpPlans.length === 0 && (
             <Alert
@@ -3810,7 +3858,7 @@ function BudgetManagementPage() {
       <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="md">
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <MoneyIcon />
-          {currentBudget ? 'Edit Budget Container' : 'Create Budget Container'}
+          {currentBudget ? 'Edit Department Budget' : 'Create Department Budget'}
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, pt: 2 }}>
           <Grid container spacing={2}>
@@ -3917,7 +3965,7 @@ function BudgetManagementPage() {
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}` }}>
           <Button onClick={handleCloseDialog} color="primary" variant="outlined">Cancel</Button>
           <Button onClick={handleContainerSubmit} color="primary" variant="contained" disabled={loading}>
-            {loading ? <CircularProgress size={20} /> : (currentBudget ? 'Update Container' : 'Create Container')}
+            {loading ? <CircularProgress size={20} /> : (currentBudget ? 'Update Department Budget' : 'Create Department Budget')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -3970,7 +4018,7 @@ function BudgetManagementPage() {
           </Avatar>
           <Box>
             <Typography variant="h6" fontWeight="bold">
-              Approve Budget Container
+              Approve Department Budget
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
               Approval action required
@@ -3986,7 +4034,7 @@ function BudgetManagementPage() {
               lineHeight: 1.6
             }}
           >
-            Are you sure you want to approve the budget container{' '}
+            Are you sure you want to approve the department budget{' '}
             <Box component="span" sx={{ fontWeight: 'bold', color: colors.greenAccent[500] }}>
               "{budgetToApprove?.budgetName || 'N/A'}"
             </Box>
@@ -4007,7 +4055,7 @@ function BudgetManagementPage() {
               Important: Budget will be locked
             </Typography>
             <Typography variant="body2" sx={{ mt: 1 }}>
-              Once approved, this budget container will be locked and any modifications will require a change request that needs approval.
+              Once approved, this department budget will be locked and any modifications will require a change request that needs approval.
             </Typography>
           </Alert>
           {budgetToApprove && (
@@ -4060,22 +4108,35 @@ function BudgetManagementPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openAdpDialog} onClose={handleCloseAdpDialog} fullWidth maxWidth="lg">
+      <Dialog
+        open={openAdpDialog}
+        onClose={handleCloseAdpDialog}
+        fullWidth
+        maxWidth="lg"
+        PaperProps={{ sx: { minWidth: { xs: 'calc(100vw - 24px)', sm: 720, md: 960 } } }}
+      >
         <DialogTitle sx={{ backgroundColor: theme.palette.primary.main, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <FactCheckIcon />
           Add Budget Items From ADP Wishlist
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: theme.palette.background.default, pt: 2 }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Sector and programme options come directly from imported ADP data, so you can filter even when names do not match standard county metadata.
+            Sector and programme options come directly from imported ADP data. When this budget has a department, wishlist items are filtered to that department automatically (including sector mappings).
           </Alert>
+          {adpWishlistAppliedDepartment && !adpWishlistFilters.includeAllDepartments && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Showing ADP items for <strong>{adpWishlistAppliedDepartment.name}</strong>. Choose &quot;All departments&quot; below to see the full wishlist.
+            </Alert>
+          )}
           <Grid container spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
             <Grid item xs={12} md={3}>
-              <FormControl fullWidth size="small">
+              <FormControl fullWidth size="small" sx={{ minWidth: { xs: 260, md: 220 } }}>
                 <InputLabel>ADP Plan</InputLabel>
                 <Select
                   value={adpWishlistFilters.planId}
                   label="ADP Plan"
+                  sx={{ minWidth: { xs: 260, md: 220 } }}
+                  MenuProps={{ PaperProps: { sx: { minWidth: { xs: 260, md: 280 } } } }}
                   onChange={(event) => {
                     const planId = event.target.value;
                     setAdpWishlistFilters((prev) => ({ ...prev, planId, sector: '', programme: '' }));
@@ -4092,8 +4153,59 @@ function BudgetManagementPage() {
               </FormControl>
             </Grid>
             <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small" sx={{ minWidth: { xs: 260, md: 220 } }}>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={adpWishlistFilters.includeAllDepartments ? 'all' : (adpWishlistFilters.departmentId || '')}
+                  label="Department"
+                  sx={{ minWidth: { xs: 260, md: 220 } }}
+                  MenuProps={{ PaperProps: { sx: { minWidth: { xs: 260, md: 320 } } } }}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === 'all') {
+                      setAdpWishlistFilters((prev) => ({
+                        ...prev,
+                        departmentId: '',
+                        includeAllDepartments: true,
+                        sector: '',
+                        programme: '',
+                      }));
+                      fetchAdpWishlist({
+                        departmentId: '',
+                        includeAllDepartments: true,
+                        sector: '',
+                        programme: '',
+                      });
+                      return;
+                    }
+                    setAdpWishlistFilters((prev) => ({
+                      ...prev,
+                      departmentId: value,
+                      includeAllDepartments: false,
+                      sector: '',
+                      programme: '',
+                    }));
+                    fetchAdpWishlist({
+                      departmentId: value,
+                      includeAllDepartments: false,
+                      sector: '',
+                      programme: '',
+                    });
+                  }}
+                >
+                  <MenuItem value="all">All departments</MenuItem>
+                  {departments.map((dept) => (
+                    <MenuItem key={dept.departmentId} value={String(dept.departmentId)}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
               <Autocomplete
                 size="small"
+                sx={{ minWidth: { xs: 260, md: 220 } }}
                 options={adpWishlistSectors}
                 value={adpWishlistFilters.sector || null}
                 onChange={(_, value) => {
@@ -4107,6 +4219,7 @@ function BudgetManagementPage() {
                     {...params}
                     label="Sector (from ADP)"
                     placeholder="All sectors"
+                    sx={{ minWidth: { xs: 260, md: 220 } }}
                   />
                 )}
               />
@@ -4114,6 +4227,7 @@ function BudgetManagementPage() {
             <Grid item xs={12} md={3}>
               <Autocomplete
                 size="small"
+                sx={{ minWidth: { xs: 260, md: 220 } }}
                 options={adpWishlistProgrammes}
                 value={adpWishlistFilters.programme || null}
                 onChange={(_, value) => {
@@ -4127,11 +4241,12 @@ function BudgetManagementPage() {
                     {...params}
                     label="Programme (from ADP)"
                     placeholder="All programmes"
+                    sx={{ minWidth: { xs: 260, md: 220 } }}
                   />
                 )}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 size="small"
@@ -4141,6 +4256,7 @@ function BudgetManagementPage() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') fetchAdpWishlist();
                 }}
+                sx={{ minWidth: { xs: 260, md: 280 } }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -4152,10 +4268,31 @@ function BudgetManagementPage() {
                   variant="text"
                   size="small"
                   onClick={() => {
-                    setAdpWishlistFilters((prev) => ({ ...prev, sector: '', programme: '', search: '' }));
-                    fetchAdpWishlist({ sector: '', programme: '', search: '' });
+                    const departmentId = selectedContainer?.departmentId
+                      ? String(selectedContainer.departmentId)
+                      : '';
+                    setAdpWishlistFilters((prev) => ({
+                      ...prev,
+                      sector: '',
+                      programme: '',
+                      search: '',
+                      departmentId,
+                      includeAllDepartments: false,
+                    }));
+                    fetchAdpWishlist({
+                      sector: '',
+                      programme: '',
+                      search: '',
+                      departmentId,
+                      includeAllDepartments: false,
+                    });
                   }}
-                  disabled={loadingAdpWishlist || (!adpWishlistFilters.sector && !adpWishlistFilters.programme && !adpWishlistFilters.search)}
+                  disabled={loadingAdpWishlist || (
+                    !adpWishlistFilters.sector
+                    && !adpWishlistFilters.programme
+                    && !adpWishlistFilters.search
+                    && !adpWishlistFilters.includeAllDepartments
+                  )}
                 >
                   Clear filters
                 </Button>
@@ -4171,6 +4308,7 @@ function BudgetManagementPage() {
                 <TableRow>
                   <TableCell padding="checkbox" />
                   <TableCell sx={{ fontWeight: 700, minWidth: 260 }}>ADP Project</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>Department</TableCell>
                   <TableCell sx={{ fontWeight: 700, minWidth: 150 }}>Sector</TableCell>
                   <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Programme</TableCell>
                   <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Location</TableCell>
@@ -4181,7 +4319,7 @@ function BudgetManagementPage() {
               <TableBody>
                 {loadingAdpWishlist ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <CircularProgress size={24} />
                     </TableCell>
                   </TableRow>
@@ -4214,6 +4352,7 @@ function BudgetManagementPage() {
                             </Typography>
                           )}
                         </TableCell>
+                        <TableCell>{row.departmentName || 'N/A'}</TableCell>
                         <TableCell>{row.sectorName || 'N/A'}</TableCell>
                         <TableCell>{row.programmeName || 'N/A'}</TableCell>
                         <TableCell>{row.locationText || 'Countywide'}</TableCell>
@@ -4230,7 +4369,7 @@ function BudgetManagementPage() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <Typography variant="body2" color="text.secondary">
                         No ADP wishlist projects found for the current filters.
                       </Typography>
@@ -4558,6 +4697,14 @@ function BudgetManagementPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      <CreateRegistryProjectDialog
+        open={Boolean(registryProjectItem)}
+        onClose={() => setRegistryProjectItem(null)}
+        item={registryProjectItem}
+        budgetLabel={selectedContainer?.budgetName}
+        onSuccess={handleRegistryProjectSuccess}
+      />
     </Box>
   );
 }

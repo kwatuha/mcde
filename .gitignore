@@ -32,6 +32,8 @@ scripts/run-june-2026-migrations.sh
 roles.xlsx
 scripts/apply-county-roles-matrix.sh
 scripts/apply-pmc-migrations.sh
+deploy/.env.deploy.mcmes.example
+
 
 
 

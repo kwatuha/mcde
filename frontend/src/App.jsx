@@ -143,6 +143,7 @@ import ProjectOrganizationDashboardPage from './pages/ProjectOrganizationDashboa
 import ProcurementPage from './pages/ProcurementPage';
 import ProcurementProcuredProjectsPage from './pages/ProcurementProcuredProjectsPage';
 import ProcurementStagesPage from './pages/ProcurementStagesPage';
+import BudgetProcurementPage from './pages/BudgetProcurementPage';
 import ProjectImplementationPlansPage from './pages/ProjectImplementationPlansPage';
  
 import ReportingView from './components/ReportingView';
@@ -339,6 +340,10 @@ const router = createBrowserRouter([
       {
         path: 'partners',
         element: <ProjectPartnersPage />,
+      },
+      {
+        path: 'procurement/budget-items',
+        element: <BudgetProcurementPage />,
       },
       {
         path: 'procurement/procured-projects',

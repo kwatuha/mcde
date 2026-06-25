@@ -20,7 +20,7 @@ export function getAIStarterMessages(context = {}) {
   if (pageType === 'budget-management' || path.includes('/budget-management')) {
     if (context.budgetId) {
       return [
-        `Summarize this budget (${context.budgetName || 'current container'}).`,
+        `Summarize this budget (${context.budgetName || 'current department budget'}).`,
         'Which ADP wishlist items are not yet in this budget?',
         'Compare budget total to linked ADP planned costs.',
       ];

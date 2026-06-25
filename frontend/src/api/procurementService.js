@@ -34,8 +34,96 @@ const procurementService = {
     const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/prepare-scope/preview`);
     return data;
   },
-  prepareProjectScope: async (projectId) => {
-    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/prepare-scope`);
+  prepareProjectScope: async (projectId, payload = {}) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/prepare-scope`, payload);
+    return data;
+  },
+  getProjectScopeStatus: async (projectId) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/scope-status`);
+    return data;
+  },
+  downloadScopeImportTemplate: async () => {
+    const { data, headers } = await axiosInstance.get('/procurement/scope/import-template', {
+      responseType: 'blob',
+    });
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || 'project_scope_import_template.xlsx' };
+  },
+  previewScopeImport: async (projectId, file, options = {}) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options.scaleToBudget) formData.append('scaleToBudget', 'true');
+    const { data } = await axiosInstance.post(
+      `/procurement/projects/${projectId}/scope/import/preview`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return data;
+  },
+  confirmScopeImport: async (projectId, payload) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/scope/import/confirm`, payload);
+    return data;
+  },
+  lockProjectScope: async (projectId, payload = {}) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/scope/lock`, payload);
+    return data;
+  },
+  listProjectQuotations: async (projectId) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/quotations`);
+    return data;
+  },
+  getScopeComparison: async (projectId, params = {}) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/scope-comparison`, { params });
+    return data;
+  },
+  createQuotationFromPlanned: async (projectId, payload = {}) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/quotations`, {
+      fromPlanned: true,
+      ...payload,
+    });
+    return data;
+  },
+  downloadQuotationImportTemplate: async () => {
+    const { data, headers } = await axiosInstance.get('/procurement/quotations/import-template', {
+      responseType: 'blob',
+    });
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || 'contracted_quotation_import_template.xlsx' };
+  },
+  exportPlannedBqForQuoting: async (projectId) => {
+    const { data, headers } = await axiosInstance.get(`/procurement/projects/${projectId}/quotations/export-planned`, {
+      responseType: 'blob',
+    });
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || `quote_template_project_${projectId}.xlsx` };
+  },
+  getQuotationEntrySheet: async (projectId) => {
+    const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/quotations/entry-sheet`);
+    return data;
+  },
+  confirmQuotationEntry: async (projectId, payload) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/quotations/entry/confirm`, payload);
+    return data;
+  },
+  previewQuotationImport: async (projectId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await axiosInstance.post(
+      `/procurement/projects/${projectId}/quotations/import/preview`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return data;
+  },
+  confirmQuotationImport: async (projectId, payload) => {
+    const { data } = await axiosInstance.post(`/procurement/projects/${projectId}/quotations/import/confirm`, payload);
+    return data;
+  },
+  updateQuotation: async (projectId, quotationId, payload) => {
+    const { data } = await axiosInstance.patch(`/procurement/projects/${projectId}/quotations/${quotationId}`, payload);
     return data;
   },
   addWorkflowStep: async (projectId, payload) => {

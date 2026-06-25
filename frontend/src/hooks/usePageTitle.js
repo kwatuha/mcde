@@ -165,6 +165,7 @@ const routeTitles = {
   '/contractor-management': { title: 'Contractor Management', subtitle: 'Contractor Administration' },
   '/contractor-types': { title: 'Contractor Types', subtitle: 'Manage contractor type categories' },
   '/procurement': { title: 'Project Procurement', subtitle: 'Under-procurement workflow management' },
+  '/procurement/budget-items': { title: 'Budget Procurement Intake', subtitle: 'Create registry projects from approved budget lines' },
   '/procurement-stages': { title: 'Procurement stages', subtitle: 'Configure workflow stage labels for procurement projects' },
   '/county-proposed-projects': { title: 'Proposed Projects', subtitle: 'Project Proposals' },
   '/project-announcements': { title: 'Project Announcements', subtitle: 'Public Announcements' },

@@ -447,6 +447,44 @@ class BudgetService {
       throw error;
     }
   }
+  /**
+   * Budget items awaiting registry project linkage (procurement intake)
+   */
+  async getProcurementQueue(filters = {}) {
+    try {
+      const response = await axiosInstance.get('/budgets/procurement-queue', { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching procurement queue:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remaining vote / ADP balance for a budget item before registry project creation
+   */
+  async getBudgetItemProcurementBalance(itemId) {
+    try {
+      const response = await axiosInstance.get(`/budgets/items/${itemId}/procurement-balance`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching procurement balance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create or link a registry project from a budget item
+   */
+  async createRegistryProjectFromBudgetItem(itemId, payload = {}) {
+    try {
+      const response = await axiosInstance.post(`/budgets/items/${itemId}/create-registry-project`, payload);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating registry project from budget item:', error);
+      throw error;
+    }
+  }
 }
 
 export default new BudgetService();

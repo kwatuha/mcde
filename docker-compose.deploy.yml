@@ -37,3 +37,6 @@ services:
   api:
     volumes: []
     command: npm start
+    environment:
+      MACHAKOS_PUBLIC_URL: ${MACHAKOS_PUBLIC_URL:-}
+      APP_LOGIN_URL: ${APP_LOGIN_URL:-${MACHAKOS_PUBLIC_URL}/login}

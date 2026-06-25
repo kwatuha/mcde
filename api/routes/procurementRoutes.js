@@ -5,6 +5,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
+const XLSX = require('xlsx');
 const PDFDocument = require('pdfkit');
 
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
@@ -447,6 +448,10 @@ const upload = multer({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${String(file.originalname || 'file').replace(/\s+/g, '_')}`),
   }),
+});
+const scopeUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
 });
 
 async function ensureProcurementWorkflowTable() {
@@ -2545,6 +2550,1405 @@ async function applyProjectTypeScopeToProject(projectId, actorId = null, options
   };
 }
 
+const ALLOCATED_KES_REGEX = '^-{0,1}[0-9]+(\\.[0-9]+){0,1}$';
+
+function normHeaderKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function pickRowValue(row, aliases) {
+  if (!row || typeof row !== 'object') return '';
+  const keys = Object.keys(row);
+  const normalized = new Map(keys.map((k) => [normHeaderKey(k), row[k]]));
+  for (const alias of aliases) {
+    const hit = normalized.get(normHeaderKey(alias));
+    if (hit !== undefined && hit !== null && String(hit).trim() !== '') {
+      return String(hit).trim();
+    }
+  }
+  return '';
+}
+
+function parseScopeNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const cleaned = String(value).replace(/,/g, '').trim();
+  if (!cleaned) return null;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
+function sheetRowsFromWorkbook(workbook, preferredNames = []) {
+  const names = workbook.SheetNames || [];
+  for (const preferred of preferredNames) {
+    const hit = names.find((n) => normHeaderKey(n) === normHeaderKey(preferred));
+    if (hit) {
+      return { sheetName: hit, rows: XLSX.utils.sheet_to_json(workbook.Sheets[hit], { defval: '' }) };
+    }
+  }
+  if (!names.length) return { sheetName: '', rows: [] };
+  const sheetName = names[0];
+  return { sheetName, rows: XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' }) };
+}
+
+function parseScopeExcelBuffer(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const milestoneSheet = sheetRowsFromWorkbook(workbook, ['Milestones', 'Milestone Templates', 'milestone_templates']);
+  const bqSheet = sheetRowsFromWorkbook(workbook, ['BQ Lines', 'BQ', 'Sample BQ Templates', 'bq_lines', 'bill_of_quantities']);
+
+  const milestones = [];
+  const milestoneErrors = [];
+  const seenMilestones = new Set();
+
+  for (let i = 0; i < milestoneSheet.rows.length; i += 1) {
+    const row = milestoneSheet.rows[i];
+    const name = pickRowValue(row, ['milestone_name', 'milestone', 'name', 'milestone name']);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seenMilestones.has(key)) {
+      milestoneErrors.push(`Milestones row ${i + 2}: duplicate milestone "${name}".`);
+      continue;
+    }
+    seenMilestones.add(key);
+    milestones.push({
+      milestoneName: name,
+      description: pickRowValue(row, ['description', 'remarks', 'notes']),
+      sequenceOrder: parseScopeNumber(pickRowValue(row, ['sequence_order', 'sequence', 'order', 'seq', 'no'])) ?? (milestones.length + 1),
+      unitOfMeasure: pickRowValue(row, ['unit_of_measure', 'uom', 'unit']),
+      achievementValue: parseScopeNumber(pickRowValue(row, ['achievement_value', 'value', 'target_value'])),
+    });
+  }
+
+  const bqItems = [];
+  const bqErrors = [];
+  const bqRows = bqSheet.rows.length ? bqSheet.rows : milestoneSheet.rows;
+
+  for (let i = 0; i < bqRows.length; i += 1) {
+    const row = bqRows[i];
+    const activityName = pickRowValue(row, ['activity_name', 'activity', 'item', 'description', 'work_item']);
+    const milestoneName = pickRowValue(row, ['milestone_name', 'milestone', 'phase', 'stage']);
+    if (!activityName && !milestoneName) continue;
+    if (!activityName) {
+      bqErrors.push(`BQ row ${i + 2}: activity_name is required.`);
+      continue;
+    }
+    const quantity = parseScopeNumber(pickRowValue(row, ['quantity', 'qty', 'qnty']));
+    const unitCost = parseScopeNumber(pickRowValue(row, ['unit_cost', 'rate', 'unit_rate', 'unit price']));
+    let budgetAmount = parseScopeNumber(pickRowValue(row, ['budget_amount', 'amount', 'cost', 'total', 'line_total']));
+    if (budgetAmount == null && quantity != null && unitCost != null) {
+      budgetAmount = quantity * unitCost;
+    }
+    bqItems.push({
+      milestoneName: milestoneName || null,
+      activityName,
+      description: pickRowValue(row, ['description', 'remarks', 'notes']),
+      unitOfMeasure: pickRowValue(row, ['unit_of_measure', 'uom', 'unit']),
+      quantity,
+      unitCost,
+      budgetAmount,
+      sortOrder: parseScopeNumber(pickRowValue(row, ['sort_order', 'order', 'seq', 'no'])) ?? (bqItems.length + 1),
+    });
+  }
+
+  if (!milestones.length && bqItems.length) {
+    const derived = new Map();
+    for (const item of bqItems) {
+      const name = item.milestoneName || 'General';
+      if (!derived.has(name.toLowerCase())) {
+        derived.set(name.toLowerCase(), {
+          milestoneName: name,
+          description: '',
+          sequenceOrder: derived.size + 1,
+          unitOfMeasure: '',
+          achievementValue: null,
+        });
+      }
+    }
+    milestones.push(...derived.values());
+  }
+
+  const errors = [...milestoneErrors, ...bqErrors];
+  if (!milestones.length && !bqItems.length) {
+    errors.push('No milestones or BQ lines found. Use sheets "Milestones" and "BQ Lines", or a single sheet with activity rows.');
+  }
+
+  const importTotal = bqItems.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
+  return {
+    milestones,
+    bqItems,
+    errors,
+    importTotal,
+    sheets: {
+      milestones: milestoneSheet.sheetName || null,
+      bq: bqSheet.sheetName || null,
+    },
+  };
+}
+
+function scaleScopeBqAmounts(bqItems, targetTotal) {
+  const items = Array.isArray(bqItems) ? bqItems : [];
+  const current = items.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
+  const target = Number(targetTotal);
+  if (!Number.isFinite(target) || target <= 0 || current <= 0) return items;
+  const factor = target / current;
+  return items.map((row) => {
+    const budgetAmount = Number((Number(row.budgetAmount || 0) * factor).toFixed(2));
+    const quantity = Number(row.quantity);
+    if (Number.isFinite(quantity) && quantity > 0) {
+      return { ...row, budgetAmount, unitCost: Number((budgetAmount / quantity).toFixed(2)) };
+    }
+    return { ...row, budgetAmount };
+  });
+}
+
+async function getProjectBudgetContext(projectId) {
+  if (!isPostgres) return null;
+  const queries = [
+    `SELECT
+        p.project_id AS "projectId",
+        p.name AS "projectName",
+        p.category_id AS "categoryId",
+        c."categoryName" AS "categoryName",
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'allocated_amount_kes') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'allocated_amount_kes')::numeric
+            ELSE NULL
+          END,
+          0
+        ) AS "allocatedAmount",
+        COALESCE(p.progress, '{}'::jsonb) AS progress
+     FROM projects p
+     LEFT JOIN categories c ON c."categoryId" = p.category_id AND COALESCE(c.voided, false) = false
+     WHERE p.project_id = $1 AND COALESCE(p.voided, false) = false
+     LIMIT 1`,
+    `SELECT
+        p.id AS "projectId",
+        p."projectName" AS "projectName",
+        p."categoryId" AS "categoryId",
+        c."categoryName" AS "categoryName",
+        COALESCE(p."costOfProject", 0) AS "allocatedAmount",
+        '{}'::jsonb AS progress
+     FROM projects p
+     LEFT JOIN categories c ON c."categoryId" = p."categoryId" AND COALESCE(c.voided, false) = false
+     WHERE p.id = $1 AND COALESCE(p.voided, false) = false
+     LIMIT 1`,
+  ];
+  for (const sql of queries) {
+    try {
+      const row = rowsOf(await pool.query(sql, [projectId]))[0];
+      if (row) return row;
+    } catch (e) {
+      if (!isSchemaError(e)) throw e;
+    }
+  }
+  return null;
+}
+
+function readProcurementScopeMeta(progress) {
+  const base = progress && typeof progress === 'object' ? progress : {};
+  const scope = base.procurement_scope && typeof base.procurement_scope === 'object'
+    ? base.procurement_scope
+    : {};
+  return {
+    status: String(scope.status || '').trim() || null,
+    source: String(scope.source || '').trim() || null,
+    lockedAt: scope.lockedAt || scope.locked_at || null,
+    bqTotal: scope.bqTotal != null ? Number(scope.bqTotal) : null,
+  };
+}
+
+async function mergeProjectProcurementScopeMeta(projectId, patch = {}) {
+  if (!isPostgres) return;
+  const ctx = await getProjectBudgetContext(projectId);
+  if (!ctx) return;
+  const progress = ctx.progress && typeof ctx.progress === 'object' ? { ...ctx.progress } : {};
+  const current = readProcurementScopeMeta(progress);
+  progress.procurement_scope = {
+    ...current,
+    ...patch,
+    status: patch.status || current.status || 'draft',
+    updatedAt: new Date().toISOString(),
+  };
+  await pool.query(
+    `UPDATE projects SET progress = $2::jsonb, updated_at = NOW() WHERE project_id = $1`,
+    [projectId, JSON.stringify(progress)]
+  );
+}
+
+async function fetchProjectScopeStatus(projectId) {
+  await ensureProcurementScopeTables();
+  const ctx = await getProjectBudgetContext(projectId);
+  if (!ctx) return null;
+
+  const stats = rowsOf(await pool.query(
+    `SELECT
+        (SELECT COUNT(*)::int
+         FROM project_milestones
+         WHERE project_id = $1 AND COALESCE(voided, false) = false) AS "milestoneCount",
+        (SELECT COUNT(*)::int
+         FROM project_bq_items
+         WHERE project_id = $1 AND COALESCE(voided, false) = false) AS "bqItemCount",
+        (SELECT COALESCE(SUM(COALESCE(budget_amount, 0)), 0)
+         FROM project_bq_items
+         WHERE project_id = $1 AND COALESCE(voided, false) = false) AS "bqBudgetAmount"`,
+    [projectId]
+  ))[0] || {};
+
+  const meta = readProcurementScopeMeta(ctx.progress);
+  const milestoneCount = Number(stats.milestoneCount || 0);
+  const bqItemCount = Number(stats.bqItemCount || 0);
+  const bqBudgetAmount = Number(stats.bqBudgetAmount || 0);
+  let scopeStatus = meta.status;
+  if (!scopeStatus) {
+    if (milestoneCount > 0 || bqItemCount > 0) scopeStatus = 'draft';
+    else scopeStatus = 'none';
+  }
+
+  const allocatedAmount = Number(ctx.allocatedAmount || 0);
+  const overBudget = allocatedAmount > 0 && bqBudgetAmount > allocatedAmount + 0.005;
+
+  return {
+    projectId: Number(ctx.projectId),
+    projectName: ctx.projectName,
+    categoryId: ctx.categoryId,
+    categoryName: ctx.categoryName,
+    allocatedAmount,
+    milestoneCount,
+    bqItemCount,
+    bqBudgetAmount,
+    scopeStatus,
+    scopeSource: meta.source,
+    scopeLockedAt: meta.lockedAt,
+    overBudget,
+    remainingBudget: allocatedAmount > 0 ? Math.max(0, allocatedAmount - bqBudgetAmount) : null,
+  };
+}
+
+async function applyScopeImportToProject(projectId, payload, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const actorId = options.actorId || null;
+  const source = options.source || 'excel';
+  const lockBaseline = Boolean(options.lockBaseline);
+  const scaleToBudget = Boolean(options.scaleToBudget);
+  const confirmOverBudget = Boolean(options.confirmOverBudget);
+
+  await ensureProcurementScopeTables();
+  const ctx = await getProjectBudgetContext(projectId);
+  if (!ctx) {
+    return { ok: false, status: 404, message: 'Project not found.' };
+  }
+
+  let milestones = Array.isArray(payload?.milestones) ? payload.milestones : [];
+  let bqItems = Array.isArray(payload?.bqItems) ? payload.bqItems : [];
+  if (!milestones.length && !bqItems.length) {
+    return { ok: false, status: 400, message: 'No milestones or BQ lines to import.' };
+  }
+
+  if (scaleToBudget && Number(ctx.allocatedAmount) > 0) {
+    bqItems = scaleScopeBqAmounts(bqItems, ctx.allocatedAmount);
+  }
+
+  const importTotal = bqItems.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
+  const allocatedAmount = Number(ctx.allocatedAmount || 0);
+  if (allocatedAmount > 0 && importTotal > allocatedAmount + 0.005 && !confirmOverBudget) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'OVER_BUDGET',
+      message: 'Imported BQ total exceeds the project allocated amount. Scale to budget or confirm to proceed.',
+      importTotal,
+      allocatedAmount,
+    };
+  }
+
+  let milestonesCreated = 0;
+  let bqItemsCreated = 0;
+  const preparedMilestones = [];
+  const preparedBqItems = [];
+
+  if (isPostgres) {
+    for (const m of milestones) {
+      const name = String(m.milestoneName || '').trim();
+      if (!name) continue;
+      const exists = rowsOf(await pool.query(
+        `SELECT milestone_id
+         FROM project_milestones
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND LOWER(TRIM(milestone_name)) = LOWER(TRIM($2))
+         LIMIT 1`,
+        [projectId, name]
+      ))[0];
+      if (exists) {
+        preparedMilestones.push({ name, status: 'existing' });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_milestones (
+              project_id, milestone_name, description, due_date, completed, completed_date,
+              sequence_order, progress, weight, status, user_id, created_at, updated_at, voided,
+              activity_name, milestone_value, milestone_source, remarks
+           ) VALUES ($1,$2,$3,NULL,false,NULL,$4,0,1,'pending',$5,NOW(),NOW(),false,$6,$7,$8,$9)`,
+          [
+            projectId,
+            name,
+            m.description || null,
+            Number.isFinite(Number(m.sequenceOrder)) ? Number(m.sequenceOrder) : null,
+            actorId,
+            name,
+            m.achievementValue == null ? null : Number(m.achievementValue),
+            source === 'excel' ? 'Excel import' : 'Manual scope setup',
+            m.description || null,
+          ]
+        );
+      }
+      milestonesCreated += 1;
+      preparedMilestones.push({ name, status: dryRun ? 'will_create' : 'created' });
+    }
+
+    for (const bq of bqItems) {
+      const activityName = String(bq.activityName || '').trim();
+      if (!activityName) continue;
+      const milestoneName = bq.milestoneName ? String(bq.milestoneName).trim() : null;
+      const exists = rowsOf(await pool.query(
+        `SELECT id
+         FROM project_bq_items
+         WHERE project_id = $1
+           AND COALESCE(voided, false) = false
+           AND LOWER(TRIM(activity_name)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(COALESCE(milestone_name, ''))) = LOWER(TRIM(COALESCE($3, '')))
+         LIMIT 1`,
+        [projectId, activityName, milestoneName]
+      ))[0];
+      if (exists) {
+        preparedBqItems.push({ activityName, milestoneName, status: 'existing' });
+        continue;
+      }
+      if (!dryRun) {
+        await pool.query(
+          `INSERT INTO project_bq_items (
+              project_id, activity_name, milestone_name, start_date, end_date,
+              budget_amount, progress_percent, remarks, completed, completion_date, sort_order,
+              quantity, unit_of_measure, unit_cost
+           ) VALUES ($1,$2,$3,NULL,NULL,$4,0,$5,false,NULL,$6,$7,$8,$9)`,
+          [
+            projectId,
+            activityName,
+            milestoneName,
+            bq.budgetAmount == null ? null : Number(bq.budgetAmount),
+            bq.description || `Imported from ${source}`,
+            Number.isFinite(Number(bq.sortOrder)) ? Number(bq.sortOrder) : 0,
+            bq.quantity == null ? null : Number(bq.quantity),
+            bq.unitOfMeasure || null,
+            bq.unitCost == null ? null : Number(bq.unitCost),
+          ]
+        );
+      }
+      bqItemsCreated += 1;
+      preparedBqItems.push({
+        activityName,
+        milestoneName,
+        budgetAmount: bq.budgetAmount,
+        status: dryRun ? 'will_create' : 'created',
+      });
+    }
+  }
+
+  if (!dryRun && (milestonesCreated > 0 || bqItemsCreated > 0 || lockBaseline)) {
+    await mergeProjectProcurementScopeMeta(projectId, {
+      status: lockBaseline ? 'planned' : 'draft',
+      source,
+      lockedAt: lockBaseline ? new Date().toISOString() : null,
+      bqTotal: importTotal,
+    });
+  }
+
+  return {
+    ok: true,
+    projectId,
+    projectName: ctx.projectName,
+    milestonesCreated,
+    bqItemsCreated,
+    importTotal,
+    allocatedAmount,
+    scaled: scaleToBudget,
+    dryRun,
+    preparedScope: {
+      milestones: preparedMilestones,
+      bqItems: preparedBqItems,
+    },
+  };
+}
+
+async function ensureProcurementQuotationTables() {
+  if (!isPostgres) return;
+  await runProcurementSafeDdl(`
+    CREATE TABLE IF NOT EXISTS procurement_quotations (
+      id BIGSERIAL PRIMARY KEY,
+      project_id BIGINT NOT NULL,
+      contractor_id BIGINT NULL,
+      quotation_type VARCHAR(32) NOT NULL DEFAULT 'awarded',
+      status VARCHAR(32) NOT NULL DEFAULT 'draft',
+      title TEXT NULL,
+      supplier_name TEXT NULL,
+      reference_no TEXT NULL,
+      total_amount NUMERIC(18,2) NULL,
+      notes TEXT NULL,
+      created_by BIGINT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      voided BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `);
+  await runProcurementSafeDdl(`CREATE INDEX IF NOT EXISTS idx_procurement_quotations_project ON procurement_quotations (project_id, voided, status)`);
+  await runProcurementSafeDdl(`
+    CREATE TABLE IF NOT EXISTS procurement_quotation_lines (
+      id BIGSERIAL PRIMARY KEY,
+      quotation_id BIGINT NOT NULL REFERENCES procurement_quotations(id) ON DELETE CASCADE,
+      planned_bq_item_id BIGINT NULL,
+      milestone_name TEXT NULL,
+      activity_name TEXT NOT NULL,
+      description TEXT NULL,
+      unit_of_measure TEXT NULL,
+      quantity NUMERIC(18,4) NULL,
+      unit_cost NUMERIC(18,2) NULL,
+      amount NUMERIC(18,2) NULL,
+      sequence_order INTEGER NULL DEFAULT 0,
+      sort_order INTEGER NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      voided BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `);
+  await runProcurementSafeDdl(`CREATE INDEX IF NOT EXISTS idx_procurement_quotation_lines_quote ON procurement_quotation_lines (quotation_id, voided, sort_order)`);
+  await runProcurementSafeDdl(`ALTER TABLE procurement_quotation_lines ADD COLUMN IF NOT EXISTS line_type VARCHAR(32) NOT NULL DEFAULT 'planned'`);
+}
+
+const QUOTATION_LINE_TYPES = new Set(['planned', 'provisional', 'pc_sum', 'extra']);
+
+function normalizeQuotationLineType(value) {
+  const raw = String(value || 'planned').trim().toLowerCase().replace(/\s+/g, '_');
+  if (raw === 'pcsum' || raw === 'pc') return 'pc_sum';
+  if (raw === 'provisional_sum') return 'provisional';
+  return QUOTATION_LINE_TYPES.has(raw) ? raw : 'planned';
+}
+
+function namesMatchPlanned(planned, line) {
+  const plannedMilestone = String(planned?.milestoneName || '').trim().toLowerCase();
+  const plannedActivity = String(planned?.activityName || '').trim().toLowerCase();
+  const lineMilestone = String(line?.milestoneName || '').trim().toLowerCase();
+  const lineActivity = String(line?.activityName || '').trim().toLowerCase();
+  return plannedActivity === lineActivity && plannedMilestone === lineMilestone;
+}
+
+async function buildQuotationEntrySheet(projectId) {
+  const plannedLines = await fetchPlannedBqLines(projectId);
+  return {
+    projectId,
+    plannedLineCount: plannedLines.length,
+    lines: plannedLines.map((row, index) => ({
+      plannedBqItemId: row.plannedBqItemId,
+      lineType: 'planned',
+      milestoneName: row.milestoneName || '',
+      activityName: row.activityName,
+      description: row.description || '',
+      unitOfMeasure: row.unitOfMeasure || '',
+      plannedQuantity: row.quantity,
+      plannedUnitCost: row.unitCost,
+      plannedAmount: row.budgetAmount,
+      quotedQuantity: '',
+      quotedUnitCost: '',
+      quotedAmount: '',
+      sortOrder: row.sortOrder ?? index + 1,
+    })),
+    extraLineTypes: [
+      { value: 'provisional', label: 'Provisional sum' },
+      { value: 'pc_sum', label: 'PC sum' },
+      { value: 'extra', label: 'Additional item' },
+    ],
+  };
+}
+
+async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
+  const workbook = new ExcelJS.Workbook();
+  const instructions = workbook.addWorksheet('Instructions');
+  instructions.addRow(['Contracted quotation template — tied to project planned BQ']);
+  instructions.addRow(['']);
+  instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, or activity_name on planned rows.']);
+  instructions.addRow(['2. Enter supplier values in quoted_quantity, quoted_unit_cost, and/or quoted_amount only.']);
+  instructions.addRow(['3. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
+  instructions.addRow(['4. Leave quoted_amount blank on planned rows only if the item is not priced (imports as zero).']);
+
+  const sheet = workbook.addWorksheet('Quote Lines');
+  sheet.columns = [
+    { header: 'planned_bq_item_id', key: 'planned_bq_item_id', width: 18 },
+    { header: 'line_type', key: 'line_type', width: 14 },
+    { header: 'milestone_name', key: 'milestone_name', width: 24 },
+    { header: 'activity_name', key: 'activity_name', width: 32 },
+    { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
+    { header: 'planned_amount', key: 'planned_amount', width: 14 },
+    { header: 'quoted_quantity', key: 'quoted_quantity', width: 14 },
+    { header: 'quoted_unit_cost', key: 'quoted_unit_cost', width: 16 },
+    { header: 'quoted_amount', key: 'quoted_amount', width: 16 },
+    { header: 'sort_order', key: 'sort_order', width: 10 },
+  ];
+  plannedLines.forEach((row, index) => {
+    sheet.addRow({
+      planned_bq_item_id: row.plannedBqItemId,
+      line_type: 'planned',
+      milestone_name: row.milestoneName || '',
+      activity_name: row.activityName,
+      unit_of_measure: row.unitOfMeasure || '',
+      planned_amount: row.budgetAmount ?? '',
+      quoted_quantity: '',
+      quoted_unit_cost: '',
+      quoted_amount: '',
+      sort_order: row.sortOrder ?? index + 1,
+    });
+  });
+  sheet.addRow({
+    planned_bq_item_id: '',
+    line_type: 'provisional',
+    milestone_name: 'Provisional sums',
+    activity_name: 'Provisional sum (example — rename description only)',
+    unit_of_measure: 'lump sum',
+    planned_amount: '',
+    quoted_quantity: 1,
+    quoted_unit_cost: '',
+    quoted_amount: '',
+    sort_order: plannedLines.length + 1,
+  });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="quote_template_project_${projectId}.xlsx"`);
+  await workbook.xlsx.write(res);
+  return res.end();
+}
+
+function normalizeQuotationImportRow(row, index = 0) {
+  const quotedQty = parseScopeNumber(pickRowValue(row, ['quoted_quantity', 'quantity', 'qty']));
+  const quotedUnit = parseScopeNumber(pickRowValue(row, ['quoted_unit_cost', 'unit_cost', 'rate', 'quoted_unit_rate']));
+  let amount = parseScopeNumber(pickRowValue(row, ['quoted_amount', 'amount', 'quoted_amount_kes', 'total']));
+  const plannedQty = parseScopeNumber(pickRowValue(row, ['planned_quantity', 'planned_qty']));
+  const plannedUnit = parseScopeNumber(pickRowValue(row, ['planned_unit_cost']));
+  if (amount == null && quotedQty != null && quotedUnit != null) amount = quotedQty * quotedUnit;
+  const lineType = normalizeQuotationLineType(pickRowValue(row, ['line_type', 'line type', 'type']) || 'planned');
+  const plannedBqItemId = parseScopeNumber(pickRowValue(row, ['planned_bq_item_id', 'bq_item_id', 'planned_id']));
+  const activityName = pickRowValue(row, ['activity_name', 'activity', 'item', 'work_item']);
+  if (!activityName && lineType === 'planned' && !plannedBqItemId) return null;
+  if (!activityName && lineType !== 'planned') return null;
+  return {
+    plannedBqItemId,
+    lineType,
+    milestoneName: pickRowValue(row, ['milestone_name', 'milestone', 'phase']) || null,
+    activityName: activityName || 'Unnamed item',
+    description: pickRowValue(row, ['description', 'remarks', 'notes']),
+    unitOfMeasure: pickRowValue(row, ['unit_of_measure', 'uom', 'unit']),
+    quantity: quotedQty,
+    unitCost: quotedUnit,
+    amount,
+    plannedQuantity: plannedQty,
+    plannedUnitCost: plannedUnit,
+    sortOrder: parseScopeNumber(pickRowValue(row, ['sort_order', 'order', 'seq'])) ?? index + 1,
+  };
+}
+
+function validateAndMergeQuotationImport(plannedLines, importLines, options = {}) {
+  const strictNames = options.strictNames !== false;
+  const fillMissingPlanned = options.fillMissingPlanned !== false;
+  const plannedById = new Map(plannedLines.map((p) => [String(p.plannedBqItemId), p]));
+  const errors = [];
+  const warnings = [];
+  const merged = [];
+  const seenPlannedIds = new Set();
+
+  for (let i = 0; i < (importLines || []).length; i += 1) {
+    const line = importLines[i];
+    const lineType = normalizeQuotationLineType(line.lineType);
+    if (lineType === 'planned') {
+      if (!line.plannedBqItemId) {
+        errors.push(`Row ${i + 2}: planned rows must include planned_bq_item_id.`);
+        continue;
+      }
+      const planned = plannedById.get(String(line.plannedBqItemId));
+      if (!planned) {
+        errors.push(`Row ${i + 2}: unknown planned_bq_item_id ${line.plannedBqItemId}.`);
+        continue;
+      }
+      if (strictNames && !namesMatchPlanned(planned, line)) {
+        errors.push(`Row ${i + 2}: do not rename milestone/activity for BQ #${line.plannedBqItemId}. Use the project template.`);
+        continue;
+      }
+      if (seenPlannedIds.has(String(line.plannedBqItemId))) {
+        errors.push(`Row ${i + 2}: duplicate quote for planned_bq_item_id ${line.plannedBqItemId}.`);
+        continue;
+      }
+      seenPlannedIds.add(String(line.plannedBqItemId));
+      merged.push({
+        plannedBqItemId: planned.plannedBqItemId,
+        lineType: 'planned',
+        milestoneName: planned.milestoneName,
+        activityName: planned.activityName,
+        description: line.description || planned.description || null,
+        unitOfMeasure: line.unitOfMeasure || planned.unitOfMeasure || null,
+        quantity: line.quantity,
+        unitCost: line.unitCost,
+        amount: line.amount ?? 0,
+        sortOrder: line.sortOrder ?? planned.sortOrder,
+        mapped: true,
+        plannedAmount: planned.budgetAmount,
+      });
+      continue;
+    }
+
+    if (!String(line.activityName || '').trim()) {
+      errors.push(`Row ${i + 2}: activity_name is required for ${lineType} lines.`);
+      continue;
+    }
+    merged.push({
+      plannedBqItemId: null,
+      lineType,
+      milestoneName: line.milestoneName || (lineType === 'pc_sum' ? 'PC sums' : 'Provisional sums'),
+      activityName: line.activityName,
+      description: line.description || null,
+      unitOfMeasure: line.unitOfMeasure || null,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      amount: line.amount ?? 0,
+      sortOrder: line.sortOrder ?? merged.length + 1,
+      mapped: false,
+      plannedAmount: null,
+    });
+  }
+
+  if (fillMissingPlanned) {
+    for (const planned of plannedLines) {
+      const key = String(planned.plannedBqItemId);
+      if (seenPlannedIds.has(key)) continue;
+      warnings.push(`Planned item "${planned.activityName}" was not quoted — imported as zero.`);
+      merged.push({
+        plannedBqItemId: planned.plannedBqItemId,
+        lineType: 'planned',
+        milestoneName: planned.milestoneName,
+        activityName: planned.activityName,
+        description: planned.description || null,
+        unitOfMeasure: planned.unitOfMeasure || null,
+        quantity: null,
+        unitCost: null,
+        amount: 0,
+        sortOrder: planned.sortOrder,
+        mapped: true,
+        plannedAmount: planned.budgetAmount,
+      });
+    }
+  }
+
+  merged.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+  const importTotal = merged.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const unmappedCount = merged.filter((row) => row.lineType !== 'planned' || !row.mapped).length;
+
+  return { lines: merged, errors, warnings, importTotal, unmappedCount };
+}
+
+function parseQuotationExcelBuffer(buffer, plannedLines = []) {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const bqSheet = sheetRowsFromWorkbook(workbook, ['Quote Lines', 'Quoted Lines', 'BQ Lines', 'BQ', 'bill_of_quantities']);
+  const parsedRows = bqSheet.rows
+    .map((row, index) => normalizeQuotationImportRow(row, index))
+    .filter(Boolean);
+  if (!parsedRows.length) {
+    return {
+      lines: [],
+      errors: ['No quote lines found. Use the project quote template (Quote Lines sheet).'],
+      warnings: [],
+      importTotal: 0,
+      unmappedCount: 0,
+      sheets: { bq: bqSheet.sheetName || null },
+    };
+  }
+  const result = validateAndMergeQuotationImport(plannedLines, parsedRows);
+  return {
+    ...result,
+    sheets: { bq: bqSheet.sheetName || null },
+  };
+}
+
+function quotationLinesForComparison(quotedLines) {
+  return (quotedLines || []).filter((row) => normalizeQuotationLineType(row.lineType) === 'planned');
+}
+
+function quotationSupplementaryLines(quotedLines) {
+  return (quotedLines || []).filter((row) => normalizeQuotationLineType(row.lineType) !== 'planned');
+}
+
+async function fetchPlannedBqLines(projectId) {
+  await ensureProcurementScopeTables();
+  const queries = [
+    `SELECT
+        id AS "plannedBqItemId",
+        activity_name AS "activityName",
+        milestone_name AS "milestoneName",
+        description,
+        unit_of_measure AS "unitOfMeasure",
+        quantity,
+        unit_cost AS "unitCost",
+        budget_amount AS "budgetAmount",
+        sort_order AS "sortOrder",
+        COALESCE(progress_percent, 0) AS "progressPercent"
+     FROM project_bq_items
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sort_order ASC NULLS LAST, id ASC`,
+    `SELECT
+        id AS "plannedBqItemId",
+        activity_name AS "activityName",
+        milestone_name AS "milestoneName",
+        description,
+        unit_of_measure AS "unitOfMeasure",
+        quantity,
+        unit_cost AS "unitCost",
+        budget_amount AS "budgetAmount",
+        sort_order AS "sortOrder",
+        0::numeric AS "progressPercent"
+     FROM project_bq_items
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sort_order ASC NULLS LAST, id ASC`,
+  ];
+  for (const sql of queries) {
+    try {
+      return rowsOf(await pool.query(sql, [projectId]));
+    } catch (error) {
+      if (!isSchemaError(error)) throw error;
+    }
+  }
+  return [];
+}
+
+async function fetchMilestoneSequenceMap(projectId) {
+  await ensureProcurementScopeTables();
+  const queries = [
+    `SELECT
+        milestone_name AS "milestoneName",
+        COALESCE(sequence_order, 9999) AS "sequenceOrder"
+     FROM project_milestones
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sequence_order ASC NULLS LAST, milestone_id ASC`,
+    `SELECT
+        milestone_name AS "milestoneName",
+        COALESCE(sequence_order, 9999) AS "sequenceOrder"
+     FROM project_milestones
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sequence_order ASC NULLS LAST, milestone_name ASC`,
+  ];
+  for (const sql of queries) {
+    try {
+      const rows = rowsOf(await pool.query(sql, [projectId]));
+      const map = new Map();
+      rows.forEach((row, index) => {
+        const key = String(row.milestoneName || '').trim().toLowerCase();
+        if (key && !map.has(key)) {
+          map.set(key, Number(row.sequenceOrder ?? index + 1));
+        }
+      });
+      return map;
+    } catch (error) {
+      if (!isSchemaError(error)) throw error;
+    }
+  }
+  return new Map();
+}
+
+function groupLinesByMilestone(lines, milestoneOrderMap) {
+  const groups = new Map();
+  for (const line of lines || []) {
+    const name = String(line.milestoneName || line.milestone_name || 'General').trim() || 'General';
+    const key = name.toLowerCase();
+    if (!groups.has(key)) {
+      groups.set(key, {
+        milestoneName: name,
+        sequenceOrder: milestoneOrderMap.get(key) ?? 9999,
+        total: 0,
+        lineCount: 0,
+      });
+    }
+    const group = groups.get(key);
+    const amount = Number(line.amount ?? line.budgetAmount ?? line.budget_amount ?? 0);
+    group.total += Number.isFinite(amount) ? amount : 0;
+    group.lineCount += 1;
+  }
+  return [...groups.values()].sort((a, b) => a.sequenceOrder - b.sequenceOrder || a.milestoneName.localeCompare(b.milestoneName));
+}
+
+function buildCumulativeCurve(groups, total) {
+  const safeTotal = Number(total) > 0 ? Number(total) : 0;
+  let running = 0;
+  return (groups || []).map((group) => {
+    running += Number(group.total || 0);
+    return {
+      milestoneName: group.milestoneName,
+      sequenceOrder: group.sequenceOrder,
+      amount: Number(group.total || 0),
+      cumulativeAmount: running,
+      cumulativePercent: safeTotal > 0 ? Number(((running / safeTotal) * 100).toFixed(2)) : 0,
+    };
+  });
+}
+
+function computeFrontLoadRisk(plannedGroups, quotedGroups, options = {}) {
+  const plannedTotal = plannedGroups.reduce((sum, g) => sum + Number(g.total || 0), 0);
+  const quotedTotal = quotedGroups.reduce((sum, g) => sum + Number(g.total || 0), 0);
+  if (plannedTotal <= 0 || quotedTotal <= 0) {
+    return {
+      riskLevel: 'none',
+      frontLoadIndex: 0,
+      plannedEarlyPercent: 0,
+      quotedEarlyPercent: 0,
+      alerts: ['Insufficient planned or quoted totals for comparison.'],
+    };
+  }
+
+  const earlyCount = Math.max(1, Math.ceil(plannedGroups.length * (options.earlyFraction || 0.33)));
+  const plannedEarly = plannedGroups.slice(0, earlyCount).reduce((sum, g) => sum + Number(g.total || 0), 0);
+  const quotedEarly = quotedGroups.slice(0, earlyCount).reduce((sum, g) => sum + Number(g.total || 0), 0);
+  const plannedEarlyPercent = Number(((plannedEarly / plannedTotal) * 100).toFixed(2));
+  const quotedEarlyPercent = Number(((quotedEarly / quotedTotal) * 100).toFixed(2));
+  const frontLoadIndex = Number((quotedEarlyPercent - plannedEarlyPercent).toFixed(2));
+
+  const alerts = [];
+  let riskLevel = 'low';
+  if (frontLoadIndex >= 20 || (quotedEarlyPercent >= 40 && plannedEarlyPercent < 15)) {
+    riskLevel = 'high';
+    alerts.push('Quoted amount is heavily front-loaded versus the planned baseline.');
+  } else if (frontLoadIndex >= 10 || quotedEarlyPercent >= 30) {
+    riskLevel = 'medium';
+    alerts.push('Quoted distribution is more front-loaded than planned.');
+  }
+  if (quotedTotal > plannedTotal * 1.1) {
+    alerts.push(`Quoted total exceeds planned by ${((quotedTotal / plannedTotal - 1) * 100).toFixed(1)}%.`);
+    if (riskLevel === 'low') riskLevel = 'medium';
+  }
+
+  return {
+    riskLevel,
+    frontLoadIndex,
+    plannedEarlyPercent,
+    quotedEarlyPercent,
+    earlyMilestoneCount: earlyCount,
+    alerts,
+  };
+}
+
+async function fetchProjectFinancials(projectId) {
+  const defaults = {
+    allocatedAmount: 0,
+    disbursedAmount: 0,
+    contractedAmount: 0,
+    averageBqProgress: 0,
+  };
+  const queries = [
+    `SELECT
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'allocated_amount_kes') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'allocated_amount_kes')::numeric
+            ELSE 0
+          END, 0
+        ) AS "allocatedAmount",
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'disbursed_amount_kes') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'disbursed_amount_kes')::numeric
+            ELSE 0
+          END, 0
+        ) AS "disbursedAmount",
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'contracted') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'contracted')::numeric
+            ELSE 0
+          END, 0
+        ) AS "contractedAmount",
+        COALESCE(
+          (SELECT AVG(COALESCE(progress_percent, 0))
+           FROM project_bq_items
+           WHERE project_id = p.project_id AND COALESCE(voided, false) = false),
+          0
+        ) AS "averageBqProgress"
+     FROM projects p
+     WHERE p.project_id = $1 AND COALESCE(p.voided, false) = false
+     LIMIT 1`,
+    `SELECT
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'allocated_amount_kes') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'allocated_amount_kes')::numeric
+            ELSE 0
+          END, 0
+        ) AS "allocatedAmount",
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'disbursed_amount_kes') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'disbursed_amount_kes')::numeric
+            ELSE 0
+          END, 0
+        ) AS "disbursedAmount",
+        COALESCE(
+          CASE
+            WHEN (p.budget->>'contracted') ~ '${ALLOCATED_KES_REGEX}'
+              THEN (p.budget->>'contracted')::numeric
+            ELSE 0
+          END, 0
+        ) AS "contractedAmount",
+        0::numeric AS "averageBqProgress"
+     FROM projects p
+     WHERE p.project_id = $1 AND COALESCE(p.voided, false) = false
+     LIMIT 1`,
+    `SELECT
+        COALESCE(p."costOfProject", 0) AS "allocatedAmount",
+        COALESCE(p."paidOut", 0) AS "disbursedAmount",
+        COALESCE(p."Contracted", 0) AS "contractedAmount",
+        0::numeric AS "averageBqProgress"
+     FROM projects p
+     WHERE p.id = $1 AND COALESCE(p.voided, false) = false
+     LIMIT 1`,
+  ];
+  for (const sql of queries) {
+    try {
+      const row = rowsOf(await pool.query(sql, [projectId]))[0];
+      if (!row) continue;
+      return {
+        allocatedAmount: Number(row.allocatedAmount || 0),
+        disbursedAmount: Number(row.disbursedAmount || 0),
+        contractedAmount: Number(row.contractedAmount || 0),
+        averageBqProgress: Number(row.averageBqProgress || 0),
+      };
+    } catch (error) {
+      if (!isSchemaError(error)) throw error;
+    }
+  }
+  return defaults;
+}
+
+function buildPlannedLineComparisons(plannedLines) {
+  return (plannedLines || []).map((row) => ({
+    plannedBqItemId: row.plannedBqItemId,
+    milestoneName: row.milestoneName,
+    activityName: row.activityName,
+    plannedAmount: row.budgetAmount != null ? Number(row.budgetAmount) : null,
+    quotedAmount: null,
+    varianceAmount: null,
+    variancePercent: null,
+    mapped: true,
+  }));
+}
+
+function mapLinesToPlanned(plannedLines, importLines) {
+  const plannedById = new Map(plannedLines.map((p) => [String(p.plannedBqItemId), p]));
+  const plannedByKey = new Map(
+    plannedLines.map((p) => [
+      `${String(p.milestoneName || '').trim().toLowerCase()}|${String(p.activityName || '').trim().toLowerCase()}`,
+      p,
+    ])
+  );
+
+  return (importLines || []).map((line) => {
+    const plannedId = line.plannedBqItemId ?? line.planned_bq_item_id;
+    let planned = plannedId != null ? plannedById.get(String(plannedId)) : null;
+    if (!planned) {
+      const key = `${String(line.milestoneName || '').trim().toLowerCase()}|${String(line.activityName || '').trim().toLowerCase()}`;
+      planned = plannedByKey.get(key) || null;
+    }
+    return {
+      ...line,
+      plannedBqItemId: planned?.plannedBqItemId ?? line.plannedBqItemId ?? null,
+      mapped: Boolean(planned),
+      plannedAmount: planned?.budgetAmount ?? null,
+      varianceAmount: planned?.budgetAmount != null && line.amount != null
+        ? Number(line.amount) - Number(planned.budgetAmount)
+        : null,
+    };
+  });
+}
+
+async function fetchQuotationById(projectId, quotationId) {
+  try {
+    const header = rowsOf(await pool.query(
+      `SELECT
+          q.id AS "quotationId",
+          q.project_id AS "projectId",
+          q.contractor_id AS "contractorId",
+          q.quotation_type AS "quotationType",
+          q.status,
+          q.title,
+          q.supplier_name AS "supplierName",
+          q.reference_no AS "referenceNo",
+          q.total_amount AS "totalAmount",
+          q.notes,
+          q.created_at AS "createdAt",
+          q.updated_at AS "updatedAt"
+       FROM procurement_quotations q
+       WHERE q.id = $1 AND q.project_id = $2 AND COALESCE(q.voided, false) = false
+       LIMIT 1`,
+      [quotationId, projectId]
+    ))[0];
+    if (!header) return null;
+
+    const lines = rowsOf(await pool.query(
+      `SELECT
+          l.id AS "lineId",
+          l.planned_bq_item_id AS "plannedBqItemId",
+          COALESCE(l.line_type, 'planned') AS "lineType",
+          l.milestone_name AS "milestoneName",
+          l.activity_name AS "activityName",
+          l.description,
+          l.unit_of_measure AS "unitOfMeasure",
+          l.quantity,
+          l.unit_cost AS "unitCost",
+          l.amount,
+          l.sort_order AS "sortOrder"
+       FROM procurement_quotation_lines l
+       WHERE l.quotation_id = $1 AND COALESCE(l.voided, false) = false
+       ORDER BY l.sort_order ASC NULLS LAST, l.id ASC`,
+      [quotationId]
+    ));
+    return { ...header, lines };
+  } catch (error) {
+    if (isSchemaError(error)) return null;
+    throw error;
+  }
+}
+
+async function listProjectQuotations(projectId) {
+  return rowsOf(await pool.query(
+    `SELECT
+        q.id AS "quotationId",
+        q.quotation_type AS "quotationType",
+        q.status,
+        q.title,
+        q.supplier_name AS "supplierName",
+        q.reference_no AS "referenceNo",
+        q.total_amount AS "totalAmount",
+        q.created_at AS "createdAt",
+        q.updated_at AS "updatedAt",
+        (SELECT COUNT(*)::int
+         FROM procurement_quotation_lines l
+         WHERE l.quotation_id = q.id AND COALESCE(l.voided, false) = false) AS "lineCount"
+     FROM procurement_quotations q
+     WHERE q.project_id = $1 AND COALESCE(q.voided, false) = false
+     ORDER BY q.updated_at DESC NULLS LAST, q.id DESC`,
+    [projectId]
+  ));
+}
+
+async function insertQuotationWithLines(projectId, header, lines, actorId = null) {
+  const totalAmount = (lines || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const insertHeader = rowsOf(await pool.query(
+    `INSERT INTO procurement_quotations (
+        project_id, contractor_id, quotation_type, status, title, supplier_name,
+        reference_no, total_amount, notes, created_by, created_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+     RETURNING id AS "quotationId"`,
+    [
+      projectId,
+      header.contractorId || null,
+      header.quotationType || 'awarded',
+      header.status || 'draft',
+      header.title || null,
+      header.supplierName || null,
+      header.referenceNo || null,
+      totalAmount,
+      header.notes || null,
+      actorId,
+    ]
+  ))[0];
+
+  const quotationId = insertHeader.quotationId;
+  let lineCount = 0;
+  for (const line of lines || []) {
+    if (!String(line.activityName || '').trim()) continue;
+    await pool.query(
+      `INSERT INTO procurement_quotation_lines (
+          quotation_id, planned_bq_item_id, line_type, milestone_name, activity_name, description,
+          unit_of_measure, quantity, unit_cost, amount, sort_order, created_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())`,
+      [
+        quotationId,
+        line.plannedBqItemId || null,
+        normalizeQuotationLineType(line.lineType),
+        line.milestoneName || null,
+        line.activityName,
+        line.description || null,
+        line.unitOfMeasure || null,
+        line.quantity == null ? null : Number(line.quantity),
+        line.unitCost == null ? null : Number(line.unitCost),
+        line.amount == null ? null : Number(line.amount),
+        Number.isFinite(Number(line.sortOrder)) ? Number(line.sortOrder) : lineCount,
+      ]
+    );
+    lineCount += 1;
+  }
+
+  return fetchQuotationById(projectId, quotationId);
+}
+
+function buildLineComparisonsFromQuotation(plannedLines, quotationLines) {
+  const byPlannedId = new Map(
+    (quotationLines || [])
+      .filter((line) => line.plannedBqItemId != null)
+      .map((line) => [String(line.plannedBqItemId), line])
+  );
+  const plannedComparisons = (plannedLines || []).map((planned) => {
+    const quoted = byPlannedId.get(String(planned.plannedBqItemId));
+    const plannedAmount = planned.budgetAmount != null ? Number(planned.budgetAmount) : null;
+    const quotedAmount = quoted?.amount != null ? Number(quoted.amount) : null;
+    return {
+      plannedBqItemId: planned.plannedBqItemId,
+      lineType: 'planned',
+      milestoneName: planned.milestoneName,
+      activityName: planned.activityName,
+      plannedAmount,
+      quotedAmount,
+      varianceAmount: plannedAmount != null && quotedAmount != null ? quotedAmount - plannedAmount : null,
+      variancePercent: plannedAmount > 0 && quotedAmount != null
+        ? Number((((quotedAmount - plannedAmount) / plannedAmount) * 100).toFixed(2))
+        : null,
+      mapped: Boolean(quoted),
+    };
+  });
+  const supplementary = quotationSupplementaryLines(quotationLines).map((line) => ({
+    plannedBqItemId: null,
+    lineType: normalizeQuotationLineType(line.lineType),
+    milestoneName: line.milestoneName,
+    activityName: line.activityName,
+    plannedAmount: null,
+    quotedAmount: line.amount != null ? Number(line.amount) : null,
+    varianceAmount: null,
+    variancePercent: null,
+    mapped: false,
+  }));
+  return [...plannedComparisons, ...supplementary];
+}
+
+function entryLinesToImportPayload(entryLines) {
+  return (entryLines || []).map((line, index) => {
+    const quotedQty = line.quotedQuantity === '' || line.quotedQuantity == null
+      ? null
+      : Number(line.quotedQuantity);
+    const quotedUnit = line.quotedUnitCost === '' || line.quotedUnitCost == null
+      ? null
+      : Number(line.quotedUnitCost);
+    let amount = line.quotedAmount === '' || line.quotedAmount == null
+      ? null
+      : Number(line.quotedAmount);
+    if (amount == null && quotedQty != null && quotedUnit != null) amount = quotedQty * quotedUnit;
+    return {
+      plannedBqItemId: line.plannedBqItemId || null,
+      lineType: normalizeQuotationLineType(line.lineType || 'planned'),
+      milestoneName: line.milestoneName || null,
+      activityName: line.activityName,
+      description: line.description || null,
+      unitOfMeasure: line.unitOfMeasure || null,
+      quantity: quotedQty,
+      unitCost: quotedUnit,
+      amount: amount ?? 0,
+      sortOrder: line.sortOrder ?? index + 1,
+    };
+  });
+}
+
+async function buildQuotationLinesFromPlanned(projectId) {
+  const planned = await fetchPlannedBqLines(projectId);
+  return planned.map((row) => ({
+    plannedBqItemId: row.plannedBqItemId,
+    lineType: 'planned',
+    milestoneName: row.milestoneName,
+    activityName: row.activityName,
+    description: row.description,
+    unitOfMeasure: row.unitOfMeasure,
+    quantity: row.quantity,
+    unitCost: row.unitCost,
+    amount: row.budgetAmount,
+    sortOrder: row.sortOrder,
+    mapped: true,
+    plannedAmount: row.budgetAmount,
+    varianceAmount: 0,
+  }));
+}
+
+async function computeScopeQuotationComparison(projectId, quotationId = null) {
+  await ensureProcurementScopeTables();
+  await ensureProcurementQuotationTables();
+
+  const plannedLines = await fetchPlannedBqLines(projectId);
+  const milestoneOrder = await fetchMilestoneSequenceMap(projectId);
+  const financials = await fetchProjectFinancials(projectId);
+
+  let quotation = null;
+  if (quotationId) {
+    quotation = await fetchQuotationById(projectId, quotationId);
+  } else {
+    try {
+      const latest = rowsOf(await pool.query(
+        `SELECT id FROM procurement_quotations
+         WHERE project_id = $1 AND COALESCE(voided, false) = false
+         ORDER BY
+           CASE status
+             WHEN 'awarded' THEN 0
+             WHEN 'submitted' THEN 1
+             WHEN 'draft' THEN 2
+             ELSE 3
+           END,
+           updated_at DESC NULLS LAST,
+           id DESC
+         LIMIT 1`,
+        [projectId]
+      ))[0];
+      if (latest?.id) quotation = await fetchQuotationById(projectId, latest.id);
+    } catch (error) {
+      if (!isSchemaError(error)) throw error;
+    }
+  }
+
+  const plannedGroups = groupLinesByMilestone(
+    plannedLines.map((row) => ({
+      milestoneName: row.milestoneName,
+      amount: row.budgetAmount,
+    })),
+    milestoneOrder
+  );
+  const plannedTotal = plannedGroups.reduce((sum, g) => sum + g.total, 0);
+
+  if (!quotation) {
+    return {
+      projectId,
+      hasQuotation: false,
+      plannedTotal,
+      plannedGroups,
+      plannedCurve: buildCumulativeCurve(plannedGroups, plannedTotal),
+      quotedTotal: 0,
+      varianceTotal: 0,
+      lineComparisons: buildPlannedLineComparisons(plannedLines),
+      financials,
+      risk: {
+        riskLevel: 'none',
+        frontLoadIndex: 0,
+        alerts: plannedTotal > 0
+          ? ['No contracted quotation on file yet.']
+          : ['Set up planned scope and BQ lines before comparing quotations.'],
+      },
+    };
+  }
+
+  const quotedLines = quotation.lines || [];
+  const plannedQuoteLines = quotationLinesForComparison(quotedLines);
+  const quotedGroups = groupLinesByMilestone(
+    plannedQuoteLines.map((row) => ({
+      milestoneName: row.milestoneName,
+      amount: row.amount,
+    })),
+    milestoneOrder
+  );
+  const quotedTotal = quotedLines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const plannedQuotedTotal = plannedQuoteLines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const frontLoad = plannedTotal > 0 && plannedQuotedTotal > 0
+    ? computeFrontLoadRisk(plannedGroups, quotedGroups)
+    : {
+      riskLevel: 'none',
+      frontLoadIndex: 0,
+      plannedEarlyPercent: 0,
+      quotedEarlyPercent: 0,
+      alerts: ['Insufficient planned or quoted totals for front-load analysis.'],
+    };
+  const paymentBase = quotedTotal > 0 ? quotedTotal : financials.contractedAmount;
+  const paymentPercent = paymentBase > 0 ? (financials.disbursedAmount / paymentBase) * 100 : 0;
+  const progressPercent = financials.averageBqProgress;
+
+  const alerts = [...(frontLoad.alerts || [])];
+  let riskLevel = frontLoad.riskLevel || 'none';
+  if (paymentPercent >= 30 && progressPercent < 10) {
+    alerts.push(`Payments at ${paymentPercent.toFixed(1)}% of contract while BQ progress is only ${progressPercent.toFixed(1)}%.`);
+    riskLevel = 'high';
+  } else if (paymentPercent >= 20 && progressPercent < 15 && riskLevel === 'low') {
+    riskLevel = 'medium';
+    alerts.push('Payment is ahead of physical progress.');
+  }
+
+  const lineComparisons = buildLineComparisonsFromQuotation(plannedLines, quotedLines);
+  const supplementaryLines = quotationSupplementaryLines(quotedLines);
+
+  return {
+    projectId,
+    hasQuotation: true,
+    quotation: {
+      quotationId: quotation.quotationId,
+      status: quotation.status,
+      supplierName: quotation.supplierName,
+      referenceNo: quotation.referenceNo,
+      totalAmount: quotation.totalAmount,
+    },
+    plannedTotal,
+    quotedTotal,
+    plannedQuotedTotal,
+    supplementaryTotal: quotedTotal - plannedQuotedTotal,
+    varianceTotal: plannedQuotedTotal - plannedTotal,
+    plannedGroups,
+    quotedGroups,
+    plannedCurve: buildCumulativeCurve(plannedGroups, plannedTotal),
+    quotedCurve: buildCumulativeCurve(quotedGroups, quotedTotal),
+    lineComparisons,
+    supplementaryLines: supplementaryLines.map((line) => ({
+      lineType: normalizeQuotationLineType(line.lineType),
+      milestoneName: line.milestoneName,
+      activityName: line.activityName,
+      quotedAmount: Number(line.amount || 0),
+    })),
+    financials: {
+      ...financials,
+      paymentPercent: Number(paymentPercent.toFixed(2)),
+    },
+    risk: {
+      ...frontLoad,
+      riskLevel,
+      alerts,
+      paymentPercent: Number(paymentPercent.toFixed(2)),
+      progressPercent: Number(progressPercent.toFixed(2)),
+    },
+  };
+}
+
+async function fetchQuotationRiskSummaries(projectIds = []) {
+  const ids = [...new Set(projectIds.map((id) => Number(id)).filter(Number.isFinite))];
+  if (!ids.length) return new Map();
+  await ensureProcurementQuotationTables();
+  const summaries = new Map();
+  for (const projectId of ids) {
+    try {
+      const comparison = await computeScopeQuotationComparison(projectId);
+      summaries.set(String(projectId), {
+        hasQuotation: comparison.hasQuotation,
+        quotationStatus: comparison.quotation?.status || null,
+        quotedTotal: comparison.quotedTotal || 0,
+        plannedTotal: comparison.plannedTotal || 0,
+        riskLevel: comparison.risk?.riskLevel || 'none',
+        frontLoadIndex: comparison.risk?.frontLoadIndex || 0,
+        alertCount: (comparison.risk?.alerts || []).length,
+      });
+    } catch {
+      summaries.set(String(projectId), {
+        hasQuotation: false,
+        riskLevel: 'none',
+        frontLoadIndex: 0,
+        alertCount: 0,
+      });
+    }
+  }
+  return summaries;
+}
+
 async function appendProcurementScopeSummary(projectRows = []) {
   const rows = Array.isArray(projectRows) ? projectRows : [];
   const ids = rows
@@ -2778,6 +4182,9 @@ async function seedProcurementStagesIfNeeded() {
 }
 
 async function ensureProcurementSchema() {
+  // Always ensure scope/quotation DDL — safe to run repeatedly and required after hot deploys.
+  await ensureProcurementScopeTables();
+  await ensureProcurementQuotationTables();
   if (procurementSchemaEnsured) return;
   await ensureProcurementWorkflowTable();
   await ensureProcurementStagesTable();
@@ -3359,6 +4766,583 @@ router.get('/projects/:projectId/workflow', async (req, res) => {
   }
 });
 
+router.get('/projects/:projectId/scope-status', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const status = await fetchProjectScopeStatus(projectId);
+    if (!status) return res.status(404).json({ message: 'Project not found.' });
+    return res.status(200).json(status);
+  } catch (error) {
+    console.error('Error loading project scope status:', error);
+    return res.status(500).json({ message: 'Error loading project scope status', error: error.message });
+  }
+});
+
+router.get('/scope/import-template', async (req, res) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const milestones = workbook.addWorksheet('Milestones');
+    milestones.columns = [
+      { header: 'milestone_name', key: 'milestone_name', width: 28 },
+      { header: 'sequence_order', key: 'sequence_order', width: 14 },
+      { header: 'description', key: 'description', width: 36 },
+      { header: 'unit_of_measure', key: 'unit_of_measure', width: 16 },
+      { header: 'achievement_value', key: 'achievement_value', width: 16 },
+    ];
+    milestones.addRow({
+      milestone_name: 'Site mobilization',
+      sequence_order: 1,
+      description: 'Establish site and materials',
+      unit_of_measure: 'lump sum',
+      achievement_value: 10,
+    });
+    milestones.addRow({
+      milestone_name: 'Foundation works',
+      sequence_order: 2,
+      description: 'Excavation and foundation',
+      unit_of_measure: 'lump sum',
+      achievement_value: 30,
+    });
+
+    const bq = workbook.addWorksheet('BQ Lines');
+    bq.columns = [
+      { header: 'milestone_name', key: 'milestone_name', width: 24 },
+      { header: 'activity_name', key: 'activity_name', width: 30 },
+      { header: 'description', key: 'description', width: 30 },
+      { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
+      { header: 'quantity', key: 'quantity', width: 12 },
+      { header: 'unit_cost', key: 'unit_cost', width: 14 },
+      { header: 'budget_amount', key: 'budget_amount', width: 16 },
+      { header: 'sort_order', key: 'sort_order', width: 10 },
+    ];
+    bq.addRow({
+      milestone_name: 'Site mobilization',
+      activity_name: 'Site establishment',
+      description: 'Mobilization and site clearance',
+      unit_of_measure: 'lump sum',
+      quantity: 1,
+      unit_cost: 500000,
+      budget_amount: 500000,
+      sort_order: 1,
+    });
+    bq.addRow({
+      milestone_name: 'Foundation works',
+      activity_name: 'Excavation',
+      description: 'Foundation excavation',
+      unit_of_measure: 'm3',
+      quantity: 120,
+      unit_cost: 2500,
+      budget_amount: 300000,
+      sort_order: 2,
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="project_scope_import_template.xlsx"');
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    console.error('Error generating scope import template:', error);
+    return res.status(500).json({ message: 'Error generating scope import template', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/scope/import/preview', scopeUpload.single('file'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  if (!req.file?.buffer) return res.status(400).json({ message: 'Excel file is required.' });
+  try {
+    await ensureProcurementSchema();
+    const status = await fetchProjectScopeStatus(projectId);
+    if (!status) return res.status(404).json({ message: 'Project not found.' });
+
+    const parsed = parseScopeExcelBuffer(req.file.buffer);
+    const scaleToBudget = String(req.body?.scaleToBudget || '').toLowerCase() === 'true';
+    let bqItems = parsed.bqItems;
+    if (scaleToBudget && status.allocatedAmount > 0) {
+      bqItems = scaleScopeBqAmounts(bqItems, status.allocatedAmount);
+    }
+    const importTotal = bqItems.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
+    const overBudget = status.allocatedAmount > 0 && importTotal > status.allocatedAmount + 0.005;
+
+    return res.status(200).json({
+      projectId,
+      ...status,
+      milestones: parsed.milestones,
+      bqItems,
+      errors: parsed.errors,
+      sheets: parsed.sheets,
+      importTotal,
+      scaled: scaleToBudget,
+      overBudget,
+      wouldCreate: {
+        milestones: parsed.milestones.length,
+        bqItems: bqItems.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error previewing scope import:', error);
+    return res.status(500).json({ message: 'Error previewing scope import', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/scope/import/confirm', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  const {
+    milestones,
+    bqItems,
+    scaleToBudget,
+    confirmOverBudget,
+    lockBaseline,
+  } = req.body || {};
+  try {
+    await ensureProcurementSchema();
+    const result = await applyScopeImportToProject(
+      projectId,
+      { milestones, bqItems },
+      {
+        actorId,
+        source: 'excel',
+        dryRun: false,
+        scaleToBudget: Boolean(scaleToBudget),
+        confirmOverBudget: Boolean(confirmOverBudget),
+        lockBaseline: Boolean(lockBaseline),
+      }
+    );
+    if (!result.ok) {
+      return res.status(result.status || 400).json({
+        message: result.message,
+        code: result.code,
+        importTotal: result.importTotal,
+        allocatedAmount: result.allocatedAmount,
+      });
+    }
+    const scopeStatus = await fetchProjectScopeStatus(projectId);
+    return res.status(200).json({
+      ...result,
+      scopeStatus,
+      message: `Imported ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ line(s).`,
+    });
+  } catch (error) {
+    console.error('Error confirming scope import:', error);
+    return res.status(500).json({ message: 'Error confirming scope import', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/scope/lock', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const status = await fetchProjectScopeStatus(projectId);
+    if (!status) return res.status(404).json({ message: 'Project not found.' });
+    if (status.milestoneCount === 0 && status.bqItemCount === 0) {
+      return res.status(400).json({ message: 'Add milestones or BQ lines before locking the planned baseline.' });
+    }
+    await mergeProjectProcurementScopeMeta(projectId, {
+      status: 'planned',
+      source: status.scopeSource || req.body?.source || 'manual',
+      lockedAt: new Date().toISOString(),
+      bqTotal: status.bqBudgetAmount,
+    });
+    const updated = await fetchProjectScopeStatus(projectId);
+    return res.status(200).json({
+      message: 'Planned scope baseline locked.',
+      scopeStatus: updated,
+    });
+  } catch (error) {
+    console.error('Error locking scope baseline:', error);
+    return res.status(500).json({ message: 'Error locking scope baseline', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/quotations/export-planned', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const plannedLines = await fetchPlannedBqLines(projectId);
+    if (!plannedLines.length) {
+      return res.status(400).json({ message: 'No planned BQ lines on this project. Set up scope first.' });
+    }
+    return writeProjectQuoteWorkbook(res, projectId, plannedLines);
+  } catch (error) {
+    console.error('Error exporting planned BQ:', error);
+    return res.status(500).json({ message: 'Error exporting planned BQ', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/quotations/entry-sheet', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const sheet = await buildQuotationEntrySheet(projectId);
+    if (!sheet.plannedLineCount) {
+      return res.status(400).json({ message: 'No planned BQ lines on this project. Set up scope first.' });
+    }
+    return res.status(200).json(sheet);
+  } catch (error) {
+    console.error('Error loading quotation entry sheet:', error);
+    return res.status(500).json({ message: 'Error loading quotation entry sheet', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/quotations/entry/confirm', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  const {
+    lines: entryLines,
+    title,
+    supplierName,
+    referenceNo,
+    contractorId,
+    quotationType,
+    status,
+    notes,
+    awardQuotation,
+  } = req.body || {};
+  try {
+    await ensureProcurementSchema();
+    const plannedLines = await fetchPlannedBqLines(projectId);
+    const importLines = entryLinesToImportPayload(entryLines);
+    const validated = validateAndMergeQuotationImport(plannedLines, importLines, { fillMissingPlanned: true });
+    if (validated.errors.length) {
+      return res.status(400).json({ message: 'Quotation entry validation failed.', errors: validated.errors });
+    }
+    const finalStatus = awardQuotation ? 'awarded' : (status || 'submitted');
+    const quotation = await insertQuotationWithLines(
+      projectId,
+      {
+        title: title || 'Entered contracted quotation',
+        supplierName,
+        referenceNo,
+        contractorId,
+        quotationType: quotationType || 'awarded',
+        status: finalStatus,
+        notes,
+      },
+      validated.lines,
+      actorId
+    );
+    if (finalStatus === 'awarded') {
+      await pool.query(
+        `UPDATE procurement_quotations
+         SET status = 'superseded', updated_at = NOW()
+         WHERE project_id = $1 AND id <> $2 AND status = 'awarded' AND COALESCE(voided, false) = false`,
+        [projectId, quotation.quotationId]
+      );
+      const comparison = await computeScopeQuotationComparison(projectId, quotation.quotationId);
+      await mergeProjectProcurementScopeMeta(projectId, {
+        quotationRisk: {
+          riskLevel: comparison.risk?.riskLevel || 'none',
+          frontLoadIndex: comparison.risk?.frontLoadIndex || 0,
+          quotedTotal: comparison.quotedTotal || 0,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+    const comparison = await computeScopeQuotationComparison(projectId, quotation.quotationId);
+    return res.status(200).json({
+      quotation,
+      comparison,
+      warnings: validated.warnings,
+      message: `Saved quotation with ${quotation.lines?.length || 0} line(s).`,
+    });
+  } catch (error) {
+    console.error('Error saving quotation entry:', error);
+    return res.status(500).json({ message: 'Error saving quotation entry', error: error.message });
+  }
+});
+
+router.get('/quotations/import-template', async (req, res) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Quoted Lines');
+    sheet.columns = [
+      { header: 'planned_bq_item_id', key: 'planned_bq_item_id', width: 16 },
+      { header: 'milestone_name', key: 'milestone_name', width: 24 },
+      { header: 'activity_name', key: 'activity_name', width: 30 },
+      { header: 'description', key: 'description', width: 30 },
+      { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
+      { header: 'quantity', key: 'quantity', width: 12 },
+      { header: 'unit_cost', key: 'unit_cost', width: 14 },
+      { header: 'amount', key: 'amount', width: 16 },
+      { header: 'sort_order', key: 'sort_order', width: 10 },
+    ];
+    sheet.addRow({
+      planned_bq_item_id: 101,
+      milestone_name: 'Site mobilization',
+      activity_name: 'Site establishment',
+      description: 'Supplier quoted mobilization',
+      unit_of_measure: 'lump sum',
+      quantity: 1,
+      unit_cost: 650000,
+      amount: 650000,
+      sort_order: 1,
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="contracted_quotation_import_template.xlsx"');
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    console.error('Error generating quotation import template:', error);
+    return res.status(500).json({ message: 'Error generating quotation import template', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/quotations', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const quotations = await listProjectQuotations(projectId);
+    return res.status(200).json({ quotations });
+  } catch (error) {
+    console.error('Error listing quotations:', error);
+    return res.status(500).json({ message: 'Error listing quotations', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/scope-comparison', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const quotationId = req.query.quotationId ? Number(req.query.quotationId) : null;
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const comparison = await computeScopeQuotationComparison(
+      projectId,
+      Number.isFinite(quotationId) ? quotationId : null
+    );
+    return res.status(200).json(comparison);
+  } catch (error) {
+    console.error('Error loading scope comparison:', error);
+    return res.status(500).json({
+      message: 'Error loading scope comparison',
+      error: error.message,
+      detail: process.env.NODE_ENV === 'production' ? undefined : error.stack,
+    });
+  }
+});
+
+router.get('/projects/:projectId/quotations/:quotationId', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const quotationId = Number(req.params.quotationId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(quotationId)) {
+    return res.status(400).json({ message: 'Invalid project or quotation id.' });
+  }
+  try {
+    await ensureProcurementSchema();
+    const quotation = await fetchQuotationById(projectId, quotationId);
+    if (!quotation) return res.status(404).json({ message: 'Quotation not found.' });
+    const comparison = await computeScopeQuotationComparison(projectId, quotationId);
+    return res.status(200).json({ quotation, comparison });
+  } catch (error) {
+    console.error('Error loading quotation:', error);
+    return res.status(500).json({ message: 'Error loading quotation', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/quotations', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  const {
+    fromPlanned,
+    title,
+    supplierName,
+    referenceNo,
+    contractorId,
+    quotationType,
+    status,
+    notes,
+    lines,
+  } = req.body || {};
+  try {
+    await ensureProcurementSchema();
+    const scopeStatus = await fetchProjectScopeStatus(projectId);
+    if (!scopeStatus) return res.status(404).json({ message: 'Project not found.' });
+
+    let importLines = Array.isArray(lines) ? lines : [];
+    if (fromPlanned) {
+      importLines = await buildQuotationLinesFromPlanned(projectId);
+      if (!importLines.length) {
+        return res.status(400).json({ message: 'No planned BQ lines found. Set up planned scope first.' });
+      }
+    }
+    if (!importLines.length) {
+      return res.status(400).json({ message: 'Quotation lines are required.' });
+    }
+
+    const quotation = await insertQuotationWithLines(
+      projectId,
+      {
+        title: title || (fromPlanned ? 'Copy from planned baseline' : 'Contracted quotation'),
+        supplierName,
+        referenceNo,
+        contractorId,
+        quotationType: quotationType || 'awarded',
+        status: status || 'draft',
+        notes,
+      },
+      importLines,
+      actorId
+    );
+    return res.status(201).json({ quotation, message: 'Quotation created.' });
+  } catch (error) {
+    console.error('Error creating quotation:', error);
+    return res.status(500).json({ message: 'Error creating quotation', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/quotations/import/preview', scopeUpload.single('file'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  if (!req.file?.buffer) return res.status(400).json({ message: 'Excel file is required.' });
+  try {
+    await ensureProcurementSchema();
+    const plannedLines = await fetchPlannedBqLines(projectId);
+    const parsed = parseQuotationExcelBuffer(req.file.buffer, plannedLines);
+    const comparison = await computeScopeQuotationComparison(projectId);
+    const milestoneOrder = await fetchMilestoneSequenceMap(projectId);
+    const plannedQuoteLines = quotationLinesForComparison(parsed.lines);
+    const quotedGroups = groupLinesByMilestone(plannedQuoteLines, milestoneOrder);
+    const plannedGroups = comparison.plannedGroups || [];
+    const risk = computeFrontLoadRisk(plannedGroups, quotedGroups);
+
+    return res.status(200).json({
+      projectId,
+      ...parsed,
+      plannedLineCount: plannedLines.length,
+      risk,
+    });
+  } catch (error) {
+    console.error('Error previewing quotation import:', error);
+    return res.status(500).json({ message: 'Error previewing quotation import', error: error.message });
+  }
+});
+
+router.post('/projects/:projectId/quotations/import/confirm', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  const {
+    lines,
+    title,
+    supplierName,
+    referenceNo,
+    contractorId,
+    quotationType,
+    status,
+    notes,
+    awardQuotation,
+  } = req.body || {};
+  try {
+    await ensureProcurementSchema();
+    if (!Array.isArray(lines) || !lines.length) {
+      return res.status(400).json({ message: 'Quotation lines are required.' });
+    }
+    const finalStatus = awardQuotation ? 'awarded' : (status || 'submitted');
+    const quotation = await insertQuotationWithLines(
+      projectId,
+      {
+        title: title || 'Imported contracted quotation',
+        supplierName,
+        referenceNo,
+        contractorId,
+        quotationType: quotationType || 'awarded',
+        status: finalStatus,
+        notes,
+      },
+      lines,
+      actorId
+    );
+
+    if (finalStatus === 'awarded') {
+      await pool.query(
+        `UPDATE procurement_quotations
+         SET status = 'superseded', updated_at = NOW()
+         WHERE project_id = $1 AND id <> $2 AND status = 'awarded' AND COALESCE(voided, false) = false`,
+        [projectId, quotation.quotationId]
+      );
+      const comparison = await computeScopeQuotationComparison(projectId, quotation.quotationId);
+      await mergeProjectProcurementScopeMeta(projectId, {
+        quotationRisk: {
+          riskLevel: comparison.risk?.riskLevel || 'none',
+          frontLoadIndex: comparison.risk?.frontLoadIndex || 0,
+          quotedTotal: comparison.quotedTotal || 0,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    const comparison = await computeScopeQuotationComparison(projectId, quotation.quotationId);
+    return res.status(200).json({
+      quotation,
+      comparison,
+      message: `Imported quotation with ${quotation.lines?.length || 0} line(s).`,
+    });
+  } catch (error) {
+    console.error('Error confirming quotation import:', error);
+    return res.status(500).json({ message: 'Error confirming quotation import', error: error.message });
+  }
+});
+
+router.patch('/projects/:projectId/quotations/:quotationId', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const quotationId = Number(req.params.quotationId);
+  if (!Number.isFinite(projectId) || !Number.isFinite(quotationId)) {
+    return res.status(400).json({ message: 'Invalid project or quotation id.' });
+  }
+  const { status, supplierName, referenceNo, title, notes } = req.body || {};
+  try {
+    await ensureProcurementSchema();
+    const existing = await fetchQuotationById(projectId, quotationId);
+    if (!existing) return res.status(404).json({ message: 'Quotation not found.' });
+
+    await pool.query(
+      `UPDATE procurement_quotations
+       SET status = COALESCE($3, status),
+           supplier_name = COALESCE($4, supplier_name),
+           reference_no = COALESCE($5, reference_no),
+           title = COALESCE($6, title),
+           notes = COALESCE($7, notes),
+           updated_at = NOW()
+       WHERE id = $1 AND project_id = $2`,
+      [quotationId, projectId, status || null, supplierName || null, referenceNo || null, title || null, notes || null]
+    );
+
+    if (status === 'awarded') {
+      await pool.query(
+        `UPDATE procurement_quotations
+         SET status = 'superseded', updated_at = NOW()
+         WHERE project_id = $1 AND id <> $2 AND status = 'awarded' AND COALESCE(voided, false) = false`,
+        [projectId, quotationId]
+      );
+      const comparison = await computeScopeQuotationComparison(projectId, quotationId);
+      await mergeProjectProcurementScopeMeta(projectId, {
+        quotationRisk: {
+          riskLevel: comparison.risk?.riskLevel || 'none',
+          frontLoadIndex: comparison.risk?.frontLoadIndex || 0,
+          quotedTotal: comparison.quotedTotal || 0,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    const quotation = await fetchQuotationById(projectId, quotationId);
+    const comparison = await computeScopeQuotationComparison(projectId, quotationId);
+    return res.status(200).json({ quotation, comparison, message: 'Quotation updated.' });
+  } catch (error) {
+    console.error('Error updating quotation:', error);
+    return res.status(500).json({ message: 'Error updating quotation', error: error.message });
+  }
+});
+
 router.get('/projects/:projectId/prepare-scope/preview', async (req, res) => {
   const projectId = Number(req.params.projectId);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
@@ -3387,11 +5371,28 @@ router.post('/projects/:projectId/prepare-scope', async (req, res) => {
   const projectId = Number(req.params.projectId);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
   const actorId = Number(req.user?.userId || req.user?.id || null) || null;
+  const lockBaseline = Boolean(req.body?.lockBaseline);
   try {
     await ensureProcurementSchema();
     const result = await applyProjectTypeScopeToProject(projectId, actorId);
     if (!result.ok) {
       return res.status(result.status || 400).json({ message: result.message || 'Could not prepare project scope.' });
+    }
+    if (lockBaseline && (result.milestonesCreated > 0 || result.bqItemsCreated > 0)) {
+      const status = await fetchProjectScopeStatus(projectId);
+      await mergeProjectProcurementScopeMeta(projectId, {
+        status: 'planned',
+        source: 'template',
+        lockedAt: new Date().toISOString(),
+        bqTotal: status?.bqBudgetAmount || 0,
+      });
+    } else if (result.milestonesCreated > 0 || result.bqItemsCreated > 0) {
+      const status = await fetchProjectScopeStatus(projectId);
+      await mergeProjectProcurementScopeMeta(projectId, {
+        status: 'draft',
+        source: 'template',
+        bqTotal: status?.bqBudgetAmount || 0,
+      });
     }
     const hasTemplates = (Number(result.templateMilestones) || 0) + (Number(result.templateBqItems) || 0) > 0;
     const createdAny = (Number(result.milestonesCreated) || 0) + (Number(result.bqItemsCreated) || 0) > 0;
@@ -3401,9 +5402,11 @@ router.post('/projects/:projectId/prepare-scope', async (req, res) => {
     } else if (!createdAny) {
       message = 'No new scope lines were created because the project already has the milestones/BQ items from this project type.';
     }
+    const scopeStatus = await fetchProjectScopeStatus(projectId);
     return res.status(200).json({
       ...result,
       message,
+      scopeStatus,
     });
   } catch (error) {
     console.error('Error preparing procurement scope:', error);

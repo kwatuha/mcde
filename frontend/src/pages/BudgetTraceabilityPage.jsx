@@ -152,7 +152,7 @@ export default function BudgetTraceabilityPage() {
         <TextField
           select
           size="small"
-          label="Budget container"
+          label="Department budget"
           value={selectedBudgetId}
           onChange={(e) => setSelectedBudgetId(e.target.value)}
           sx={{ minWidth: 280 }}
