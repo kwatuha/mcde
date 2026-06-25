@@ -5,7 +5,9 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -24,6 +26,11 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
+import {
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
+  FilterList as FilterListIcon,
+} from '@mui/icons-material';
 import { InfoWindowF, MarkerF, PolygonF } from '@react-google-maps/api';
 import { useNavigate } from 'react-router-dom';
 import GoogleMapComponent from '../components/gis/GoogleMapComponent';
@@ -34,8 +41,10 @@ import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { normalizeWardKey } from '../utils/projectWardKey';
 import {
   buildMachakosCountyChecker,
+  buildMachakosGeoHierarchy,
   fitGoogleMapToBounds,
   geometryToGooglePaths,
+  getWardsForSubcounty,
 } from '../utils/machakosCountyGeo';
 import {
   computeBoundsFromPoints,
@@ -46,7 +55,6 @@ import {
   getProjectSubcountyLabel,
   getProjectWardLabel,
   normalizeDepartmentKey,
-  normalizeSubcountyKey,
   projectMatchesSubcountyFilter,
   projectMatchesWardFilter,
   toMoney,
@@ -71,6 +79,7 @@ function ProjectGisMapPage() {
   const [errorSearch, setErrorSearch] = useState('');
   const [previewErrorMarker, setPreviewErrorMarker] = useState(null);
   const [mapsReady, setMapsReady] = useState(false);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -112,6 +121,24 @@ function ProjectGisMapPage() {
     () => (countyGeo ? buildMachakosCountyChecker(countyGeo) : null),
     [countyGeo]
   );
+
+  const geoHierarchy = useMemo(
+    () => (wardGeo ? buildMachakosGeoHierarchy(wardGeo, projects) : null),
+    [wardGeo, projects]
+  );
+
+  useEffect(() => {
+    if (!filters.subCounty && filters.ward) {
+      setFilters((prev) => ({ ...prev, ward: '' }));
+      return;
+    }
+    if (filters.subCounty && filters.ward && geoHierarchy) {
+      const wards = getWardsForSubcounty(geoHierarchy, filters.subCounty);
+      if (!wards.some((w) => w.key === filters.ward)) {
+        setFilters((prev) => ({ ...prev, ward: '' }));
+      }
+    }
+  }, [filters.subCounty, filters.ward, geoHierarchy]);
 
   const countyPolygons = useMemo(() => {
     const features = countyGeo?.features || [];
@@ -166,8 +193,6 @@ function ProjectGisMapPage() {
     const sectors = new Set();
     const departments = new Set();
     const financialYears = new Set();
-    const subCounties = new Map();
-    const wards = new Map();
 
     projects.forEach((project) => {
       const status = normalizeProjectStatus(project?.status || project?.Status || '');
@@ -178,25 +203,27 @@ function ProjectGisMapPage() {
       if (dept) departments.add(dept);
       const fy = getProjectFinancialYearLabel(project);
       if (fy) financialYears.add(fy);
-
-      const sub = getProjectSubcountyLabel(project);
-      if (sub) subCounties.set(normalizeSubcountyKey(sub), sub);
-
-      const ward = getProjectWardLabel(project);
-      const wardKey = normalizeWardKey(ward);
-      if (wardKey) wards.set(wardKey, ward);
     });
 
     const sortAlpha = (a, b) => a.localeCompare(b);
+    const subCounties = geoHierarchy
+      ? [...geoHierarchy.subCounties.entries()]
+          .map(([key, label]) => ({ key, label }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+    const wards = geoHierarchy
+      ? getWardsForSubcounty(geoHierarchy, filters.subCounty)
+      : [];
+
     return {
       statuses: [...statuses].sort(sortAlpha),
       sectors: [...sectors].sort(sortAlpha),
       departments: [...departments].sort(sortAlpha),
       financialYears: [...financialYears].sort(sortAlpha),
-      subCounties: [...subCounties.entries()].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
-      wards: [...wards.entries()].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+      subCounties,
+      wards,
     };
-  }, [projects]);
+  }, [projects, geoHierarchy, filters.subCounty]);
 
   const filteredProjects = useMemo(() => {
     const search = String(filters.search || '').trim().toLowerCase();
@@ -403,130 +430,177 @@ function ProjectGisMapPage() {
         </Tabs>
 
         {activeTab === 'map' && (
-          <Box sx={{ p: 1 }}>
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                <TextField
-                  size="small"
-                  label="Search projects"
-                  value={filters.search}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
-                  sx={{ minWidth: 200, flex: '1 1 220px' }}
-                />
-                <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>Status</InputLabel>
-                  <Select label="Status" value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.statuses.map((s) => (
-                      <MenuItem key={s} value={s}>{s}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>Sector</InputLabel>
-                  <Select label="Sector" value={filters.sector} onChange={(e) => setFilters((prev) => ({ ...prev, sector: e.target.value }))}>
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.sectors.map((s) => (
-                      <MenuItem key={s} value={s}>{s}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>Department</InputLabel>
-                  <Select label="Department" value={filters.department} onChange={(e) => setFilters((prev) => ({ ...prev, department: e.target.value }))}>
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.departments.map((d) => (
-                      <MenuItem key={d} value={d}>{d}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 130 }}>
-                  <InputLabel>Fin. year</InputLabel>
-                  <Select label="Fin. year" value={filters.financialYear} onChange={(e) => setFilters((prev) => ({ ...prev, financialYear: e.target.value }))}>
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.financialYears.map((fy) => (
-                      <MenuItem key={fy} value={fy}>{fy}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Stack>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>Sub-county</InputLabel>
-                  <Select
-                    label="Sub-county"
-                    value={filters.subCounty}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, subCounty: e.target.value, ward: '' }))}
-                  >
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.subCounties.map((sc) => (
-                      <MenuItem key={sc.key} value={sc.key}>{sc.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>Ward</InputLabel>
-                  <Select label="Ward" value={filters.ward} onChange={(e) => setFilters((prev) => ({ ...prev, ward: e.target.value }))}>
-                    <MenuItem value="">All</MenuItem>
-                    {filterOptions.wards.map((w) => (
-                      <MenuItem key={w.key} value={w.key}>{w.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 150 }}>
-                  <InputLabel>Pins</InputLabel>
-                  <Select
-                    label="Pins"
-                    value={filters.coordinatesOnly}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, coordinatesOnly: e.target.value }))}
-                  >
-                    <MenuItem value="yes">With coordinates only</MenuItem>
-                    <MenuItem value="no">Include all matches</MenuItem>
-                  </Select>
-                </FormControl>
-                <ToggleButtonGroup
-                  exclusive
-                  size="small"
-                  value={mapBaseStyle}
-                  onChange={(_, value) => {
-                    if (value) setMapBaseStyle(value);
-                  }}
-                >
-                  <ToggleButton value="roadmap">Map</ToggleButton>
-                  <ToggleButton value="satellite">Satellite</ToggleButton>
-                  <ToggleButton value="hybrid">Hybrid</ToggleButton>
-                </ToggleButtonGroup>
-                <Button size="small" variant="outlined" onClick={fitMapToResults}>
-                  Zoom to results
-                </Button>
-                <Button size="small" variant="outlined" onClick={fitMachakosCounty}>
-                  Zoom to Machakos
-                </Button>
-                <Button size="small" variant="text" onClick={clearFilters} disabled={activeFilterCount === 0}>
-                  Clear filters
-                </Button>
-              </Stack>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                <Chip size="small" label={`${stats.onMap} pins in Machakos`} color="primary" variant="outlined" />
-                <Chip size="small" label={`${stats.validInCounty} valid coordinates`} />
+          <Box>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                px: 1,
+                py: 0.5,
+                minHeight: 36,
+                cursor: 'pointer',
+                borderBottom: filtersExpanded ? 1 : 0,
+                borderColor: 'divider',
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+              onClick={() => setFiltersExpanded((v) => !v)}
+            >
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <FilterListIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  Filters
+                </Typography>
+                {activeFilterCount > 0 && (
+                  <Chip
+                    label={`${activeFilterCount} active`}
+                    size="small"
+                    color="primary"
+                    sx={{ height: 18, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
+                  />
+                )}
+                <Chip size="small" label={`${stats.onMap} pins`} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                 {stats.gisErrors > 0 && (
                   <Chip
                     size="small"
                     color="error"
                     label={`${stats.gisErrors} GIS errors`}
-                    onClick={() => setActiveTab('errors')}
-                    sx={{ cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab('errors');
+                    }}
+                    sx={{ height: 18, fontSize: '0.65rem', cursor: 'pointer' }}
                   />
                 )}
-                <Chip
-                  size="small"
-                  label={autoZoom ? 'Auto-zoom on' : 'Auto-zoom off'}
-                  onClick={() => setAutoZoom((v) => !v)}
-                  variant={autoZoom ? 'filled' : 'outlined'}
-                  sx={{ cursor: 'pointer' }}
-                />
               </Stack>
-            </Stack>
+              <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); setFiltersExpanded((v) => !v); }}>
+                {filtersExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+            </Box>
+
+            <Collapse in={filtersExpanded}>
+              <Box sx={{ p: 1 }}>
+                <Stack spacing={1}>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                    <TextField
+                      size="small"
+                      label="Search projects"
+                      value={filters.search}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+                      sx={{ minWidth: 200, flex: '1 1 220px' }}
+                    />
+                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <InputLabel>Status</InputLabel>
+                      <Select label="Status" value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
+                        <MenuItem value="">All</MenuItem>
+                        {filterOptions.statuses.map((s) => (
+                          <MenuItem key={s} value={s}>{s}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <InputLabel>Sector</InputLabel>
+                      <Select label="Sector" value={filters.sector} onChange={(e) => setFilters((prev) => ({ ...prev, sector: e.target.value }))}>
+                        <MenuItem value="">All</MenuItem>
+                        {filterOptions.sectors.map((s) => (
+                          <MenuItem key={s} value={s}>{s}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <InputLabel>Department</InputLabel>
+                      <Select label="Department" value={filters.department} onChange={(e) => setFilters((prev) => ({ ...prev, department: e.target.value }))}>
+                        <MenuItem value="">All</MenuItem>
+                        {filterOptions.departments.map((d) => (
+                          <MenuItem key={d} value={d}>{d}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 130 }}>
+                      <InputLabel>Fin. year</InputLabel>
+                      <Select label="Fin. year" value={filters.financialYear} onChange={(e) => setFilters((prev) => ({ ...prev, financialYear: e.target.value }))}>
+                        <MenuItem value="">All</MenuItem>
+                        {filterOptions.financialYears.map((fy) => (
+                          <MenuItem key={fy} value={fy}>{fy}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Stack>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <InputLabel>Sub-county</InputLabel>
+                      <Select
+                        label="Sub-county"
+                        value={filters.subCounty}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, subCounty: e.target.value, ward: '' }))}
+                      >
+                        <MenuItem value="">All</MenuItem>
+                        {filterOptions.subCounties.map((sc) => (
+                          <MenuItem key={sc.key} value={sc.key}>{sc.label}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 160 }} disabled={!filters.subCounty}>
+                      <InputLabel>Ward</InputLabel>
+                      <Select
+                        label="Ward"
+                        value={filters.ward}
+                        disabled={!filters.subCounty}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, ward: e.target.value }))}
+                      >
+                        <MenuItem value="">{filters.subCounty ? 'All' : 'Select sub-county first'}</MenuItem>
+                        {filterOptions.wards.map((w) => (
+                          <MenuItem key={w.key} value={w.key}>{w.label}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                      <InputLabel>Pins</InputLabel>
+                      <Select
+                        label="Pins"
+                        value={filters.coordinatesOnly}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, coordinatesOnly: e.target.value }))}
+                      >
+                        <MenuItem value="yes">With coordinates only</MenuItem>
+                        <MenuItem value="no">Include all matches</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <ToggleButtonGroup
+                      exclusive
+                      size="small"
+                      value={mapBaseStyle}
+                      onChange={(_, value) => {
+                        if (value) setMapBaseStyle(value);
+                      }}
+                    >
+                      <ToggleButton value="roadmap">Map</ToggleButton>
+                      <ToggleButton value="satellite">Satellite</ToggleButton>
+                      <ToggleButton value="hybrid">Hybrid</ToggleButton>
+                    </ToggleButtonGroup>
+                    <Button size="small" variant="outlined" onClick={fitMapToResults}>
+                      Zoom to results
+                    </Button>
+                    <Button size="small" variant="outlined" onClick={fitMachakosCounty}>
+                      Zoom to Machakos
+                    </Button>
+                    <Button size="small" variant="text" onClick={clearFilters} disabled={activeFilterCount === 0}>
+                      Clear filters
+                    </Button>
+                  </Stack>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                    <Chip size="small" label={`${stats.onMap} pins in Machakos`} color="primary" variant="outlined" />
+                    <Chip size="small" label={`${stats.validInCounty} valid coordinates`} />
+                    <Chip
+                      size="small"
+                      label={autoZoom ? 'Auto-zoom on' : 'Auto-zoom off'}
+                      onClick={() => setAutoZoom((v) => !v)}
+                      variant={autoZoom ? 'filled' : 'outlined'}
+                      sx={{ cursor: 'pointer' }}
+                    />
+                  </Stack>
+                </Stack>
+              </Box>
+            </Collapse>
           </Box>
         )}
 
@@ -552,7 +626,7 @@ function ProjectGisMapPage() {
           <GoogleMapComponent
             center={MACHAKOS_CENTER}
             zoom={DEFAULT_ZOOM}
-            style={{ height: '72vh', minHeight: 420, width: '100%' }}
+            style={{ height: '78vh', minHeight: 460, width: '100%' }}
             mapTypeId={mapBaseStyle}
             searchPlacement="above"
             onCreated={handleMapCreated}

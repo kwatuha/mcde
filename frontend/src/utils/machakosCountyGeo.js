@@ -1,4 +1,5 @@
-import { computeBoundsFromPoints } from './projectMapPoint';
+import { computeBoundsFromPoints, getProjectSubcountyLabel, getProjectWardLabel, normalizeSubcountyKey } from './projectMapPoint';
+import { normalizeWardKey } from './projectWardKey';
 
 /** Rough Kenya bounds for labeling coordinates far outside the country. */
 export const KENYA_BOUNDS = {
@@ -94,4 +95,54 @@ export function geometryToGooglePaths(geometry) {
     );
   }
   return [];
+}
+
+/**
+ * Sub-county (constituency) → ward hierarchy from Machakos ward GeoJSON, augmented with project rows.
+ */
+export function buildMachakosGeoHierarchy(wardGeo, projects = []) {
+  const subCounties = new Map();
+  const wardsBySubcounty = new Map();
+  const wardToSubcounty = new Map();
+
+  const addWard = (subKey, subLabel, wardKey, wardLabel) => {
+    if (!subKey || !wardKey) return;
+    subCounties.set(subKey, subLabel || subKey);
+    wardToSubcounty.set(wardKey, subKey);
+    if (!wardsBySubcounty.has(subKey)) wardsBySubcounty.set(subKey, new Map());
+    wardsBySubcounty.get(subKey).set(wardKey, wardLabel || wardKey);
+  };
+
+  (wardGeo?.features || []).forEach((feature) => {
+    const props = feature?.properties || {};
+    const wardLabel = String(props.ward_name || props.COUNTY_A_1 || '').trim();
+    const subLabel = String(props.constituency_name || props.CONSTITUEN || '').trim();
+    addWard(normalizeSubcountyKey(subLabel), subLabel, normalizeWardKey(wardLabel), wardLabel);
+  });
+
+  (projects || []).forEach((project) => {
+    const subLabel = getProjectSubcountyLabel(project);
+    const wardLabel = getProjectWardLabel(project);
+    addWard(normalizeSubcountyKey(subLabel), subLabel, normalizeWardKey(wardLabel), wardLabel);
+  });
+
+  return { subCounties, wardsBySubcounty, wardToSubcounty };
+}
+
+/** Ward options for a sub-county key; pass empty key for all wards in the county. */
+export function getWardsForSubcounty(hierarchy, subcountyKey) {
+  if (!hierarchy) return [];
+  if (!subcountyKey) {
+    const all = new Map();
+    hierarchy.wardsBySubcounty.forEach((wardMap) => {
+      wardMap.forEach((label, key) => all.set(key, label));
+    });
+    return [...all.entries()]
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+  const wardMap = hierarchy.wardsBySubcounty.get(subcountyKey) || new Map();
+  return [...wardMap.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
