@@ -14,6 +14,9 @@
 #   DEPLOY_SYNC_UPLOADS=0                   # skip media sync
 #   docs/ is not synced (local-only); override: DEPLOY_RSYNC_EXTRA_EXCLUDES=""
 #   DEPLOY_SYNC_DB=1 DEPLOY_SYNC_DB_CONFIRM=yes   # destructive DB push (see deploy-to-server.sh)
+#   After cloning DB from source (sync-source-db-to-mcmes.sh), copy media files too:
+#     DEPLOY_SYNC_UPLOADS_CONFIRM=yes ./deploy/sync-source-uploads-to-mcmes.sh
+#   DEPLOY_SYNC_UPLOADS=1 syncs uploads from YOUR LAPTOP only — not from the source server.
 #
 # First-time on server:
 #   - Docker + docker compose plugin

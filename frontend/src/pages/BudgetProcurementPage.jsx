@@ -30,6 +30,7 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import { Link as RouterLink } from 'react-router-dom';
 import budgetService from '../api/budgetService';
 import metaDataService from '../api/metaDataService';
+import procurementService from '../api/procurementService';
 import CreateRegistryProjectDialog from '../components/budget/CreateRegistryProjectDialog';
 import ProjectScopeSetupDialog from '../components/budget/ProjectScopeSetupDialog';
 import ProjectQuotationDialog from '../components/budget/ProjectQuotationDialog';
@@ -94,6 +95,7 @@ export default function BudgetProcurementPage() {
   const [dialogItem, setDialogItem] = useState(null);
   const [scopeSetupItem, setScopeSetupItem] = useState(null);
   const [quotationItem, setQuotationItem] = useState(null);
+  const [quotationAfterScopeItem, setQuotationAfterScopeItem] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
   const canCreateProject = hasPrivilege?.('budget.update') || hasPrivilege?.('project.create');
@@ -159,12 +161,38 @@ export default function BudgetProcurementPage() {
     setSuccessMessage(result?.message || 'Project scope updated successfully.');
     setScopeSetupItem(null);
     await loadQueue();
+    if (quotationAfterScopeItem) {
+      const projectId = quotationAfterScopeItem.registryProjectId;
+      const bqCount = Number(result?.scopeStatus?.bqItemCount || 0);
+      if (bqCount > 0) {
+        setQuotationItem(quotationAfterScopeItem);
+        setSuccessMessage('Scope is ready — enter the contracted quotation.');
+      } else if (projectId) {
+        try {
+          const status = await procurementService.getProjectScopeStatus(projectId);
+          if (Number(status?.bqItemCount || 0) > 0) {
+            setQuotationItem(quotationAfterScopeItem);
+            setSuccessMessage('Scope is ready — enter the contracted quotation.');
+          }
+        } catch {
+          // keep scope success message only
+        }
+      }
+      setQuotationAfterScopeItem(null);
+    }
   };
 
   const handleQuotationSuccess = async (result) => {
     setSuccessMessage(result?.message || 'Contracted quotation updated.');
     setQuotationItem(null);
+    setQuotationAfterScopeItem(null);
     await loadQueue();
+  };
+
+  const handleOpenScopeFromQuote = (item) => {
+    setQuotationAfterScopeItem(item);
+    setQuotationItem(null);
+    setScopeSetupItem(item);
   };
 
   return (
@@ -479,6 +507,7 @@ export default function BudgetProcurementPage() {
                                 color={item.quotationRiskLevel === 'high' ? 'warning' : 'primary'}
                                 startIcon={<CompareArrowsIcon fontSize="small" />}
                                 onClick={() => setQuotationItem(item)}
+                                title={!item.bqItemCount ? 'Setup scope first — planned BQ lines are required to quote' : undefined}
                               >
                                 Quote
                               </Button>
@@ -520,9 +549,13 @@ export default function BudgetProcurementPage() {
 
       <ProjectQuotationDialog
         open={Boolean(quotationItem)}
-        onClose={() => setQuotationItem(null)}
+        onClose={() => {
+          setQuotationItem(null);
+          setQuotationAfterScopeItem(null);
+        }}
         item={quotationItem}
         onSuccess={handleQuotationSuccess}
+        onSetupScope={handleOpenScopeFromQuote}
       />
     </Box>
   );

@@ -2959,7 +2959,7 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
     }
   }
 
-  if (!dryRun && (milestonesCreated > 0 || bqItemsCreated > 0 || lockBaseline)) {
+  if (!dryRun && (milestonesCreated > 0 || bqItemsCreated > 0)) {
     await mergeProjectProcurementScopeMeta(projectId, {
       status: lockBaseline ? 'planned' : 'draft',
       source,
@@ -3061,7 +3061,7 @@ async function buildQuotationEntrySheet(projectId) {
       plannedQuantity: row.quantity,
       plannedUnitCost: row.unitCost,
       plannedAmount: row.budgetAmount,
-      quotedQuantity: '',
+      quotedQuantity: row.quantity != null && row.quantity !== '' ? row.quantity : '',
       quotedUnitCost: '',
       quotedAmount: '',
       sortOrder: row.sortOrder ?? index + 1,
@@ -3079,10 +3079,11 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
   const instructions = workbook.addWorksheet('Instructions');
   instructions.addRow(['Contracted quotation template — tied to project planned BQ']);
   instructions.addRow(['']);
-  instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, or activity_name on planned rows.']);
-  instructions.addRow(['2. Enter supplier values in quoted_quantity, quoted_unit_cost, and/or quoted_amount only.']);
-  instructions.addRow(['3. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
-  instructions.addRow(['4. Leave quoted_amount blank on planned rows only if the item is not priced (imports as zero).']);
+  instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, activity_name, planned_quantity, or planned_unit_cost on planned rows.']);
+  instructions.addRow(['2. Planned quantity and unit cost are from the project BQ baseline (read-only reference).']);
+  instructions.addRow(['3. Enter quoted_quantity (defaults from planned) and quoted_unit_cost; quoted_amount calculates as quantity × unit cost.']);
+  instructions.addRow(['4. For a lump sum, set quoted_quantity to 1 and quoted_unit_cost to the total amount.']);
+  instructions.addRow(['5. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
 
   const sheet = workbook.addWorksheet('Quote Lines');
   sheet.columns = [
@@ -3091,38 +3092,71 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
     { header: 'milestone_name', key: 'milestone_name', width: 24 },
     { header: 'activity_name', key: 'activity_name', width: 32 },
     { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
+    { header: 'planned_quantity', key: 'planned_quantity', width: 14 },
+    { header: 'planned_unit_cost', key: 'planned_unit_cost', width: 16 },
     { header: 'planned_amount', key: 'planned_amount', width: 14 },
     { header: 'quoted_quantity', key: 'quoted_quantity', width: 14 },
     { header: 'quoted_unit_cost', key: 'quoted_unit_cost', width: 16 },
     { header: 'quoted_amount', key: 'quoted_amount', width: 16 },
     { header: 'sort_order', key: 'sort_order', width: 10 },
   ];
+
+  const amountNumFmt = '#,##0.00';
+  const applyQtyUnitAmountFormulas = (rowNum, plannedQty, plannedUnit, quotedQty) => {
+    const plannedProduct = Number(plannedQty) * Number(plannedUnit);
+    const plannedResult = Number.isFinite(plannedProduct) && plannedProduct !== 0
+      ? plannedProduct
+      : undefined;
+    sheet.getCell(`H${rowNum}`).value = {
+      formula: `IF(AND(F${rowNum}<>"",G${rowNum}<>""),F${rowNum}*G${rowNum},"")`,
+      result: plannedResult,
+    };
+    sheet.getCell(`H${rowNum}`).numFmt = amountNumFmt;
+    sheet.getCell(`K${rowNum}`).value = {
+      formula: `IF(AND(I${rowNum}<>"",J${rowNum}<>""),I${rowNum}*J${rowNum},"")`,
+      result: Number(quotedQty) && Number.isFinite(Number(quotedQty)) ? 0 : undefined,
+    };
+    sheet.getCell(`K${rowNum}`).numFmt = amountNumFmt;
+    sheet.getCell(`G${rowNum}`).numFmt = amountNumFmt;
+    sheet.getCell(`J${rowNum}`).numFmt = amountNumFmt;
+  };
+
   plannedLines.forEach((row, index) => {
-    sheet.addRow({
+    const plannedQty = row.quantity ?? '';
+    const plannedUnit = row.unitCost ?? '';
+    const quotedQty = row.quantity ?? '';
+    const added = sheet.addRow({
       planned_bq_item_id: row.plannedBqItemId,
       line_type: 'planned',
       milestone_name: row.milestoneName || '',
       activity_name: row.activityName,
       unit_of_measure: row.unitOfMeasure || '',
-      planned_amount: row.budgetAmount ?? '',
-      quoted_quantity: '',
+      planned_quantity: plannedQty,
+      planned_unit_cost: plannedUnit,
+      planned_amount: '',
+      quoted_quantity: quotedQty,
       quoted_unit_cost: '',
       quoted_amount: '',
       sort_order: row.sortOrder ?? index + 1,
     });
+    applyQtyUnitAmountFormulas(added.number, plannedQty, plannedUnit, quotedQty);
   });
-  sheet.addRow({
+
+  const provisional = sheet.addRow({
     planned_bq_item_id: '',
     line_type: 'provisional',
     milestone_name: 'Provisional sums',
     activity_name: 'Provisional sum (example — rename description only)',
     unit_of_measure: 'lump sum',
+    planned_quantity: '',
+    planned_unit_cost: '',
     planned_amount: '',
     quoted_quantity: 1,
     quoted_unit_cost: '',
     quoted_amount: '',
     sort_order: plannedLines.length + 1,
   });
+  applyQtyUnitAmountFormulas(provisional.number, '', '', 1);
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="quote_template_project_${projectId}.xlsx"`);
@@ -3131,13 +3165,16 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
 }
 
 function normalizeQuotationImportRow(row, index = 0) {
-  const quotedQty = parseScopeNumber(pickRowValue(row, ['quoted_quantity', 'quantity', 'qty']));
+  const lineType = normalizeQuotationLineType(pickRowValue(row, ['line_type', 'line type', 'type']) || 'planned');
+  const plannedQty = parseScopeNumber(pickRowValue(row, ['planned_quantity', 'planned_qty']));
+  const plannedUnit = parseScopeNumber(pickRowValue(row, ['planned_unit_cost', 'planned_rate']));
+  let quotedQty = parseScopeNumber(pickRowValue(row, ['quoted_quantity', 'quantity', 'qty']));
+  if (quotedQty == null && lineType === 'planned' && plannedQty != null) {
+    quotedQty = plannedQty;
+  }
   const quotedUnit = parseScopeNumber(pickRowValue(row, ['quoted_unit_cost', 'unit_cost', 'rate', 'quoted_unit_rate']));
   let amount = parseScopeNumber(pickRowValue(row, ['quoted_amount', 'amount', 'quoted_amount_kes', 'total']));
-  const plannedQty = parseScopeNumber(pickRowValue(row, ['planned_quantity', 'planned_qty']));
-  const plannedUnit = parseScopeNumber(pickRowValue(row, ['planned_unit_cost']));
   if (amount == null && quotedQty != null && quotedUnit != null) amount = quotedQty * quotedUnit;
-  const lineType = normalizeQuotationLineType(pickRowValue(row, ['line_type', 'line type', 'type']) || 'planned');
   const plannedBqItemId = parseScopeNumber(pickRowValue(row, ['planned_bq_item_id', 'bq_item_id', 'planned_id']));
   const activityName = pickRowValue(row, ['activity_name', 'activity', 'item', 'work_item']);
   if (!activityName && lineType === 'planned' && !plannedBqItemId) return null;
@@ -3293,7 +3330,7 @@ async function fetchPlannedBqLines(projectId) {
         id AS "plannedBqItemId",
         activity_name AS "activityName",
         milestone_name AS "milestoneName",
-        description,
+        remarks AS description,
         unit_of_measure AS "unitOfMeasure",
         quantity,
         unit_cost AS "unitCost",
@@ -3307,10 +3344,24 @@ async function fetchPlannedBqLines(projectId) {
         id AS "plannedBqItemId",
         activity_name AS "activityName",
         milestone_name AS "milestoneName",
-        description,
+        remarks AS description,
         unit_of_measure AS "unitOfMeasure",
         quantity,
         unit_cost AS "unitCost",
+        budget_amount AS "budgetAmount",
+        sort_order AS "sortOrder",
+        0::numeric AS "progressPercent"
+     FROM project_bq_items
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sort_order ASC NULLS LAST, id ASC`,
+    `SELECT
+        id AS "plannedBqItemId",
+        activity_name AS "activityName",
+        milestone_name AS "milestoneName",
+        NULL::text AS description,
+        NULL::text AS "unitOfMeasure",
+        NULL::numeric AS quantity,
+        NULL::numeric AS "unitCost",
         budget_amount AS "budgetAmount",
         sort_order AS "sortOrder",
         0::numeric AS "progressPercent"
@@ -3735,9 +3786,15 @@ function buildLineComparisonsFromQuotation(plannedLines, quotationLines) {
 
 function entryLinesToImportPayload(entryLines) {
   return (entryLines || []).map((line, index) => {
-    const quotedQty = line.quotedQuantity === '' || line.quotedQuantity == null
+    const plannedQty = line.plannedQuantity === '' || line.plannedQuantity == null
+      ? null
+      : Number(line.plannedQuantity);
+    let quotedQty = line.quotedQuantity === '' || line.quotedQuantity == null
       ? null
       : Number(line.quotedQuantity);
+    if (quotedQty == null && plannedQty != null && line.lineType !== 'provisional' && line.lineType !== 'pc_sum') {
+      quotedQty = plannedQty;
+    }
     const quotedUnit = line.quotedUnitCost === '' || line.quotedUnitCost == null
       ? null
       : Number(line.quotedUnitCost);
@@ -4921,10 +4978,23 @@ router.post('/projects/:projectId/scope/import/confirm', async (req, res) => {
       });
     }
     const scopeStatus = await fetchProjectScopeStatus(projectId);
+    const createdAny = (result.milestonesCreated || 0) + (result.bqItemsCreated || 0) > 0;
+    const hasBq = Number(scopeStatus?.bqItemCount || 0) > 0;
+    let message = `Imported ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ line(s).`;
+    if (!createdAny && hasBq) {
+      message = 'No new lines were imported — matching milestones/BQ already exist on this project.';
+    } else if (!hasBq) {
+      return res.status(400).json({
+        message: 'Import did not create any BQ lines. Check the Excel uses a "BQ Lines" sheet with activity_name column, then confirm import again.',
+        scopeStatus,
+        milestonesCreated: result.milestonesCreated,
+        bqItemsCreated: result.bqItemsCreated,
+      });
+    }
     return res.status(200).json({
       ...result,
       scopeStatus,
-      message: `Imported ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ line(s).`,
+      message,
     });
   } catch (error) {
     console.error('Error confirming scope import:', error);

@@ -31,6 +31,7 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DownloadIcon from '@mui/icons-material/Download';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import ArchitectureIcon from '@mui/icons-material/Architecture';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import procurementService from '../../api/procurementService';
@@ -71,7 +72,7 @@ function computeQuotedAmount(row) {
   return null;
 }
 
-export default function ProjectQuotationDialog({ open, onClose, item, onSuccess }) {
+export default function ProjectQuotationDialog({ open, onClose, item, onSuccess, onSetupScope }) {
   const projectId = item?.registryProjectId;
   const [tab, setTab] = useState('enter');
   const [comparison, setComparison] = useState(null);
@@ -80,6 +81,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
   const [loading, setLoading] = useState(false);
   const [loadingEntry, setLoadingEntry] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [scopeMissing, setScopeMissing] = useState(false);
   const [error, setError] = useState('');
 
   const [excelPreview, setExcelPreview] = useState(null);
@@ -107,13 +109,20 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
   const loadEntrySheet = useCallback(async () => {
     if (!projectId) return;
     setLoadingEntry(true);
+    setScopeMissing(false);
     try {
       const sheet = await procurementService.getQuotationEntrySheet(projectId);
       setEntryLines(sheet?.lines || []);
       setExtraLineTypes(sheet?.extraLineTypes || []);
+      setScopeMissing(!(sheet?.lines?.length));
     } catch (err) {
       setEntryLines([]);
-      setError(err?.response?.data?.message || err?.message || 'Failed to load planned BQ for quoting.');
+      const message = err?.response?.data?.message || err?.message || '';
+      const missingScope = /no planned bq|set up scope/i.test(message);
+      setScopeMissing(missingScope);
+      if (!missingScope) {
+        setError(message || 'Failed to load planned BQ for quoting.');
+      }
     } finally {
       setLoadingEntry(false);
     }
@@ -127,6 +136,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
     setReferenceNo('');
     setAwardOnSave(true);
     setError('');
+    setScopeMissing(false);
     loadComparison();
     loadEntrySheet();
   }, [open, projectId, loadComparison, loadEntrySheet]);
@@ -157,7 +167,18 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
   };
 
   const updateEntryLine = (index, field, value) => {
-    setEntryLines((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    setEntryLines((prev) => prev.map((row, i) => {
+      if (i !== index) return row;
+      const next = { ...row, [field]: value };
+      if (field === 'quotedQuantity' || field === 'quotedUnitCost') {
+        const qty = parseNum(next.quotedQuantity);
+        const unit = parseNum(next.quotedUnitCost);
+        if (qty != null && unit != null) {
+          next.quotedAmount = String(Math.round(qty * unit * 100) / 100);
+        }
+      }
+      return next;
+    }));
   };
 
   const addExtraLine = (lineType = 'provisional') => {
@@ -274,6 +295,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
   const highVarianceLines = lineComparisons.filter(
     (row) => row.lineType === 'planned' && Number(row.variancePercent || 0) >= 25
   );
+  const needsScopeSetup = scopeMissing || (!loadingEntry && !entryLines.length);
 
   return (
     <Dialog open={open} onClose={submitting ? undefined : onClose} fullWidth maxWidth="lg">
@@ -284,7 +306,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
       <DialogContent dividers>
         <Stack spacing={2}>
           <Alert severity="info">
-            Quote against the project&apos;s planned BQ: item names are fixed; enter quoted values only.
+            Quote against the project&apos;s planned BQ: item names and planned quantities are fixed; enter quoted unit cost and/or amount.
             Add provisional or PC sums at the bottom for allowances not in the baseline.
           </Alert>
 
@@ -313,13 +335,41 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
             </Box>
           )}
 
+          {needsScopeSetup && !loadingEntry && (
+            <Alert
+              severity="warning"
+              icon={<ArchitectureIcon />}
+              action={onSetupScope ? (
+                <Button color="inherit" size="small" variant="outlined" onClick={() => onSetupScope(item)}>
+                  Setup scope
+                </Button>
+              ) : null}
+            >
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                Planned BQ required before quoting
+              </Typography>
+              <Typography variant="body2" component="div">
+                {Number(item?.bqItemCount || 0) > 0
+                  ? `This project shows ${item.bqItemCount} BQ line(s) in procurement, but the quote sheet could not load them. Try Refresh on the page, or re-open Quote after restarting the API if you recently imported scope.`
+                  : 'This registry project has no bill-of-quantities lines yet. Quoted amounts must map to planned BQ items.'}
+              </Typography>
+              {Number(item?.bqItemCount || 0) === 0 && (
+                <Box component="ol" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
+                  <li>Use <strong>Setup scope</strong> → <strong>Import Excel</strong> (scope template with &quot;BQ Lines&quot; sheet), then click <strong>Import scope</strong>.</li>
+                  <li>Preview alone does not save — you must confirm the import.</li>
+                  <li>Do not use the Quote tab&apos;s Excel import for planned BQ; that is for contractor prices only.</li>
+                </Box>
+              )}
+            </Alert>
+          )}
+
           <Tabs value={tab} onChange={(_, value) => setTab(value)}>
-            <Tab value="enter" label="Enter quote" />
+            <Tab value="enter" label="Enter quote" disabled={needsScopeSetup} />
             <Tab value="compare" label="Comparison" />
-            <Tab value="import" label="Import Excel" />
+            <Tab value="import" label="Import Excel" disabled={needsScopeSetup} />
           </Tabs>
 
-          {tab === 'enter' && (
+          {tab === 'enter' && !needsScopeSetup && (
             <Stack spacing={2}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField label="Supplier name" size="small" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} fullWidth />
@@ -336,9 +386,6 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
                   Add PC sum
                 </Button>
               </Stack>
-              {!entryLines.length && !loadingEntry && (
-                <Alert severity="warning">No planned BQ lines. Use Setup scope on this project first.</Alert>
-              )}
               <TableContainer sx={{ maxHeight: 360 }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
@@ -346,10 +393,12 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
                       <TableCell>Type</TableCell>
                       <TableCell>Milestone</TableCell>
                       <TableCell>Activity</TableCell>
-                      <TableCell align="right">Planned</TableCell>
-                      <TableCell align="right">Qty</TableCell>
-                      <TableCell align="right">Unit cost</TableCell>
-                      <TableCell align="right">Quoted amount</TableCell>
+                      <TableCell align="right">Planned qty</TableCell>
+                      <TableCell align="right">Planned unit</TableCell>
+                      <TableCell align="right">Planned amt</TableCell>
+                      <TableCell align="right">Quoted qty</TableCell>
+                      <TableCell align="right">Quoted unit</TableCell>
+                      <TableCell align="right">Quoted amt</TableCell>
                       <TableCell width={40} />
                     </TableRow>
                   </TableHead>
@@ -376,16 +425,26 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
                             )}
                           </TableCell>
                           <TableCell align="right">
+                            {isPlanned && row.plannedQuantity != null && row.plannedQuantity !== ''
+                              ? Number(row.plannedQuantity)
+                              : '—'}
+                          </TableCell>
+                          <TableCell align="right">
+                            {isPlanned && row.plannedUnitCost != null && row.plannedUnitCost !== ''
+                              ? formatCurrency(Number(row.plannedUnitCost))
+                              : '—'}
+                          </TableCell>
+                          <TableCell align="right">
                             {row.plannedAmount != null ? formatCurrency(Number(row.plannedAmount)) : '—'}
                           </TableCell>
                           <TableCell align="right">
-                            <TextField size="small" type="number" value={row.quotedQuantity ?? ''} onChange={(e) => updateEntryLine(index, 'quotedQuantity', e.target.value)} sx={{ width: 88 }} />
+                            <TextField size="small" type="number" value={row.quotedQuantity ?? ''} onChange={(e) => updateEntryLine(index, 'quotedQuantity', e.target.value)} sx={{ width: 72 }} />
                           </TableCell>
                           <TableCell align="right">
-                            <TextField size="small" type="number" value={row.quotedUnitCost ?? ''} onChange={(e) => updateEntryLine(index, 'quotedUnitCost', e.target.value)} sx={{ width: 110 }} />
+                            <TextField size="small" type="number" value={row.quotedUnitCost ?? ''} onChange={(e) => updateEntryLine(index, 'quotedUnitCost', e.target.value)} sx={{ width: 96 }} />
                           </TableCell>
                           <TableCell align="right">
-                            <TextField size="small" type="number" value={row.quotedAmount ?? ''} onChange={(e) => updateEntryLine(index, 'quotedAmount', e.target.value)} sx={{ width: 120 }} />
+                            <TextField size="small" type="number" value={row.quotedAmount ?? ''} onChange={(e) => updateEntryLine(index, 'quotedAmount', e.target.value)} sx={{ width: 104 }} />
                           </TableCell>
                           <TableCell>
                             {!isPlanned && (
@@ -455,10 +514,10 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
             </Stack>
           )}
 
-          {tab === 'import' && (
+          {tab === 'import' && !needsScopeSetup && (
             <Stack spacing={2}>
               <Alert severity="info">
-                Use the project quote template (all planned BQ rows). Do not rename milestone or activity columns.
+                Use the project quote template (planned and quoted amounts calculate as quantity × unit cost). Do not rename milestone, activity, or planned quantity columns.
               </Alert>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>
@@ -491,6 +550,16 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess 
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Close</Button>
+        {needsScopeSetup && onSetupScope && (
+          <Button
+            variant="contained"
+            startIcon={<ArchitectureIcon />}
+            onClick={() => onSetupScope(item)}
+            disabled={submitting}
+          >
+            Setup scope first
+          </Button>
+        )}
         {tab === 'enter' && entryLines.length > 0 && (
           <Button variant="contained" onClick={handleSaveEntry} disabled={submitting}>
             Save quotation

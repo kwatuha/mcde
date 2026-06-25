@@ -268,3 +268,5 @@ if [[ -f "$DUMP_LOCAL" ]]; then
 fi
 echo "    Run county-role migrations on MCmes if position_rows is still 0."
 echo "    APP_LOGIN_URL on MCmes should be http://${TARGET_HOST}:8084/login"
+echo "    Copy photos/documents from SOURCE (DB does not include files):"
+echo "      DEPLOY_SYNC_UPLOADS_CONFIRM=yes ./deploy/sync-source-uploads-to-mcmes.sh"
