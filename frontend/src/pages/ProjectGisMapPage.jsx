@@ -51,6 +51,7 @@ import {
   projectMatchesWardFilter,
   toMoney,
 } from '../utils/projectMapPoint';
+import { buildErrorDotMarkerIcon, buildStatusDotMarkerIcon } from '../utils/mapMarkerIcons';
 
 const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
 const DEFAULT_ZOOM = 9;
@@ -69,6 +70,7 @@ function ProjectGisMapPage() {
   const [autoZoom, setAutoZoom] = useState(true);
   const [errorSearch, setErrorSearch] = useState('');
   const [previewErrorMarker, setPreviewErrorMarker] = useState(null);
+  const [mapsReady, setMapsReady] = useState(false);
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -333,6 +335,7 @@ function ProjectGisMapPage() {
 
   const handleMapCreated = useCallback((map) => {
     mapRef.current = map;
+    setMapsReady(true);
     if (countyChecker?.bounds) {
       window.setTimeout(() => fitGoogleMapToBounds(map, countyChecker.bounds, 40), 100);
     }
@@ -586,7 +589,7 @@ function ProjectGisMapPage() {
               />
             ))}
 
-            {mapMarkers.map(({ project, point }) => {
+            {mapsReady && mapMarkers.map(({ project, point }) => {
               const status = project?.status || project?.Status || 'Unknown';
               const fillColor = getProjectStatusBackgroundColor(status);
               return (
@@ -594,39 +597,17 @@ function ProjectGisMapPage() {
                   key={project.id || project.projectId || `${project.projectName}-${point.lat}-${point.lng}`}
                   position={point}
                   onClick={() => setSelectedProject({ project, point })}
-                  icon={
-                    window.google?.maps
-                      ? {
-                          path: window.google.maps.SymbolPath.CIRCLE,
-                          fillColor,
-                          fillOpacity: 1,
-                          strokeColor: '#ffffff',
-                          strokeWeight: 1.5,
-                          scale: 8,
-                        }
-                      : undefined
-                  }
+                  icon={buildStatusDotMarkerIcon(fillColor)}
                 />
               );
             })}
 
-            {previewErrorMarker?.point && (
+            {mapsReady && previewErrorMarker?.point && (
               <MarkerF
                 key={`gis-error-preview-${previewErrorMarker.project?.id}`}
                 position={previewErrorMarker.point}
                 onClick={() => setSelectedProject(previewErrorMarker)}
-                icon={
-                  window.google?.maps
-                    ? {
-                        path: window.google.maps.SymbolPath.CIRCLE,
-                        fillColor: '#DC2626',
-                        fillOpacity: 1,
-                        strokeColor: '#ffffff',
-                        strokeWeight: 2,
-                        scale: 10,
-                      }
-                    : undefined
-                }
+                icon={buildErrorDotMarkerIcon()}
               />
             )}
 
