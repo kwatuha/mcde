@@ -1492,13 +1492,10 @@ function UserManagementPage() {
     setOpenStandaloneOrgDialog(false);
     setCurrentUserToEdit(userItem);
     setOrganizationScopes([]);
-    setNewScopeType('STATE_DEPARTMENT_ALL');
-    setNewScopeMinistry(null);
-    setNewScopeStateDept(null);
-    setNewScopeStateDepts([]);
+    setProjectScopes([]);
+    setNewProjectScopeType('SECTOR');
+    setNewProjectScopeValues([]);
     const countyParentOpen = resolveCountyParentOrgName(ministriesHierarchy);
-    const preSd = String(userItem.stateDepartment || userItem.state_department || '').trim();
-    const preDirs = splitDirectorateProfileField(userItem.directorate || '');
     setUserFormData({
       username: userItem.username || '',
       email: userItem.email || '',
@@ -1511,10 +1508,10 @@ function UserManagementPage() {
       employeeNumber: userItem.employeeNumber || '',
       role: userItem.role || '',
       ministry: countyParentOpen,
-      stateDepartment: preSd,
-      accessDepartments: preSd ? [preSd] : [],
-      homeDirectorates: preDirs,
-      directorate: preDirs.join('|||'),
+      stateDepartment: '',
+      accessDepartments: [],
+      homeDirectorates: [],
+      directorate: '',
       agencyId: '',
       otpEnabled: !!(userItem.otpEnabled ?? userItem.otp_enabled),
       uiProfileId: userItem.uiProfile?.id || '',
@@ -1524,56 +1521,21 @@ function UserManagementPage() {
     setOpenUserDialog(true);
     try {
       const full = await apiService.getUserById(userItem.userId);
-      const scopes = Array.isArray(full.organizationScopes) ? full.organizationScopes : [];
-      setOrganizationScopes(scopes);
       setProjectScopes(Array.isArray(full.projectScopes) ? full.projectScopes : []);
-
-      const countyParent =
-        ministriesHierarchy.length > 0
-          ? resolveCountyParentOrgName(ministriesHierarchy)
-          : String(full.ministry || userItem.ministry || DEFAULT_MACHAKOS_PARENT_ORG).trim() ||
-            DEFAULT_MACHAKOS_PARENT_ORG;
-      const countyNorm = normalizeOrgText(countyParent);
-      const profileMinNorm = normalizeOrgText(full.ministry || userItem.ministry || '');
-
-      const deptScopes = scopes.filter((s) => {
-        if (s.scopeType !== 'STATE_DEPARTMENT_ALL') return false;
-        const m = String(s.ministry || '').trim();
-        return normalizeOrgText(m) === countyNorm || normalizeOrgText(m) === profileMinNorm;
-      });
-      let accessDepartments = [
-        ...new Set(
-          deptScopes
-            .map((s) => String(s.stateDepartment || s.state_department || '').trim())
-            .filter(Boolean)
-        ),
-      ];
-      if (accessDepartments.length === 0) {
-        const sd = String(
-          full.stateDepartment || full.state_department || userItem.stateDepartment || userItem.state_department || ''
-        ).trim();
-        if (sd) accessDepartments = [sd];
-      }
-      const homeDirectorates = splitDirectorateProfileField(full.directorate ?? userItem.directorate ?? '');
 
       setUserFormData((prev) => ({
         ...prev,
         otpEnabled: !!(full.otpEnabled ?? full.otp_enabled ?? prev.otpEnabled),
-        ministry: countyParent,
-        accessDepartments,
-        homeDirectorates,
-        directorate: homeDirectorates.join('|||'),
-        stateDepartment: accessDepartments[0] || '',
         uiProfileId: full.uiProfile?.id || '',
       }));
     } catch (err) {
-      console.warn('Could not load organization scopes:', err);
+      console.warn('Could not load user project access:', err);
     }
   };
 
   const handleOpenStandaloneOrgDialog = async (row) => {
     if (!hasPrivilege('user.update')) {
-      setSnackbar({ open: true, message: 'Permission denied to edit organization access.', severity: 'error' });
+      setSnackbar({ open: true, message: 'Permission denied to edit project access.', severity: 'error' });
       return;
     }
     if (!canMdaIctAdminMutateUser(user, row)) {
@@ -1585,30 +1547,16 @@ function UserManagementPage() {
     }
     setStandaloneOrgUserId(row.userId);
     setStandaloneOrgUsername(row.username || '');
-    setStandaloneNewScopeType('STATE_DEPARTMENT_ALL');
-    setStandaloneNewMinistry(null);
-    setStandaloneNewStateDept(null);
-    setStandaloneNewStateDepts([]);
-    setStandaloneScopes([]);
     setStandaloneProjectScopes([]);
     setStandaloneProjectScopeType('SECTOR');
     setStandaloneProjectScopeValues([]);
     setOpenStandaloneOrgDialog(true);
     try {
       const full = await apiService.getUserById(row.userId);
-      const scopes = Array.isArray(full.organizationScopes) ? full.organizationScopes : [];
-      setStandaloneScopes(scopes);
       setStandaloneProjectScopes(Array.isArray(full.projectScopes) ? full.projectScopes : []);
-      const existingDepartmentScopes = scopes
-        .filter((s) => s?.scopeType === 'STATE_DEPARTMENT_ALL')
-        .map((s) => String(s.stateDepartment || s.state_department || '').trim())
-        .filter(Boolean);
-      setStandaloneNewStateDepts([...new Set(existingDepartmentScopes)]);
-      setStandaloneNewStateDept(existingDepartmentScopes[0] || null);
-      setStandaloneNewMinistry(countyParentOrgName);
     } catch (err) {
-      console.warn('Could not load organization scopes:', err);
-      setSnackbar({ open: true, message: 'Could not load organization scopes for this user.', severity: 'error' });
+      console.warn('Could not load project access:', err);
+      setSnackbar({ open: true, message: 'Could not load project access for this user.', severity: 'error' });
     }
   };
 
@@ -1695,28 +1643,22 @@ function UserManagementPage() {
 
   const handleSaveStandaloneOrgScopes = async () => {
     if (!standaloneOrgUserId) return;
+    const projectScopePayload = (standaloneProjectScopes || []).map((s) => ({
+      scopeType: String(s.scopeType || s.scope_type || '').trim().toUpperCase(),
+      scopeValue: String(s.scopeValue || s.scope_value || '').trim(),
+      scopeRefId: s.scopeRefId || s.scope_ref_id || null,
+    })).filter((s) => s.scopeType && s.scopeValue);
+    if (!projectScopePayload.length) {
+      setSnackbar({ open: true, message: 'Add at least one project access rule before saving.', severity: 'warning' });
+      return;
+    }
     setStandaloneSaving(true);
     try {
-      const payload = standaloneScopes.map((s) => {
-        if (s.scopeType === 'AGENCY') return null;
-        if (s.scopeType === 'ALL_MINISTRIES') return { scopeType: 'ALL_MINISTRIES' };
-        if (s.scopeType === 'MINISTRY_ALL') return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
-        return {
-          scopeType: 'STATE_DEPARTMENT_ALL',
-          ministry: s.ministry,
-          stateDepartment: s.stateDepartment || s.state_department,
-        };
-      }).filter(Boolean);
-      const projectScopePayload = (standaloneProjectScopes || []).map((s) => ({
-        scopeType: String(s.scopeType || s.scope_type || '').trim().toUpperCase(),
-        scopeValue: String(s.scopeValue || s.scope_value || '').trim(),
-        scopeRefId: s.scopeRefId || s.scope_ref_id || null,
-      })).filter((s) => s.scopeType && s.scopeValue);
       await apiService.updateUser(standaloneOrgUserId, {
-        organizationScopes: payload,
+        organizationScopes: [],
         projectScopes: projectScopePayload,
       });
-      setSnackbar({ open: true, message: 'Access scopes updated.', severity: 'success' });
+      setSnackbar({ open: true, message: 'Project access updated.', severity: 'success' });
       handleCloseStandaloneOrgDialog();
       fetchUsers(showPendingOnly);
     } catch (err) {
@@ -1818,7 +1760,7 @@ function UserManagementPage() {
   const handleAddProjectScopes = () => {
     if (newProjectScopeType === 'ALL_DEPARTMENTS') {
       setProjectScopes([{ scopeType: 'ALL_DEPARTMENTS', scopeValue: '*' }]);
-      setUserFormErrors((prev) => ({ ...prev, projectScopes: '', accessDepartments: '' }));
+      setUserFormErrors((prev) => ({ ...prev, projectScopes: '' }));
       setNewProjectScopeValues([]);
       return;
     }
@@ -2141,23 +2083,7 @@ function UserManagementPage() {
         scopeValue: String(s.scopeValue || s.scope_value || '').trim(),
       }))
       .filter((s) => s.scopeType && s.scopeValue);
-    const normalizedOrgScopes = (organizationScopes || [])
-      .filter((s) => {
-        const type = String(s.scopeType || s.scope_type || '').trim().toUpperCase();
-        if (type === 'ALL_MINISTRIES') return true;
-        if (type === 'MINISTRY_ALL') return Boolean(String(s.ministry || '').trim());
-        if (type === 'STATE_DEPARTMENT_ALL') {
-          return Boolean(String(s.ministry || '').trim() && String(s.stateDepartment || s.state_department || '').trim());
-        }
-        return false;
-      });
-    const accessDepts = Array.isArray(formValues.accessDepartments)
-      ? formValues.accessDepartments.map((x) => String(x || '').trim()).filter(Boolean)
-      : [];
-    const hasAnyAccessScope =
-      normalizedProjectScopes.length > 0
-      || normalizedOrgScopes.length > 0
-      || accessDepts.length > 0;
+    const hasProjectAccess = normalizedProjectScopes.length > 0;
     const roleName = String(formValues.role || '').trim();
     if (!roleName) {
       errors.role = 'Role is required.';
@@ -2177,8 +2103,8 @@ function UserManagementPage() {
     }
 
     const orgProfileEditable = !currentUserToEdit || isSuperAdmin;
-    if (orgProfileEditable && !hasAnyAccessScope) {
-      errors.projectScopes = 'Add organization access or project access before the user can sign in.';
+    if (orgProfileEditable && !hasProjectAccess) {
+      errors.projectScopes = 'Add at least one project access rule before the user can sign in.';
     }
 
     if (!currentUserToEdit) {
@@ -2279,45 +2205,17 @@ function UserManagementPage() {
     try {
       // Convert role name to roleId for backend
       const selectedRole = assignableRoles.find(role => role.roleName === formValues.role) || roles.find(role => role.roleName === formValues.role);
-      const accessDepts = Array.isArray(formValues.accessDepartments)
-        ? [...new Set(formValues.accessDepartments.map((x) => String(x || '').trim()).filter(Boolean))]
-        : [];
-      const homeDirs = Array.isArray(formValues.homeDirectorates)
-        ? [...new Set(formValues.homeDirectorates.map((x) => String(x || '').trim()).filter(Boolean))]
-        : [];
       const countyParent = countyParentOrgName;
-      const preservedScopes = organizationScopes.filter((s) => s.scopeType !== 'STATE_DEPARTMENT_ALL');
-      const deptScopesBuilt = accessDepts.map((sd) => ({
-        scopeType: 'STATE_DEPARTMENT_ALL',
-        ministry: countyParent,
-        stateDepartment: sd,
-      }));
-      const mergedOrgScopes = [...deptScopesBuilt, ...preservedScopes];
 
       const dataToSend = {
         ...formValues,
         ministry: countyParent,
-        stateDepartment: accessDepts[0] || '',
+        stateDepartment: '',
         roleId: selectedRole ? selectedRole.roleId : null,
         agency_id: null,
-        state_department: accessDepts[0] || null,
-        directorate: homeDirs.length ? homeDirs.join('|||') : null,
-        organizationScopes: mergedOrgScopes.map((s) => {
-          if (s.scopeType === 'AGENCY') {
-            return null;
-          }
-          if (s.scopeType === 'ALL_MINISTRIES') {
-            return { scopeType: 'ALL_MINISTRIES' };
-          }
-          if (s.scopeType === 'MINISTRY_ALL') {
-            return { scopeType: 'MINISTRY_ALL', ministry: s.ministry };
-          }
-          return {
-            scopeType: 'STATE_DEPARTMENT_ALL',
-            ministry: s.ministry,
-            stateDepartment: s.stateDepartment || s.state_department,
-          };
-        }).filter(Boolean),
+        state_department: null,
+        directorate: null,
+        organizationScopes: [],
         projectScopes: (projectScopes || []).map((s) => ({
           scopeType: String(s.scopeType || s.scope_type || '').trim().toUpperCase(),
           scopeValue: String(s.scopeValue || s.scope_value || '').trim(),
@@ -3390,7 +3288,7 @@ function UserManagementPage() {
                 onClick={() => canMdaIctAdminMutateUser(user, params.row) && handleOpenStandaloneOrgDialog(params.row)}
                 title={
                   canMdaIctAdminMutateUser(user, params.row)
-                    ? 'Organization access — which county departments and projects this user may see'
+                    ? 'Project access — county-wide, sector, department, ward, and other data scopes'
                     : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
                 }
               >
@@ -4366,18 +4264,6 @@ function UserManagementPage() {
                     />
                   ) : null}
                 </Grid>
-                {Array.isArray(u.organizationScopes) && u.organizationScopes.length > 0 && (
-                  <Box sx={{ mt: 1.5 }}>
-                    <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
-                      County organization access
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
-                      {u.organizationScopes.map((s, idx) => (
-                        <Chip key={`vd-${idx}-${s.scopeType}-${s.agencyId || s.ministry || ''}`} label={scopeRowLabel(s)} size="small" sx={{ fontWeight: 600 }} />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
                 {Array.isArray(u.projectScopes) && u.projectScopes.length > 0 && (
                   <Box sx={{ mt: 1.5 }}>
                     <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
@@ -4393,6 +4279,18 @@ function UserManagementPage() {
                           variant="outlined"
                           sx={{ fontWeight: 600 }}
                         />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+                {Array.isArray(u.organizationScopes) && u.organizationScopes.length > 0 && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography variant="subtitle2" sx={{ color: colors.grey[400], fontWeight: 700, mb: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
+                      Legacy organization access
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                      {u.organizationScopes.map((s, idx) => (
+                        <Chip key={`vd-${idx}-${s.scopeType}-${s.agencyId || s.ministry || ''}`} label={scopeRowLabel(s)} size="small" sx={{ fontWeight: 600 }} />
                       ))}
                     </Box>
                   </Box>
@@ -4463,8 +4361,8 @@ function UserManagementPage() {
             </Alert>
           )}
           <Alert severity="info" icon={<AccountTreeIcon />} sx={{ mb: 2 }}>
-            <strong>Organization access</strong> is configured below (scroll down) or use the purple tree icon in the user table for a dedicated window.
-            Department is optional — use Project access for county-wide, sector, ward, or other data scopes.
+            <strong>Project access</strong> controls which projects and data this user can see after sign-in.
+            Use county-wide, sector, department, sub-county, ward, or other scopes below. Role and UI profile still control menus and privileges.
           </Alert>
           <TextField 
             autoFocus 
@@ -4863,176 +4761,15 @@ function UserManagementPage() {
               </Typography>
             </FormControl>
           )}
-          <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Parent organization is fixed to {countyParentOrgName}. Department and directorate are optional when the user is scoped through Project access below.
-          </Typography>
-          <Autocomplete
-            multiple
-            key={`user-form-depts-${normalizeOrgText(countyParentOrgName)}`}
-            fullWidth
-            options={accessDepartmentFieldOptions}
-            value={Array.isArray(userFormData.accessDepartments) ? userFormData.accessDepartments : []}
-            onChange={(event, newValue) => {
-              const next = Array.isArray(newValue) ? newValue : [];
-              setUserFormData((prev) => ({
-                ...prev,
-                accessDepartments: next,
-                ministry: countyParentOrgName,
-                stateDepartment: next[0] || '',
-              }));
-              setUserFormErrors((prev) => ({
-                ...prev,
-                accessDepartments: '',
-                stateDepartment: '',
-                homeDirectorates: '',
-                directorate: '',
-                projectScopes: '',
-              }));
-            }}
-            loading={loadingAgencies}
-            disabled={!!currentUserToEdit && !isSuperAdmin}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                margin="dense"
-                label="Departments (access)"
-                error={!!userFormErrors.accessDepartments}
-                helperText={
-                  userFormErrors.accessDepartments ||
-                  'Optional. Use Project access below for the main data scope; this can remain empty for county, sub-county, ward, sector, or cross-department users.'
-                }
-                sx={{
-                  mb: 2,
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#ffffff',
-                    borderRadius: 1.5,
-                  },
-                }}
-              />
-            )}
-          />
-          <Autocomplete
-            multiple
-            key={`user-form-directorates-${(userFormData.accessDepartments || []).map((d) => normalizeOrgText(d)).join('|')}`}
-            fullWidth
-            options={directorateOptionsMulti}
-            value={Array.isArray(userFormData.homeDirectorates) ? userFormData.homeDirectorates : []}
-            onChange={(event, newValue) => {
-              const next = Array.isArray(newValue) ? newValue : [];
-              setUserFormData((prev) => ({
-                ...prev,
-                homeDirectorates: next,
-                directorate: next.join('|||'),
-              }));
-              setUserFormErrors((prev) => ({ ...prev, homeDirectorates: '', directorate: '' }));
-            }}
-            loading={loadingAgencies}
-            disabled={
-              (!!currentUserToEdit && !isSuperAdmin) || !(Array.isArray(userFormData.accessDepartments) && userFormData.accessDepartments.length)
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                margin="dense"
-                label="Directorates (home sections)"
-                error={!!userFormErrors.homeDirectorates}
-                helperText={
-                  userFormErrors.homeDirectorates ||
-                  ((userFormData.accessDepartments || []).length
-                    ? sectionsForAccessDepartments.length > 0
-                      ? 'Optional. Pick sections only when the user should be associated with specific directorates.'
-                      : 'No sections in catalog for these departments — legacy section names are still listed if present.'
-                    : 'Optional. Select access departments first if you want to assign home directorates.')
-                }
-                sx={{
-                  mb: 2,
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#ffffff',
-                    borderRadius: 1.5,
-                  },
-                }}
-              />
-            )}
-          />
-
-          <Typography id="user-org-scope-section" variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1, mt: 1 }}>
-            Organization access (projects &amp; directories)
-          </Typography>
-          <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Parent organization is fixed to {countyParentOrgName}. Choose county-wide access or select the departments this user can see.
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
-              <InputLabel>Access scope</InputLabel>
-              <Select
-                label="Access scope"
-                value={newScopeType}
-                onChange={(e) => {
-                  setNewScopeType(e.target.value);
-                  setNewScopeMinistry(null);
-                  setNewScopeStateDept(null);
-                  setNewScopeStateDepts([]);
-                }}
-              >
-                <MenuItem value="ALL_MINISTRIES">All departments (county-wide)</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">Specific departments</MenuItem>
-              </Select>
-            </FormControl>
-            {newScopeType === 'ALL_MINISTRIES' && (
-              <TextField
-                size="small"
-                label="County-wide access"
-                value="Enabled"
-                disabled
-                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-              />
-            )}
-            {newScopeType === 'STATE_DEPARTMENT_ALL' && (
-              <Autocomplete
-                multiple
-                sx={{ flex: 1, minWidth: 260, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={allCountyDepartmentNames}
-                value={Array.isArray(newScopeStateDepts) ? newScopeStateDepts : []}
-                onChange={(_, v) => {
-                  const next = Array.isArray(v) ? v : [];
-                  setNewScopeStateDepts(next);
-                  setNewScopeStateDept(next[0] || null);
-                  setNewScopeMinistry(countyParentOrgName);
-                }}
-                renderInput={(params) => <TextField {...params} label="Departments" margin="dense" size="small" />}
-              />
-            )}
-            <Button variant="outlined" size="small" onClick={handleAddOrganizationScope} sx={{ height: 40 }}>
-              Apply access mode
-            </Button>
-          </Stack>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
-            {organizationScopes.map((s, idx) => (
-              <Chip
-                key={`${s.scopeType}-${idx}-${s.agencyId || s.ministry || ''}`}
-                label={scopeRowLabel(s)}
-                onDelete={() => handleRemoveOrganizationScope(idx)}
-                size="small"
-                sx={{ fontWeight: 600 }}
-              />
-            ))}
-            {organizationScopes.length === 0 && (
-              <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
-                No organization access rules added yet.
-              </Typography>
-            )}
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
           <Typography
             ref={projectAccessSectionRef}
             variant="subtitle2"
-            sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}
+            sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1, mt: 1 }}
           >
-            Project access (all departments, sector, department, sub-county, ward, sublocation, village, municipality)
+            Project access
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Prefer this for data access. Use all departments for county-wide project visibility, or narrow access by implementation sector, department, sub-county, ward, sublocation, village, or municipality.
+            Required. Choose all departments for county-wide visibility, or narrow by sector, department, sub-county, ward, sublocation, village, or municipality.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ md: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 180, bgcolor: '#fff', borderRadius: 1 }}>
@@ -5130,7 +4867,7 @@ function UserManagementPage() {
       >
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
           <AccountTreeIcon />
-          User access
+          Project access
           {standaloneOrgUsername ? (
             <Typography component="span" variant="subtitle1" sx={{ fontWeight: 600, ml: 0.5, opacity: 0.95 }}>
               — {standaloneOrgUsername}
@@ -5147,76 +4884,13 @@ function UserManagementPage() {
           }}
         >
           <Typography variant="body2" sx={{ mb: 2, color: colors.grey[200] }}>
-            Use Project access as the main data scope. The organization access controls below are retained for legacy department/agency mapping. Users with the{' '}
-            <strong>organization.scope_bypass</strong> privilege are unrestricted.
+            Configure which projects and data this user can access. County-wide users need an <strong>All departments</strong> project scope; ward monitors need a <strong>Ward</strong> scope, and so on.
           </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ sm: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#fff', borderRadius: 1 }}>
-              <InputLabel>Access scope</InputLabel>
-              <Select
-                label="Access scope"
-                value={standaloneNewScopeType}
-                onChange={(e) => {
-                  setStandaloneNewScopeType(e.target.value);
-                  setStandaloneNewMinistry(null);
-                  setStandaloneNewStateDept(null);
-                  setStandaloneNewStateDepts([]);
-                }}
-              >
-                <MenuItem value="ALL_MINISTRIES">All departments (county-wide)</MenuItem>
-                <MenuItem value="STATE_DEPARTMENT_ALL">Specific departments</MenuItem>
-              </Select>
-            </FormControl>
-            {standaloneNewScopeType === 'ALL_MINISTRIES' && (
-              <TextField
-                size="small"
-                label="County-wide access"
-                value="Enabled"
-                disabled
-                sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-              />
-            )}
-            {standaloneNewScopeType === 'STATE_DEPARTMENT_ALL' && (
-              <Autocomplete
-                multiple
-                sx={{ flex: 1, minWidth: 260, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff' } }}
-                options={allCountyDepartmentNames}
-                value={Array.isArray(standaloneNewStateDepts) ? standaloneNewStateDepts : []}
-                onChange={(_, v) => {
-                  const next = Array.isArray(v) ? v : [];
-                  setStandaloneNewStateDepts(next);
-                  setStandaloneNewStateDept(next[0] || null);
-                  setStandaloneNewMinistry(countyParentOrgName);
-                }}
-                renderInput={(params) => <TextField {...params} label="Departments" margin="dense" size="small" />}
-              />
-            )}
-            <Button variant="outlined" size="small" onClick={handleAddStandaloneScope} sx={{ height: 40 }}>
-              Apply access mode
-            </Button>
-          </Stack>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
-            {standaloneScopes.map((s, idx) => (
-              <Chip
-                key={`st-${idx}-${s.scopeType}-${s.agencyId || s.ministry || ''}`}
-                label={scopeRowLabel(s)}
-                onDelete={() => handleRemoveStandaloneScope(idx)}
-                size="small"
-                sx={{ fontWeight: 600 }}
-              />
-            ))}
-            {standaloneScopes.length === 0 && (
-              <Typography variant="caption" sx={{ color: colors.grey[500], fontStyle: 'italic' }}>
-                No explicit organization access rules configured.
-              </Typography>
-            )}
-          </Box>
-          <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}>
-            Project access (all departments, sector, department, sub-county, ward, sublocation, village)
+            Project access
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
-            Prefer this section for user data access. All departments gives county-wide project visibility; other rules narrow by sector, department, sub-county, ward, sublocation, or village.
+            Required. All departments gives county-wide project visibility; other rules narrow by sector, department, sub-county, ward, sublocation, village, or municipality.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }} alignItems={{ md: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 180, bgcolor: '#fff', borderRadius: 1 }}>
@@ -5298,7 +4972,7 @@ function UserManagementPage() {
             Cancel
           </Button>
           <Button onClick={handleSaveStandaloneOrgScopes} color="primary" variant="contained" disabled={standaloneSaving || !standaloneOrgUserId}>
-            {standaloneSaving ? 'Saving…' : 'Save access'}
+            {standaloneSaving ? 'Saving…' : 'Save project access'}
           </Button>
         </DialogActions>
       </Dialog>

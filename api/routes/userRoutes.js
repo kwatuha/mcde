@@ -883,7 +883,7 @@ router.post('/users', async (req, res) => {
     if ((Array.isArray(scopesFromBody) || Array.isArray(projectScopesFromBody))
         && !hasValidOrganizationScopesFromBody
         && !hasValidProjectScopesFromBody) {
-        return res.status(400).json({ error: 'Assign organization access or project access before this user can sign in.' });
+        return res.status(400).json({ error: 'Assign project access before this user can sign in.' });
     }
 
     const resolvedPhone = phoneNumber ?? phone_number;
@@ -1262,7 +1262,7 @@ router.put('/users/:id', async (req, res) => {
     if ((Array.isArray(scopesPayload) || Array.isArray(projectScopesPayload))
         && !hasValidOrganizationScopesPayload
         && !hasValidProjectScopesPayload) {
-        return res.status(400).json({ error: 'Assign organization access or project access before this user can sign in.' });
+        return res.status(400).json({ error: 'Assign project access before this user can sign in.' });
     }
     const incomingPhone = req.body.phoneNumber ?? req.body.phone_number;
     if (incomingPhone !== undefined && incomingPhone !== null && String(incomingPhone).trim() !== '') {
