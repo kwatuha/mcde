@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const ExcelJS = require('exceljs');
+const XLSX = require('xlsx');
 const pool = require('../config/db');
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -166,6 +168,326 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage: storage });
+const excelUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 4 * 1024 * 1024 },
+});
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_REGEX = /^(?:07\d{8}|\+2547\d{8})$/;
+
+function normHeaderKey(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function pickRowValue(row, aliases) {
+    if (!row || typeof row !== 'object') return '';
+    const keys = Object.keys(row);
+    const normalized = new Map(keys.map((k) => [normHeaderKey(k), row[k]]));
+    for (const alias of aliases) {
+        const hit = normalized.get(normHeaderKey(alias));
+        if (hit !== undefined && hit !== null && String(hit).trim() !== '') {
+            return String(hit).trim();
+        }
+    }
+    return '';
+}
+
+function sheetRowsFromWorkbook(workbook, preferredNames = []) {
+    const names = workbook.SheetNames || [];
+    for (const preferred of preferredNames) {
+        const hit = names.find((n) => normHeaderKey(n) === normHeaderKey(preferred));
+        if (hit) {
+            return { sheetName: hit, rows: XLSX.utils.sheet_to_json(workbook.Sheets[hit], { defval: '' }) };
+        }
+    }
+    if (!names.length) return { sheetName: '', rows: [] };
+    const sheetName = names[0];
+    return { sheetName, rows: XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' }) };
+}
+
+async function fetchContractorTypeOptions() {
+    await ensureContractorTypesTable();
+    if (isPostgres) {
+        const result = await pool.query(
+            `SELECT contractor_type_id AS "contractorTypeId", name
+             FROM contractor_types
+             WHERE COALESCE(voided, false) = false
+             ORDER BY name ASC`
+        );
+        return rowsOf(result);
+    }
+    const result = await pool.query(
+        `SELECT contractor_type_id AS contractorTypeId, name
+         FROM contractor_types
+         WHERE voided = 0
+         ORDER BY name ASC`
+    );
+    return rowsOf(result);
+}
+
+function resolveContractorTypeId(typeName, typeOptions) {
+    const raw = String(typeName || '').trim();
+    if (!raw) return { contractorTypeId: null, contractorTypeName: '' };
+    const hit = (typeOptions || []).find((t) => normHeaderKey(t.name) === normHeaderKey(raw));
+    if (!hit) {
+        return { contractorTypeId: null, contractorTypeName: raw, unknownType: true };
+    }
+    return {
+        contractorTypeId: hit.contractorTypeId,
+        contractorTypeName: hit.name,
+        unknownType: false,
+    };
+}
+
+async function fetchExistingContractorEmails() {
+    await ensureContractorsTable();
+    const rows = await queryRowsFallbackTables(
+        [
+            () => `SELECT LOWER(TRIM(email)) AS email FROM contractors WHERE COALESCE(voided, false) = false`,
+            () => `SELECT LOWER(TRIM(email)) AS email FROM contractors WHERE COALESCE(voided, 0) = 0`,
+        ],
+        []
+    );
+    return new Set((rows || []).map((r) => String(r.email || '').trim()).filter(Boolean));
+}
+
+function parseContractorImportRow(row, rowNumber, typeOptions, existingEmails, seenEmails) {
+    const companyName = pickRowValue(row, ['company_name', 'company name', 'company', 'name', 'firm']);
+    const contactPerson = pickRowValue(row, ['contact_person', 'contact person', 'contact', 'contact_name']);
+    const email = pickRowValue(row, ['email', 'email_address', 'e-mail']).toLowerCase();
+    const phone = pickRowValue(row, ['phone', 'phone_number', 'mobile', 'telephone']);
+    const contractorType = pickRowValue(row, ['contractor_type', 'contractor type', 'type', 'category']);
+    const messages = [];
+
+    if (!companyName && !email && !contactPerson && !phone && !contractorType) {
+        return null;
+    }
+
+    if (!companyName) messages.push('Company name is required.');
+    if (!email) messages.push('Email is required.');
+    else if (!EMAIL_REGEX.test(email)) messages.push('Email format is invalid.');
+
+    if (phone && !PHONE_REGEX.test(phone)) {
+        messages.push('Phone should be 07XXXXXXXX or +2547XXXXXXXX.');
+    }
+
+    const typeResolved = resolveContractorTypeId(contractorType, typeOptions);
+    if (typeResolved.unknownType) {
+        messages.push(`Unknown contractor type "${typeResolved.contractorTypeName}". Leave blank or use a type from the template.`);
+    }
+
+    let status = 'will_create';
+    if (messages.some((m) => m.includes('required') || m.includes('invalid') || m.includes('Unknown'))) {
+        status = 'error';
+    } else if (seenEmails.has(email)) {
+        status = 'duplicate_file';
+        messages.push('Duplicate email in this file.');
+    } else if (existingEmails.has(email)) {
+        status = 'duplicate_skip';
+        messages.push('A contractor with this email already exists.');
+    }
+
+    if (email) seenEmails.add(email);
+
+    return {
+        rowNumber,
+        companyName,
+        contactPerson,
+        email,
+        phone: phone || '',
+        contractorType: typeResolved.contractorTypeName || contractorType,
+        contractorTypeId: typeResolved.contractorTypeId,
+        status,
+        messages,
+    };
+}
+
+function parseContractorExcelBuffer(buffer) {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const { sheetName, rows } = sheetRowsFromWorkbook(workbook, ['contractors', 'contractor', 'sheet1']);
+    const parsedRows = [];
+    const errors = [];
+    if (!rows.length) {
+        errors.push('No data rows found. Use the Contractors sheet in the import template.');
+    }
+    return { sheetName, rows: parsedRows, rawRows: rows, errors };
+}
+
+async function buildContractorImportPreview(buffer) {
+    const typeOptions = await fetchContractorTypeOptions();
+    const existingEmails = await fetchExistingContractorEmails();
+    const seenEmails = new Set();
+    const parsed = parseContractorExcelBuffer(buffer);
+    const previewRows = [];
+
+    parsed.rawRows.forEach((row, index) => {
+        const rowNumber = index + 2;
+        const item = parseContractorImportRow(row, rowNumber, typeOptions, existingEmails, seenEmails);
+        if (item) previewRows.push(item);
+    });
+
+    if (!previewRows.length && !parsed.errors.length) {
+        parsed.errors.push('No contractor rows found in the uploaded file.');
+    }
+
+    const validRows = previewRows
+        .filter((r) => r.status === 'will_create')
+        .map(({ companyName, contactPerson, email, phone, contractorTypeId }) => ({
+            companyName,
+            contactPerson,
+            email,
+            phone: phone || null,
+            contractorTypeId: contractorTypeId || null,
+        }));
+
+    return {
+        sheetName: parsed.sheetName,
+        rows: previewRows,
+        validRows,
+        errors: parsed.errors,
+        typeOptions,
+        wouldCreate: validRows.length,
+        skippedDuplicates: previewRows.filter((r) => r.status === 'duplicate_skip' || r.status === 'duplicate_file').length,
+        errorCount: previewRows.filter((r) => r.status === 'error').length,
+    };
+}
+
+async function insertImportedContractor(row) {
+    const activeTable = await ensureContractorsTable();
+    const { companyName, contactPerson, email, phone, contractorTypeId } = row;
+    if (isPostgres) {
+        const result = await pool.query(
+            `INSERT INTO ${activeTable} ("companyName", "contactPerson", email, phone, "contractorTypeId", voided)
+             VALUES ($1, $2, $3, $4, $5, false)
+             RETURNING "contractorId"`,
+            [companyName, contactPerson || null, email, phone || null, contractorTypeId || null]
+        );
+        return rowsOf(result)?.[0]?.contractorId || null;
+    }
+    const result = await pool.query(
+        `INSERT INTO ${activeTable} (companyName, contactPerson, email, phone, contractorTypeId) VALUES (?, ?, ?, ?, ?)`,
+        [companyName, contactPerson || null, email, phone || null, contractorTypeId || null]
+    );
+    return metaOf(result).insertId || null;
+}
+
+// --- Contractor Excel import (routes before /:contractorId) ---
+router.get('/import-template', async (_req, res) => {
+    try {
+        const typeOptions = await fetchContractorTypeOptions();
+        const workbook = new ExcelJS.Workbook();
+        const contractors = workbook.addWorksheet('Contractors');
+        contractors.columns = [
+            { header: 'company_name', key: 'company_name', width: 32 },
+            { header: 'contact_person', key: 'contact_person', width: 24 },
+            { header: 'email', key: 'email', width: 28 },
+            { header: 'phone', key: 'phone', width: 18 },
+            { header: 'contractor_type', key: 'contractor_type', width: 22 },
+        ];
+        const sampleType = typeOptions[0]?.name || 'General';
+        contractors.addRow({
+            company_name: 'Example Contractors Ltd',
+            contact_person: 'Jane Doe',
+            email: 'jane.doe@example.com',
+            phone: '0712345678',
+            contractor_type: sampleType,
+        });
+
+        const typesSheet = workbook.addWorksheet('Contractor Types');
+        typesSheet.columns = [
+            { header: 'contractor_type', key: 'contractor_type', width: 28 },
+            { header: 'description', key: 'description', width: 36 },
+        ];
+        if (typeOptions.length) {
+            typeOptions.forEach((t) => typesSheet.addRow({ contractor_type: t.name, description: '' }));
+        } else {
+            typesSheet.addRow({ contractor_type: 'General', description: 'Add types under Contractor Types settings' });
+        }
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="contractor_import_template.xlsx"');
+        await workbook.xlsx.write(res);
+        return res.end();
+    } catch (error) {
+        console.error('Error generating contractor import template:', error);
+        return res.status(500).json({ message: 'Error generating contractor import template', error: error.message });
+    }
+});
+
+router.post('/import/preview', excelUpload.single('file'), async (req, res) => {
+    if (!req.file?.buffer) return res.status(400).json({ message: 'Excel file is required.' });
+    try {
+        const preview = await buildContractorImportPreview(req.file.buffer);
+        return res.status(200).json(preview);
+    } catch (error) {
+        console.error('Error previewing contractor import:', error);
+        return res.status(500).json({ message: 'Error previewing contractor import', error: error.message });
+    }
+});
+
+router.post('/import/confirm', async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) {
+        return res.status(400).json({ message: 'No contractor rows provided for import.' });
+    }
+
+    const existingEmails = await fetchExistingContractorEmails();
+    const created = [];
+    const skipped = [];
+    const failed = [];
+
+    for (const row of rows) {
+        const companyName = String(row?.companyName || '').trim();
+        const email = String(row?.email || '').trim().toLowerCase();
+        const contactPerson = row?.contactPerson != null ? String(row.contactPerson).trim() : '';
+        const phone = row?.phone != null ? String(row.phone).trim() : '';
+        const contractorTypeId = row?.contractorTypeId != null && row.contractorTypeId !== ''
+            ? Number(row.contractorTypeId)
+            : null;
+
+        if (!companyName || !email) {
+            failed.push({ email, reason: 'Company name and email are required.' });
+            continue;
+        }
+        if (!EMAIL_REGEX.test(email)) {
+            failed.push({ email, reason: 'Invalid email format.' });
+            continue;
+        }
+        if (existingEmails.has(email)) {
+            skipped.push({ email, reason: 'Duplicate email.' });
+            continue;
+        }
+
+        try {
+            const contractorId = await insertImportedContractor({
+                companyName,
+                contactPerson: contactPerson || null,
+                email,
+                phone: phone || null,
+                contractorTypeId: Number.isFinite(contractorTypeId) ? contractorTypeId : null,
+            });
+            existingEmails.add(email);
+            created.push({ contractorId, email, companyName });
+        } catch (error) {
+            failed.push({ email, reason: error.message || 'Insert failed.' });
+        }
+    }
+
+    return res.status(200).json({
+        message: `Imported ${created.length} contractor(s).`,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+        failedCount: failed.length,
+        created,
+        skipped,
+        failed,
+    });
+});
 
 // --- Get Projects assigned to a Contractor ---
 /**

@@ -159,6 +159,8 @@ const JobsImpactDashboardPage = () => {
       const projectName = String(p.projectName || p.name || '').trim();
       const sector = String(p.sector || p.categoryName || p.department || p.ministry || 'Unknown').trim();
       const category = String(p.categoryName || p.category || 'Uncategorized').trim();
+      const department = String(p.ministry ?? p.departmentName ?? p.department ?? '').trim();
+      if (filters.department && department !== filters.department) return false;
       if (filters.project && projectName !== filters.project) return false;
       if (filters.sector && sector !== filters.sector) return false;
       if (filters.category && category !== filters.category) return false;
@@ -185,7 +187,16 @@ const JobsImpactDashboardPage = () => {
       sectorMap.set(sector, current);
     });
     setJobsBySector(Array.from(sectorMap.values()));
-  }, [jobsProjects, filters.project, filters.sector, filters.category]);
+  }, [jobsProjects, filters.project, filters.sector, filters.category, filters.department]);
+
+  const uniqueDepartments = useMemo(() => {
+    const set = new Set();
+    (jobsProjects || []).forEach((p) => {
+      const dept = String(p.ministry ?? p.departmentName ?? p.department ?? '').trim();
+      if (dept) set.add(dept);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [jobsProjects]);
 
   const chartData = useMemo(() => {
     // Direct vs Indirect comparison
@@ -400,6 +411,29 @@ const JobsImpactDashboardPage = () => {
                   minWidth: 0,
                 }}
               >
+                <FormControl
+                  size="small"
+                  fullWidth
+                  sx={{
+                    flex: { xs: 'none', sm: '1 1 0%' },
+                    minWidth: { sm: 0 },
+                  }}
+                >
+                  <InputLabel sx={{ fontSize: '0.75rem' }}>Department</InputLabel>
+                  <Select
+                    value={filters.department}
+                    label="Department"
+                    onChange={(e) => setFilters({ ...filters, department: e.target.value })}
+                    sx={{ fontSize: '0.8rem', height: '32px' }}
+                  >
+                    <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All departments</MenuItem>
+                    {uniqueDepartments.map((d) => (
+                      <MenuItem key={d} value={d} sx={{ fontSize: '0.8rem' }}>
+                        {d}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <FormControl
                   size="small"
                   fullWidth

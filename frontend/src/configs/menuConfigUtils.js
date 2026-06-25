@@ -2,6 +2,9 @@ import menuConfig from './menuConfig.json';
 import { ROUTES } from './appConfig.js';
 import { normalizeRoleName, canAccessProjectBySectorDashboard } from '../utils/privilegeUtils.js';
 import { isSuperAdminUser } from '../utils/roleUtils.js';
+import {
+  applyUiProfileToMenuCategories,
+} from '../utils/uiProfileUtils.js';
 
 /** Paths that should highlight the Monitoring tree group when the same route key appears under Projects or elsewhere. */
 const MONITORING_PREFERRED_ROUTE_PATHS = [
@@ -135,36 +138,8 @@ const asVisibilitySet = (values) => {
   return keys.length > 0 ? new Set(keys) : null;
 };
 
-const getProfileMenuVisibilitySet = (user) => {
-  const profile = user?.uiProfile || user?.ui_profile || null;
-  return asVisibilitySet(profile?.visibleMenuKeys || profile?.visible_menu_keys || user?.visibleMenuKeys);
-};
-
-const categoryVisibilityKey = (category) => `category:${category.id}`;
-
-const submenuVisibilityKeys = (category, submenu) => [
-  submenu.route ? `route:${submenu.route}` : null,
-  `menu:${category.id}:${submenu.route || submenu.title || submenu.to || ''}`,
-].filter(Boolean);
-
-const applyUiProfileMenuVisibility = (categories, user, isAdmin = false) => {
-  // Full admins see the complete menu; UI profiles are for scoped county roles only.
-  if (isAdmin || isSuperAdminUser(user)) return categories;
-
-  const visibleKeys = getProfileMenuVisibilitySet(user);
-  if (!visibleKeys) return categories;
-
-  return categories
-    .map((category) => {
-      const categoryAllowed = visibleKeys.has(categoryVisibilityKey(category));
-      const submenus = (category.submenus || []).filter((submenu) => {
-        if (categoryAllowed) return true;
-        return submenuVisibilityKeys(category, submenu).some((key) => visibleKeys.has(key));
-      });
-      return { ...category, submenus };
-    })
-    .filter((category) => (category.submenus || []).length > 0);
-};
+const applyUiProfileMenuVisibility = (categories, user) =>
+  applyUiProfileToMenuCategories(categories, user);
 
 // Filter menu categories based on user permissions and admin status
 export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, user = null) => {
@@ -220,7 +195,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
   if (!isExecutiveViewer) {
-    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user, isAdmin);
+    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user);
   }
 
   // Executive Viewer: allow dashboards plus Projects tab with Registry only.
@@ -274,7 +249,7 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         .filter((submenu) => !submenu.hidden && allowedProjectsRoutes.has(submenu.route));
       return { ...category, submenus: filteredSubmenus };
     })
-    .filter((category) => (category.submenus || []).length > 0), user, isAdmin);
+    .filter((category) => (category.submenus || []).length > 0), user);
 };
 
 // Get menu configuration

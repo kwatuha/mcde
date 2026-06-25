@@ -11,7 +11,6 @@ export const BENEFICIARY_EXPORT_COLUMNS = [
   { field: 'age', header: 'Age', width: 8 },
   { field: 'groupType', header: 'Group type', width: 16 },
   { field: 'memberCount', header: 'Members', width: 10 },
-  { field: 'county', header: 'County', width: 14 },
   { field: 'subCounty', header: 'Sub-County', width: 16 },
   { field: 'ward', header: 'Ward', width: 16 },
   { field: 'phone', header: 'Phone', width: 14 },

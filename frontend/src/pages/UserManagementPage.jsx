@@ -42,6 +42,8 @@ const PROJECT_DETAIL_UI_TAB_OPTIONS = [
   { key: 'projectDetails:certificates', label: 'Payment Certificates', group: 'Finance and planning', description: 'Certificate generation and payment support.' },
   { key: 'projectDetails:map', label: 'Map', group: 'Core details', description: 'Project map and geospatial view.' },
   { key: 'projectDetails:implementation-plan', label: 'CIDP / Implementation Plan', group: 'Finance and planning', description: 'CIDP linkage and implementation plan context.' },
+  { key: 'projectDetails:inception', label: 'Inception', group: 'Delivery evidence', description: 'Inception reports and project kick-off documentation.' },
+  { key: 'projectDetails:payments', label: 'Payments', group: 'Finance and planning', description: 'Payment requests and contractor payment workflow.' },
 ];
 
 const USER_FORM_TEXT_FIELD_NAMES = [
@@ -55,6 +57,26 @@ const USER_FORM_TEXT_FIELD_NAMES = [
   'password',
   'confirmPassword',
 ];
+
+const USER_FORM_ERROR_PRIORITY = [
+  'projectScopes',
+  'role',
+  'username',
+  'email',
+  'password',
+  'confirmPassword',
+  'firstName',
+  'lastName',
+  'phoneNumber',
+];
+
+function getPrimaryUserFormError(errors = {}) {
+  for (const key of USER_FORM_ERROR_PRIORITY) {
+    if (errors[key]) return errors[key];
+  }
+  const keys = Object.keys(errors);
+  return keys.length ? errors[keys[0]] : null;
+}
 
 function normalizeUiProfileKeys(keys) {
   return [...new Set((keys || []).map((key) => String(key || '').trim()).filter(Boolean))];
@@ -493,7 +515,10 @@ function UserManagementPage() {
     uiProfileId: '',
   });
   const [userFormErrors, setUserFormErrors] = useState({});
+  const [userFormSubmitAttempted, setUserFormSubmitAttempted] = useState(false);
   const userFormInputRefs = useRef({});
+  const userDialogContentRef = useRef(null);
+  const projectAccessSectionRef = useRef(null);
   const setUserFormInputRef = useCallback((fieldName, node) => {
     if (node) {
       userFormInputRefs.current[fieldName] = node;
@@ -611,7 +636,8 @@ function UserManagementPage() {
   const [roleFormData, setRoleFormData] = useState({
     roleName: '',
     description: '',
-    privilegeIds: []
+    privilegeIds: [],
+    uiProfileId: '',
   });
   const [roleFormErrors, setRoleFormErrors] = useState({});
   const roleNameInputRef = useRef(null);
@@ -1147,12 +1173,16 @@ function UserManagementPage() {
       setNewProjectScopeValues([]);
     }
 
+    const needsScopeValues = scopeType && scopeType !== 'ALL_DEPARTMENTS';
+    const scopeArea = position.defaultScopeArea || scopeType;
     setSnackbar({
       open: true,
-      message: position.notes
-        ? `${position.responsibility}: ${position.notes}`
-        : `Applied ${position.responsibility} — set ${position.defaultScopeArea || scopeType} scope values if needed.`,
-      severity: 'info',
+      message: needsScopeValues
+        ? `${position.responsibility}: scroll to Project access, choose ${scopeArea}, click "Add project scope", then save.`
+        : (position.notes
+          ? `${position.responsibility}: ${position.notes}`
+          : `Applied ${position.responsibility}.`),
+      severity: needsScopeValues ? 'warning' : 'info',
     });
   };
 
@@ -1385,6 +1415,7 @@ function UserManagementPage() {
       uiProfileId: '',
     });
     setUserFormErrors({});
+    setUserFormSubmitAttempted(false);
     setIsCheckingUsername(false);
     setOpenStandaloneOrgDialog(false);
     setOpenUserDialog(true);
@@ -1704,6 +1735,7 @@ function UserManagementPage() {
     setOpenUserDialog(false);
     setCurrentUserToEdit(null);
     setUserFormErrors({});
+    setUserFormSubmitAttempted(false);
     setOrganizationScopes([]);
     setProjectScopes([]);
     setNewProjectScopeType('SECTOR');
@@ -1809,6 +1841,7 @@ function UserManagementPage() {
       });
       return next;
     });
+    setUserFormSubmitAttempted(false);
     setUserFormErrors((prev) => ({ ...prev, projectScopes: '', accessDepartments: '' }));
     setNewProjectScopeValues([]);
   };
@@ -2005,6 +2038,7 @@ function UserManagementPage() {
 
   const handleUserFormChange = (e) => {
     const { name, value } = e.target;
+    setUserFormSubmitAttempted(false);
     setUserFormData(prev => {
       if (name === 'password' && currentUserToEdit) {
         // Edit mode: keep confirm password in sync so users don't need to retype it.
@@ -2012,6 +2046,10 @@ function UserManagementPage() {
       }
       return { ...prev, [name]: value };
     });
+    if (name === 'role') {
+      setUserFormErrors((prev) => ({ ...prev, role: '' }));
+      return;
+    }
     if (name === 'phoneNumber') {
       setUserFormErrors((prev) => ({ ...prev, phoneNumber: '' }));
       return;
@@ -2094,8 +2132,8 @@ function UserManagementPage() {
     };
   }, [openUserDialog, currentUserToEdit, isSuperAdmin, userFormData.username]);
 
-  const validateUserForm = (formValues = readUserFormData()) => {
-    let errors = {};
+  const collectUserFormErrors = (formValues = readUserFormData()) => {
+    const errors = {};
     const phoneRegex = /^(?:07\d{8}|\+2547\d{8})$/;
     const normalizedProjectScopes = (projectScopes || [])
       .map((s) => ({
@@ -2113,7 +2151,24 @@ function UserManagementPage() {
         }
         return false;
       });
-    const hasAnyAccessScope = normalizedProjectScopes.length > 0 || normalizedOrgScopes.length > 0;
+    const accessDepts = Array.isArray(formValues.accessDepartments)
+      ? formValues.accessDepartments.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const hasAnyAccessScope =
+      normalizedProjectScopes.length > 0
+      || normalizedOrgScopes.length > 0
+      || accessDepts.length > 0;
+    const roleName = String(formValues.role || '').trim();
+    if (!roleName) {
+      errors.role = 'Role is required.';
+    } else {
+      const matchedRole = assignableRoles.find((role) => role.roleName === roleName)
+        || roles.find((role) => role.roleName === roleName);
+      if (!matchedRole) {
+        errors.role = `Role "${roleName}" is not available. Choose a role from the list.`;
+      }
+    }
+
     if (!String(formValues.username || '').trim()) errors.username = 'Username is required.';
     if (!String(formValues.email || '').trim()) errors.email = 'Email is required.';
     if (!/\S+@\S+\.\S+/.test(String(formValues.email || ''))) errors.email = 'Email is invalid.';
@@ -2122,14 +2177,8 @@ function UserManagementPage() {
     }
 
     const orgProfileEditable = !currentUserToEdit || isSuperAdmin;
-    if (orgProfileEditable) {
-      const accessDepts = Array.isArray(formValues.accessDepartments) ? formValues.accessDepartments : [];
-      if (!accessDepts.length && !hasAnyAccessScope) {
-        errors.accessDepartments = 'Select at least one department the user can access.';
-      }
-      if (!hasAnyAccessScope && accessDepts.length === 0) {
-        errors.projectScopes = 'Add organization access or project access before the user can sign in.';
-      }
+    if (orgProfileEditable && !hasAnyAccessScope) {
+      errors.projectScopes = 'Add organization access or project access before the user can sign in.';
     }
 
     if (!currentUserToEdit) {
@@ -2151,17 +2200,58 @@ function UserManagementPage() {
         }
     }
 
+    return errors;
+  };
+
+  const validateUserForm = (formValues = readUserFormData()) => {
+    const errors = collectUserFormErrors(formValues);
     setUserFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const scrollToUserFormError = (errors) => {
+    const scrollContainer = userDialogContentRef.current;
+    if (!scrollContainer) return;
+
+    const scrollToNode = (node) => {
+      if (!node) return;
+      const containerTop = scrollContainer.getBoundingClientRect().top;
+      const nodeTop = node.getBoundingClientRect().top;
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollTop + (nodeTop - containerTop) - 16,
+        behavior: 'smooth',
+      });
+    };
+
+    if (errors.projectScopes) {
+      scrollToNode(projectAccessSectionRef.current);
+      return;
+    }
+    if (errors.role) {
+      scrollToNode(scrollContainer.querySelector('[data-user-form-field="role"]'));
+      return;
+    }
+    const invalidInput = scrollContainer.querySelector('.Mui-error input, .Mui-error textarea');
+    scrollToNode(invalidInput?.closest('.MuiFormControl-root') || invalidInput);
   };
 
   const handleUserSubmit = async () => {
     const formValues = readUserFormData();
     setUserFormData(formValues);
-    if (!validateUserForm(formValues)) {
-      setSnackbar({ open: true, message: 'Please correct the form errors.', severity: 'error' });
+    const errors = collectUserFormErrors(formValues);
+    setUserFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setUserFormSubmitAttempted(true);
+      const primaryError = getPrimaryUserFormError(errors);
+      setSnackbar({
+        open: true,
+        message: primaryError || 'Please correct the form errors.',
+        severity: 'error',
+      });
+      window.setTimeout(() => scrollToUserFormError(errors), 50);
       return;
     }
+    setUserFormSubmitAttempted(false);
     if (isCheckingUsername) {
       setSnackbar({ open: true, message: 'Please wait for username validation to finish.', severity: 'warning' });
       return;
@@ -2577,7 +2667,7 @@ function UserManagementPage() {
       return;
     }
     setCurrentRoleToEdit(null);
-    setRoleFormData({ roleName: '', description: '', privilegeIds: [] });
+    setRoleFormData({ roleName: '', description: '', privilegeIds: [], uiProfileId: '' });
     setRoleFormErrors({});
     fetchPrivileges();
     setOpenRoleDialog(true);
@@ -2593,7 +2683,8 @@ function UserManagementPage() {
     setRoleFormData({
       roleName: role.roleName || '',
       description: role.description || '',
-      privilegeIds: []
+      privilegeIds: [],
+      uiProfileId: role.uiProfileId ? String(role.uiProfileId) : '',
     });
     setRoleFormErrors({});
 
@@ -2647,6 +2738,7 @@ function UserManagementPage() {
       ...roleFormData,
       roleName: String(roleNameInputRef.current?.value ?? roleFormData.roleName ?? '').trim(),
       description: String(roleDescriptionInputRef.current?.value ?? roleFormData.description ?? '').trim(),
+      uiProfileId: roleFormData.uiProfileId || null,
     };
     const privilegeIdsToAssign = roleDataToSubmit.privilegeIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     roleDataToSubmit.privilegeIds = privilegeIdsToAssign;
@@ -4340,7 +4432,8 @@ function UserManagementPage() {
         <DialogTitle sx={{ backgroundColor: colors.blueAccent[700], color: 'white', fontWeight: 700, fontSize: '1.25rem' }}>
           {currentUserToEdit ? 'Edit User' : 'Add New User'}
         </DialogTitle>
-        <DialogContent 
+        <DialogContent
+          ref={userDialogContentRef}
           dividers 
           sx={{ 
             maxHeight: { xs: '80vh', sm: '85vh' },
@@ -4363,9 +4456,15 @@ function UserManagementPage() {
             },
           }}
         >
+          {userFormSubmitAttempted && Object.keys(userFormErrors).length > 0 && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              <strong>Could not save user.</strong>{' '}
+              {getPrimaryUserFormError(userFormErrors)}
+            </Alert>
+          )}
           <Alert severity="info" icon={<AccountTreeIcon />} sx={{ mb: 2 }}>
             <strong>Organization access</strong> is configured below (scroll down) or use the purple tree icon in the user table for a dedicated window.
-            If you add no rules when creating a user, the primary department field defines the only access scope.
+            Department is optional — use Project access for county-wide, sector, ward, or other data scopes.
           </Alert>
           <TextField 
             autoFocus 
@@ -4697,10 +4796,12 @@ function UserManagementPage() {
               </Select>
             </FormControl>
           )}
-          <FormControl 
-            fullWidth 
-            margin="dense" 
-            variant="outlined" 
+          <FormControl
+            fullWidth
+            margin="dense"
+            variant="outlined"
+            data-user-form-field="role"
+            error={!!userFormErrors.role}
             sx={{ 
               mb: 2, 
               minWidth: 120,
@@ -4721,6 +4822,11 @@ function UserManagementPage() {
                 <MenuItem key={role.roleId} value={role.roleName}>{role.roleName}</MenuItem>
               ))}
             </Select>
+            {userFormErrors.role && (
+              <Typography variant="caption" sx={{ color: 'error.main', mt: 0.5, ml: 1.75, display: 'block' }}>
+                {userFormErrors.role}
+              </Typography>
+            )}
           </FormControl>
           {isSuperAdmin && (
             <FormControl
@@ -4918,7 +5024,11 @@ function UserManagementPage() {
           </Box>
 
           <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}>
+          <Typography
+            ref={projectAccessSectionRef}
+            variant="subtitle2"
+            sx={{ color: colors.blueAccent[300], fontWeight: 700, mb: 1 }}
+          >
             Project access (all departments, sector, department, sub-county, ward, sublocation, village, municipality)
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: colors.grey[300], mb: 1.5 }}>
@@ -4999,7 +5109,7 @@ function UserManagementPage() {
             )}
           </Box>
           {userFormErrors.projectScopes && (
-            <Alert severity="warning" sx={{ mt: 1 }}>
+            <Alert severity="error" sx={{ mt: 1 }}>
               {userFormErrors.projectScopes}
             </Alert>
           )}
@@ -5835,7 +5945,8 @@ function UserManagementPage() {
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: colors.primary[400] }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            UI profiles control what menus and supported tabs a user sees. They do not grant backend permissions.
+            UI profiles control what menus and project registry tabs a user sees. They do not grant backend permissions.
+            Assign a profile on the role (default for all users in that role) or per user. Users must sign out and back in, or refresh the page, after changes.
           </Alert>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }} spacing={1}>
             <Typography variant="body2" sx={{ color: colors.grey[300] }}>
@@ -6097,7 +6208,7 @@ function UserManagementPage() {
           <Box sx={{ mb: 1 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mb: 1 }}>
               <Typography variant="subtitle2" sx={{ color: colors.blueAccent[300], fontWeight: 700 }}>
-                Visible tabs ({uiProfileFormData.visibleTabKeys.length} selected)
+                Visible project registry tabs ({uiProfileFormData.visibleTabKeys.length} selected)
               </Typography>
               <Stack direction="row" spacing={1}>
                 <Button size="small" variant="outlined" onClick={handleSelectAllUiTabs}>Select all tabs</Button>
@@ -6116,7 +6227,8 @@ function UserManagementPage() {
           >
             <Box sx={{ p: 1.5, borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : '#e5e7eb'}` }}>
               <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#374151' }}>
-                Leave empty to show all supported tabs. Select tabs here only when this profile should hide some Project Details sections.
+                Select which Project Details tabs users with this profile can open (Overview, Financials, BQ, Payments, etc.).
+                Leave empty to show all supported tabs.
               </Typography>
             </Box>
             <Stack spacing={0} divider={<Divider />}>
@@ -6312,6 +6424,26 @@ function UserManagementPage() {
             inputRef={roleDescriptionInputRef}
             sx={{ mb: 2 }}
           />
+          <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+            <InputLabel>Default UI profile (optional)</InputLabel>
+            <Select
+              label="Default UI profile (optional)"
+              value={roleFormData.uiProfileId || ''}
+              onChange={(e) => setRoleFormData((prev) => ({ ...prev, uiProfileId: e.target.value }))}
+            >
+              <MenuItem value="">
+                <em>No default UI profile</em>
+              </MenuItem>
+              {uiProfiles.map((profile) => (
+                <MenuItem key={profile.id} value={String(profile.id)}>
+                  {profile.name}
+                </MenuItem>
+              ))}
+            </Select>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Users with this role inherit this navigation/tab profile unless a user-specific profile is set.
+            </Typography>
+          </FormControl>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1 }}>
             <Chip
               size="small"
@@ -7115,7 +7247,13 @@ function UserManagementPage() {
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ zIndex: (t) => t.zIndex.modal + 2 }}
+      >
         <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
         </Alert>

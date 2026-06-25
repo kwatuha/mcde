@@ -29,9 +29,16 @@ export const AuthProvider = ({ children }) => {
         setMustChangePassword(force);
         try {
             const decodedUser = jwtDecode(newToken);
-            setUser(decodedUser.user);
-            // console.log("LOGIN: Decoded user from token:", decodedUser.user);
-            // console.log("LOGIN: User privileges from token:", decodedUser.user.privileges);
+            let sessionUser = decodedUser.user;
+            try {
+                const refreshed = await apiService.auth.getMe();
+                if (refreshed?.user) {
+                    sessionUser = { ...sessionUser, ...refreshed.user };
+                }
+            } catch (refreshErr) {
+                console.warn('Could not refresh session user after login:', refreshErr?.message || refreshErr);
+            }
+            setUser(sessionUser);
         } catch (error) {
             console.error("Failed to decode token on login:", error);
             localStorage.removeItem('jwtToken');
@@ -73,11 +80,18 @@ export const AuthProvider = ({ children }) => {
                         console.warn("Token expired. Logging out.");
                         logout();
                     } else {
-                        setUser(decoded.user);
+                        let sessionUser = decoded.user;
                         setToken(storedToken);
                         setMustChangePassword(localStorage.getItem('mustChangePassword') === 'true');
-                        // console.log("EFFECT: User loaded from token:", decoded.user);
-                        // console.log("EFFECT: User privileges loaded from token:", decoded.user.privileges);
+                        try {
+                            const refreshed = await apiService.auth.getMe();
+                            if (refreshed?.user) {
+                                sessionUser = { ...sessionUser, ...refreshed.user };
+                            }
+                        } catch (refreshErr) {
+                            console.warn('Could not refresh session user:', refreshErr?.message || refreshErr);
+                        }
+                        setUser(sessionUser);
                     }
                 } catch (error) {
                     console.error("AuthContext: Error decoding or verifying token:", error);

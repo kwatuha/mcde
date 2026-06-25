@@ -29,6 +29,26 @@ const contractorService = {
     const response = await axiosInstance.delete(`/contractors/${contractorId}`);
     return response.data;
   },
+  downloadImportTemplate: async () => {
+    const { data, headers } = await axiosInstance.get('/contractors/import-template', {
+      responseType: 'blob',
+    });
+    const cd = headers?.['content-disposition'] || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    return { blob: data, fileName: match?.[1] || 'contractor_import_template.xlsx' };
+  },
+  previewImport: async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await axiosInstance.post('/contractors/import/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+  confirmImport: async (rows) => {
+    const { data } = await axiosInstance.post('/contractors/import/confirm', { rows });
+    return data;
+  },
   getContractorTypes: async () => {
     const response = await axiosInstance.get('/contractors/types');
     return response.data;

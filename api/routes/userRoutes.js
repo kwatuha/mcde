@@ -824,7 +824,7 @@ router.get('/users/:id', async (req, res) => {
                     [organizationScopes, projectScopes, uiProfile] = await Promise.all([
                         orgScope.fetchOrganizationScopesForUser(id),
                         orgScope.fetchProjectScopesForUser(id),
-                        uiAccess.fetchUiProfileForUser(id),
+                        uiAccess.fetchUiProfileForUser(id, userRow.roleId),
                     ]);
                 } catch (scopeErr) {
                     console.warn('fetch access scopes for user:', scopeErr.message);
@@ -1107,7 +1107,7 @@ router.post('/users', async (req, res) => {
                 [organizationScopes, projectScopes, uiProfile] = await Promise.all([
                     orgScope.fetchOrganizationScopesForUser(insertedUserId),
                     orgScope.fetchProjectScopesForUser(insertedUserId),
-                    uiAccess.fetchUiProfileForUser(insertedUserId),
+                    uiAccess.fetchUiProfileForUser(insertedUserId, roleId),
                 ]);
             } catch (e) {
                 console.warn('fetch access scopes after create:', e.message);
@@ -1544,7 +1544,7 @@ router.put('/users/:id', async (req, res) => {
                     [organizationScopes, projectScopes, uiProfile] = await Promise.all([
                         orgScope.fetchOrganizationScopesForUser(id),
                         orgScope.fetchProjectScopesForUser(id),
-                        uiAccess.fetchUiProfileForUser(id),
+                        uiAccess.fetchUiProfileForUser(id, userObj.roleId),
                     ]);
                 } catch (e) {
                     console.warn('fetch access scopes after update:', e.message);
@@ -1718,7 +1718,7 @@ router.get('/roles', async (req, res) => {
         let query;
         
         if (DB_TYPE === 'postgresql') {
-            query = 'SELECT roleid AS "roleId", name AS "roleName", description, createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE voided = false ORDER BY name';
+            query = 'SELECT roleid AS "roleId", name AS "roleName", description, ui_profile_id AS "uiProfileId", createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE voided = false ORDER BY name';
         } else {
             query = 'SELECT * FROM roles WHERE voided = 0 ORDER BY roleName';
         }
@@ -1744,7 +1744,7 @@ router.get('/roles/:id', async (req, res) => {
         let params;
         
         if (DB_TYPE === 'postgresql') {
-            query = 'SELECT roleid AS "roleId", name AS "roleName", description, createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE roleid = $1';
+            query = 'SELECT roleid AS "roleId", name AS "roleName", description, ui_profile_id AS "uiProfileId", createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE roleid = $1';
             params = [id];
         } else {
             query = 'SELECT * FROM roles WHERE roleId = ?';
@@ -1774,8 +1774,9 @@ router.post('/roles', async (req, res) => {
         return res.status(403).json({ error: 'Only Super Admin can create roles.' });
     }
 
-    const { roleName, name, description, privilegeIds } = req.body;
+    const { roleName, name, description, privilegeIds, uiProfileId, ui_profile_id } = req.body;
     const roleNameValue = String(roleName || name || '').trim(); // Support both field names
+    const uiProfileIdValue = uiProfileId !== undefined ? uiProfileId : ui_profile_id;
 
     if (!roleNameValue) {
         return res.status(400).json({ error: 'Role name is required' });
@@ -1864,6 +1865,15 @@ router.post('/roles', async (req, res) => {
                 });
             }
         }
+
+        if (DB_TYPE === 'postgresql' && uiProfileIdValue !== undefined) {
+            try {
+                await uiAccess.assignRoleUiProfile(insertedRoleId, uiProfileIdValue);
+                createdRole.uiProfileId = uiProfileIdValue || null;
+            } catch (profileErr) {
+                console.error('Error assigning UI profile to new role:', profileErr);
+            }
+        }
         
         res.status(201).json(createdRole);
     } catch (error) {
@@ -1891,10 +1901,11 @@ router.post('/roles', async (req, res) => {
  */
 router.put('/roles/:id', async (req, res) => {
     const { id } = req.params;
-    const { roleName, name, description, privilegeIds } = req.body;
+    const { roleName, name, description, privilegeIds, uiProfileId, ui_profile_id } = req.body;
     const roleNameValue = roleName !== undefined || name !== undefined
         ? String(roleName ?? name ?? '').trim()
         : undefined; // Support both field names
+    const uiProfileIdValue = uiProfileId !== undefined ? uiProfileId : ui_profile_id;
 
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
@@ -1953,7 +1964,7 @@ router.put('/roles/:id', async (req, res) => {
             let fetchQuery;
             let fetchParams;
             if (DB_TYPE === 'postgresql') {
-                fetchQuery = 'SELECT roleid AS "roleId", name AS "roleName", description, createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE roleid = $1';
+                fetchQuery = 'SELECT roleid AS "roleId", name AS "roleName", description, ui_profile_id AS "uiProfileId", createdat AS "createdAt", updatedat AS "updatedAt", voided FROM roles WHERE roleid = $1';
                 fetchParams = [id];
             } else {
                 fetchQuery = 'SELECT * FROM roles WHERE roleId = ?';
@@ -1962,6 +1973,14 @@ router.put('/roles/:id', async (req, res) => {
             
             if (Array.isArray(privilegeIds)) {
                 await syncRolePrivileges(id, privilegeIds, DB_TYPE);
+            }
+            if (DB_TYPE === 'postgresql' && uiProfileIdValue !== undefined) {
+                try {
+                    await uiAccess.assignRoleUiProfile(id, uiProfileIdValue);
+                } catch (profileErr) {
+                    console.error('Error assigning UI profile to role:', profileErr);
+                    return res.status(400).json({ error: profileErr.message || 'Error assigning UI profile to role.' });
+                }
             }
 
             const fetchResult = await pool.query(fetchQuery, fetchParams);

@@ -162,7 +162,7 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             [organizationScopes, projectScopes, uiProfile] = await Promise.all([
                 orgScope.fetchOrganizationScopesForUser(userId),
                 orgScope.fetchProjectScopesForUser(userId),
-                uiAccess.fetchUiProfileForUser(userId),
+                uiAccess.fetchUiProfileForUser(userId, roleId),
             ]);
         } catch (scopeErr) {
             console.warn('fetch access scopes (login):', scopeErr.message);
@@ -223,6 +223,46 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
         }
     );
 }
+
+// @route   GET /auth/me
+// @desc    Refresh session user (scopes + UI profile) for the authenticated user
+// @access  Private
+router.get('/me', authenticate, async (req, res) => {
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+        const userId = req.user?.userId || req.user?.id || req.user?.actualUserId;
+        const roleId = req.user?.roleId || req.user?.roleid;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized.' });
+
+        let organizationScopes = req.user?.organizationScopes || [];
+        let projectScopes = req.user?.projectScopes || [];
+        let uiProfile = req.user?.uiProfile || null;
+
+        if (DB_TYPE === 'postgresql') {
+            try {
+                [organizationScopes, projectScopes, uiProfile] = await Promise.all([
+                    orgScope.fetchOrganizationScopesForUser(userId),
+                    orgScope.fetchProjectScopesForUser(userId),
+                    uiAccess.fetchUiProfileForUser(userId, roleId),
+                ]);
+            } catch (scopeErr) {
+                console.warn('fetch access scopes (/auth/me):', scopeErr.message);
+            }
+        }
+
+        return res.json({
+            user: {
+                ...req.user,
+                organizationScopes,
+                projectScopes,
+                uiProfile,
+            },
+        });
+    } catch (error) {
+        console.error('Error loading session user:', error);
+        return res.status(500).json({ error: 'Failed to load session user.', details: error.message });
+    }
+});
 
 // @route   POST /register
 // @desc    Register a new user (requires admin approval)

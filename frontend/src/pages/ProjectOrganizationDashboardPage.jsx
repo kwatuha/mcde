@@ -38,8 +38,8 @@ import { getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../u
 import { tokens } from './dashboard/theme';
 
 const LEVEL_OPTIONS = [
-  { value: 'state_department', label: 'State Department' },
-  { value: 'ministry', label: 'Ministry' },
+  { value: 'state_department', label: 'Department + Section' },
+  { value: 'ministry', label: 'Department' },
 ];
 
 function getOrgLabel(row, level) {
@@ -441,9 +441,8 @@ export default function ProjectOrganizationDashboardPage() {
                     <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Project Name</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Ministry</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>State Department</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Agency</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Section / unit</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>Allocated Budget</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>Paid Amount</TableCell>
                   </TableRow>
@@ -477,7 +476,6 @@ export default function ProjectOrganizationDashboardPage() {
                       </TableCell>
                       <TableCell>{p.ministry || '—'}</TableCell>
                       <TableCell>{p.stateDepartment || '—'}</TableCell>
-                      <TableCell>{p.agency || '—'}</TableCell>
                       <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                         {formatKes(p.allocatedBudget)}
                       </TableCell>

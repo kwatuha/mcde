@@ -36,6 +36,8 @@ async function ensureUiAccessSchema() {
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_user_ui_profiles_user_active ON user_ui_profiles (user_id) WHERE voided = false');
 
+    await pool.query('ALTER TABLE roles ADD COLUMN IF NOT EXISTS ui_profile_id BIGINT NULL REFERENCES ui_profiles(id) ON DELETE SET NULL');
+
     await pool.query(
         `INSERT INTO ui_profiles (name, description, is_default)
          SELECT $1, $2, true
@@ -47,8 +49,20 @@ async function ensureUiAccessSchema() {
 }
 
 function normalizeStringArray(value) {
-    if (!Array.isArray(value)) return [];
-    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+    if (Array.isArray(value)) {
+        return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+    }
+    if (typeof value === 'string' && value.trim()) {
+        try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed)) {
+                return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+            }
+        } catch (_) {
+            // fall through
+        }
+    }
+    return [];
 }
 
 function rowToProfile(row) {
@@ -219,7 +233,34 @@ async function assignUiProfileToUser(userId, profileId) {
     }
 }
 
-async function fetchUiProfileForUser(userId) {
+async function fetchUiProfileForRole(roleId) {
+    await ensureUiAccessSchema();
+    const rid = parseInt(String(roleId), 10);
+    if (!Number.isFinite(rid)) return null;
+    try {
+        const result = await pool.query(
+            `SELECT
+                p.id,
+                p.name,
+                p.description,
+                p.visible_menu_keys AS "visibleMenuKeys",
+                p.visible_tab_keys AS "visibleTabKeys",
+                p.is_default AS "isDefault",
+                p.created_at AS "createdAt",
+                p.updated_at AS "updatedAt"
+             FROM roles r
+             INNER JOIN ui_profiles p ON p.id = r.ui_profile_id AND COALESCE(p.voided, false) = false
+             WHERE r.roleid = $1 AND COALESCE(r.voided, false) = false
+             LIMIT 1`,
+            [rid]
+        );
+        return rowToProfile(result.rows?.[0]);
+    } catch (_) {
+        return null;
+    }
+}
+
+async function fetchUiProfileForUser(userId, roleId = null) {
     await ensureUiAccessSchema();
     const uid = parseInt(String(userId), 10);
     if (!Number.isFinite(uid)) return null;
@@ -242,6 +283,9 @@ async function fetchUiProfileForUser(userId) {
     );
     if (result.rows?.[0]) return rowToProfile(result.rows[0]);
 
+    const roleProfile = await fetchUiProfileForRole(roleId);
+    if (roleProfile) return roleProfile;
+
     const fallback = await pool.query(
         `SELECT
             id,
@@ -258,6 +302,26 @@ async function fetchUiProfileForUser(userId) {
          LIMIT 1`
     );
     return rowToProfile(fallback.rows?.[0]);
+}
+
+async function assignRoleUiProfile(roleId, profileId) {
+    await ensureUiAccessSchema();
+    const rid = parseInt(String(roleId), 10);
+    if (!Number.isFinite(rid)) throw new Error('Invalid role id.');
+    const pid = profileId === null || profileId === undefined || profileId === ''
+        ? null
+        : parseInt(String(profileId), 10);
+    if (profileId != null && profileId !== '' && !Number.isFinite(pid)) {
+        throw new Error('Invalid UI profile id.');
+    }
+    if (Number.isFinite(pid)) {
+        const profile = await fetchUiProfileById(pid);
+        if (!profile) throw new Error('Selected UI profile does not exist.');
+    }
+    await pool.query(
+        `UPDATE roles SET ui_profile_id = $1, updatedat = CURRENT_TIMESTAMP WHERE roleid = $2`,
+        [Number.isFinite(pid) ? pid : null, rid]
+    );
 }
 
 async function fetchUiProfilesForUsers(userIds) {
@@ -299,7 +363,9 @@ module.exports = {
     updateUiProfile,
     deleteUiProfile,
     assignUiProfileToUser,
+    assignRoleUiProfile,
     fetchUiProfileForUser,
+    fetchUiProfileForRole,
     fetchUiProfilesForUsers,
     normalizeStringArray,
 };

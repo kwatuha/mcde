@@ -5,8 +5,9 @@ import {
   Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, Stack, useTheme, Tooltip
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, UploadFile as UploadFileIcon } from '@mui/icons-material';
 import apiService from '../api'; // Use the main api service
+import ContractorImportDialog from '../components/contractors/ContractorImportDialog';
 import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "../pages/dashboard/theme";
 
@@ -45,6 +46,7 @@ function ContractorManagementPage() {
   const [openDeleteConfirmDialog, setOpenDeleteConfirmDialog] = useState(false);
   const [contractorToDeleteId, setContractorToDeleteId] = useState(null);
   const [contractorToDeleteName, setContractorToDeleteName] = useState('');
+  const [openImportDialog, setOpenImportDialog] = useState(false);
   const canReadContractors =
       hasPrivilege('contractors.read') ||
       hasPrivilege('contractor.read') ||
@@ -336,14 +338,24 @@ function ContractorManagementPage() {
                   Contractor Management
               </Typography>
               {canCreateContractors && (
-                  <Button
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={handleOpenCreateDialog}
-                      sx={{ backgroundColor: '#16a34a', '&:hover': { backgroundColor: '#15803d' }, color: 'white', fontWeight: 'semibold', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}
-                  >
-                      Add New Contractor
-                  </Button>
+                  <Stack direction="row" spacing={1}>
+                      <Button
+                          variant="outlined"
+                          startIcon={<UploadFileIcon />}
+                          onClick={() => setOpenImportDialog(true)}
+                          sx={{ borderRadius: '8px' }}
+                      >
+                          Import Excel
+                      </Button>
+                      <Button
+                          variant="contained"
+                          startIcon={<AddIcon />}
+                          onClick={handleOpenCreateDialog}
+                          sx={{ backgroundColor: '#16a34a', '&:hover': { backgroundColor: '#15803d' }, color: 'white', fontWeight: 'semibold', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}
+                      >
+                          Add New Contractor
+                      </Button>
+                  </Stack>
               )}
           </Box>
           <Box
@@ -445,6 +457,19 @@ function ContractorManagementPage() {
                   <Button onClick={handleConfirmDelete} color="error" variant="contained">Delete</Button>
               </DialogActions>
           </Dialog>
+
+          <ContractorImportDialog
+              open={openImportDialog}
+              onClose={() => setOpenImportDialog(false)}
+              onSuccess={(result) => {
+                  fetchContractors();
+                  setSnackbar({
+                      open: true,
+                      message: result?.message || `Imported ${result?.createdCount || 0} contractor(s).`,
+                      severity: 'success',
+                  });
+              }}
+          />
 
           <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
               <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>

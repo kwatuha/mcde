@@ -22,21 +22,33 @@ import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
 
 const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
 
+const METRIC_LABELS = {
+  count: 'Project count',
+  budget: 'Budget',
+  disbursed: 'Paid',
+};
+
 const toNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
 };
 const toMoney = (value) => toNumber(value).toLocaleString();
-const normalizeStatus = (value) => normalizeWardKey(value || 'UNKNOWN');
-const STATUS_COLORS = {
-  COMPLETED: '#16A34A',
-  IN_PROGRESS: '#2563EB',
-  AT_RISK: '#DC2626',
-  ON_HOLD: '#D97706',
-  NOT_STARTED: '#6B7280',
-  UNKNOWN: '#9CA3AF',
+
+const heatColorForRatio = (ratio) => {
+  if (ratio <= 0) return '#E5E7EB';
+  const t = Math.max(0, Math.min(1, ratio));
+  const r = Math.round(219 + t * (30 - 219));
+  const g = Math.round(234 + t * (64 - 234));
+  const b = Math.round(254 + t * (175 - 254));
+  return `rgb(${r}, ${g}, ${b})`;
 };
-const statusToColor = (statusKey) => STATUS_COLORS[statusKey] || STATUS_COLORS.UNKNOWN;
+
+const formatMetricValue = (metricKey, values) => {
+  if (metricKey === 'count') return `${values.count || 0} projects`;
+  if (metricKey === 'budget') return `KES ${toMoney(values.budget)}`;
+  if (metricKey === 'disbursed') return `KES ${toMoney(values.disbursed)}`;
+  return '—';
+};
 
 const getProjectPoint = (project) => {
   const candidates = [
@@ -74,7 +86,7 @@ function GISDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [metric, setMetric] = useState('count');
-  const [showMarkers, setShowMarkers] = useState('yes');
+  const [showMarkers, setShowMarkers] = useState('no');
   const [hoverWard, setHoverWard] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
   const [mapBaseStyle, setMapBaseStyle] = useState('roadmap');
@@ -121,14 +133,12 @@ function GISDashboardPage() {
       const wardKey = getProjectWardKey(project);
       if (!wardKey) continue;
       if (!aggregate.has(wardKey)) {
-        aggregate.set(wardKey, { count: 0, budget: 0, disbursed: 0, statusCounts: {} });
+        aggregate.set(wardKey, { count: 0, budget: 0, disbursed: 0 });
       }
       const entry = aggregate.get(wardKey);
       entry.count += 1;
       entry.budget += toNumber(project?.costOfProject || project?.budget);
       entry.disbursed += toNumber(project?.paidOut || project?.disbursed || project?.amountPaid);
-      const statusKey = normalizeStatus(project?.status);
-      entry.statusCounts[statusKey] = (entry.statusCounts[statusKey] || 0) + 1;
     }
     return aggregate;
   }, [projects]);
@@ -155,15 +165,17 @@ function GISDashboardPage() {
       const pathsList = geometryToGooglePaths(feature.geometry);
       const wardName = feature?.properties?.ward_name || feature?.properties?.COUNTY_A_1 || `Ward ${index + 1}`;
       const wardKey = normalizeWardKey(wardName);
-      const values = wardMetrics.get(wardKey) || { count: 0, budget: 0, disbursed: 0, statusCounts: {} };
-      const dominantStatus = Object.entries(values.statusCounts || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
-      const fillColor = statusToColor(dominantStatus);
+      const values = wardMetrics.get(wardKey) || { count: 0, budget: 0, disbursed: 0 };
+      const metricValue = values[metric] || 0;
+      const ratio = maxMetric > 0 ? metricValue / maxMetric : 0;
+      const fillColor = heatColorForRatio(ratio);
       return pathsList.map((paths, pathIndex) => ({
         key: `${wardName}-${index}-${pathIndex}`,
         wardName,
         wardKey,
         values,
-        dominantStatus,
+        metricValue,
+        ratio,
         fillColor,
         paths,
       }));
@@ -201,7 +213,7 @@ function GISDashboardPage() {
     );
   }
 
-  /** Status-colored ward fills hide satellite/hybrid imagery; use outlines only on aerial bases. */
+  /** Heat-colored ward fills hide satellite/hybrid imagery; use outlines only on aerial bases. */
   const aerialBaseMap = mapBaseStyle === 'satellite' || mapBaseStyle === 'hybrid';
 
   return (
@@ -274,15 +286,25 @@ function GISDashboardPage() {
             {projects.length} projects · {markers.length} on map
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }} useFlexGap alignItems="center">
-          {Object.entries(STATUS_COLORS).map(([status, color]) => (
-            <Box key={status} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Box sx={{ width: 9, height: 9, borderRadius: '2px', backgroundColor: color, border: '1px solid rgba(0,0,0,0.12)' }} />
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1 }}>
-                {status.replace(/_/g, ' ')}
-              </Typography>
-            </Box>
-          ))}
+        <Stack direction="row" spacing={1} sx={{ mt: 0.75, flexWrap: 'wrap' }} useFlexGap alignItems="center">
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            Low
+          </Typography>
+          <Box
+            sx={{
+              width: 140,
+              height: 10,
+              borderRadius: 0.5,
+              background: 'linear-gradient(to right, #E5E7EB, #DBEAFE, #2563EB, #1E3A8A)',
+              border: '1px solid rgba(0,0,0,0.12)',
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            High
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            ({METRIC_LABELS[metric]})
+          </Typography>
         </Stack>
       </Paper>
 
@@ -334,13 +356,14 @@ function GISDashboardPage() {
                 strokeOpacity: aerialBaseMap ? 0.92 : 0.8,
                 strokeWeight: aerialBaseMap ? 2 : 1,
                 fillColor: ward.fillColor,
-                fillOpacity: aerialBaseMap ? 0 : 0.65,
+                fillOpacity: aerialBaseMap ? 0 : (ward.metricValue > 0 ? 0.4 + ward.ratio * 0.45 : 0.12),
                 zIndex: 3,
               }}
               onMouseOver={(event) => {
                 setHoverWard({
                   wardName: ward.wardName,
-                  count: ward.values.count,
+                  values: ward.values,
+                  metric,
                   position: {
                     lat: event?.latLng?.lat?.() ?? ward.paths?.[0]?.lat ?? MACHAKOS_CENTER.lat,
                     lng: event?.latLng?.lng?.() ?? ward.paths?.[0]?.lng ?? MACHAKOS_CENTER.lng,
@@ -363,7 +386,8 @@ function GISDashboardPage() {
             >
               <div>
                 <strong>{hoverWard.wardName}</strong><br />
-                Projects: {hoverWard.count}
+                {METRIC_LABELS[hoverWard.metric]}: {formatMetricValue(hoverWard.metric, hoverWard.values)}<br />
+                Projects: {hoverWard.values.count || 0}
               </div>
             </InfoWindowF>
           )}

@@ -24,6 +24,14 @@ import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
 import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
+import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
+import {
+  getFirstVisibleMenuPath,
+  hasRestrictiveMenuProfile,
+  isAlwaysAllowedUiProfilePath,
+  isPathAllowedByVisibleMenu,
+  isUiProfileBypassUser,
+} from '../utils/uiProfileUtils.js';
 // ✨ Removed old theme system imports
 import Topbar from "./Topbar.jsx";
 import Sidebar from "./Sidebar.jsx";
@@ -51,7 +59,7 @@ function MainLayoutContent() {
   const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(false);
   const [headerGovLogoFailed, setHeaderGovLogoFailed] = useState(false);
   
-  const { token, user, logout, loading, mustChangePassword } = useAuth();
+  const { token, user, logout, loading, mustChangePassword, hasPrivilege } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { isCollapsed } = useSidebar();
@@ -80,6 +88,30 @@ function MainLayoutContent() {
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
+  
+  const menuCategories = useMemo(
+    () => getFilteredMenuCategories(isAdminLike, hasPrivilege, user),
+    [isAdminLike, hasPrivilege, user]
+  );
+
+  useEffect(() => {
+    if (
+      user &&
+      hasRestrictiveMenuProfile(user) &&
+      !isUiProfileBypassUser(user) &&
+      !isAlwaysAllowedUiProfilePath(location.pathname) &&
+      !isPathAllowedByVisibleMenu(location.pathname, menuCategories)
+    ) {
+      const fallback = getFirstVisibleMenuPath(menuCategories);
+      if (fallback && normalizePath(fallback) !== normalizePath(location.pathname)) {
+        navigate(fallback, { replace: true });
+      }
+    }
+  }, [user, location.pathname, menuCategories, navigate]);
+
+  function normalizePath(pathname) {
+    return String(pathname || '').split('?')[0].split('#')[0];
+  }
   
   useEffect(() => {
     if (

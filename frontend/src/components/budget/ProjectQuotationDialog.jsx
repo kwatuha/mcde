@@ -63,10 +63,21 @@ function parseNum(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function isPlannedQuoteLine(row) {
+  return row.lineType === 'planned' && row.plannedBqItemId;
+}
+
+function effectiveQuotedQty(row) {
+  if (isPlannedQuoteLine(row)) {
+    return parseNum(row.plannedQuantity);
+  }
+  return parseNum(row.quotedQuantity) ?? 1;
+}
+
 function computeQuotedAmount(row) {
   const amount = parseNum(row.quotedAmount);
   if (amount != null) return amount;
-  const qty = parseNum(row.quotedQuantity);
+  const qty = effectiveQuotedQty(row);
   const unit = parseNum(row.quotedUnitCost);
   if (qty != null && unit != null) return qty * unit;
   return null;
@@ -89,6 +100,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
   const [awardOnSave, setAwardOnSave] = useState(true);
   const [supplierName, setSupplierName] = useState('');
   const [referenceNo, setReferenceNo] = useState('');
+  const [existingQuotation, setExistingQuotation] = useState(null);
 
   const loadComparison = useCallback(async () => {
     if (!projectId) return;
@@ -115,6 +127,13 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
       setEntryLines(sheet?.lines || []);
       setExtraLineTypes(sheet?.extraLineTypes || []);
       setScopeMissing(!(sheet?.lines?.length));
+      const existing = sheet?.existingQuotation || null;
+      setExistingQuotation(existing);
+      if (existing) {
+        setSupplierName(existing.supplierName || '');
+        setReferenceNo(existing.referenceNo || '');
+        if (existing.status === 'awarded') setAwardOnSave(true);
+      }
     } catch (err) {
       setEntryLines([]);
       const message = err?.response?.data?.message || err?.message || '';
@@ -134,6 +153,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
     setExcelPreview(null);
     setSupplierName('');
     setReferenceNo('');
+    setExistingQuotation(null);
     setAwardOnSave(true);
     setError('');
     setScopeMissing(false);
@@ -170,10 +190,13 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
     setEntryLines((prev) => prev.map((row, i) => {
       if (i !== index) return row;
       const next = { ...row, [field]: value };
-      if (field === 'quotedQuantity' || field === 'quotedUnitCost') {
-        const qty = parseNum(next.quotedQuantity);
+      if (isPlannedQuoteLine(next)) {
+        next.quotedQuantity = next.plannedQuantity;
+      }
+      if (field === 'quotedUnitCost' || field === 'quotedAmount') {
+        const qty = effectiveQuotedQty(next);
         const unit = parseNum(next.quotedUnitCost);
-        if (qty != null && unit != null) {
+        if (field === 'quotedUnitCost' && qty != null && unit != null) {
           next.quotedAmount = String(Math.round(qty * unit * 100) / 100);
         }
       }
@@ -306,9 +329,18 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
       <DialogContent dividers>
         <Stack spacing={2}>
           <Alert severity="info">
-            Quote against the project&apos;s planned BQ: item names and planned quantities are fixed; enter quoted unit cost and/or amount.
+            Quote against the project&apos;s planned BQ: quantities are fixed from the plan — enter quoted unit cost and/or line amount only.
             Add provisional or PC sums at the bottom for allowances not in the baseline.
           </Alert>
+
+          {existingQuotation && (
+            <Alert severity="success" variant="outlined">
+              Loaded saved quotation
+              {existingQuotation.supplierName ? ` from ${existingQuotation.supplierName}` : ''}
+              {existingQuotation.status ? ` (${existingQuotation.status})` : ''}.
+              {' '}Saving will create a new quotation version with your updates.
+            </Alert>
+          )}
 
           <Box>
             <Typography variant="body1" fontWeight={600}>
@@ -396,7 +428,6 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
                       <TableCell align="right">Planned qty</TableCell>
                       <TableCell align="right">Planned unit</TableCell>
                       <TableCell align="right">Planned amt</TableCell>
-                      <TableCell align="right">Quoted qty</TableCell>
                       <TableCell align="right">Quoted unit</TableCell>
                       <TableCell align="right">Quoted amt</TableCell>
                       <TableCell width={40} />
@@ -404,7 +435,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
                   </TableHead>
                   <TableBody>
                     {entryLines.map((row, index) => {
-                      const isPlanned = row.lineType === 'planned' && row.plannedBqItemId;
+                      const isPlanned = isPlannedQuoteLine(row);
                       return (
                         <TableRow key={`${row.plannedBqItemId || 'extra'}-${index}`}>
                           <TableCell>
@@ -438,9 +469,6 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
                             {row.plannedAmount != null ? formatCurrency(Number(row.plannedAmount)) : '—'}
                           </TableCell>
                           <TableCell align="right">
-                            <TextField size="small" type="number" value={row.quotedQuantity ?? ''} onChange={(e) => updateEntryLine(index, 'quotedQuantity', e.target.value)} sx={{ width: 72 }} />
-                          </TableCell>
-                          <TableCell align="right">
                             <TextField size="small" type="number" value={row.quotedUnitCost ?? ''} onChange={(e) => updateEntryLine(index, 'quotedUnitCost', e.target.value)} sx={{ width: 96 }} />
                           </TableCell>
                           <TableCell align="right">
@@ -463,6 +491,8 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
               </TableContainer>
               <Typography variant="body2" color="text.secondary">
                 Entry total: <strong>{formatCurrency(entryTotal)}</strong>
+                {' · '}
+                Quoted amounts use planned quantity × quoted unit cost for BQ lines.
               </Typography>
               <FormControlLabel
                 control={<Checkbox size="small" checked={awardOnSave} onChange={(e) => setAwardOnSave(e.target.checked)} />}
@@ -517,7 +547,7 @@ export default function ProjectQuotationDialog({ open, onClose, item, onSuccess,
           {tab === 'import' && !needsScopeSetup && (
             <Stack spacing={2}>
               <Alert severity="info">
-                Use the project quote template (planned and quoted amounts calculate as quantity × unit cost). Do not rename milestone, activity, or planned quantity columns.
+                Use the project quote template. Planned quantities are fixed — enter quoted unit costs only. Amounts calculate as planned quantity × quoted unit cost.
               </Alert>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>

@@ -243,6 +243,7 @@ export default function OperationsDashboardPage() {
     financialYear: '',
     period: '',
     department: '',
+    section: '',
     status: '',
     subCounty: '',
   });
@@ -262,6 +263,7 @@ export default function OperationsDashboardPage() {
         ...emptyOptions,
         ...(result || {}),
         departments: Array.isArray(result?.departments) ? result.departments : [],
+        sections: Array.isArray(result?.sections) ? result.sections : [],
         statuses: Array.isArray(result?.statuses) ? result.statuses : [],
         subCounties: Array.isArray(result?.subCounties) ? result.subCounties : [],
         financialYears: Array.isArray(result?.financialYears) ? result.financialYears : [],
@@ -433,7 +435,7 @@ export default function OperationsDashboardPage() {
   }, [activityRows, departmentRows, evaluationRows, indicatorDepartmentWardRows, indicatorRegionRows, periodRows, regionalRows, summary]);
 
   const resetFilters = () => {
-    setFilters({ financialYear: '', period: '', department: '', status: '', subCounty: '' });
+    setFilters({ financialYear: '', period: '', department: '', section: '', status: '', subCounty: '' });
   };
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
@@ -536,6 +538,24 @@ export default function OperationsDashboardPage() {
             >
               <MenuItem value="">All scoped departments</MenuItem>
               {options.departments.map((item) => (
+                <MenuItem key={item} value={item}>
+                  {item}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              sx={filterSelectSx}
+              label="Section / unit"
+              value={filters.section}
+              onChange={(event) => setFilters((prev) => ({ ...prev, section: event.target.value }))}
+            >
+              <MenuItem value="">All sections</MenuItem>
+              {options.sections.map((item) => (
                 <MenuItem key={item} value={item}>
                   {item}
                 </MenuItem>

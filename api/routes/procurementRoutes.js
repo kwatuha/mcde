@@ -3048,24 +3048,86 @@ function namesMatchPlanned(planned, line) {
 
 async function buildQuotationEntrySheet(projectId) {
   const plannedLines = await fetchPlannedBqLines(projectId);
-  return {
-    projectId,
-    plannedLineCount: plannedLines.length,
-    lines: plannedLines.map((row, index) => ({
+  let quotation = null;
+  try {
+    const latest = rowsOf(await pool.query(
+      `SELECT id FROM procurement_quotations
+       WHERE project_id = $1 AND COALESCE(voided, false) = false
+       ORDER BY
+         CASE status
+           WHEN 'awarded' THEN 0
+           WHEN 'submitted' THEN 1
+           WHEN 'draft' THEN 2
+           ELSE 3
+         END,
+         updated_at DESC NULLS LAST,
+         id DESC
+       LIMIT 1`,
+      [projectId]
+    ))[0];
+    if (latest?.id) quotation = await fetchQuotationById(projectId, latest.id);
+  } catch (error) {
+    if (!isSchemaError(error)) throw error;
+  }
+
+  const quotedByPlannedId = new Map();
+  if (quotation?.lines) {
+    for (const line of quotation.lines) {
+      if (line.plannedBqItemId != null) {
+        quotedByPlannedId.set(String(line.plannedBqItemId), line);
+      }
+    }
+  }
+
+  const plannedEntryLines = plannedLines.map((row, index) => {
+    const quoted = quotedByPlannedId.get(String(row.plannedBqItemId));
+    const plannedQty = row.quantity != null && row.quantity !== '' ? row.quantity : '';
+    return {
       plannedBqItemId: row.plannedBqItemId,
       lineType: 'planned',
       milestoneName: row.milestoneName || '',
       activityName: row.activityName,
       description: row.description || '',
       unitOfMeasure: row.unitOfMeasure || '',
-      plannedQuantity: row.quantity,
+      plannedQuantity: plannedQty,
       plannedUnitCost: row.unitCost,
       plannedAmount: row.budgetAmount,
-      quotedQuantity: row.quantity != null && row.quantity !== '' ? row.quantity : '',
-      quotedUnitCost: '',
-      quotedAmount: '',
+      quotedQuantity: plannedQty,
+      quotedUnitCost: quoted?.unitCost != null && quoted.unitCost !== '' ? quoted.unitCost : '',
+      quotedAmount: quoted?.amount != null && quoted.amount !== '' ? quoted.amount : '',
       sortOrder: row.sortOrder ?? index + 1,
-    })),
+    };
+  });
+
+  const supplementaryEntryLines = quotationSupplementaryLines(quotation?.lines || []).map((line, idx) => ({
+    plannedBqItemId: null,
+    lineType: normalizeQuotationLineType(line.lineType),
+    milestoneName: line.milestoneName || (line.lineType === 'pc_sum' ? 'PC sums' : 'Provisional sums'),
+    activityName: line.activityName,
+    description: line.description || '',
+    unitOfMeasure: line.unitOfMeasure || 'lump sum',
+    plannedQuantity: null,
+    plannedUnitCost: null,
+    plannedAmount: null,
+    quotedQuantity: line.quantity != null && line.quantity !== '' ? line.quantity : 1,
+    quotedUnitCost: line.unitCost != null && line.unitCost !== '' ? line.unitCost : '',
+    quotedAmount: line.amount != null && line.amount !== '' ? line.amount : '',
+    sortOrder: line.sortOrder ?? plannedEntryLines.length + idx + 1,
+  }));
+
+  return {
+    projectId,
+    plannedLineCount: plannedLines.length,
+    lines: [...plannedEntryLines, ...supplementaryEntryLines],
+    existingQuotation: quotation
+      ? {
+          quotationId: quotation.quotationId,
+          supplierName: quotation.supplierName || '',
+          referenceNo: quotation.referenceNo || '',
+          status: quotation.status,
+          updatedAt: quotation.updatedAt,
+        }
+      : null,
     extraLineTypes: [
       { value: 'provisional', label: 'Provisional sum' },
       { value: 'pc_sum', label: 'PC sum' },
@@ -3081,7 +3143,7 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
   instructions.addRow(['']);
   instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, activity_name, planned_quantity, or planned_unit_cost on planned rows.']);
   instructions.addRow(['2. Planned quantity and unit cost are from the project BQ baseline (read-only reference).']);
-  instructions.addRow(['3. Enter quoted_quantity (defaults from planned) and quoted_unit_cost; quoted_amount calculates as quantity × unit cost.']);
+  instructions.addRow(['3. For planned BQ rows, quoted quantity always matches planned quantity (do not change). Enter quoted_unit_cost; quoted_amount calculates as planned quantity × unit cost.']);
   instructions.addRow(['4. For a lump sum, set quoted_quantity to 1 and quoted_unit_cost to the total amount.']);
   instructions.addRow(['5. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
 
@@ -3169,7 +3231,9 @@ function normalizeQuotationImportRow(row, index = 0) {
   const plannedQty = parseScopeNumber(pickRowValue(row, ['planned_quantity', 'planned_qty']));
   const plannedUnit = parseScopeNumber(pickRowValue(row, ['planned_unit_cost', 'planned_rate']));
   let quotedQty = parseScopeNumber(pickRowValue(row, ['quoted_quantity', 'quantity', 'qty']));
-  if (quotedQty == null && lineType === 'planned' && plannedQty != null) {
+  if (lineType === 'planned' && plannedQty != null) {
+    quotedQty = plannedQty;
+  } else if (quotedQty == null && lineType === 'planned' && plannedQty != null) {
     quotedQty = plannedQty;
   }
   const quotedUnit = parseScopeNumber(pickRowValue(row, ['quoted_unit_cost', 'unit_cost', 'rate', 'quoted_unit_rate']));
@@ -3233,7 +3297,7 @@ function validateAndMergeQuotationImport(plannedLines, importLines, options = {}
         activityName: planned.activityName,
         description: line.description || planned.description || null,
         unitOfMeasure: line.unitOfMeasure || planned.unitOfMeasure || null,
-        quantity: line.quantity,
+        quantity: planned.quantity ?? line.quantity,
         unitCost: line.unitCost,
         amount: line.amount ?? 0,
         sortOrder: line.sortOrder ?? planned.sortOrder,
@@ -3786,14 +3850,17 @@ function buildLineComparisonsFromQuotation(plannedLines, quotationLines) {
 
 function entryLinesToImportPayload(entryLines) {
   return (entryLines || []).map((line, index) => {
+    const isPlanned = normalizeQuotationLineType(line.lineType || 'planned') === 'planned' && line.plannedBqItemId;
     const plannedQty = line.plannedQuantity === '' || line.plannedQuantity == null
       ? null
       : Number(line.plannedQuantity);
     let quotedQty = line.quotedQuantity === '' || line.quotedQuantity == null
       ? null
       : Number(line.quotedQuantity);
-    if (quotedQty == null && plannedQty != null && line.lineType !== 'provisional' && line.lineType !== 'pc_sum') {
+    if (isPlanned) {
       quotedQty = plannedQty;
+    } else if (quotedQty == null) {
+      quotedQty = 1;
     }
     const quotedUnit = line.quotedUnitCost === '' || line.quotedUnitCost == null
       ? null

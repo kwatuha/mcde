@@ -53,6 +53,17 @@ const authService = {
     }
   },
 
+  /** Refresh scopes and UI profile for the current session (after admin changes). */
+  getMe: async () => {
+    try {
+      const response = await axiosInstance.get('/auth/me');
+      return response.data;
+    } catch (error) {
+      console.error('Error refreshing session user:', error);
+      throw error;
+    }
+  },
+
   /**
    * Changes the password for the authenticated user.
    * @param {Object} passwordData - Object containing currentPassword and newPassword

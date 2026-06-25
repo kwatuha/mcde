@@ -70,6 +70,7 @@ import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
 import { isAdmin } from '../utils/privilegeUtils.js';
+import { canAccessRouteKeyByUiProfile } from '../utils/uiProfileUtils.js';
 import { resolveWorkflowNavigationPath, workflowEntityTypeLabel } from '../utils/workflowNavigation';
 import { getAccessCheckForAppPath } from '../utils/routeAccessHints.js';
 
@@ -250,6 +251,11 @@ const HomePage = () => {
     if (!user) return false;
     return isAdmin(user) || hasPrivilege('pmc_report.review');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
+
+  const canSeeDashboardRoute = React.useCallback(
+    (routeKey) => canAccessRouteKeyByUiProfile(user, routeKey),
+    [user]
+  );
 
   const canSubmitPmcReports = React.useMemo(() => {
     if (!user) return false;
@@ -841,6 +847,7 @@ const HomePage = () => {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            {canSeeDashboardRoute('SYSTEM_DASHBOARD') && (
             <Chip
               label="Summary Statistics"
               size="small"
@@ -856,6 +863,8 @@ const HomePage = () => {
                 transition: 'all 0.2s ease',
               }}
             />
+            )}
+            {canSeeDashboardRoute('PROJECT_BY_STATUS_DASHBOARD') && (
             <Chip
               label="Project By Status"
               size="small"
@@ -871,6 +880,8 @@ const HomePage = () => {
                 transition: 'all 0.2s ease',
               }}
             />
+            )}
+            {canSeeDashboardRoute('FINANCE_DASHBOARD') && (
             <Chip
               label="Finance"
               size="small"
@@ -886,6 +897,8 @@ const HomePage = () => {
                 transition: 'all 0.2s ease',
               }}
             />
+            )}
+            {canSeeDashboardRoute('JOBS_DASHBOARD') && (
             <Chip
               label="Jobs & Impact"
               size="small"
@@ -901,6 +914,7 @@ const HomePage = () => {
                 transition: 'all 0.2s ease',
               }}
             />
+            )}
             <IconButton
               onClick={refreshDashboard}
               disabled={refreshing}

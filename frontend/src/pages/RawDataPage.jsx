@@ -123,7 +123,6 @@ function RawDataPage() {
     { field: 'age', headerName: 'Age', renderHeader: () => renderHeader('Age'), type: 'number', width: 70 },
     { field: 'groupType', headerName: 'Group type', renderHeader: () => renderHeader('Group type'), flex: 1, minWidth: 120 },
     { field: 'memberCount', headerName: 'Members', renderHeader: () => renderHeader('Members'), type: 'number', width: 90 },
-    { field: 'county', headerName: 'County', renderHeader: () => renderHeader('County'), flex: 1, minWidth: 100 },
     { field: 'subCounty', headerName: 'Sub-County', renderHeader: () => renderHeader('Sub-County'), flex: 1, minWidth: 120 },
     { field: 'ward', headerName: 'Ward', renderHeader: () => renderHeader('Ward'), flex: 1, minWidth: 120 },
     { field: 'phone', headerName: 'Phone', renderHeader: () => renderHeader('Phone'), flex: 1, minWidth: 110 },
@@ -216,7 +215,6 @@ function RawDataPage() {
   const exportSummaryRows = useMemo(() => [
     { label: 'Records exported', value: totalRows },
     { label: 'Beneficiary type', value: appliedFilters.beneficiaryType === 'All' ? 'All types' : appliedFilters.beneficiaryType },
-    { label: 'County', value: appliedFilters.county === 'All' ? 'All' : appliedFilters.county },
     { label: 'Sub-County', value: appliedFilters.subCounty === 'All' ? 'All' : appliedFilters.subCounty },
     { label: 'Ward', value: appliedFilters.ward === 'All' ? 'All' : appliedFilters.ward },
   ], [totalRows, appliedFilters]);
@@ -272,19 +270,6 @@ function RawDataPage() {
               <MenuItem value="All">All types</MenuItem>
               {typeOptions.map((t) => (
                 <MenuItem key={t.typeCode} value={t.typeCode}>{t.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>County</InputLabel>
-            <Select
-              label="County"
-              value={filters.county}
-              onChange={(e) => setFilters((p) => ({ ...p, county: e.target.value }))}
-            >
-              <MenuItem value="All">All counties</MenuItem>
-              {filterOptions.counties.map((c) => (
-                <MenuItem key={c} value={c}>{c}</MenuItem>
               ))}
             </Select>
           </FormControl>

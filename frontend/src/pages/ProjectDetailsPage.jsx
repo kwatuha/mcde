@@ -157,6 +157,11 @@ import ProjectAdpImplementationLinksPage from './ProjectAdpImplementationLinksPa
 import ProjectInceptionPanel from '../components/project/ProjectInceptionPanel';
 import ProjectPaymentRequestsPanel from '../components/project/ProjectPaymentRequestsPanel';
 
+import {
+  getProfileTabVisibilitySet,
+  isUiProfileBypassUser,
+} from '../utils/uiProfileUtils.js';
+
 const checkUserPrivilege = (user, privilegeName) => {
     return user && user.privileges && Array.isArray(user.privileges) && user.privileges.includes(privilegeName);
 };
@@ -209,13 +214,8 @@ const PROJECT_DETAIL_TAB_DEFINITIONS = [
 ];
 
 const getVisibleProjectDetailTabKeySet = (user) => {
-    const raw = user?.uiProfile?.visibleTabKeys || user?.ui_profile?.visible_tab_keys || [];
-    if (!Array.isArray(raw) || raw.length === 0) return null;
-    const keys = raw
-        .map((key) => String(key || '').trim())
-        .filter((key) => key.startsWith('projectDetails:'))
-        .map((key) => key.replace(/^projectDetails:/, ''));
-    return keys.length ? new Set(keys) : null;
+    if (isUiProfileBypassUser(user)) return null;
+    return getProfileTabVisibilitySet(user);
 };
 
 const snakeToCamelCase = (obj) => {

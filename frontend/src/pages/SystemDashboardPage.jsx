@@ -188,7 +188,7 @@ const SystemDashboardPage = () => {
           financialYear: p.financialYear || p.financialYearName || 'Unknown',
           ministry: String(p.ministry ?? p.ministryName ?? p.departmentName ?? p.department ?? '').trim() || 'Unknown',
           stateDepartment:
-            String(p.stateDepartment ?? p.state_department ?? p.stateDepartmentName ?? '').trim() || 'Unknown',
+            String(p.stateDepartment ?? p.state_department ?? p.stateDepartmentName ?? p.sectionName ?? '').trim() || 'Unknown',
           agency:
             String(
               p.agency ?? p.agencyName ?? p.implementingAgency ?? p.implementing_agency ?? p.directorate ?? p.directorateName ?? ''
@@ -808,14 +808,14 @@ const SystemDashboardPage = () => {
                       minWidth: { sm: 0 },
                     }}
                   >
-                    <InputLabel sx={{ fontSize: '0.75rem' }}>Ministry</InputLabel>
+                    <InputLabel sx={{ fontSize: '0.75rem' }}>Department</InputLabel>
                     <Select
                       value={filters.ministry}
-                      label="Ministry"
+                      label="Department"
                       onChange={(e) => setFilters({ ...filters, ministry: e.target.value, stateDepartment: '', agency: '' })}
                       sx={{ fontSize: '0.8rem', height: '32px' }}
                     >
-                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All Ministries</MenuItem>
+                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All departments</MenuItem>
                       {uniqueMinistries.map((m) => (
                         <MenuItem key={m} value={m} sx={{ fontSize: '0.8rem' }}>
                           {m}
@@ -833,14 +833,14 @@ const SystemDashboardPage = () => {
                       minWidth: { sm: 0 },
                     }}
                   >
-                    <InputLabel sx={{ fontSize: '0.75rem' }}>State Department</InputLabel>
+                    <InputLabel sx={{ fontSize: '0.75rem' }}>Section / unit</InputLabel>
                     <Select
                       value={filters.stateDepartment}
-                      label="State Department"
+                      label="Section / unit"
                       onChange={(e) => setFilters({ ...filters, stateDepartment: e.target.value, agency: '' })}
                       sx={{ fontSize: '0.8rem', height: '32px' }}
                     >
-                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All State Departments</MenuItem>
+                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All sections</MenuItem>
                       {uniqueStateDepartments.map((d) => (
                         <MenuItem key={d} value={d} sx={{ fontSize: '0.8rem' }}>
                           {d}
@@ -849,29 +849,6 @@ const SystemDashboardPage = () => {
                     </Select>
                   </FormControl>
                 )}
-                <FormControl
-                  size="small"
-                  fullWidth
-                  sx={{
-                    flex: { xs: 'none', sm: '1 1 0%' },
-                    minWidth: { sm: 0 },
-                  }}
-                >
-                  <InputLabel sx={{ fontSize: '0.75rem' }}>Agency</InputLabel>
-                  <Select
-                    value={filters.agency}
-                    label="Agency"
-                    onChange={(e) => setFilters({ ...filters, agency: e.target.value })}
-                    sx={{ fontSize: '0.8rem', height: '32px' }}
-                  >
-                    <MenuItem value="" sx={{ fontSize: '0.8rem' }}>All Agencies</MenuItem>
-                    {uniqueAgencies.map((a) => (
-                      <MenuItem key={a} value={a} sx={{ fontSize: '0.8rem' }}>
-                        {a}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
                 <FormControl
                   size="small"
                   fullWidth
