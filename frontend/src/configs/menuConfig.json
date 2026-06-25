@@ -51,6 +51,11 @@
           "route": "GIS_DASHBOARD"
         },
         {
+          "title": "Project GIS Map",
+          "icon": "LocationOnIcon",
+          "route": "PROJECT_GIS_MAP"
+        },
+        {
           "title": "Personal Dashboard",
           "icon": "DashboardIcon",
           "route": "DASHBOARD"

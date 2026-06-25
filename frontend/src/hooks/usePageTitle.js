@@ -71,6 +71,8 @@ const routeTitles = {
   '/data-import': { title: 'Central Data Import', subtitle: 'Data Import' },
   '/maps': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
   '/gis-mapping': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
+  '/gis-dashboard': { title: 'GIS Dashboard', subtitle: 'Ward heat map and county boundaries' },
+  '/project-gis-map': { title: 'Project GIS Map', subtitle: 'Project locations and regional filters' },
   '/maps/import-data': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/map-data-import': { title: 'Import Map Data', subtitle: 'Data Import' },
   '/strategic-planning': { title: 'CIDP', subtitle: 'County Integrated Development Plan' },

@@ -132,6 +132,13 @@ const SECTIONS = [
         tags: ['gis', 'map', 'location'],
         icon: MapIcon,
       },
+      {
+        title: 'Project GIS map',
+        description: 'Filter projects and view site pins on the map.',
+        to: ROUTES.PROJECT_GIS_MAP,
+        tags: ['gis', 'map', 'projects', 'locations'],
+        icon: MapIcon,
+      },
     ],
   },
   {

@@ -77,6 +77,7 @@ import KdspProjectDetailsPage from './pages/KdspProjectDetailsPage';
 // NEW: Import the GISMapPage for the new mapping component
 import GISMapPage from './pages/GISMapPage';
 import GISDashboardPage from './pages/GISDashboardPage';
+import ProjectGisMapPage from './pages/ProjectGisMapPage';
 // NEW: Import the MapDataImportPage for the map data import form
 import MapDataImportPage from './pages/MapDataImportPage';
 // NEW: Import the SettingsPage
@@ -460,6 +461,10 @@ const router = createBrowserRouter([
       {
         path: 'gis-dashboard',
         element: <GISDashboardPage />,
+      },
+      {
+        path: 'project-gis-map',
+        element: <ProjectGisMapPage />,
       },
       {
         path: 'maps/import-data',

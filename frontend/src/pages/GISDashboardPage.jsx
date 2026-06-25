@@ -50,19 +50,7 @@ const formatMetricValue = (metricKey, values) => {
   return '—';
 };
 
-const getProjectPoint = (project) => {
-  const candidates = [
-    [project?.latitude, project?.longitude],
-    [project?.lat, project?.lng],
-    [project?.geoLat, project?.geoLon],
-  ];
-  for (const [latValue, lngValue] of candidates) {
-    const lat = Number(latValue);
-    const lng = Number(lngValue);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
-  }
-  return null;
-};
+import { getProjectMapPoint } from '../utils/projectMapPoint';
 
 const geometryToGooglePaths = (geometry) => {
   if (!geometry?.type || !geometry?.coordinates) return [];
@@ -154,7 +142,7 @@ function GISDashboardPage() {
   const markers = useMemo(
     () =>
       projects
-        .map((project) => ({ project, point: getProjectPoint(project) }))
+        .map((project) => ({ project, point: getProjectMapPoint(project) }))
         .filter((item) => item.point),
     [projects]
   );

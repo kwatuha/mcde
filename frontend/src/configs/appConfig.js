@@ -112,6 +112,7 @@ export const ROUTES = {
     DATA_COLLECTION_TOOLS: '/data-collection-tools',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',
+    PROJECT_GIS_MAP: '/project-gis-map',
     REPORTING_OVERVIEW: '/view-reports',
     REGIONAL_REPORTING: '/regional-reports',
     DEPARTMENTAL_REPORTING: '/departmental-reports',
