@@ -1,16 +1,21 @@
 /**
- * Email OTP for login: schema bootstrap, challenge storage, verification.
+ * Login OTP (email and/or SMS): schema bootstrap, challenge storage, verification.
  *
  * Per-user switch (turn off for dev, on for production-style auth):
  * - PostgreSQL: `users.otp_enabled` BOOLEAN NOT NULL DEFAULT false
  * - MySQL:      `users.otpEnabled` TINYINT(1) NOT NULL DEFAULT 0
  *
- * When enabled, after a correct password the API emails a 6-digit numeric code;
+ * Delivery channel (`otp_channel` / `otpChannel`): email | sms | both
+ *
+ * When enabled, after a correct password the API sends a 6-digit numeric code;
  * `POST /auth/login/verify-otp` completes sign-in. Codes are stored hashed in `login_otp_challenges`.
  */
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { sendLoginOtpEmail } = require('./accountEmailService');
+const { sendLoginOtpSms, maskPhone } = require('./advantaSmsService');
+
+const VALID_OTP_CHANNELS = new Set(['email', 'sms', 'both']);
 
 let schemaEnsured = false;
 let schemaEnsurePromise = null;
@@ -23,6 +28,9 @@ async function ensureLoginOtpSchema(pool) {
         if (DB_TYPE === 'postgresql') {
             await pool.query(
                 'ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_enabled BOOLEAN NOT NULL DEFAULT false'
+            );
+            await pool.query(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_channel VARCHAR(16) NOT NULL DEFAULT 'email'"
             );
             await pool.query(`
                 CREATE TABLE IF NOT EXISTS login_otp_challenges (
@@ -48,6 +56,15 @@ async function ensureLoginOtpSchema(pool) {
                     console.warn('[loginOtp] users.otpEnabled column:', e.message);
                 }
             }
+            try {
+                await pool.query(
+                    "ALTER TABLE users ADD COLUMN otpChannel VARCHAR(16) NOT NULL DEFAULT 'email'"
+                );
+            } catch (e) {
+                if (e.code !== 'ER_DUP_FIELDNAME') {
+                    console.warn('[loginOtp] users.otpChannel column:', e.message);
+                }
+            }
             await pool.query(`
                 CREATE TABLE IF NOT EXISTS login_otp_challenges (
                     id VARCHAR(36) NOT NULL PRIMARY KEY,
@@ -68,19 +85,49 @@ function generateSixDigitOtp() {
     return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+function normalizeOtpChannel(value) {
+    const v = String(value || 'email').trim().toLowerCase();
+    return VALID_OTP_CHANNELS.has(v) ? v : 'email';
+}
+
+function readOtpChannel(userRow) {
+    const raw = userRow?.otpChannel ?? userRow?.otp_channel ?? 'email';
+    return normalizeOtpChannel(raw);
+}
+
+function buildOtpDeliveryMessage(channel, { maskedPhone }) {
+    if (channel === 'sms') {
+        return `A verification code was sent to your phone (${maskedPhone || 'on file'}). Each sign-in sends a new code — use only the most recent one.`;
+    }
+    if (channel === 'both') {
+        return `A verification code was sent to your email and phone (${maskedPhone || 'on file'}). Use only the code from your most recent sign-in attempt.`;
+    }
+    return 'A verification code was sent to your email. Each password sign-in sends a new code and invalidates older ones — use only the code from your most recent email.';
+}
+
 /**
- * @returns {{ challengeId: string }}
+ * @returns {{ challengeId: string, otpChannel: string, maskedPhone: string|null, message: string }}
  */
-async function createLoginOtpChallenge(pool, { userId, email, username, firstName, lastName }) {
+async function createLoginOtpChallenge(pool, {
+    userId,
+    email,
+    username,
+    firstName,
+    lastName,
+    phoneNumber,
+    otpChannel = 'email',
+}) {
     await ensureLoginOtpSchema(pool);
     const DB_TYPE = process.env.DB_TYPE || 'mysql';
+    const channel = normalizeOtpChannel(otpChannel);
+    const sendEmail = channel === 'email' || channel === 'both';
+    const sendSms = channel === 'sms' || channel === 'both';
     const plain = generateSixDigitOtp();
     const otpHash = await bcrypt.hash(plain, await bcrypt.genSalt(8));
     const id = crypto.randomUUID();
     const expires = new Date(Date.now() + 10 * 60 * 1000);
 
     if (DB_TYPE === 'postgresql') {
-        // One row per user: a second password-login before verify deletes the first challenge — older emails show stale codes.
         await pool.query('DELETE FROM login_otp_challenges WHERE user_id = $1', [userId]);
         await pool.query(
             'INSERT INTO login_otp_challenges (id, user_id, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
@@ -94,14 +141,39 @@ async function createLoginOtpChallenge(pool, { userId, email, username, firstNam
         );
     }
 
-    await sendLoginOtpEmail({
-        email,
-        username,
-        fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
-        code: plain,
-    });
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    const errors = [];
 
-    return { challengeId: id };
+    if (sendEmail) {
+        try {
+            await sendLoginOtpEmail({ email, username, fullName, code: plain });
+        } catch (e) {
+            errors.push(`email: ${e.message}`);
+        }
+    }
+    if (sendSms) {
+        try {
+            await sendLoginOtpSms({ mobile: phoneNumber, code: plain, username });
+        } catch (e) {
+            console.error('[loginOtp] SMS delivery failed:', e.message, e.advantaResponse || '');
+            errors.push(`sms: ${e.message}`);
+        }
+    }
+
+    if (errors.length > 0) {
+        if ((sendEmail && !sendSms) || (sendSms && !sendEmail) || errors.length >= 2) {
+            throw new Error(errors.join('; '));
+        }
+        console.warn('[loginOtp] partial delivery failure:', errors.join('; '));
+    }
+
+    const maskedPhone = phoneNumber ? maskPhone(phoneNumber) : null;
+    return {
+        challengeId: id,
+        otpChannel: channel,
+        maskedPhone,
+        message: buildOtpDeliveryMessage(channel, { maskedPhone }),
+    };
 }
 
 /**
@@ -114,7 +186,7 @@ async function verifyLoginOtpChallenge(pool, challengeId, plainCode) {
     // Accept pasted text like "Your code: 123456" or "123 456" (email clients add noise).
     const digitsOnly = String(plainCode || '').replace(/\D/g, '');
     if (!id || digitsOnly.length !== 6) {
-        return { ok: false, error: 'Enter the 6-digit code from your email (exactly 6 numbers).' };
+        return { ok: false, error: 'Enter the 6-digit verification code (exactly 6 numbers).' };
     }
     const code = digitsOnly;
 
@@ -182,4 +254,6 @@ module.exports = {
     createLoginOtpChallenge,
     verifyLoginOtpChallenge,
     readOtpEnabledFlag,
+    readOtpChannel,
+    normalizeOtpChannel,
 };

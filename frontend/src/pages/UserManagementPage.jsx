@@ -31,6 +31,28 @@ const MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE =
 /** Cabinet row in the ministries catalog; all county users share this parent. */
 const DEFAULT_MACHAKOS_PARENT_ORG = 'Machakos County Executive';
 
+/** Map users.otp_channel to checkbox state for the user form. */
+function otpDeliveryFromChannel(channel) {
+  const c = String(channel || 'email').trim().toLowerCase();
+  return {
+    email: c === 'email' || c === 'both',
+    sms: c === 'sms' || c === 'both',
+  };
+}
+
+function otpChannelFromDelivery({ email, sms }) {
+  if (email && sms) return 'both';
+  if (sms) return 'sms';
+  return 'email';
+}
+
+function formatOtpChannelLabel(channel) {
+  const c = String(channel || 'email').trim().toLowerCase();
+  if (c === 'both') return 'Email and SMS';
+  if (c === 'sms') return 'SMS only';
+  return 'Email only';
+}
+
 const PROJECT_DETAIL_UI_TAB_OPTIONS = [
   { key: 'projectDetails:overview', label: 'Overview', group: 'Core details', description: 'Project summary, location, ownership and status.' },
   { key: 'projectDetails:financials', label: 'Financials', group: 'Finance and planning', description: 'Budget, disbursement and financial fields.' },
@@ -68,6 +90,7 @@ const USER_FORM_ERROR_PRIORITY = [
   'firstName',
   'lastName',
   'phoneNumber',
+  'otpChannel',
 ];
 
 function getPrimaryUserFormError(errors = {}) {
@@ -512,6 +535,7 @@ function UserManagementPage() {
     directorate: '',
     agencyId: '',
     otpEnabled: false,
+    otpChannel: 'email',
     uiProfileId: '',
   });
   const [userFormErrors, setUserFormErrors] = useState({});
@@ -1451,6 +1475,9 @@ function UserManagementPage() {
           Role: roleName,
           Active: u.isActive === true || u.isActive === 1 ? 'Yes' : (u.isActive === false || u.isActive === 0 ? 'No' : ''),
           'OTP at login': u.otpEnabled === true || u.otpEnabled === 1 ? 'Yes' : 'No',
+          'OTP delivery': u.otpEnabled === true || u.otpEnabled === 1
+            ? formatOtpChannelLabel(u.otpChannel || u.otp_channel)
+            : '',
           'Parent organization': u.ministry ?? '',
           Department: u.stateDepartment ?? u.state_department ?? '',
           Directorate: u.directorate ?? '',
@@ -1514,6 +1541,7 @@ function UserManagementPage() {
       directorate: '',
       agencyId: '',
       otpEnabled: !!(userItem.otpEnabled ?? userItem.otp_enabled),
+      otpChannel: userItem.otpChannel || userItem.otp_channel || 'email',
       uiProfileId: userItem.uiProfile?.id || '',
     });
     setUserFormErrors({});
@@ -1526,6 +1554,7 @@ function UserManagementPage() {
       setUserFormData((prev) => ({
         ...prev,
         otpEnabled: !!(full.otpEnabled ?? full.otp_enabled ?? prev.otpEnabled),
+        otpChannel: full.otpChannel || full.otp_channel || prev.otpChannel || 'email',
         uiProfileId: full.uiProfile?.id || '',
       }));
     } catch (err) {
@@ -2100,6 +2129,16 @@ function UserManagementPage() {
     if (!/\S+@\S+\.\S+/.test(String(formValues.email || ''))) errors.email = 'Email is invalid.';
     if (formValues.phoneNumber && !phoneRegex.test(String(formValues.phoneNumber || '').trim())) {
       errors.phoneNumber = 'Use 07XXXXXXXX or +2547XXXXXXXX';
+    }
+
+    if (formValues.otpEnabled) {
+      const delivery = otpDeliveryFromChannel(formValues.otpChannel);
+      if (!delivery.email && !delivery.sms) {
+        errors.otpChannel = 'Select at least one OTP delivery method (email and/or SMS).';
+      }
+      if (delivery.sms && !String(formValues.phoneNumber || '').trim()) {
+        errors.phoneNumber = errors.phoneNumber || 'Phone number is required when SMS OTP is selected.';
+      }
     }
 
     const orgProfileEditable = !currentUserToEdit || isSuperAdmin;
@@ -3215,7 +3254,7 @@ function UserManagementPage() {
       headerAlign: 'center',
       align: 'center',
       description:
-        'Maps to users.otp_enabled (PostgreSQL) or users.otpEnabled (MySQL). When on, sign-in sends a 6-digit numeric code to email after a correct password.',
+        'When on, sign-in sends a 6-digit code after password (email, SMS, or both per user setting).',
       valueGetter: (value, row) => !!(row.otpEnabled ?? row.otp_enabled),
       renderCell: ({ row }) => {
         const enabled = !!(row.otpEnabled ?? row.otp_enabled);
@@ -4228,10 +4267,10 @@ function UserManagementPage() {
                   <DetailRow label="Phone" value={u.phoneNumber || u.phone} />
                   <DetailRow label="UI Profile" value={u.uiProfile?.name} />
                   <DetailRow
-                    label="Email OTP (column: otp_enabled)"
+                    label="OTP at login"
                     value={
                       u.otpEnabled === true || u.otpEnabled === 1 || u.otp_enabled
-                        ? 'On — 6-digit code after password'
+                        ? `On — ${formatOtpChannelLabel(u.otpChannel || u.otp_channel)}`
                         : 'Off — password only'
                     }
                   />
@@ -4431,7 +4470,7 @@ function UserManagementPage() {
             }} 
           />
           <FormControlLabel
-            sx={{ mb: 2, alignItems: 'flex-start', ml: 0 }}
+            sx={{ mb: userFormData.otpEnabled ? 1 : 2, alignItems: 'flex-start', ml: 0 }}
             control={
               <Checkbox
                 checked={!!userFormData.otpEnabled}
@@ -4442,16 +4481,63 @@ function UserManagementPage() {
             label={
               <Box>
                 <Typography variant="body2" fontWeight={600}>
-                  Require email verification code (OTP) to sign in
+                  Require verification code (OTP) to sign in
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  {
-                    "After password, a 6-digit code is sent to the user's email. The server must have SMTP configured."
-                  }
+                  After password, a 6-digit code is sent by email and/or SMS depending on the delivery option below.
                 </Typography>
               </Box>
             }
           />
+          {userFormData.otpEnabled && (
+            <Box sx={{ mb: 2, pl: 0.5 }}>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                Send OTP via
+              </Typography>
+              <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={otpDeliveryFromChannel(userFormData.otpChannel).email}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setUserFormData((prev) => {
+                          const flags = otpDeliveryFromChannel(prev.otpChannel);
+                          const next = { email: checked, sms: flags.sms };
+                          if (!next.email && !next.sms) return prev;
+                          return { ...prev, otpChannel: otpChannelFromDelivery(next) };
+                        });
+                      }}
+                      color="primary"
+                    />
+                  }
+                  label="Email"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={otpDeliveryFromChannel(userFormData.otpChannel).sms}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setUserFormData((prev) => {
+                          const flags = otpDeliveryFromChannel(prev.otpChannel);
+                          const next = { email: flags.email, sms: checked };
+                          if (!next.email && !next.sms) return prev;
+                          return { ...prev, otpChannel: otpChannelFromDelivery(next) };
+                        });
+                      }}
+                      color="primary"
+                    />
+                  }
+                  label="SMS"
+                />
+              </Stack>
+              <Typography variant="caption" color={userFormErrors.otpChannel ? 'error' : 'text.secondary'} display="block" sx={{ mt: 0.25 }}>
+                {userFormErrors.otpChannel ||
+                  'Choose email, SMS, or both. SMS requires a valid phone number above.'}
+              </Typography>
+            </Box>
+          )}
           <TextField 
             margin="dense" 
             name="firstName" 

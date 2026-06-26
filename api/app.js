@@ -220,6 +220,24 @@ server.listen(port, bindHost, async () => {
         console.warn('SMTP check skipped:', e.message);
     }
     try {
+        const { isAdvantaConfigured, getAdvantaBalance } = require('./services/advantaSmsService');
+        if (isAdvantaConfigured()) {
+            try {
+                const bal = await getAdvantaBalance();
+                const credit = bal?.credit ?? bal?.balance ?? '(unknown)';
+                console.log(`SMS gateway (Advanta): configured — account credit ${credit}.`);
+            } catch (balErr) {
+                console.warn('SMS gateway (Advanta): configured but balance check failed:', balErr.message);
+            }
+        } else {
+            console.warn(
+                'SMS gateway (Advanta): NOT configured — set ADVANTA_PARTNER_ID, ADVANTA_API_KEY, ADVANTA_SHORT_CODE in api/.env (deploy rsync excludes api/.env; copy this block to the server manually).'
+            );
+        }
+    } catch (e) {
+        console.warn('SMS gateway check skipped:', e.message);
+    }
+    try {
         await ensureReportSchedulingTables();
         startReportScheduler();
         console.log('Scheduled report runner: started (checks every 60 seconds).');

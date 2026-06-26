@@ -24,6 +24,7 @@
 #   - api/.env with DB_* (not rsync'd). Set at minimum:
 #       APP_LOGIN_URL=http://84.247.128.58:8084/login
 #       APP_FRONTEND_URL=http://84.247.128.58:8084
+#       ADVANTA_PARTNER_ID, ADVANTA_API_KEY, ADVANTA_SHORT_CODE (SMS OTP; see api/.env.remote.example)
 #   - sudo ufw allow 8084/tcp   (or your MCMES_HTTP_PORT)
 #   - Run DB migrations manually (deploy does not migrate)
 #

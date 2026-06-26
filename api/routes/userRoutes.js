@@ -6,7 +6,7 @@ const orgScope = require('../services/organizationScopeService');
 const uiAccess = require('../services/uiAccessService');
 const { isSuperAdminRequester, isAdminLikeRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
-const { ensureLoginOtpSchema } = require('../services/loginOtpService');
+const { ensureLoginOtpSchema, normalizeOtpChannel } = require('../services/loginOtpService');
 const { setMustChangePassword } = require('../services/passwordPolicyService');
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
@@ -309,6 +309,7 @@ async function fetchActiveNonVoidedUsers() {
                 u.updatedat AS "updatedAt", 
                 u.isactive AS "isActive",
                 u.otp_enabled AS "otpEnabled",
+                COALESCE(u.otp_channel, 'email') AS "otpChannel",
                 u.roleid AS "roleId", 
                 r.name AS role,
                 u.ministry, 
@@ -335,6 +336,7 @@ async function fetchActiveNonVoidedUsers() {
                 u.updatedAt, 
                 u.isActive,
                 IFNULL(u.otpEnabled, 0) AS otpEnabled,
+                IFNULL(u.otpChannel, 'email') AS otpChannel,
                 u.roleId, 
                 r.roleName AS role,
                 u.ministry, 
@@ -771,6 +773,7 @@ router.get('/users/:id', async (req, res) => {
                     u.updatedat AS "updatedAt", 
                     u.isactive AS "isActive",
                     u.otp_enabled AS "otpEnabled",
+                COALESCE(u.otp_channel, 'email') AS "otpChannel",
                     u.roleid AS "roleId", 
                     r.name AS role,
                     u.ministry,
@@ -797,6 +800,7 @@ router.get('/users/:id', async (req, res) => {
                     u.updatedAt, 
                     u.isActive,
                     IFNULL(u.otpEnabled, 0) AS otpEnabled,
+                IFNULL(u.otpChannel, 'email') AS otpChannel,
                     u.roleId, 
                     r.roleName AS role,
                     u.ministry,
@@ -847,7 +851,7 @@ router.get('/users/:id', async (req, res) => {
 router.post('/users', async (req, res) => {
     const {
         username, email, password, firstName, lastName, roleId, idNumber, employeeNumber,
-        ministry, state_department, directorate, agency_id, phoneNumber, phone_number, otpEnabled,
+        ministry, state_department, directorate, agency_id, phoneNumber, phone_number, otpEnabled, otpChannel,
         organizationScopes: organizationScopesBody,
         organization_scopes: organization_scopes_snake,
         projectScopes: projectScopesBody,
@@ -860,6 +864,7 @@ router.post('/users', async (req, res) => {
         otpEnabled === 1 ||
         otpEnabled === '1' ||
         String(otpEnabled || '').toLowerCase() === 'true';
+    const otpChannelVal = normalizeOtpChannel(otpChannel);
     const scopesFromBody = organizationScopesBody !== undefined ? organizationScopesBody : organization_scopes_snake;
     const projectScopesFromBody = projectScopesBody !== undefined ? projectScopesBody : project_scopes_snake;
     const uiProfileIdFromBody = uiProfileId !== undefined ? uiProfileId : ui_profile_id;
@@ -932,8 +937,8 @@ router.post('/users', async (req, res) => {
             let insertResult;
             if (hasDirectorate) {
                 insertResult = await pool.query(
-                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, directorate, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $13, false, $14)
+                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, directorate, agency_id, createdat, updatedat, isactive, voided, otp_enabled, otp_channel)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $13, false, $14, $15)
                     RETURNING userid`,
                     [
                         username,
@@ -950,12 +955,13 @@ router.post('/users', async (req, res) => {
                         null,
                         true,
                         otpEnabledVal,
+                        otpChannelVal,
                     ]
                 );
             } else {
                 insertResult = await pool.query(
-                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided, otp_enabled)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false, $13)
+                    `INSERT INTO users (username, email, passwordhash, firstname, lastname, roleid, id_number, employee_number, ministry, state_department, agency_id, createdat, updatedat, isactive, voided, otp_enabled, otp_channel)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $12, false, $13, $14)
                     RETURNING userid`,
                     [
                         username,
@@ -971,6 +977,7 @@ router.post('/users', async (req, res) => {
                         null,
                         true,
                         otpEnabledVal,
+                        otpChannelVal,
                     ]
                 );
             }
@@ -994,6 +1001,7 @@ router.post('/users', async (req, res) => {
                 updatedAt: new Date(),
                 isActive: true,
                 otpEnabled: otpEnabledVal ? 1 : 0,
+                otpChannel: otpChannelVal,
             };
             const [result] = await pool.query('INSERT INTO users SET ?', newUser);
             insertedUserId = result.insertId;
@@ -1019,6 +1027,7 @@ router.post('/users', async (req, res) => {
                         u.updatedat AS "updatedAt", 
                         u.isactive AS "isActive",
                         u.otp_enabled AS "otpEnabled",
+                COALESCE(u.otp_channel, 'email') AS "otpChannel",
                         u.ministry, 
                         u.state_department AS "stateDepartment"${hasDirFetch ? ',\n                        u.directorate' : ''},
                         u.agency_id AS "agencyId", 
@@ -1045,6 +1054,7 @@ router.post('/users', async (req, res) => {
                         u.updatedAt, 
                         u.isActive,
                         IFNULL(u.otpEnabled, 0) AS otpEnabled,
+                IFNULL(u.otpChannel, 'email') AS otpChannel,
                         u.ministry, 
                         u.state_department AS stateDepartment, 
                         u.agency_id AS agencyId, 
@@ -1311,6 +1321,9 @@ router.put('/users/:id', async (req, res) => {
             String(v || '').toLowerCase() === 'true'
         );
     }
+    if (Object.prototype.hasOwnProperty.call(otherFieldsToUpdate, 'otpChannel')) {
+        otherFieldsToUpdate.otpChannel = normalizeOtpChannel(otherFieldsToUpdate.otpChannel);
+    }
 
     const normalizedUsername = otherFieldsToUpdate.username !== undefined
         ? String(otherFieldsToUpdate.username || '').trim()
@@ -1418,6 +1431,7 @@ router.put('/users/:id', async (req, res) => {
                 directorate: 'directorate',
                 phoneNumber: 'phone_number',
                 otpEnabled: 'otp_enabled',
+                otpChannel: 'otp_channel',
             };
 
             for (const [key, value] of Object.entries(otherFieldsToUpdate)) {
@@ -1459,6 +1473,7 @@ router.put('/users/:id', async (req, res) => {
                         u.id_number AS "idNumber", u.employee_number AS "employeeNumber",
                         u.roleid AS "roleId", r.name AS role, u.createdat AS "createdAt", u.updatedat AS "updatedAt", u.isactive AS "isActive",
                         u.otp_enabled AS "otpEnabled",
+                COALESCE(u.otp_channel, 'email') AS "otpChannel",
                         u.ministry, u.state_department AS "stateDepartment"${hasDirectorate ? ', u.directorate' : ''}, u.agency_id AS "agencyId", a.agency_name AS "agencyName"
                     FROM users u
                     LEFT JOIN roles r ON u.roleid = r.roleid
@@ -1472,6 +1487,7 @@ router.put('/users/:id', async (req, res) => {
                         u.userId, u.username, u.email, u.firstName, u.lastName, u.idNumber, u.employeeNumber,
                         u.roleId, r.roleName AS role, u.createdAt, u.updatedAt, u.isActive,
                         IFNULL(u.otpEnabled, 0) AS otpEnabled,
+                IFNULL(u.otpChannel, 'email') AS otpChannel,
                         u.ministry, u.state_department AS stateDepartment, u.agency_id AS agencyId, a.agency_name AS agencyName
                     FROM users u
                     LEFT JOIN roles r ON u.roleId = r.roleId

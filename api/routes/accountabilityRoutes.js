@@ -1,11 +1,45 @@
 const express = require('express');
 const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
+const orgScope = require('../services/organizationScopeService');
+const { isAdminLikeRequester } = require('../utils/roleUtils');
 
 const router = express.Router();
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
 const canRead = privilege(['project.read_all', 'strategic_plan.read_all'], { anyOf: true });
+
+const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+
+const hasProjectScopeBypass = (user) => (
+  isAdminLikeRequester(user) || orgScope.userHasOrganizationBypass(user?.privileges || [])
+);
+
+async function appendProjectScopeFilter(req, filters, params, projectAlias = 'p') {
+  const authUserId = getScopeUserId(req.user);
+  if (!authUserId) {
+    filters.push('FALSE');
+    return;
+  }
+  if (hasProjectScopeBypass(req.user)) return;
+  if (!(await orgScope.organizationScopeTableExists())) {
+    filters.push('FALSE');
+    return;
+  }
+
+  const hasProjectScopes = await orgScope.userHasProjectAccessScopeContext(authUserId);
+  const rawFragment = hasProjectScopes
+    ? orgScope.buildExplicitProjectScopeFragment(projectAlias)
+    : orgScope.buildProjectListScopeFragment(projectAlias);
+  const scopeParams = hasProjectScopes
+    ? orgScope.explicitProjectScopeParams(authUserId)
+    : orgScope.projectScopeParamTriple(authUserId);
+
+  let nextIndex = params.length + 1;
+  const scopeFragment = rawFragment.replace(/\?/g, () => `$${nextIndex++}`);
+  filters.push(scopeFragment);
+  params.push(...scopeParams);
+}
 
 function requirePostgres(req, res, next) {
   if (!isPostgres) {
@@ -20,11 +54,13 @@ router.get('/ward-accountability', canRead, async (req, res) => {
   try {
     const subcounty = String(req.query.subcounty || '').trim();
     const params = [];
-    let wardFilter = '';
+    const filters = [];
     if (subcounty) {
       params.push(`%${subcounty.toLowerCase()}%`);
-      wardFilter = `AND lower(COALESCE(p.location->>'subcounty', '')) LIKE $${params.length}`;
+      filters.push(`lower(COALESCE(p.location->>'subcounty', '')) LIKE $${params.length}`);
     }
+    await appendProjectScopeFilter(req, filters, params, 'p');
+    const scopeSql = filters.length ? `AND ${filters.map((f) => `(${f})`).join(' AND ')}` : '';
 
     const wardProjects = await pool.query(
       `
@@ -38,7 +74,7 @@ router.get('/ward-accountability', canRead, async (req, res) => {
           COALESCE(NULLIF(BTRIM(p.progress->>'percentage_complete'), ''), '0')::numeric AS progress_pct
         FROM projects p
         WHERE COALESCE(p.voided, false) = false
-          ${wardFilter}
+          ${scopeSql}
       )
       SELECT
         ward,

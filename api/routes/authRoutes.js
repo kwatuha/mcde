@@ -15,7 +15,9 @@ const {
     createLoginOtpChallenge,
     verifyLoginOtpChallenge,
     readOtpEnabledFlag,
+    readOtpChannel,
 } = require('../services/loginOtpService');
+const { isAdvantaConfigured } = require('../services/advantaSmsService');
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
 // Env is loaded by ../config/db (api/.env); avoid a second cwd-based dotenv here.
@@ -649,38 +651,61 @@ router.post('/login', async (req, res) => {
         }
 
         if (otpEnabled) {
-            if (!canSendEmail()) {
+            const otpChannel = readOtpChannel(user);
+            const phoneNumber = String(user.phone_number || user.phoneNumber || '').trim();
+            const needsEmail = otpChannel === 'email' || otpChannel === 'both';
+            const needsSms = otpChannel === 'sms' || otpChannel === 'both';
+
+            if (needsEmail && !canSendEmail()) {
                 return res.status(503).json({
                     error: 'Email verification is enabled for your account but the server is not configured to send mail (SMTP). Contact an administrator.',
                 });
             }
+            if (needsSms && !isAdvantaConfigured()) {
+                return res.status(503).json({
+                    error: 'SMS verification is enabled for your account but the SMS gateway is not configured on this server. Contact an administrator.',
+                });
+            }
+            if (needsSms && !phoneNumber) {
+                return res.status(400).json({
+                    error: 'SMS verification is enabled for your account but no phone number is on file. Contact an administrator to add your mobile number.',
+                });
+            }
             try {
-                const { challengeId } = await createLoginOtpChallenge(pool, {
+                console.log('[auth/login] OTP delivery', {
+                    username: user.username,
+                    otpChannel,
+                    maskedPhone: phoneNumber ? `***${String(phoneNumber).replace(/\D/g, '').slice(-3)}` : null,
+                });
+                const otpResult = await createLoginOtpChallenge(pool, {
                     userId,
                     email: user.email,
                     username: user.username,
                     firstName,
                     lastName,
+                    phoneNumber,
+                    otpChannel,
                 });
                 void recordAudit({
                     req,
                     action: AUDIT_ACTIONS.AUTH_LOGIN_OTP_SENT,
                     entityType: 'user',
                     entityId: String(userId),
-                    details: { username: user.username },
+                    details: { username: user.username, otpChannel },
                     actorUserId: null,
                     actorUsername: user.username,
                 });
                 return res.status(200).json({
                     otpRequired: true,
-                    otpChallengeId: challengeId,
-                    message:
-                        'A verification code was sent to your email. Each password sign-in sends a new code and invalidates older ones — use only the code from your most recent email.',
+                    otpChallengeId: otpResult.challengeId,
+                    otpChannel: otpResult.otpChannel,
+                    maskedPhone: otpResult.maskedPhone,
+                    message: otpResult.message,
                 });
             } catch (sendErr) {
-                console.error('OTP login email failed:', sendErr);
+                console.error('OTP login delivery failed:', sendErr);
                 return res.status(500).json({
-                    error: 'Could not send verification email. Try again later or contact support.',
+                    error: 'Could not send verification code. Try again later or contact support.',
                     details: process.env.NODE_ENV === 'development' ? sendErr.message : undefined,
                 });
             }

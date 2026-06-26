@@ -55,6 +55,7 @@ const Login = () => {
     const [otpStep, setOtpStep] = useState(false);
     const [otpChallengeId, setOtpChallengeId] = useState('');
     const [otpCode, setOtpCode] = useState('');
+    const [otpChannel, setOtpChannel] = useState('email');
     const { login } = useAuth();
     const navigate = useNavigate();
 
@@ -83,7 +84,8 @@ const Login = () => {
                 setOtpStep(true);
                 setOtpChallengeId(data.otpChallengeId);
                 setOtpCode('');
-                setInfoMessage(data.message || 'Enter the verification code sent to your email.');
+                setOtpChannel(data.otpChannel || 'email');
+                setInfoMessage(data.message || 'Enter the verification code sent to you.');
                 return;
             }
 
@@ -135,6 +137,7 @@ const Login = () => {
         setOtpStep(false);
         setOtpChallengeId('');
         setOtpCode('');
+        setOtpChannel('email');
         setError('');
         setInfoMessage('');
     };
@@ -352,7 +355,11 @@ const Login = () => {
                     {otpStep ? (
                     <Box component="form" onSubmit={handleOtpSubmit}>
                         <Typography variant="body2" sx={{ mb: 1.5, fontFamily: fontStack, color: micde.textSecondary }}>
-                            Enter the 6-digit code sent to your email to finish signing in.
+                            {otpChannel === 'sms'
+                                ? 'Enter the 6-digit code sent to your phone to finish signing in.'
+                                : otpChannel === 'both'
+                                  ? 'Enter the 6-digit code sent to your email and phone to finish signing in.'
+                                  : 'Enter the 6-digit code sent to your email to finish signing in.'}
                         </Typography>
                         <TextField
                             fullWidth
