@@ -241,19 +241,61 @@ async function verifyLoginOtpChallenge(pool, challengeId, plainCode) {
     return { ok: true, userId: Number(row.user_id) };
 }
 
-function readOtpEnabledFlag(userRow) {
+function parseOtpEnabledFlag(raw) {
+    if (raw === true || raw === 1 || raw === '1') return true;
+    if (raw === false || raw === 0 || raw === '0' || raw == null) return false;
+    const normalized = String(raw).trim().toLowerCase();
+    if (normalized === 'true' || normalized === 't' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === 'f' || normalized === 'no' || normalized === '') {
+        return false;
+    }
+    return false;
+}
+
+function readOtpEnabledFlag(userRow, dbType = process.env.DB_TYPE || 'mysql') {
+    if (!userRow) return false;
     const raw =
-        userRow.otpEnabled !== undefined && userRow.otpEnabled !== null
-            ? userRow.otpEnabled
-            : userRow.otp_enabled;
-    return raw === true || raw === 1 || raw === '1';
+        dbType === 'postgresql'
+            ? userRow.otp_enabled ?? userRow.otpEnabled
+            : userRow.otpEnabled ?? userRow.otp_enabled;
+    return parseOtpEnabledFlag(raw);
+}
+
+async function fetchUserOtpEnabledFromDb(pool, userId, dbType = process.env.DB_TYPE || 'mysql') {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid)) return false;
+    if (dbType === 'postgresql') {
+        const r = await pool.query('SELECT otp_enabled FROM users WHERE userid = $1 LIMIT 1', [uid]);
+        return parseOtpEnabledFlag(r.rows?.[0]?.otp_enabled);
+    }
+    const r = await pool.query('SELECT otpEnabled FROM users WHERE userId = ? LIMIT 1', [uid]);
+    const row = Array.isArray(r) ? r[0]?.[0] : r.rows?.[0];
+    return parseOtpEnabledFlag(row?.otpEnabled);
+}
+
+function shouldBypassLoginOtpForMobileCollector(clientApp, userAgent = '') {
+    const app = String(clientApp || '').trim().toLowerCase();
+    if (app === 'machakos-collector') return true;
+    const ua = String(userAgent || '').toLowerCase();
+    // React Native Android (axios/okhttp) — already-installed collector APKs before clientApp was added
+    if (ua.includes('machakos-collector')) return true;
+    if (ua.includes('okhttp') && !ua.includes('mozilla')) return true;
+    return false;
+}
+
+function mobileCollectorBypassEnabled() {
+    return String(process.env.MOBILE_COLLECTOR_BYPASS_LOGIN_OTP ?? 'true').toLowerCase() !== 'false';
 }
 
 module.exports = {
     ensureLoginOtpSchema,
     createLoginOtpChallenge,
     verifyLoginOtpChallenge,
+    parseOtpEnabledFlag,
     readOtpEnabledFlag,
+    fetchUserOtpEnabledFromDb,
+    shouldBypassLoginOtpForMobileCollector,
+    mobileCollectorBypassEnabled,
     readOtpChannel,
     normalizeOtpChannel,
 };

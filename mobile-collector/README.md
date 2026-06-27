@@ -25,6 +25,8 @@ Edit `src/config/api.ts`:
 
 The app calls the same REST API as the web frontend (`/api/auth/*`, `/api/data-collection/*`, `/api/projects`).
 
+**Login OTP:** The mobile app identifies itself as `machakos-collector`. By default the server skips the email/SMS OTP step for this app (`MOBILE_COLLECTOR_BYPASS_LOGIN_OTP=true` in `api/.env`). Set `MOBILE_COLLECTOR_BYPASS_LOGIN_OTP=false` if you want field staff to complete OTP when it is enabled on their user account.
+
 ## Prerequisites
 
 - Node.js 18+
@@ -50,6 +52,12 @@ Release APK:
 ```bash
 npm run android:release
 # Output: android/app/build/outputs/apk/release/app-release.apk
+```
+
+App icon (Machakos coat of arms) is generated from `api/assets/gpris.png`:
+
+```bash
+python3 scripts/generate-android-icons.py
 ```
 
 ## Project structure

@@ -15,6 +15,8 @@ const {
     createLoginOtpChallenge,
     verifyLoginOtpChallenge,
     readOtpEnabledFlag,
+    fetchUserOtpEnabledFromDb,
+    shouldBypassLoginOtpForMobileCollector,
     readOtpChannel,
 } = require('../services/loginOtpService');
 const { isAdvantaConfigured } = require('../services/advantaSmsService');
@@ -643,10 +645,26 @@ router.post('/login', async (req, res) => {
 
         await ensureLoginOtpSchema(pool);
 
+        const clientApp = String(
+            req.body?.clientApp || req.headers['x-client-app'] || ''
+        ).trim();
+
         let otpEnabled = false;
         try {
-            otpEnabled = readOtpEnabledFlag(user);
+            otpEnabled = await fetchUserOtpEnabledFromDb(pool, userId, DB_TYPE);
         } catch (_) {
+            otpEnabled = readOtpEnabledFlag(user, DB_TYPE);
+        }
+
+        if (
+            otpEnabled
+            && mobileCollectorBypassEnabled()
+            && shouldBypassLoginOtpForMobileCollector(clientApp, req.headers['user-agent'])
+        ) {
+            console.log('[auth/login] Skipping login OTP for Machakos Collector app', {
+                username: user.username,
+                userId,
+            });
             otpEnabled = false;
         }
 

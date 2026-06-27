@@ -26,7 +26,10 @@ class ApiService {
     this.client = axios.create({
       baseURL: API_BASE_URL,
       timeout: 45000,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-App': 'machakos-collector',
+      },
     });
 
     this.client.interceptors.request.use(
@@ -62,7 +65,11 @@ class ApiService {
   }
 
   async login(username: string, password: string): Promise<LoginResult> {
-    const response = await this.client.post('/api/auth/login', { username, password });
+    const response = await this.client.post('/api/auth/login', {
+      username,
+      password,
+      clientApp: 'machakos-collector',
+    });
     const data = response.data || {};
 
     if (data.otpRequired && data.otpChallengeId) {

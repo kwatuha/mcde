@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import apiService from '../services/api';
 import { THEME } from '../config/api';
@@ -85,6 +86,7 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.content}>
+        <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.badge}>Machakos County</Text>
         <Text style={styles.title}>Field Collector</Text>
         <Text style={styles.subtitle}>
@@ -166,6 +168,12 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.background },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
+  logo: {
+    width: 120,
+    height: 120,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
   badge: {
     alignSelf: 'flex-start',
     backgroundColor: '#E3F2FD',
