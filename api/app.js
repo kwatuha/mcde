@@ -56,6 +56,8 @@ const planningIndicatorsRoutes = require('./routes/planningIndicatorsRoutes')
 const auditTrailRoutes = require('./routes/auditTrailRoutes')
 const reportLibraryRoutes = require('./routes/reportLibraryRoutes')
 const dataCollectionRoutes = require('./routes/dataCollectionRoutes')
+const mobileAppRoutes = require('./routes/mobileAppRoutes')
+const { ensureTables: ensureMobileAppTables } = require('./services/mobileAppReleaseService')
 const reportSchedulingRoutes = require('./routes/reportSchedulingRoutes')
 const partnersRoutes = require('./routes/partnersRoutes')
 const procurementRoutes = require('./routes/procurementRoutes')
@@ -127,6 +129,7 @@ app.use('/api', authenticate);
 app.use('/api/reports', reportsRouter);
 app.use('/api/report-library', reportLibraryRoutes);
 app.use('/api/data-collection', dataCollectionRoutes);
+app.use('/api/mobile-app', mobileAppRoutes);
 app.use('/api/report-schedules', reportSchedulingRoutes);
 app.use('/api/partners', partnersRoutes);
 app.use('/api/procurement', procurementRoutes);
@@ -249,6 +252,15 @@ server.listen(port, bindHost, async () => {
         console.log('Approval escalation monitor: started (auto warning/escalation checks enabled).');
     } catch (e) {
         console.warn('Approval escalation monitor failed to start:', e.message);
+    }
+    try {
+        await ensureMobileAppTables();
+        console.log('Mobile app release/usage schema ensured.');
+    } catch (e) {
+        console.warn(
+            'Mobile app schema ensure failed (run api/migrations/20260627_mobile_app_releases.sql on the DB):',
+            e.message
+        );
     }
 });
 

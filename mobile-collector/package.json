@@ -1,0 +1,51 @@
+{
+  "name": "machakos-collector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Machakos County mobile app for offline checklist data collection",
+  "main": "index.js",
+  "scripts": {
+    "android": "react-native run-android",
+    "android:device": "bash run-android-device.sh",
+    "android:release": "cd android && ./gradlew assembleRelease && cd ..",
+    "start": "react-native start",
+    "test": "jest",
+    "lint": "eslint .",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.73.0",
+    "@react-navigation/native": "^6.1.9",
+    "@react-navigation/native-stack": "^6.9.17",
+    "@react-navigation/bottom-tabs": "^6.5.11",
+    "react-native-screens": "3.29.0",
+    "react-native-safe-area-context": "^4.8.2",
+    "react-native-gesture-handler": "2.14.0",
+    "@react-native-async-storage/async-storage": "^1.21.0",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.5",
+    "@babel/preset-env": "^7.23.5",
+    "@babel/runtime": "^7.23.5",
+    "@react-native/eslint-config": "^0.73.1",
+    "@react-native/metro-config": "^0.73.2",
+    "@react-native/typescript-config": "^0.73.1",
+    "@types/react": "^18.2.45",
+    "@types/react-test-renderer": "^18.0.7",
+    "babel-jest": "^29.7.0",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "patch-package": "^8.0.0",
+    "react-test-renderer": "18.2.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "overrides": {
+    "react-native-gesture-handler": "2.14.0"
+  }
+}

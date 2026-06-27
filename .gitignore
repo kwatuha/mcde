@@ -22,6 +22,7 @@ deploy/pull-server-db-to-local-copy.sh
 # Real deploy secrets on the server / local — keep scripts and .env.deploy.example in git
 deploy/.env.deploy
 deploy/.env.deploy.db
+deploy/mobile-app-targets.env
 scripts/deploy-procurement-workflow.sh
 scripts/export-procurement-and-rbac-pg.sh
 docs/

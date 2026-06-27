@@ -14,6 +14,7 @@ const MONITORING_PREFERRED_ROUTE_PATHS = [
   ROUTES.PROJECT_FEEDBACK_BY_PROJECT,
   ROUTES.PROJECT_UPDATES,
   ROUTES.DATA_COLLECTION_TOOLS,
+  ROUTES.MOBILE_APP_DOWNLOAD,
 ].map((r) => String(r).split('?')[0]);
 
 function pathMatchesRoute(basePath, routePath) {

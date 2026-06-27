@@ -93,6 +93,8 @@ const ALWAYS_ALLOWED_PATH_PREFIXES = [
   ROUTES.LOGIN,
   ROUTES.FORCE_PASSWORD_CHANGE,
   ROUTES.HOME,
+  ROUTES.MOBILE_APP_DOWNLOAD,
+  ROUTES.HELP_SUPPORT,
   '/help',
   '/profile',
 ].map(normalizePath).filter(Boolean);

@@ -60,11 +60,13 @@ import {
   ListAlt as RegistryIcon,
   FactCheck as FactCheckIcon,
   AssignmentTurnedIn as AssignmentTurnedInIcon,
+  PhoneAndroid as PhoneAndroidIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../configs/appConfig';
 import logo from '../assets/logo.png';
 import apiService from '../api';
+import mobileAppService from '../api/mobileAppService';
 import pmcReportService from '../api/pmcReportService';
 import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
@@ -284,6 +286,7 @@ const HomePage = () => {
   const [workflowPendingRows, setWorkflowPendingRows] = useState([]);
   const [pmcPendingReview, setPmcPendingReview] = useState([]);
   const [pmcReturnedReports, setPmcReturnedReports] = useState([]);
+  const [mobileAppReleaseInfo, setMobileAppReleaseInfo] = useState(null);
   /** Block navigation and show required privileges (e.g. finance list needs document.read_all). */
   const [workflowPathAccessModal, setWorkflowPathAccessModal] = useState({
     open: false,
@@ -561,6 +564,25 @@ const HomePage = () => {
     };
   }, [user?.userId, canApproveUsers, canManageProjects, canReviewPmcReports, canSubmitPmcReports]);
 
+  useEffect(() => {
+    let isMounted = true;
+    if (!user) {
+      setMobileAppReleaseInfo(null);
+      return undefined;
+    }
+    mobileAppService
+      .getRelease()
+      .then((data) => {
+        if (isMounted) setMobileAppReleaseInfo(data);
+      })
+      .catch(() => {
+        if (isMounted) setMobileAppReleaseInfo(null);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.userId]);
+
 
 
 
@@ -650,6 +672,19 @@ const HomePage = () => {
       description: pmcReturnedReports.length > 0
         ? `${pmcReturnedReports.length} PMC report${pmcReturnedReports.length > 1 ? 's' : ''} returned for revision`
         : 'No returned PMC reports',
+    });
+  }
+
+  if (mobileAppReleaseInfo?.available && mobileAppReleaseInfo?.isNewForUser && mobileAppReleaseInfo?.release) {
+    const ver = mobileAppReleaseInfo.release.version || 'new';
+    notificationItems.push({
+      type: 'mobile-app-release',
+      title: 'Mobile app update available',
+      count: 1,
+      icon: <PhoneAndroidIcon />,
+      color: '#1565C0',
+      route: ROUTES.MOBILE_APP_DOWNLOAD,
+      description: `Machakos Collector v${ver} is ready. Download and install on your Android phone to update.`,
     });
   }
 
@@ -1122,6 +1157,12 @@ const HomePage = () => {
                         }}
                         onClick={() => {
                           if (!item.route) return;
+                          if (item.type === 'mobile-app-release') {
+                            mobileAppService.dismissRelease().catch(() => {});
+                            setMobileAppReleaseInfo((prev) =>
+                              prev ? { ...prev, isNewForUser: false } : prev
+                            );
+                          }
                           if (item.type === 'workflow-pending-steps') {
                             navigateToWorkflowOrExplain(item.route);
                           } else {
@@ -1500,6 +1541,42 @@ const HomePage = () => {
                           </Typography>
                         </Button>
                       )}
+
+                      {user ? (
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          startIcon={<PhoneAndroidIcon />}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            navigate(ROUTES.MOBILE_APP_DOWNLOAD, { replace: false });
+                          }}
+                          sx={{
+                            textTransform: 'none',
+                            justifyContent: 'flex-start',
+                            p: 1,
+                            borderRadius: 1.5,
+                            borderColor: '#1565C0',
+                            color: '#1565C0',
+                            bgcolor: theme.palette.mode === 'dark' ? 'rgba(21,101,192,0.15)' : 'rgba(21,101,192,0.06)',
+                            minHeight: 40,
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #1976d2, #1565C0)',
+                              color: 'white',
+                              borderColor: '#1565C0',
+                              boxShadow: '0 4px 12px rgba(21,101,192,0.25)',
+                              transform: 'translateX(4px)',
+                            },
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                            {mobileAppReleaseInfo?.available && mobileAppReleaseInfo?.release?.version
+                              ? `Android field app (v${mobileAppReleaseInfo.release.version})`
+                              : 'Android field app'}
+                          </Typography>
+                        </Button>
+                      ) : null}
                     </Box>
                   </CardContent>
                 </Card>

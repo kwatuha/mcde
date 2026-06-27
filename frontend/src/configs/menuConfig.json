@@ -61,6 +61,11 @@
           "route": "DASHBOARD"
         },
         {
+          "title": "Mobile app (Android)",
+          "icon": "PhoneAndroidIcon",
+          "route": "MOBILE_APP_DOWNLOAD"
+        },
+        {
           "title": "Reporting Dashboard",
           "icon": "AssessmentIcon",
           "route": "REPORTING_DASHBOARD",
@@ -483,6 +488,11 @@
           "icon": "ChecklistIcon",
           "route": "DATA_COLLECTION_TOOLS",
           "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Mobile app (Android)",
+          "icon": "PhoneAndroidIcon",
+          "route": "MOBILE_APP_DOWNLOAD"
         }
       ]
     },
@@ -566,6 +576,11 @@
           "icon": "ChecklistIcon",
           "route": "DATA_COLLECTION_TOOLS",
           "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Mobile app (Android)",
+          "icon": "PhoneAndroidIcon",
+          "route": "MOBILE_APP_DOWNLOAD"
         },
         {
           "title": "Scheduled reports",
@@ -693,6 +708,11 @@
           "title": "Audit trail",
           "icon": "HistoryIcon",
           "route": "AUDIT_TRAIL"
+        },
+        {
+          "title": "Mobile app usage",
+          "icon": "PhoneAndroidIcon",
+          "route": "MOBILE_APP_USAGE"
         },
         {
           "title": "AI Usage & Costs",

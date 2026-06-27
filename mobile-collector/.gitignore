@@ -1,0 +1,84 @@
+# OSX
+.DS_Store
+
+# Xcode
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+ios/.xcode.env.local
+
+# Android/IntelliJ
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+*.keystore
+!debug.keystore
+# Build outputs and artifacts (mobile)
+android/app/build/
+android/build/
+*.apk
+*.aab
+android/build.log
+
+# node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+*.log
+
+# Env files (may contain secrets; use env.sh for paths only)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Metro
+.metro/
+.metro-health-check*
+
+# Bundle artifact
+*.jsbundle
+
+# CocoaPods
+/ios/Pods/
+
+# IDE / editor (optional: remove .cursor if you want to share Cursor config)
+.cursor/
+.vscode/
+
+# TypeScript
+*.tsbuildinfo
+
+# fastlane
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/screenshots
+**/fastlane/test_output
+
+# testing
+/coverage
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions

@@ -29,6 +29,7 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { useSidebar } from '../context/SidebarContext.jsx';
 import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 
 const Topbar = () => {
   const theme = useTheme();
@@ -87,8 +88,9 @@ const Topbar = () => {
       flex={1}
       sx={{ 
         color: 'white',
-        px: 2,
+        px: { xs: 0.75, sm: 2 },
         py: 0.5,
+        minWidth: 0,
       }}
     >
       {/* PAGE TITLE SECTION */}
@@ -140,6 +142,7 @@ const Topbar = () => {
               minWidth: 0,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              display: { xs: 'none', md: 'inline' },
             }}
           >
             {pageSubtitle}
@@ -267,6 +270,18 @@ const Topbar = () => {
               <HelpOutlineIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>Help & Support</ListItemText>
+          </MenuItem>
+
+          <MenuItem
+            onClick={() => {
+              handleClose();
+              navigate(ROUTES.MOBILE_APP_DOWNLOAD);
+            }}
+          >
+            <ListItemIcon>
+              <PhoneAndroidIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Mobile app (Android)</ListItemText>
           </MenuItem>
 
           <MenuItem

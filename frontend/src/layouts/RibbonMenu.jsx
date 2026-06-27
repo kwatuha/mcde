@@ -40,6 +40,7 @@ import CelebrationIcon from '@mui/icons-material/Celebration';
 import GavelIcon from '@mui/icons-material/Gavel';
 import CategoryIcon from '@mui/icons-material/Category';
 import ChecklistIcon from '@mui/icons-material/Checklist';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import HistoryIcon from '@mui/icons-material/History';
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory';
@@ -114,6 +115,7 @@ const ICON_MAP = {
   RepeatIcon,
   FactCheckIcon,
   ChecklistIcon,
+  PhoneAndroidIcon,
   SpeedIcon,
   ArticleIcon,
   HubIcon,
@@ -307,7 +309,11 @@ export default function RibbonMenu({ isAdmin = false }) {
           py: collapsed ? 0.375 : 0.5,
           minHeight: collapsed ? 40 : 52,
           transition: 'min-height 0.2s ease-in-out, padding 0.2s ease-in-out',
-          overflow: 'visible',
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
         {menuCategories.map((category, idx, arr) => {
@@ -324,7 +330,8 @@ export default function RibbonMenu({ isAdmin = false }) {
             startIcon={<IconComponent sx={{ fontSize: collapsed ? 18 : 20 }} />}
             disableElevation
             sx={{
-              flex: 1,
+              flex: { xs: '0 0 auto', sm: 1 },
+              minWidth: { xs: 96, sm: 0 },
               textTransform: 'none',
               color: '#fff',
               fontWeight: 600,

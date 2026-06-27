@@ -18,7 +18,8 @@ import {
   Avatar,
   Badge,
   Chip,
-  LinearProgress
+  LinearProgress,
+  Drawer,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 // ✨ Removed old theme system - using modern theme directly!
@@ -71,6 +72,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import CelebrationIcon from '@mui/icons-material/Celebration';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ChecklistIcon from '@mui/icons-material/Checklist';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import SpeedIcon from '@mui/icons-material/Speed';
 import ArticleIcon from '@mui/icons-material/Article';
@@ -133,6 +135,7 @@ const ICON_MAP = {
   CelebrationIcon,
   GavelIcon,
   ChecklistIcon,
+  PhoneAndroidIcon,
   VerifiedUserIcon,
   SpeedIcon,
   ArticleIcon,
@@ -182,13 +185,14 @@ function filterCategorySubmenusToNavItems(category, hasPrivilege, user, isAdminL
     });
 }
 
-const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed, nested, treeChrome }) => {
+const Item = memo(({ title, to, icon, selected, setSelected, privilegeCheck, theme, isCollapsed, nested, treeChrome, onAfterNavigate }) => {
   const navigate = useNavigate();
 
   const handleClick = useCallback(() => {
     setSelected(to);
     navigate(to);
-  }, [to, setSelected, navigate]);
+    onAfterNavigate?.();
+  }, [to, setSelected, navigate, onAfterNavigate]);
 
   if (privilegeCheck && !privilegeCheck()) {
     return null;
@@ -366,7 +370,7 @@ const MenuGroup = ({ title, icon, children, isOpen, onToggle, theme, colors, isC
   );
 };
 
-const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nested, treeChrome }) => {
+const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nested, treeChrome, onAfterNavigate }) => {
   return (
     <Fade in={true} timeout={300}>
       <Box>
@@ -384,6 +388,7 @@ const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nest
                 isCollapsed={isCollapsed}
                 nested={nested}
                 treeChrome={treeChrome}
+                onAfterNavigate={onAfterNavigate}
               />
             </Box>
           </Zoom>
@@ -393,7 +398,14 @@ const SearchableMenu = ({ items, selected, setSelected, theme, isCollapsed, nest
   );
 };
 
-const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPinnedOpen = false, onTogglePinned }) => {
+const Sidebar = ({
+  expandedSidebarWidth = 200,
+  treeSidebarFlushTop = false,
+  mobileOpen = false,
+  onMobileClose,
+  isPinnedOpen = false,
+  onTogglePinned,
+}) => {
   const theme = useTheme();
   const navigate = useNavigate();
   const { selectedCategoryId } = useMenuCategory();
@@ -425,7 +437,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   
   const location = useLocation();
   const { isTreeLayout } = useNavigationLayout();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   
   const fullPath = `${location.pathname}${location.search || ''}`;
   const [selected, setSelected] = useState(fullPath);
@@ -441,7 +453,12 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   const handleLogoHomeNavigation = useCallback(() => {
     setSelected(ROUTES.DASHBOARD);
     navigate(ROUTES.DASHBOARD);
-  }, [navigate]);
+    if (isMobile && typeof onMobileClose === 'function') onMobileClose();
+  }, [navigate, isMobile, onMobileClose]);
+
+  const closeMobileNav = useCallback(() => {
+    if (isMobile && typeof onMobileClose === 'function') onMobileClose();
+  }, [isMobile, onMobileClose]);
 
   const handleLogoKeyDown = useCallback((event) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -452,6 +469,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   
   // Get sidebar collapse state from context
   const { isCollapsed } = useSidebar();
+  const effectiveCollapsed = isMobile ? false : isCollapsed;
   
   // Get filtered menu categories (tree layout uses CIMES-style category order)
   const menuCategories = useMemo(() => {
@@ -479,19 +497,33 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   );
 
   useEffect(() => {
-    if (!isTreeLayout || !activeCategoryIdForPath || normalizedRole === 'contractor') return;
+    if ((!isTreeLayout && !isMobile) || !activeCategoryIdForPath || normalizedRole === 'contractor') return;
     setOpenTreeGroups(new Set([activeCategoryIdForPath]));
-  }, [isTreeLayout, activeCategoryIdForPath, normalizedRole]);
+  }, [isTreeLayout, isMobile, activeCategoryIdForPath, normalizedRole]);
 
   useEffect(() => {
-    if (!isTreeLayout || normalizedRole !== 'contractor') return;
+    if ((!isTreeLayout && !isMobile) || normalizedRole !== 'contractor') return;
     setOpenTreeGroups((prev) => {
       if (prev.has('contractor-root')) return prev;
       const next = new Set(prev);
       next.add('contractor-root');
       return next;
     });
-  }, [isTreeLayout, normalizedRole]);
+  }, [isTreeLayout, isMobile, normalizedRole]);
+
+  /** When the mobile drawer opens, expand the current section so items are visible immediately. */
+  useEffect(() => {
+    if (!isMobile || !mobileOpen) return;
+    if (normalizedRole === 'contractor') {
+      setOpenTreeGroups(new Set(['contractor-root']));
+      return;
+    }
+    if (activeCategoryIdForPath) {
+      setOpenTreeGroups(new Set([activeCategoryIdForPath]));
+    } else if (menuCategories.length > 0) {
+      setOpenTreeGroups(new Set([menuCategories[0].id]));
+    }
+  }, [isMobile, mobileOpen, activeCategoryIdForPath, normalizedRole, menuCategories]);
 
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
@@ -510,8 +542,9 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
     if (currentFull !== previousFullPathRef.current) {
       previousFullPathRef.current = currentFull;
       setSelected((prev) => (prev !== currentFull ? currentFull : prev));
+      if (isMobile && typeof onMobileClose === 'function') onMobileClose();
     }
-  }, [location.pathname, location.search]);
+  }, [location.pathname, location.search, isMobile, onMobileClose]);
 
   // Organized menu groups
   const dashboardItems = [
@@ -566,13 +599,334 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
   }, [normalizedRole, isAdminLike]);
 
   const collapsedWidth = 64; // Width with icons only
-  const currentWidth = isCollapsed ? collapsedWidth : expandedSidebarWidth;
+  const currentWidth = effectiveCollapsed ? collapsedWidth : expandedSidebarWidth;
   const treeChromeLight = isTreeLayout && theme.palette.mode !== 'dark';
   const sidebarTop = treeSidebarFlushTop ? 0 : '48px';
   const sidebarHeight = treeSidebarFlushTop ? '100vh' : 'calc(100vh - 48px)';
   const treeBrandMt = treeSidebarFlushTop ? 1 : 4;
   const treeBrandLogoH = treeSidebarFlushTop ? 44 : 40;
   const treeBrandLogoMaxW = treeSidebarFlushTop ? 128 : 118;
+
+  /** Mobile drawer and tree layout both show the full category tree (ribbon mode only shows section items on desktop). */
+  const showFullTreeMenu = isTreeLayout || isMobile;
+  const menuTreeChrome = showFullTreeMenu && theme.palette.mode !== 'dark';
+
+  const panelBackground = theme.palette.mode === 'dark'
+    ? colors.primary[600]
+    : menuTreeChrome
+      ? TREE_PANEL_GRAD
+      : '#81d4fa';
+
+  const panelBorderColor = theme.palette.mode === 'dark'
+    ? colors.primary[400]
+    : menuTreeChrome
+      ? 'rgba(255,255,255,0.14)'
+      : '#4fc3f7';
+
+  const sidebarMenuContent = (
+    <>
+          {showFullTreeMenu ? (
+            <>
+              {/* CIMES-style brand strip (tree layout only; emblem matches AppBar) */}
+              {!effectiveCollapsed ? (
+                <Box
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Go to home page"
+                  onClick={handleLogoHomeNavigation}
+                  onKeyDown={handleLogoKeyDown}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    mt: treeBrandMt,
+                    mb: 0.5,
+                    px: 1,
+                    minHeight: 36,
+                    cursor: 'pointer',
+                    borderRadius: 1,
+                    '&:hover': {
+                      backgroundColor: menuTreeChrome ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
+                    },
+                    '&:focus-visible': {
+                      outline: `2px solid ${menuTreeChrome ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
+                      outlineOffset: 2,
+                    },
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
+                    alt=""
+                    aria-hidden
+                    onError={() => setTreeSidebarLogoFailed(true)}
+                    sx={{
+                      height: treeBrandLogoH,
+                      width: 'auto',
+                      maxWidth: treeBrandLogoMaxW,
+                      objectFit: 'contain',
+                      objectPosition: 'center left',
+                      flexShrink: 0,
+                      display: 'block',
+                      filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
+                    }}
+                  />
+                  <Typography
+                    component="div"
+                    sx={{
+                      fontWeight: 800,
+                      fontSize: '1.125rem',
+                      color: menuTreeChrome ? '#ffffff' : theme.palette.common.white,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.15,
+                      minWidth: 0,
+                    }}
+                  >
+                    MCMES
+                  </Typography>
+                </Box>
+              ) : (
+                <Tooltip title="MCMES" placement="right" arrow>
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Go to home page"
+                    onClick={handleLogoHomeNavigation}
+                    onKeyDown={handleLogoKeyDown}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      mt: treeBrandMt,
+                      mb: 0.5,
+                      px: 0.5,
+                      cursor: 'pointer',
+                      borderRadius: 1,
+                      '&:hover': {
+                        backgroundColor: menuTreeChrome ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
+                      },
+                      '&:focus-visible': {
+                        outline: `2px solid ${menuTreeChrome ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
+                        outlineOffset: 2,
+                      },
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
+                      alt=""
+                      aria-hidden
+                      onError={() => setTreeSidebarLogoFailed(true)}
+                      sx={{
+                        height: treeSidebarFlushTop ? 36 : 34,
+                        width: 'auto',
+                        maxWidth: 44,
+                        objectFit: 'contain',
+                        filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
+                      }}
+                    />
+                  </Box>
+                </Tooltip>
+              )}
+              <Divider
+                sx={{
+                  mx: 1,
+                  mb: 0.5,
+                  borderColor: menuTreeChrome ? TREE_BORDER : 'rgba(255,255,255,0.12)',
+                }}
+              />
+              {!effectiveCollapsed && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    mb: 0.5,
+                    px: 1,
+                    fontWeight: 700,
+                    fontSize: '0.72rem',
+                    letterSpacing: '0.07em',
+                    textTransform: 'uppercase',
+                    color: menuTreeChrome ? 'rgba(255,255,255,0.72)' : 'text.secondary',
+                  }}
+                >
+                  Menu
+                </Typography>
+              )}
+              {effectiveCollapsed ? <Box sx={{ mb: 0.25 }} /> : null}
+              {normalizedRole === 'contractor' ? (
+                <MenuGroup
+                  title="Contractor"
+                  icon={
+                    <PaidIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('contractor-root')}
+                  onToggle={() => toggleTreeGroup('contractor-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.CONTRACTOR_DASHBOARD)}
+                >
+                  <SearchableMenu
+                    items={contractorItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : (
+                menuCategories.map((cat) => {
+                  const items = filterCategorySubmenusToNavItems(cat, hasPrivilege, user, isAdminLike);
+                  if (!items.length) return null;
+                  const IconComp = ICON_MAP[cat.icon] || DashboardIcon;
+                  return (
+                    <MenuGroup
+                      key={cat.id}
+                      title={cat.labelTree || cat.label}
+                      icon={
+                        <IconComp
+                          sx={{
+                            color: menuTreeChrome ? TREE_ICON : undefined,
+                            fontSize: menuTreeChrome ? 19 : undefined,
+                          }}
+                        />
+                      }
+                      isOpen={openTreeGroups.has(cat.id)}
+                      onToggle={() => toggleTreeGroup(cat.id)}
+                      theme={theme}
+                      colors={colors}
+                      isCollapsed={effectiveCollapsed}
+                      treeChrome={menuTreeChrome}
+                      isActiveGroup={activeCategoryIdForPath === cat.id}
+                    >
+                      <SearchableMenu
+                        items={items}
+                        selected={selected}
+                        setSelected={stableSetSelected}
+                        theme={theme}
+                        isCollapsed={effectiveCollapsed}
+                        nested
+                        treeChrome={menuTreeChrome}
+                        onAfterNavigate={closeMobileNav}
+                      />
+                    </MenuGroup>
+                  );
+                })
+              )}
+            </>
+          ) : (
+            <>
+              {selectedCategory && !effectiveCollapsed && (
+                <Box sx={{
+                  px: 1.5,
+                  py: 1,
+                  mb: 1.5,
+                  mt: 4,
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(255,255,255,0.5)',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)'}`,
+                }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: theme.palette.mode === 'dark'
+                        ? colors.blueAccent[400]
+                        : '#0284c7',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedCategory.labelTree || selectedCategory.label}
+                  </Typography>
+                </Box>
+              )}
+
+              {selectedCategory && effectiveCollapsed && (
+                <Box sx={{ mt: 4, mb: 1 }} />
+              )}
+
+              {submenuItems.length > 0 ? (
+                <SearchableMenu
+                  items={submenuItems}
+                  selected={selected}
+                  setSelected={stableSetSelected}
+                  theme={theme}
+                  isCollapsed={effectiveCollapsed}
+                  onAfterNavigate={closeMobileNav}
+                />
+              ) : (
+                !effectiveCollapsed && (
+                  <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No items available
+                    </Typography>
+                  </Box>
+                )
+              )}
+            </>
+          )}
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer
+        variant="temporary"
+        anchor="left"
+        open={!!mobileOpen}
+        onClose={onMobileClose}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: 'block', sm: 'none' },
+          zIndex: (t) => t.zIndex.modal,
+          '& .MuiBackdrop-root': {
+            top: '48px',
+          },
+          '& .MuiDrawer-paper': {
+            width: `${expandedSidebarWidth}px`,
+            maxWidth: 'min(92vw, 320px)',
+            boxSizing: 'border-box',
+            top: '48px',
+            height: 'calc(100% - 48px)',
+            background: panelBackground,
+            borderRight: `1px solid ${panelBorderColor}`,
+            color: menuTreeChrome ? TREE_TEXT_MAIN : theme.palette.text.primary,
+          },
+        }}
+      >
+        <Box
+          sx={{
+            height: '100%',
+            width: '100%',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            py: showFullTreeMenu ? 0.5 : 1.5,
+            px: showFullTreeMenu ? 0.35 : 0.5,
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {sidebarMenuContent}
+        </Box>
+      </Drawer>
+    );
+  }
 
   return (
     <Box
@@ -791,260 +1145,7 @@ const Sidebar = ({ expandedSidebarWidth = 200, treeSidebarFlushTop = false, isPi
               }
             : {}),
         }}>
-          {isTreeLayout ? (
-            <>
-              {/* CIMES-style brand strip (tree layout only; emblem matches AppBar) */}
-              {!isCollapsed ? (
-                <Box
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Go to home page"
-                  onClick={handleLogoHomeNavigation}
-                  onKeyDown={handleLogoKeyDown}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    mt: treeBrandMt,
-                    mb: 0.5,
-                    px: 1,
-                    minHeight: 36,
-                    cursor: 'pointer',
-                    borderRadius: 1,
-                    '&:hover': {
-                      backgroundColor: treeChromeLight ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
-                    },
-                    '&:focus-visible': {
-                      outline: `2px solid ${treeChromeLight ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
-                      outlineOffset: 2,
-                    },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
-                    alt=""
-                    aria-hidden
-                    onError={() => setTreeSidebarLogoFailed(true)}
-                    sx={{
-                      height: treeBrandLogoH,
-                      width: 'auto',
-                      maxWidth: treeBrandLogoMaxW,
-                      objectFit: 'contain',
-                      objectPosition: 'center left',
-                      flexShrink: 0,
-                      display: 'block',
-                      filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
-                    }}
-                  />
-                  <Typography
-                    component="div"
-                    sx={{
-                      fontWeight: 800,
-                      fontSize: '1.125rem',
-                      color: treeChromeLight ? '#ffffff' : theme.palette.common.white,
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1.15,
-                      minWidth: 0,
-                    }}
-                  >
-                    MCMES
-                  </Typography>
-                </Box>
-              ) : (
-                <Tooltip title="MCMES" placement="right" arrow>
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Go to home page"
-                    onClick={handleLogoHomeNavigation}
-                    onKeyDown={handleLogoKeyDown}
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'center',
-                      mt: treeBrandMt,
-                      mb: 0.5,
-                      px: 0.5,
-                      cursor: 'pointer',
-                      borderRadius: 1,
-                      '&:hover': {
-                        backgroundColor: treeChromeLight ? 'rgba(255,255,255,0.10)' : theme.palette.action.hover,
-                      },
-                      '&:focus-visible': {
-                        outline: `2px solid ${treeChromeLight ? 'rgba(255,255,255,0.75)' : theme.palette.primary.main}`,
-                        outlineOffset: 2,
-                      },
-                    }}
-                  >
-                    <Box
-                      component="img"
-                      src={treeSidebarLogoFailed ? logoFallback : gprisLogo}
-                      alt=""
-                      aria-hidden
-                      onError={() => setTreeSidebarLogoFailed(true)}
-                      sx={{
-                        height: treeSidebarFlushTop ? 36 : 34,
-                        width: 'auto',
-                        maxWidth: 44,
-                        objectFit: 'contain',
-                        filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))',
-                      }}
-                    />
-                  </Box>
-                </Tooltip>
-              )}
-              <Divider
-                sx={{
-                  mx: 1,
-                  mb: 0.5,
-                  borderColor: treeChromeLight ? TREE_BORDER : 'rgba(255,255,255,0.12)',
-                }}
-              />
-              {!isCollapsed && (
-                <Typography
-                  variant="caption"
-                  sx={{
-                    display: 'block',
-                    mb: 0.5,
-                    px: 1,
-                    fontWeight: 700,
-                    fontSize: '0.72rem',
-                    letterSpacing: '0.07em',
-                    textTransform: 'uppercase',
-                    color: treeChromeLight ? 'rgba(255,255,255,0.72)' : 'text.secondary',
-                  }}
-                >
-                  Menu
-                </Typography>
-              )}
-              {isCollapsed ? <Box sx={{ mb: 0.25 }} /> : null}
-              {normalizedRole === 'contractor' ? (
-                <MenuGroup
-                  title="Contractor"
-                  icon={
-                    <PaidIcon
-                      sx={{
-                        color: treeChromeLight ? TREE_ICON : undefined,
-                        fontSize: treeChromeLight ? 19 : undefined,
-                      }}
-                    />
-                  }
-                  isOpen={openTreeGroups.has('contractor-root')}
-                  onToggle={() => toggleTreeGroup('contractor-root')}
-                  theme={theme}
-                  colors={colors}
-                  isCollapsed={isCollapsed}
-                  treeChrome={treeChromeLight}
-                  isActiveGroup={location.pathname.startsWith(ROUTES.CONTRACTOR_DASHBOARD)}
-                >
-                  <SearchableMenu
-                    items={contractorItems}
-                    selected={selected}
-                    setSelected={stableSetSelected}
-                    theme={theme}
-                    isCollapsed={isCollapsed}
-                    nested
-                    treeChrome={treeChromeLight}
-                  />
-                </MenuGroup>
-              ) : (
-                menuCategories.map((cat) => {
-                  const items = filterCategorySubmenusToNavItems(cat, hasPrivilege, user, isAdminLike);
-                  if (!items.length) return null;
-                  const IconComp = ICON_MAP[cat.icon] || DashboardIcon;
-                  return (
-                    <MenuGroup
-                      key={cat.id}
-                      title={cat.labelTree || cat.label}
-                      icon={
-                        <IconComp
-                          sx={{
-                            color: treeChromeLight ? TREE_ICON : undefined,
-                            fontSize: treeChromeLight ? 19 : undefined,
-                          }}
-                        />
-                      }
-                      isOpen={openTreeGroups.has(cat.id)}
-                      onToggle={() => toggleTreeGroup(cat.id)}
-                      theme={theme}
-                      colors={colors}
-                      isCollapsed={isCollapsed}
-                      treeChrome={treeChromeLight}
-                      isActiveGroup={activeCategoryIdForPath === cat.id}
-                    >
-                      <SearchableMenu
-                        items={items}
-                        selected={selected}
-                        setSelected={stableSetSelected}
-                        theme={theme}
-                        isCollapsed={isCollapsed}
-                        nested
-                        treeChrome={treeChromeLight}
-                      />
-                    </MenuGroup>
-                  );
-                })
-              )}
-            </>
-          ) : (
-            <>
-              {selectedCategory && !isCollapsed && (
-                <Box sx={{
-                  px: 1.5,
-                  py: 1,
-                  mb: 1.5,
-                  mt: 4,
-                  backgroundColor: theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(255,255,255,0.5)',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(0,0,0,0.1)'}`,
-                }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: theme.palette.mode === 'dark'
-                        ? colors.blueAccent[400]
-                        : '#0284c7',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {selectedCategory.labelTree || selectedCategory.label}
-                  </Typography>
-                </Box>
-              )}
-
-              {selectedCategory && isCollapsed && (
-                <Box sx={{ mt: 4, mb: 1 }} />
-              )}
-
-              {submenuItems.length > 0 ? (
-                <SearchableMenu
-                  items={submenuItems}
-                  selected={selected}
-                  setSelected={stableSetSelected}
-                  theme={theme}
-                  isCollapsed={isCollapsed}
-                />
-              ) : (
-                !isCollapsed && (
-                  <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      No items available
-                    </Typography>
-                  </Box>
-                )
-              )}
-            </>
-          )}
+          {sidebarMenuContent}
         </Box>
       </Box>
     </Box>

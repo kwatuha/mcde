@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -86,8 +86,12 @@ function MainLayoutContent() {
   }), [location.pathname, pageTitle, aiPageContext]);
 
   const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
+    setMobileOpen((open) => !open);
   };
+
+  const handleMobileClose = useCallback(() => {
+    setMobileOpen(false);
+  }, []);
   
   const menuCategories = useMemo(
     () => getFilteredMenuCategories(isAdminLike, hasPrivilege, user),
@@ -252,7 +256,7 @@ function MainLayoutContent() {
               onClick={handleLogout}
               size="small"
               sx={{
-                ml: 1.5, 
+                ml: { xs: 0.5, sm: 1.5 },
                 backgroundColor: '#dc2626',
                 '&:hover': { backgroundColor: '#b91c1c' },
                 color: 'white', 
@@ -260,10 +264,11 @@ function MainLayoutContent() {
                 borderRadius: '6px',
                 boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
                 transition: 'background-color 0.2s ease-in-out',
-                minWidth: '70px',
+                minWidth: { xs: '56px', sm: '70px' },
                 py: 0.5,
-                px: 1.5,
-                fontSize: '0.875rem'
+                px: { xs: 1, sm: 1.5 },
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                flexShrink: 0,
               }}
             >
               Logout
@@ -276,7 +281,7 @@ function MainLayoutContent() {
           expandedSidebarWidth={expandedSidebarWidth}
           treeSidebarFlushTop={treeSidebarFlushTop}
           mobileOpen={mobileOpen}
-          onMobileClose={handleDrawerToggle}
+          onMobileClose={handleMobileClose}
           isPinnedOpen={isSidebarPinnedOpen}
           onTogglePinned={() => setIsSidebarPinnedOpen((v) => !v)}
         />
@@ -287,9 +292,8 @@ function MainLayoutContent() {
             flexGrow: 1, 
             p: 0,
             mt: '48px',
-            // Adjust width based on sidebar collapse state
-            width: { sm: `calc(100% - ${currentSidebarWidth}px)` },
-            ml: { sm: `${currentSidebarWidth}px` },
+            width: { xs: '100%', sm: `calc(100% - ${currentSidebarWidth}px)` },
+            ml: { xs: 0, sm: `${currentSidebarWidth}px` },
             transition: 'margin-left 0.3s ease-in-out, width 0.3s ease-in-out',
             minHeight: 'calc(100vh - 48px)',
             backgroundColor: theme.palette.mode === 'dark' 

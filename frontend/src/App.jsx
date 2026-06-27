@@ -42,6 +42,8 @@ import FundingSourcesReportPage from './pages/FundingSourcesReportPage';
 import PaymentListPage from './pages/PaymentListPage';
 import ScheduledReportsPage from './pages/ScheduledReportsPage';
 import DataCollectionToolsPage from './pages/DataCollectionToolsPage';
+import MobileAppDownloadPage from './pages/MobileAppDownloadPage';
+import MobileAppUsagePage from './pages/MobileAppUsagePage';
 import UserManagementPage from './pages/UserManagementPage';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -283,6 +285,10 @@ const router = createBrowserRouter([
         element: <AuditTrailPage />,
       },
       {
+        path: 'mobile-app-usage',
+        element: <MobileAppUsagePage />,
+      },
+      {
         path: 'ai-usage',
         element: <AIUsageRouteGuard />,
       },
@@ -437,6 +443,10 @@ const router = createBrowserRouter([
       {
         path: 'data-collection-tools',
         element: <DataCollectionToolsPage />,
+      },
+      {
+        path: 'mobile-app',
+        element: <MobileAppDownloadPage />,
       },
       {
         path: 'view-reports',

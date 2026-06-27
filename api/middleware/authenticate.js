@@ -6,21 +6,22 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_dev_only_change_this_asap'; // Use the same secret as in auth.js
 
 module.exports = function (req, res, next) {
-    // Get token from header
-    // Check for "Authorization" header, which is typically "Bearer TOKEN"
     const authHeader = req.header('Authorization');
+    let token = null;
 
-    // Check if no Authorization header
-    if (!authHeader) {
-        return res.status(401).json({ msg: 'No token, authorization denied (Missing Authorization header)' });
+    if (authHeader) {
+        token = authHeader.split(' ')[1];
+    } else if (
+        req.method === 'GET' &&
+        (req.path.endsWith('/mobile-app/download') || req.originalUrl.startsWith('/api/mobile-app/download'))
+    ) {
+        // Browser file downloads cannot send Authorization; allow signed-in staff link download.
+        const q = req.query.access_token;
+        token = typeof q === 'string' ? q : Array.isArray(q) ? q[0] : null;
     }
 
-    // Extract the token from "Bearer TOKEN" format
-    const token = authHeader.split(' ')[1];
-
-    // Check if token is actually present after splitting
     if (!token) {
-        return res.status(401).json({ msg: 'Invalid token format, authorization denied (Bearer token missing)' });
+        return res.status(401).json({ msg: 'No token, authorization denied (Missing Authorization header)' });
     }
 
     // Verify token

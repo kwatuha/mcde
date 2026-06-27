@@ -110,6 +110,10 @@ export const ROUTES = {
     SCHEDULED_REPORTS: '/scheduled-reports',
     /** Inspection / monitoring checklist templates and standalone visits. */
     DATA_COLLECTION_TOOLS: '/data-collection-tools',
+    /** Android field collector APK download (authenticated staff). */
+    MOBILE_APP_DOWNLOAD: '/mobile-app',
+    /** Admin: mobile app adoption and download tracking. */
+    MOBILE_APP_USAGE: '/mobile-app-usage',
     GIS_MAPPING: '/maps',
     GIS_DASHBOARD: '/gis-dashboard',
     PROJECT_GIS_MAP: '/project-gis-map',

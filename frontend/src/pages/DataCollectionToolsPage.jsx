@@ -37,10 +37,12 @@ import SaveIcon from '@mui/icons-material/Save';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import { Link as RouterLink } from 'react-router-dom';
+import { ROUTES } from '../configs/appConfig';
 import apiService from '../api';
 import ChecklistFormFields from '../components/ChecklistFormFields';
 import { downloadMonitoringVisitPdf } from '../utils/monitoringVisitPdf';
-import { ROUTES } from '../configs/appConfig';
 
 const CATEGORIES = [
   { value: 'general', label: 'General' },
@@ -604,6 +606,19 @@ export default function DataCollectionToolsPage() {
         Design inspection and monitoring checklists, use them on project inspections, and record standalone monitoring
         visits against a project.
       </Typography>
+
+      <Alert
+        severity="info"
+        icon={<PhoneAndroidIcon fontSize="inherit" />}
+        sx={{ mb: 2 }}
+        action={
+          <Button color="inherit" size="small" component={RouterLink} to={ROUTES.MOBILE_APP_DOWNLOAD}>
+            Get Android app
+          </Button>
+        }
+      >
+        Field staff can download the Machakos Collector Android app to sync these checklists and collect data offline.
+      </Alert>
 
       <Paper elevation={2} sx={{ borderRadius: 2 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}>
