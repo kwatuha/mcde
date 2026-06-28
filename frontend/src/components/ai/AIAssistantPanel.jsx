@@ -31,8 +31,110 @@ import {
   formatDataSourceLabel,
   getAIStarterMessages,
   inferReportType,
+  parseInlineMarkdown,
   REPORT_TYPE_OPTIONS,
 } from '../../utils/aiAssistantHelpers';
+
+function InlineMarkdownText({ text, variant = 'body2', sx = {} }) {
+  const segments = parseInlineMarkdown(text);
+  return (
+    <Typography variant={variant} component="span" sx={{ whiteSpace: 'pre-wrap', ...sx }}>
+      {segments.map((segment, index) => {
+        if (segment.type === 'bold') {
+          return (
+            <Box key={index} component="strong" sx={{ fontWeight: 700 }}>
+              {segment.value}
+            </Box>
+          );
+        }
+        if (segment.type === 'italic') {
+          return (
+            <Box key={index} component="em" sx={{ fontStyle: 'italic' }}>
+              {segment.value}
+            </Box>
+          );
+        }
+        if (segment.type === 'code') {
+          return (
+            <Box
+              key={index}
+              component="code"
+              sx={{
+                fontFamily: 'monospace',
+                fontSize: '0.9em',
+                px: 0.5,
+                py: 0.15,
+                borderRadius: 0.5,
+                bgcolor: 'action.hover',
+              }}
+            >
+              {segment.value}
+            </Box>
+          );
+        }
+        return <span key={index}>{segment.value}</span>;
+      })}
+    </Typography>
+  );
+}
+
+function AssistantBlocks({ blocks }) {
+  return (
+    <Stack spacing={0.75}>
+      {(blocks || []).map((block, index) => {
+        if (block.type === 'bullet-list' || block.type === 'ordered-list') {
+          const ListTag = block.type === 'ordered-list' ? 'ol' : 'ul';
+          return (
+            <Box
+              key={`list-${index}`}
+              component={ListTag}
+              sx={{
+                m: 0,
+                pl: 2.5,
+                '& li': { mb: 0.35 },
+              }}
+            >
+              {block.items.map((item, itemIndex) => (
+                <Box key={itemIndex} component="li">
+                  <InlineMarkdownText text={item} />
+                </Box>
+              ))}
+            </Box>
+          );
+        }
+        return (
+          <InlineMarkdownText key={`para-${index}`} text={block.text || ''} />
+        );
+      })}
+    </Stack>
+  );
+}
+
+function AssistantMessageContent({ content }) {
+  const sections = useMemo(() => formatAssistantSections(content), [content]);
+
+  return (
+    <Stack spacing={1}>
+      {sections.map((section, index) => {
+        if (section.type === 'section') {
+          return (
+            <Box key={`section-${index}`}>
+              <InlineMarkdownText
+                text={section.title}
+                variant="subtitle2"
+                sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}
+              />
+              <AssistantBlocks blocks={section.blocks} />
+            </Box>
+          );
+        }
+        return (
+          <AssistantBlocks key={`paragraph-${index}`} blocks={section.blocks} />
+        );
+      })}
+    </Stack>
+  );
+}
 
 function makeGreeting() {
   return {
@@ -55,34 +157,6 @@ function downloadReportBlob(blob, fileName) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function AssistantMessageContent({ content }) {
-  const sections = useMemo(() => formatAssistantSections(content), [content]);
-
-  return (
-    <Stack spacing={1}>
-      {sections.map((section, index) => {
-        if (section.type === 'section') {
-          return (
-            <Box key={`section-${index}`}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.25 }}>
-                {section.title}
-              </Typography>
-              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                {section.text}
-              </Typography>
-            </Box>
-          );
-        }
-        return (
-          <Typography key={`paragraph-${index}`} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-            {section.text}
-          </Typography>
-        );
-      })}
-    </Stack>
-  );
 }
 
 export default function AIAssistantPanel({ pageContext }) {

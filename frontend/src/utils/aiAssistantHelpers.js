@@ -278,22 +278,107 @@ export function formatDataSourceLabel(sourceKey) {
 
 export function formatAssistantSections(content = '') {
   const text = String(content || '').trim();
-  if (!text) return [{ type: 'paragraph', text: '' }];
+  if (!text) return [{ type: 'paragraph', blocks: parseAssistantBlocks('') }];
 
   const parts = text.split(/\n(?=##\s+)/);
   if (parts.length === 1) {
-    return text.split(/\n{2,}/).filter(Boolean).map((block) => ({ type: 'paragraph', text: block.trim() }));
+    return [{ type: 'paragraph', blocks: parseAssistantBlocks(text) }];
   }
 
   return parts.map((part) => {
     const trimmed = part.trim();
     if (!trimmed) return null;
     const match = trimmed.match(/^##\s+(.+?)\n([\s\S]*)$/);
-    if (!match) return { type: 'paragraph', text: trimmed };
+    if (!match) return { type: 'paragraph', blocks: parseAssistantBlocks(trimmed) };
     return {
       type: 'section',
       title: match[1].trim(),
-      text: match[2].trim(),
+      blocks: parseAssistantBlocks(match[2].trim()),
     };
   }).filter(Boolean);
+}
+
+/** Split section body into paragraphs and bullet/numbered lists. */
+export function parseAssistantBlocks(text = '') {
+  const lines = String(text).split('\n');
+  const blocks = [];
+  let listItems = [];
+  let listOrdered = false;
+  let paragraphLines = [];
+
+  const flushParagraph = () => {
+    const joined = paragraphLines.join('\n').trim();
+    if (joined) blocks.push({ type: 'paragraph', text: joined });
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (listItems.length) {
+      blocks.push({
+        type: listOrdered ? 'ordered-list' : 'bullet-list',
+        items: [...listItems],
+      });
+      listItems = [];
+      listOrdered = false;
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const bullet = trimmed.match(/^[-*•]\s+(.+)/);
+    const numbered = trimmed.match(/^\d+[.)]\s+(.+)/);
+
+    if (bullet) {
+      flushParagraph();
+      if (listOrdered && listItems.length) flushList();
+      listItems.push(bullet[1]);
+    } else if (numbered) {
+      flushParagraph();
+      if (!listOrdered && listItems.length) flushList();
+      listOrdered = true;
+      listItems.push(numbered[1]);
+    } else if (!trimmed) {
+      flushParagraph();
+      flushList();
+    } else {
+      flushList();
+      paragraphLines.push(line);
+    }
+  }
+
+  flushParagraph();
+  flushList();
+  return blocks.length ? blocks : [{ type: 'paragraph', text: '' }];
+}
+
+/** Parse **bold**, *italic*, and `code` within a line of assistant text. */
+export function parseInlineMarkdown(text = '') {
+  const input = String(text);
+  if (!input) return [{ type: 'text', value: '' }];
+
+  const segments = [];
+  const re = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = re.exec(input)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', value: input.slice(lastIndex, match.index) });
+    }
+    const token = match[0];
+    if (token.startsWith('**')) {
+      segments.push({ type: 'bold', value: token.slice(2, -2) });
+    } else if (token.startsWith('`')) {
+      segments.push({ type: 'code', value: token.slice(1, -1) });
+    } else {
+      segments.push({ type: 'italic', value: token.slice(1, -1) });
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < input.length) {
+    segments.push({ type: 'text', value: input.slice(lastIndex) });
+  }
+
+  return segments.length ? segments : [{ type: 'text', value: input }];
 }

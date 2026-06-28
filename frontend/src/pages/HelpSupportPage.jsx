@@ -25,7 +25,7 @@ import {
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import helpKb from '../../../api/data/help-knowledge-base.json';
+import helpKb from '../data/help-knowledge-base.json';
 
 const {
   moduleGuides = [],

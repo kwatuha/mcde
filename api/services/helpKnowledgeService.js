@@ -3,9 +3,17 @@ const fs = require('fs');
 
 let cached = null;
 
+/** Keep in sync with frontend/src/data/help-knowledge-base.json (frontend Docker build uses that copy). */
 function loadKnowledgeBase() {
     if (cached) return cached;
-    const filePath = path.join(__dirname, '..', 'data', 'help-knowledge-base.json');
+    const candidates = [
+        path.join(__dirname, '..', 'data', 'help-knowledge-base.json'),
+        path.join(__dirname, '..', '..', 'frontend', 'src', 'data', 'help-knowledge-base.json'),
+    ];
+    const filePath = candidates.find((p) => fs.existsSync(p));
+    if (!filePath) {
+        throw new Error('help-knowledge-base.json not found in api/data or frontend/src/data');
+    }
     cached = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     return cached;
 }
