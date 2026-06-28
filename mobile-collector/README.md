@@ -87,26 +87,33 @@ src/
 
 ## Publish to servers (automated)
 
-From the repo root, after configuring targets:
+**One command (MCmes + monitoring, single build):**
 
 ```bash
-cp deploy/mobile-app-targets.example.env deploy/mobile-app-targets.env
-# Edit deploy/mobile-app-targets.env with your server SSH targets
+chmod +x deploy/release-mobile-app-all.sh
+./deploy/release-mobile-app-all.sh --version 1.0.2 --notes "Login and icon fixes"
+```
 
-chmod +x deploy/release-mobile-app.sh
-./deploy/release-mobile-app.sh --version 1.0.0 --notes "Initial field collector release"
-
-Per server (same defaults as `deploy/mcmes-deploy.sh` and `deploy/deploy-to-server.sh`):
+Per server:
 
 ```bash
 ./deploy/release-mobile-app-mcmes.sh --version 1.0.1 --notes "Bug fixes"
 ./deploy/release-mobile-app-monitoring.sh --version 1.0.1 --notes "Bug fixes"
 ```
-```
 
-This builds the release APK, copies it to each server, and registers the release in each server's database. **Logged-in staff see a notification on their personal dashboard** until they open the Mobile app download page.
+The release script sets `APP_VERSION` in `src/config/api.ts`, builds the APK, copies it to each server, and registers it in the database. Staff see a dashboard notification; the app prompts for an update after sign-in when a newer version is published.
 
 Options: `--skip-build`, `--apk PATH`, `--local-only` (this machine only).
+
+### Do users need to reinstall?
+
+| Change type | Reinstall APK? |
+|-------------|----------------|
+| Server login, OTP, passwords, API fixes | **No** — takes effect immediately |
+| Web portal download page | **No** — refresh browser |
+| New app icon, login screen text, in-app update prompt | **Yes** — publish new APK; staff download from **Mobile app (Android)** |
+
+There is no silent auto-update (Play Store / OTA). Field staff install the new APK over the old one from the staff portal when you publish a release.
 
 ## Roadmap
 

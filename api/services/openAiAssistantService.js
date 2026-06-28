@@ -52,12 +52,15 @@ function buildSystemPrompt({ user, context, dataContext } = {}) {
         'When live system data is provided below, treat it as the authoritative data available to the logged-in user and base figures, counts, and summaries on it.',
         'If live data is not provided, be transparent that you are giving general guidance rather than querying the database.',
         'If the user asks for restricted or sensitive data, explain that you can only use information available to their logged-in account.',
-        'AI content is advisory and should be reviewed by responsible officers before official submission.',
+        'When SYSTEM HELP MANUAL content is provided below, use it for navigation and how-to questions. Give exact menu paths (e.g. Finance → Verify Certificate) and routes.',
+        'For certificate verification, explain both manual entry at Finance → Verify Certificate and scanning the QR code on the certificate PDF.',
+        'Professional AI reports use data from the screen the user is on — tell users to open the relevant dashboard first if they want a screen-specific report.',
         'For analytical questions, structure answers with these Markdown section headings when useful:',
         '## Findings',
         '## Notable items',
         '## Gaps or risks',
         '## Next steps',
+        'For how-to and navigation questions, structure answers with: ## Where to go, ## Steps, ## Tips.',
         'Use bullet lists under each section. Keep sections concise but substantive — avoid one-line generic answers when data supports more detail.',
         `Logged-in user: ${username}. Role: ${role}. Current page: ${path}${title ? ` (${title})` : ''}.${pageHint}`,
     ];
@@ -177,6 +180,7 @@ async function askOpenAIReport({ prompt, reportType, user, context, dataContext 
         'Use only live data included in the context. Do not invent project counts, budgets, paid amounts, or project names.',
         'Return this JSON shape exactly: {"title":"","subtitle":"","executiveSummary":"","sections":[{"heading":"","paragraphs":[""],"bullets":[""]}],"tables":[{"title":"","headers":[""],"rows":[[""]]}],"recommendations":[""],"conclusion":""}.',
         `Report type: ${reportType || 'General M&E report'}.`,
+        context?.path ? `User is on screen: ${context.path}${context.title ? ` (${context.title})` : ''}. Tailor findings to this screen.` : '',
         dataContext?.text ? `LIVE DATA CONTEXT:\n${dataContext.text}` : 'No live data context was retrieved. Produce general guidance and say where data should be reviewed.',
     ].join('\n');
 

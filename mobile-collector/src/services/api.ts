@@ -1,6 +1,8 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS, APP_VERSION } from '../config/api';
+import { isNewerVersion } from '../utils/versionUtils';
 import {
   DataCollectionSubmission,
   DataCollectionTemplate,
@@ -21,6 +23,7 @@ type LoginResult =
 
 class ApiService {
   private client: AxiosInstance;
+  private onUnauthorized: (() => void) | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -51,6 +54,7 @@ class ApiService {
             STORAGE_KEYS.AUTH_TOKEN,
             STORAGE_KEYS.USER_DATA,
           ]);
+          this.onUnauthorized?.();
         }
         return Promise.reject(error);
       }
@@ -66,8 +70,8 @@ class ApiService {
 
   async login(username: string, password: string): Promise<LoginResult> {
     const response = await this.client.post('/api/auth/login', {
-      username,
-      password,
+      username: username.trim(),
+      password: password.trim(),
       clientApp: 'machakos-collector',
     });
     const data = response.data || {};
@@ -89,8 +93,16 @@ class ApiService {
       throw new Error(data.error || data.message || 'Login did not return a token.');
     }
 
-    await this.persistSession(data.token);
-    await this.reportAppUsage('app_login');
+    try {
+      await this.persistSession(data.token);
+      await this.reportAppUsage('app_login');
+    } catch (sessionErr: any) {
+      const sessionMsg =
+        sessionErr?.response?.data?.error ||
+        sessionErr?.response?.data?.message ||
+        sessionErr?.message;
+      throw new Error(sessionMsg || 'Signed in but could not load your profile. Try again.');
+    }
     return { kind: 'token', token: data.token, forcePasswordChange: data.forcePasswordChange };
   }
 
@@ -126,6 +138,11 @@ class ApiService {
     ]);
   }
 
+  /** Called when the API returns 401 (expired/invalid session). */
+  setUnauthorizedHandler(handler: (() => void) | null): void {
+    this.onUnauthorized = handler;
+  }
+
   async getAuthToken(): Promise<string | null> {
     return AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
   }
@@ -148,7 +165,7 @@ class ApiService {
   }
 
   async listProjects(opts: { limit?: number; projectName?: string } = {}): Promise<ProjectLite[]> {
-    const params: Record<string, string | number> = { limit: opts.limit ?? 3000 };
+    const params: Record<string, string | number> = { limit: opts.limit ?? 500 };
     if (opts.projectName) params.projectName = opts.projectName;
     const response = await this.client.get('/api/projects', { params });
     const rows = Array.isArray(response.data) ? response.data : response.data?.data ?? [];
@@ -187,6 +204,41 @@ class ApiService {
     } catch {
       // Non-blocking telemetry
     }
+  }
+
+  /** Server-published APK version (null if none or request fails). */
+  async getPublishedAppVersion(): Promise<string | null> {
+    try {
+      const response = await this.client.get('/api/mobile-app/release');
+      const version = response.data?.release?.version;
+      return version != null ? String(version).trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  openStaffDownloadPage(): void {
+    Linking.openURL(`${API_BASE_URL}/mobile-app`).catch(() => {});
+  }
+
+  /** Prompt once per published version when the installed app is older. */
+  async promptForAppUpdateIfNeeded(): Promise<void> {
+    const latest = await this.getPublishedAppVersion();
+    if (!latest) return;
+    if (!isNewerVersion(latest, APP_VERSION)) return;
+
+    const dismissKey = `@machakos_collector_update_dismissed_${latest}`;
+    const dismissed = await AsyncStorage.getItem(dismissKey);
+    if (dismissed === '1') return;
+
+    Alert.alert(
+      'App update available',
+      `Version ${latest} is published. Open the staff portal to download and install the new APK (you stay signed in on the web).`,
+      [
+        { text: 'Later', style: 'cancel', onPress: () => AsyncStorage.setItem(dismissKey, '1') },
+        { text: 'Open download page', onPress: () => this.openStaffDownloadPage() },
+      ]
+    );
   }
 }
 

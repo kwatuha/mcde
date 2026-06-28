@@ -19,7 +19,27 @@ import {
   getPendingSubmissions,
 } from '../services/offlineStore';
 import { refreshCatalog, syncPendingSubmissions } from '../services/syncService';
+import apiService from '../services/api';
 import { DataCollectionTemplate } from '../types/dataCollection';
+
+function apiErrorMessage(error: any): string {
+  const data = error?.response?.data;
+  const status = error?.response?.status;
+  const serverMsg =
+    data?.message ||
+    data?.error ||
+    data?.msg ||
+    (typeof data === 'string' ? data : null);
+  if (serverMsg) return serverMsg;
+  if (status === 401) return 'Session expired. Sign in again.';
+  if (error?.message?.includes('Network Error')) {
+    return 'Cannot reach the server. Check mobile data or Wi‑Fi.';
+  }
+  if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+    return 'Request timed out. Try again on a stronger connection.';
+  }
+  return error?.message || 'Could not refresh from server.';
+}
 
 const TemplatesScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -30,7 +50,7 @@ const TemplatesScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadLocal = async () => {
+  const loadLocal = async (): Promise<number> => {
     const [cached, ts, pending] = await Promise.all([
       getCachedTemplates(),
       getCacheTimestamp(),
@@ -39,40 +59,62 @@ const TemplatesScreen: React.FC = () => {
     setTemplates(cached);
     setCacheTime(ts);
     setPendingCount(pending.length);
+    return cached.length;
   };
 
-  const refreshAll = async () => {
+  const refreshAll = async (opts: { silent?: boolean } = {}) => {
     try {
       const result = await refreshCatalog();
-      await loadLocal();
+      const cachedCount = await loadLocal();
       const sync = await syncPendingSubmissions();
       if (sync.synced > 0) {
         Alert.alert('Synced', `${sync.synced} pending visit(s) uploaded.`);
       } else if (sync.failed > 0) {
         Alert.alert('Sync issues', sync.errors.slice(0, 3).join('\n'));
+      } else if (result.partial && !opts.silent) {
+        Alert.alert(
+          'Partial sync',
+          'Checklists downloaded. The project list could not be refreshed — tap Sync again before starting a visit.'
+        );
       }
       return result;
     } catch (error: any) {
-      await loadLocal();
-      const msg =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        error?.message ||
-        'Could not refresh from server.';
-      Alert.alert('Offline mode', `${msg}\n\nShowing cached checklists.`);
+      const cachedCount = await loadLocal();
+      if (!opts.silent || cachedCount === 0) {
+        Alert.alert(
+          cachedCount > 0 ? 'Sync issue' : 'Offline mode',
+          `${apiErrorMessage(error)}\n\n${
+            cachedCount > 0
+              ? 'Showing cached checklists.'
+              : 'No checklists cached yet. Pull down to retry.'
+          }`
+        );
+      }
     }
   };
 
   useFocusEffect(
     useCallback(() => {
+      let active = true;
       (async () => {
         setLoading(true);
-        await loadLocal();
-        if (templates.length === 0) {
+        const cachedCount = await loadLocal();
+        if (!active) return;
+
+        if (cachedCount === 0) {
           await refreshAll();
+        } else {
+          refreshAll({ silent: true }).catch(() => {});
         }
-        setLoading(false);
+
+        if (active) {
+          apiService.promptForAppUpdateIfNeeded().catch(() => {});
+          setLoading(false);
+        }
       })();
+      return () => {
+        active = false;
+      };
     }, [])
   );
 

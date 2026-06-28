@@ -11,6 +11,7 @@ import TemplatesScreen from '../screens/TemplatesScreen';
 import SubmissionsScreen from '../screens/SubmissionsScreen';
 import NewVisitScreen from '../screens/NewVisitScreen';
 import { STORAGE_KEYS, THEME } from '../config/api';
+import { refreshCatalog } from '../services/syncService';
 
 export const AuthContext = React.createContext<{ logout: () => Promise<void> } | null>(
   null
@@ -60,6 +61,18 @@ const AppNavigator: React.FC = () => {
     await apiService.logout();
     setIsAuthenticated(false);
   }, []);
+
+  useEffect(() => {
+    apiService.setUnauthorizedHandler(() => {
+      setIsAuthenticated(false);
+    });
+    return () => apiService.setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    refreshCatalog().catch(() => {});
+  }, [isAuthenticated]);
 
   if (isAuthenticated === null) {
     return (

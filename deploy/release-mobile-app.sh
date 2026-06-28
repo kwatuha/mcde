@@ -52,6 +52,7 @@ Examples:
   $0 --version 1.0.0 --local-only
   ./deploy/release-mobile-app-mcmes.sh --version 1.0.1 --notes "Bug fixes"
   ./deploy/release-mobile-app-monitoring.sh --version 1.0.1 --notes "Bug fixes"
+  ./deploy/release-mobile-app-all.sh --version 1.0.2 --notes "Both servers in one command"
 EOF
 }
 
@@ -101,6 +102,12 @@ if [[ -z "$VERSION" ]]; then
   echo "ERROR: --version is required." >&2
   usage >&2
   exit 1
+fi
+
+APP_CONFIG="$ROOT/mobile-collector/src/config/api.ts"
+if [[ -f "$APP_CONFIG" ]]; then
+  echo "==> Syncing mobile-collector APP_VERSION → $VERSION"
+  sed -i "s/export const APP_VERSION = '[^']*'/export const APP_VERSION = '${VERSION}'/" "$APP_CONFIG"
 fi
 
 DEFAULT_APK="$ROOT/mobile-collector/android/app/build/outputs/apk/release/app-release.apk"
@@ -258,7 +265,7 @@ if [[ -n "$SINGLE_TARGET" ]]; then
 elif [[ -f "$TARGETS_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$TARGETS_FILE"
-  if [[ ${#MOBILE_APP_TARGETS[@]:-0} -gt 0 ]]; then
+  if [[ -n "${MOBILE_APP_TARGETS+x}" ]] && [[ ${#MOBILE_APP_TARGETS[@]} -gt 0 ]]; then
     TARGETS=("${MOBILE_APP_TARGETS[@]}")
   fi
 fi

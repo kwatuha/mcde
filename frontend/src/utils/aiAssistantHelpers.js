@@ -41,6 +41,70 @@ export function getAIStarterMessages(context = {}) {
     ];
   }
 
+  if (path.includes('/operations-dashboard')) {
+    return [
+      'Summarize operational delivery metrics on this dashboard.',
+      'Which departments or projects need operational attention?',
+      'Create a well formatted operations report from this dashboard.',
+    ];
+  }
+
+  if (path.includes('/project-by-status-dashboard')) {
+    return [
+      'Summarize projects by status on this dashboard.',
+      'Which statuses have the most budget at risk?',
+      'Create a well formatted project status report from this dashboard.',
+    ];
+  }
+
+  if (path.includes('/jobs-dashboard')) {
+    return [
+      'Summarize jobs and impact indicators on this dashboard.',
+      'Which projects contribute most to employment impact?',
+      'Create a well formatted impact report from this dashboard.',
+    ];
+  }
+
+  if (path.includes('/regional-reports') || path.includes('/regional-breakdown')) {
+    return [
+      'Summarize regional distribution of projects and budgets.',
+      'Which wards have the most stalled projects?',
+      'Create a well formatted regional report from this dashboard.',
+    ];
+  }
+
+  if (path.includes('/summary-statistics')) {
+    return [
+      'Summarize county-wide statistics shown on this dashboard.',
+      'What are the main trends and attention areas?',
+      'Create a well formatted M&E summary report from this dashboard.',
+    ];
+  }
+
+  if (path.includes('/reports-hub')) {
+    return [
+      'Which built-in report should I use for my question?',
+      'How do built-in reports differ from AI professional reports?',
+      'Summarize reports available for my role.',
+    ];
+  }
+
+  if (path.includes('/verify-certificate')) {
+    return [
+      'How do I verify a payment certificate?',
+      'What does the QR code on a certificate PDF do?',
+      'Where do staff create payment certificates?',
+    ];
+  }
+
+  if (path.includes('/data-collection-tools') || path.includes('/mobile-app')) {
+    return [
+      'How do I use checklists and the mobile field collector?',
+      'How do field staff sync checklists offline?',
+      'Where do I download the Android collector app?',
+    ];
+  }
+
   if (path.includes('/finance/payment-list') || path.includes('/finance-dashboard')) {
     return [
       'Summarize payment absorption for projects I can access.',
@@ -119,6 +183,34 @@ export function inferReportType(message = '', context = {}) {
   }
 
   if (
+    /\boperations|operational delivery|operations dashboard\b/.test(text)
+    || /operations-dashboard/.test(context.path || '')
+  ) {
+    return 'General M&E Report';
+  }
+
+  if (
+    /\bregional|ward breakdown|subcounty|regional breakdown\b/.test(text)
+    || /regional-reports|regional-breakdown/.test(context.path || '')
+  ) {
+    return 'General M&E Report';
+  }
+
+  if (
+    /\bjobs|impact|employment|beneficiar\b/.test(text)
+    || /jobs-dashboard/.test(context.path || '')
+  ) {
+    return 'General M&E Report';
+  }
+
+  if (
+    /\bsummary statistics|county-wide|executive summary\b/.test(text)
+    || /summary-statistics/.test(context.path || '')
+  ) {
+    return 'General M&E Report';
+  }
+
+  if (
     /\bmonitor|monitoring|warning level|observation|indicator|evidence\b/.test(text)
     || context.pageType === 'project-monitoring'
     || /monitoring/.test(context.path || '')
@@ -177,6 +269,7 @@ export const DATA_SOURCE_LABELS = {
   adpGaps: 'ADP gaps',
   budgetDetail: 'Budget detail',
   monitoringHighlights: 'Monitoring highlights',
+  helpManual: 'Help manual',
 };
 
 export function formatDataSourceLabel(sourceKey) {

@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const orgScope = require('./organizationScopeService');
 const { isSuperAdminRequester } = require('../utils/roleUtils');
+const { getHelpContextForQuestion } = require('./helpKnowledgeService');
 
 const MAX_CONTEXT_CHARS = Number(process.env.OPENAI_DATA_CONTEXT_MAX_CHARS || 12000);
 
@@ -683,6 +684,10 @@ function formatDataContext(context) {
     const lines = [
         'Retrieved live system data (restricted to the logged-in user scope):',
     ];
+    if (context.helpManual) {
+        lines.push('SYSTEM HELP MANUAL (use for navigation and how-to questions):');
+        lines.push(context.helpManual);
+    }
     if (context.pageContextText) {
         lines.push(context.pageContextText);
     }
@@ -786,9 +791,18 @@ async function buildAiDataContext({ user, messages, context }) {
     const page = pageEntity(context);
     const pageContextText = formatPageContext(context);
     const intents = detectIntents(question, context);
+    const helpContextText = getHelpContextForQuestion({ question, context });
 
-    if (!detectNeedsData(question, context) && !pageContextText) {
+    if (!detectNeedsData(question, context) && !pageContextText && !helpContextText) {
         return { used: false, text: '', sources: [] };
+    }
+
+    if (!detectNeedsData(question, context) && !pageContextText && helpContextText) {
+        return {
+            used: true,
+            text: `SYSTEM HELP MANUAL:\n${helpContextText}`,
+            sources: ['helpManual'],
+        };
     }
 
     try {
@@ -829,10 +843,13 @@ async function buildAiDataContext({ user, messages, context }) {
         );
         const data = Object.fromEntries(entries);
         data.pageContextText = pageContextText;
+        if (helpContextText) {
+            data.helpManual = helpContextText;
+        }
         const text = formatDataContext(data);
         const sources = Object.keys(data).filter((key) => {
             const value = data[key];
-            if (key === 'pageContextText') return Boolean(value);
+            if (key === 'pageContextText' || key === 'helpManual') return Boolean(value);
             if (Array.isArray(value)) return value.length > 0;
             if (value && typeof value === 'object') return Object.keys(value).length > 0;
             return Boolean(value);

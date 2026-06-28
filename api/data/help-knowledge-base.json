@@ -1,0 +1,554 @@
+{
+  "moduleGuides": [
+    {
+      "title": "1. Accessing the system",
+      "audience": "All users",
+      "route": "/login",
+      "purpose": "Log in, complete OTP if enabled, change a forced password, and confirm your role sees the correct menus.",
+      "steps": [
+        "Open the internal system URL in Chrome, Edge, or Firefox.",
+        "Sign in with the username or email and password issued by ICT.",
+        "Enter the OTP code if your account has OTP enabled.",
+        "Complete forced password change when prompted before continuing.",
+        "Confirm your landing page and visible menus match your assigned role and organisation scope."
+      ],
+      "tips": [
+        "If login fails, confirm the account is active and approved.",
+        "Missing menus usually mean role permissions or organisation scope — not a system fault.",
+        "Never share passwords, OTP codes, or administrator accounts."
+      ]
+    },
+    {
+      "title": "2. Home page, navigation, and workflow inbox",
+      "audience": "All users",
+      "route": "/",
+      "purpose": "Use the ribbon menu, home dashboard, and pending workflow items.",
+      "steps": [
+        "Use the ribbon to open Dashboard, Finance, Projects, Planning, Data, Procurement, Monitoring, Reports, Public, and Admin areas.",
+        "On the home page, review summary cards and any pending approvals or workflow tasks assigned to you.",
+        "Open a pending item from the inbox to approve, review, or complete the required action.",
+        "Use search and filters on list screens before concluding a record is missing.",
+        "Read success and error messages after saving, importing, or submitting records."
+      ],
+      "tips": [
+        "Clear filters before reporting missing data.",
+        "The three-dot menu (top right) includes Help & Support.",
+        "For wide tables, browser zoom around 90%–110% improves readability."
+      ]
+    },
+    {
+      "title": "3. AI Assistant and professional reports",
+      "audience": "All authenticated users",
+      "route": "/help-support",
+      "purpose": "Ask questions about workflows, live project data, and generate downloadable Word/PDF reports from the current screen.",
+      "steps": [
+        "Click the sparkle AI Assistant button at the bottom-right of any authenticated page.",
+        "Ask a question in chat — the assistant uses live data when available for your account scope.",
+        "For navigation questions (for example how to verify a certificate), it uses this Help & Support manual.",
+        "To create a formal document, click Generate Professional Report in the AI panel.",
+        "Choose report type, Word or PDF, and add instructions — the report uses data from the screen you are on.",
+        "Review AI output before official use; it is advisory and must be checked by responsible officers."
+      ],
+      "tips": [
+        "Open the relevant dashboard or project screen first so the AI has the right context.",
+        "Finance dashboards produce finance-focused reports; monitoring screens produce monitoring-focused reports.",
+        "Super Admins can review AI usage under Admin > AI Usage."
+      ]
+    },
+    {
+      "title": "4. Dashboards and executive views",
+      "audience": "Leadership, department heads, M&E, finance, and report users",
+      "route": "/summary-statistics",
+      "purpose": "Review county performance through dedicated dashboards — each dashboard has a different focus.",
+      "steps": [
+        "Open Dashboard from the ribbon and choose the dashboard you need.",
+        "Project By Status — counts and charts by implementation status.",
+        "Project By Sector — sector/programme distribution.",
+        "Finance Dashboard — budget, paid, absorption, and finance KPIs.",
+        "Operations Dashboard — operational delivery and attention indicators.",
+        "Jobs & Impact — employment and beneficiary impact metrics.",
+        "Summary Statistics — county-wide summary cards and trends.",
+        "Regional Breakdown — subcounty/ward distribution.",
+        "Departmental Reports — department-level summaries.",
+        "GIS Dashboard and Project GIS Map — location-based views.",
+        "Personal Dashboard (home) — your scoped summary and workflow inbox.",
+        "Set filters (department, status, sector, ward, financial year) before interpreting figures.",
+        "Use drill-down links to open related project lists where available."
+      ],
+      "tips": [
+        "Dashboard totals depend on project visibility and data completeness.",
+        "Compare dashboard filters with Projects Registry filters if totals look inconsistent.",
+        "Use the AI Assistant on a dashboard to summarize that dashboard's data or generate a professional report."
+      ]
+    },
+    {
+      "title": "5. Projects Registry and implementation plans",
+      "audience": "Project officers, departments, M&E, finance, procurement, administrators",
+      "route": "/projects",
+      "purpose": "Find, create, edit, and export projects; manage implementation plans.",
+      "steps": [
+        "Open Projects > Projects Registry.",
+        "Search or filter by department, financial year, sector, status, subcounty, or ward.",
+        "Open project details before editing to understand the full record.",
+        "Use Projects > Implementation Plans for cross-project implementation planning views.",
+        "Create a project only after confirming it does not already exist.",
+        "Export after applying the required filters."
+      ],
+      "tips": [
+        "Search before creating duplicates.",
+        "Project visibility affects dashboards, reports, certificates, and public publishing."
+      ]
+    },
+    {
+      "title": "6. Project details, evaluation, and evidence",
+      "audience": "Project officers, M&E, finance, administrators",
+      "route": "/projects",
+      "purpose": "Maintain milestones, status, documents, photos, teams, partners, funding, certificates, and evaluations.",
+      "steps": [
+        "Open a project from the Projects Registry.",
+        "Review the overview and tabs before adding related records.",
+        "Update milestones and status using verified implementation evidence.",
+        "Upload documents with clear names and correct categories.",
+        "Use the Certificates tab to create interim/final payment certificates (where authorised).",
+        "Use Project Evaluation Workbench (Projects menu) for structured evaluation workflows.",
+        "Link planning activities and risks so monitoring and reports stay consistent."
+      ],
+      "tips": [
+        "Certificate PDFs include a QR code for public verification.",
+        "Evidence should support reported progress percentages.",
+        "Keep documents organised — audits and reports depend on them."
+      ]
+    },
+    {
+      "title": "7. Planning (CIDP, ADP, RRI, traceability)",
+      "audience": "Planning, M&E, department focal persons, administrators",
+      "route": "/strategic-planning",
+      "purpose": "Maintain planning structures, ADP implementation, RRI programmes, and budget traceability.",
+      "steps": [
+        "Open Planning from the ribbon.",
+        "Maintain CIDP periods, ADP periods, sectors, programmes, and budget allocations.",
+        "Use ADP Implementation to track wishlist vs budgeted vs registered projects.",
+        "Use RRI Programmes for ward livelihood and RRI tracking.",
+        "Use Budget Traceability to follow budget lines through implementation.",
+        "Maintain indicators, activities, risks, and reporting frequency catalogues.",
+        "Link catalogues to projects for consistent monitoring and reporting."
+      ],
+      "tips": [
+        "Catalogue changes affect reports — coordinate with M&E and ICT.",
+        "Search before creating new sectors, programmes, or risks."
+      ]
+    },
+    {
+      "title": "8. Data import, beneficiaries, and upload logs",
+      "audience": "ICT admins, migration users, authorised data officers",
+      "route": "/data-import",
+      "purpose": "Import projects/budgets/beneficiaries safely and review upload logs.",
+      "steps": [
+        "Open Data > Import Data and choose the correct import type.",
+        "Download and fill the official template without changing required column names.",
+        "Upload for preview and correct all validation errors before confirming.",
+        "Open Data Import Logs to verify completion.",
+        "Use Data > Beneficiary Registry to search and maintain beneficiary records."
+      ],
+      "tips": [
+        "Never import production data from an unverified spreadsheet.",
+        "Keep original and corrected files for audit reference."
+      ]
+    },
+    {
+      "title": "9. Procurement and contractors",
+      "audience": "Procurement officers, project officers, administrators",
+      "route": "/procurement",
+      "purpose": "Track procurement stages, budget intake, awards, and contractor registry.",
+      "steps": [
+        "Open Procurement > Project Procurement for active procurement cases.",
+        "Use Budget Procurement Intake for budget-linked procurement items.",
+        "Review Procured Projects for completed history.",
+        "Maintain Contractor Registry and contractor types.",
+        "Contractors can sign in to the Contractor Dashboard for assigned project views."
+      ],
+      "tips": [
+        "Stage updates must match approved procurement documentation.",
+        "Attach evidence to support audit review."
+      ]
+    },
+    {
+      "title": "10. Monitoring, PMC, and field data collection",
+      "audience": "M&E officers, project officers, ward teams, supervisors",
+      "route": "/monitoring/project-monitoring",
+      "purpose": "Record monitoring visits, PMC ward reports, accountability, checklists, and mobile field collection.",
+      "steps": [
+        "Open Monitoring > Project Monitoring for structured project monitoring records.",
+        "Use PMC Ward Reports for ward-level PMC reporting.",
+        "Use Ward Accountability for accountability tracking workflows.",
+        "Open Monitoring > Checklists & visits (or Data collection tools) to manage checklist templates and visit submissions.",
+        "Download the Mobile Field Collector from Dashboard or Monitoring > Mobile app (Android).",
+        "Field staff sign in on the app, sync checklists, select a project, and submit visits offline when needed."
+      ],
+      "tips": [
+        "Monitoring records should be timely and linked to the correct project.",
+        "Mobile app sync requires network — pull down to refresh checklists after login.",
+        "Escalate persistent delays, low absorption, or unresolved complaints."
+      ]
+    },
+    {
+      "title": "11. Finance, payment certificates, and verification",
+      "audience": "Finance users, accounts, project officers, leadership, public verifiers",
+      "route": "/finance-dashboard",
+      "purpose": "Review finance performance, manage payment certificates, and verify certificate authenticity.",
+      "steps": [
+        "Open Finance Dashboard for high-level financial KPIs.",
+        "Use Payment List for payment records and filters.",
+        "Use Payment Certificates (Finance menu) for county-wide certificate records and workflow.",
+        "On a project, open the Certificates tab to create interim/final certificates and generate PDFs.",
+        "Generated certificate PDFs include a QR code labelled Scan to verify this certificate.",
+        "To verify any certificate: Finance > Verify Certificate (or open /verify-certificate).",
+        "Enter the certificate number manually OR scan the QR code on the printed PDF with a phone camera.",
+        "The verification page shows whether the certificate is valid and displays project and contractor details.",
+        "Use Funding Sources Report, Project Finance Overview, and Pending Bills for deeper analysis."
+      ],
+      "tips": [
+        "Verify certificates before relying on printed or shared copies.",
+        "Verification works without logging in — citizens and contractors can use the public page.",
+        "Logged-in staff see a link to open the related project from verification results."
+      ]
+    },
+    {
+      "title": "12. Reports, report library, and scheduling",
+      "audience": "Leadership, M&E, planning, finance, ICT",
+      "route": "/reports-hub",
+      "purpose": "Find built-in reports, export official outputs, and schedule recurring reports.",
+      "steps": [
+        "Open Reports > Reports hub — searchable index of all report screens.",
+        "Choose the report (APR, County Operations, Status, Absorption, Pending Bills, Yearly Trends, PMC, etc.).",
+        "Set filters (department, financial year, status, ward, dates).",
+        "Review totals and exceptions before exporting.",
+        "Save approved outputs to Report Library where applicable.",
+        "Use Scheduled Reports for recurring email distribution.",
+        "Built-in reports are separate from AI Professional Reports — use Reports hub for standard county templates."
+      ],
+      "tips": [
+        "Record filter criteria when sharing exported reports.",
+        "Reports are only as accurate as underlying project, finance, and monitoring data."
+      ]
+    },
+    {
+      "title": "13. Public dashboard and citizen engagement",
+      "audience": "Public engagement teams, communication, administrators",
+      "route": "/citizen",
+      "purpose": "Manage what citizens see and how they engage.",
+      "steps": [
+        "Review the public dashboard URL and approved public projects.",
+        "Use Public Approval to approve projects for citizen visibility.",
+        "Moderate feedback and manage announcements.",
+        "Only approved content should appear on public pages."
+      ],
+      "tips": [
+        "Avoid publishing sensitive internal notes.",
+        "Coordinate sensitive responses with the responsible department."
+      ]
+    },
+    {
+      "title": "14. User administration and mobile app releases",
+      "audience": "ICT administrators, super administrators",
+      "route": "/user-management",
+      "purpose": "Manage users, roles, scope, OTP, mobile app releases, and AI usage.",
+      "steps": [
+        "Open Admin > User Management for accounts, roles, and organisation scope.",
+        "Use Admin > Mobile App Usage to review field collector adoption.",
+        "Use Admin > AI Usage (Super Admin) for assistant cost and activity.",
+        "Staff download the Android collector from Dashboard > Mobile app or /mobile-app when signed in."
+      ],
+      "tips": [
+        "Use least privilege for roles and scope.",
+        "Document administrator actions for audit."
+      ]
+    },
+    {
+      "title": "15. Metadata, workflows, and audit trail",
+      "audience": "ICT administrators, workflow administrators",
+      "route": "/metadata-management",
+      "purpose": "Maintain master data, approval levels, workflows, and investigate audit logs.",
+      "steps": [
+        "Open Admin > Metadata Management or relevant setup pages.",
+        "Search before adding duplicate metadata values.",
+        "Use Audit Trail to investigate user actions and support incidents.",
+        "Test workflow changes before rolling out to users."
+      ],
+      "tips": [
+        "Duplicate metadata causes reporting errors.",
+        "Use audit trail facts when investigating incidents."
+      ]
+    }
+  ],
+  "quickTasks": [
+    ["Find a project", "Projects > Projects Registry", "Search by name/code or filter by department, status, ward, or financial year."],
+    ["Update project progress", "Projects > Project Status or Project Details", "Open the project, add status/progress, attach evidence."],
+    ["Create a payment certificate", "Project Details > Certificates tab", "Complete BQ where required, create interim/final certificate, generate PDF with QR code."],
+    ["Verify a payment certificate", "Finance > Verify Certificate", "Enter certificate number OR scan QR on the PDF. Public URL: /verify-certificate?cert=NUMBER"],
+    ["Generate a built-in county report", "Reports > Reports hub", "Search for the report, set filters, review totals, export."],
+    ["Generate an AI professional report", "AI Assistant (sparkle button, bottom-right)", "Open the relevant dashboard first, then Generate Professional Report → choose type, Word/PDF."],
+    ["Record monitoring evidence", "Monitoring > Project Monitoring", "Find project, add visit/checklist notes, save observations."],
+    ["Submit PMC ward report", "Monitoring > PMC Ward Reports", "Filter ward/period, complete ward PMC entries."],
+    ["Manage checklist templates", "Monitoring > Checklists & visits", "Create/edit templates; record visit submissions on web or mobile."],
+    ["Install mobile field collector", "Dashboard > Mobile app (Android)", "Download APK while signed in; install on Android; sign in and sync checklists."],
+    ["Import beneficiaries or projects", "Data > Import Data", "Download template, preview, fix errors, confirm import."],
+    ["Approve public content", "Public > Public Approval", "Review content before citizen visibility."],
+    ["Reset a user password", "Admin > User Management", "Verify request, then reset/resend credentials."]
+  ],
+  "troubleshootingRows": [
+    ["Cannot log in", "Wrong password, inactive account, pending approval, OTP issue.", "Confirm username, account status, password reset. Escalate OTP failures to ICT."],
+    ["Missing menu item", "Role or organisation scope does not include the module.", "Check role, privileges, and organisation scope."],
+    ["Cannot see expected project", "Active filters or scope excludes the project.", "Clear filters, verify department and user scope."],
+    ["Dashboard figures look wrong", "Filters differ or source data incomplete.", "Record filters, compare with Projects Registry."],
+    ["AI gives generic answers", "Question is about navigation, or screen has no live data context.", "Open the relevant page first; for how-to questions see Help & Support. Ask again on the correct dashboard."],
+    ["AI reports look the same on different dashboards", "Report generated without opening the target screen first.", "Navigate to the specific dashboard, then use Generate Professional Report."],
+    ["Certificate not verified", "Wrong number, voided certificate, or typo.", "Re-enter number exactly as on PDF; try scanning QR code instead."],
+    ["QR scan does not open verify page", "Camera app blocked or wrong QR.", "Manually open Finance > Verify Certificate and type the certificate number from the PDF header."],
+    ["Mobile app shows offline mode", "Network issue or sync failed after login.", "Check connectivity, pull down to sync on Checklists tab, or reinstall latest APK from /mobile-app."],
+    ["Import failed", "Template errors or invalid metadata.", "Review preview errors, correct spreadsheet, upload again."],
+    ["Authorization error", "Signed in but missing privilege.", "Capture module/action; ask administrator to review permissions."]
+  ],
+  "roleGuidance": [
+    ["County leadership", "Use dashboards, Reports hub, and AI summaries for status, finance, regional distribution, and attention projects."],
+    ["Department focal persons", "Maintain projects, progress, evidence, department reports, and ADP implementation."],
+    ["Planning users", "Maintain CIDP/ADP, RRI, budget traceability, catalogues, and programme alignment."],
+    ["M&E users", "Monitoring visits, PMC ward reports, checklists, evaluation workbench, stakeholder feedback."],
+    ["Finance users", "Finance dashboard, payments, certificates, verification, pending bills, finance overview."],
+    ["Procurement users", "Procurement stages, budget intake, contractor registry, procured projects."],
+    ["Field collectors", "Mobile app: sync checklists, record visits offline, upload when connected."],
+    ["Public engagement users", "Public approval, feedback moderation, announcements."],
+    ["ICT administrators", "Users, roles, metadata, audit, mobile releases, AI usage monitoring."]
+  ],
+  "goodPracticeItems": [
+    "Search before creating duplicate projects, users, or metadata values.",
+    "Check active filters before reporting missing data.",
+    "Verify payment certificates using Finance > Verify Certificate or the QR code on the PDF.",
+    "Open the correct dashboard before generating AI professional reports.",
+    "Review AI output before official submission.",
+    "Use clear comments on progress, monitoring, procurement, and finance records.",
+    "Attach evidence where the process requires proof.",
+    "Use least privilege for roles and organisation scope.",
+    "Do not share passwords, OTPs, or confidential citizen data in screenshots."
+  ],
+  "supportChecklist": [
+    "Your name, department, role, and contact.",
+    "Exact module or page (route URL if possible).",
+    "Project name/code, certificate number, report name, or user account involved.",
+    "Action attempted and exact error message.",
+    "Screenshot with passwords and personal data hidden.",
+    "Date/time and whether issue affects one user or many."
+  ],
+  "aiAssistantGuide": {
+    "title": "AI Assistant and professional reports",
+    "summary": "The sparkle AI button (bottom-right) answers questions using live data for your account and this Help manual for navigation. Professional reports are generated from the screen you are currently viewing.",
+    "steps": [
+      "Navigate to the dashboard, project, or report screen that matches your question.",
+      "Open AI Assistant and ask a question or click Generate Professional Report.",
+      "Choose report type and Word/PDF — finance dashboards favour Finance Summary; monitoring screens favour Monitoring Summary.",
+      "Review the download before official use."
+    ],
+    "tips": [
+      "For how-to questions (verify certificate, find a menu), the assistant should cite exact menu paths from Help & Support.",
+      "Super Admins monitor usage at Admin > AI Usage."
+    ]
+  },
+  "dashboardGuides": [
+    {
+      "title": "Finance Dashboard",
+      "menuPath": "Dashboard > Finance Dashboard",
+      "route": "/finance-dashboard",
+      "purpose": "Budget allocation, disbursement, absorption, and finance KPIs for accessible projects.",
+      "aiReportHint": "Generate a Finance Summary professional report while on this dashboard."
+    },
+    {
+      "title": "Operations Dashboard",
+      "menuPath": "Dashboard > Operations Dashboard",
+      "route": "/operations-dashboard",
+      "purpose": "Operational delivery metrics and attention indicators across departments."
+    },
+    {
+      "title": "Project By Status Dashboard",
+      "menuPath": "Dashboard > Project By Status",
+      "route": "/project-by-status-dashboard",
+      "purpose": "Project counts and charts grouped by implementation status.",
+      "aiReportHint": "Generate a Project Status professional report while on this dashboard."
+    },
+    {
+      "title": "Jobs & Impact Dashboard",
+      "menuPath": "Dashboard > Jobs & Impact",
+      "route": "/jobs-dashboard",
+      "purpose": "Employment and beneficiary impact indicators."
+    },
+    {
+      "title": "Regional Breakdown Dashboard",
+      "menuPath": "Dashboard > Regional Breakdown Dashboard",
+      "route": "/regional-reports",
+      "purpose": "Subcounty and ward distribution of projects and budgets."
+    },
+    {
+      "title": "Summary Statistics",
+      "menuPath": "Dashboard > Summary Statistics",
+      "route": "/summary-statistics",
+      "purpose": "County-wide summary cards and high-level trends."
+    },
+    {
+      "title": "Status Report",
+      "menuPath": "Reports > Reports hub > Status report",
+      "route": "/status-report",
+      "purpose": "Tabular project status export with filters.",
+      "aiReportHint": "AI Project Status reports use live data from this filtered view."
+    },
+    {
+      "title": "Pending Bills Report",
+      "menuPath": "Reports > Reports hub > Pending bills",
+      "route": "/pending-bills-report",
+      "purpose": "Outstanding bill balances by project.",
+      "aiReportHint": "AI Finance Summary reports from this screen focus on pending bills."
+    }
+  ],
+  "navigationTopics": [
+    {
+      "id": "verify-certificate",
+      "title": "Verify a payment certificate",
+      "menuPath": "Finance → Verify Certificate",
+      "route": "/verify-certificate",
+      "keywords": ["verify", "certificate", "payment certificate", "qr", "scan", "authentic", "valid", "fake", "counterfeit", "check certificate"],
+      "summary": "Confirm whether a Machakos County payment certificate is genuine. Works for staff and the public without login.",
+      "steps": [
+        "Open Finance → Verify Certificate in the ribbon (or go to /verify-certificate).",
+        "Option A — Scan: use your phone camera on the QR code printed on the certificate PDF (labelled Scan to verify this certificate).",
+        "Option B — Manual: type the certificate number exactly as shown on the PDF header.",
+        "Press Verify and read the result — valid certificates show project name, contractor, dates, and status.",
+        "Staff users can click through to open the related project record."
+      ],
+      "tips": [
+        "QR links open /verify-certificate?cert=CERTIFICATE_NUMBER automatically.",
+        "If verification fails, check for typos or confirm the certificate was generated in this system."
+      ]
+    },
+    {
+      "id": "payment-certificates",
+      "title": "Create and manage payment certificates",
+      "menuPath": "Finance → Payment Certificates; or Project Details → Certificates tab",
+      "route": "/finance/payment-certificates",
+      "keywords": ["create certificate", "payment certificate", "interim certificate", "final certificate", "certificate pdf", "generate certificate"],
+      "summary": "Staff create interim/final certificates per project; PDFs include signatures and a verification QR code.",
+      "steps": [
+        "Open the project in Projects Registry → Certificates tab (or Finance → Payment Certificates for the county list).",
+        "Complete bill of quantities requirements where configured.",
+        "Create interim or final certificate with correct amounts and references.",
+        "Run approval workflow if required.",
+        "Generate PDF — the QR code on the PDF links to the public verify page."
+      ],
+      "tips": [
+        "Always verify issued PDFs using Finance → Verify Certificate before external sharing."
+      ]
+    },
+    {
+      "id": "ai-professional-report",
+      "title": "Generate a professional AI report",
+      "menuPath": "AI Assistant button (bottom-right on any page)",
+      "route": "/help-support",
+      "keywords": ["professional report", "ai report", "word report", "pdf report", "formatted report", "download report", "generate report"],
+      "summary": "Downloadable Word/PDF reports built from live data on the screen you are viewing.",
+      "steps": [
+        "Navigate to the dashboard or report screen that matches your topic (finance dashboard for finance, monitoring for monitoring, etc.).",
+        "Click the sparkle AI Assistant button at the bottom-right.",
+        "Click Generate Professional Report OR ask in chat for a well formatted report.",
+        "Select report type (Project Status, Finance Summary, CIDP Linkage, Monitoring Summary, General M&E).",
+        "Choose Word (.docx) or PDF and add specific instructions.",
+        "Download and review before official submission."
+      ],
+      "tips": [
+        "Reports differ by screen — open Finance Dashboard before a finance report, Status Report before a status report, etc.",
+        "Chat summaries and professional reports use different outputs — use Generate Professional Report for downloadable documents."
+      ]
+    },
+    {
+      "id": "mobile-collector",
+      "title": "Mobile Field Collector (Android)",
+      "menuPath": "Dashboard → Mobile app (Android)",
+      "route": "/mobile-app",
+      "keywords": ["mobile app", "android", "apk", "field collector", "offline", "sync", "download app"],
+      "summary": "Android app for offline checklist data collection in the field.",
+      "steps": [
+        "Sign in to the web system and open Dashboard → Mobile app (Android) or /mobile-app.",
+        "Download and install the published APK.",
+        "Open Machakos Collector, sign in with county credentials.",
+        "On Checklists tab, pull down to sync templates and projects.",
+        "Tap a checklist, select project, complete form, submit (queues offline if needed)."
+      ],
+      "tips": [
+        "Install the latest published version when prompted.",
+        "Pull down on Checklists to retry sync if offline mode appears."
+      ]
+    },
+    {
+      "id": "checklists-visits",
+      "title": "Checklists and monitoring visits",
+      "menuPath": "Monitoring → Checklists & visits",
+      "route": "/data-collection-tools",
+      "keywords": ["checklist", "data collection", "visit", "template", "monitoring visit", "submission"],
+      "summary": "Web tool to build checklist templates and record visit submissions; syncs with the mobile collector.",
+      "steps": [
+        "Open Monitoring → Checklists & visits.",
+        "Create or edit checklist templates with sections and questions.",
+        "Record visit submissions linked to projects.",
+        "Export visit PDFs where available.",
+        "Field teams can use the mobile app for offline collection."
+      ],
+      "tips": [
+        "Template changes apply to new visits — coordinate updates with field teams."
+      ]
+    },
+    {
+      "id": "reports-hub",
+      "title": "Find the right built-in report",
+      "menuPath": "Reports → Reports hub",
+      "route": "/reports-hub",
+      "keywords": ["report", "reports hub", "apr", "absorption", "county operations", "export", "scheduled report"],
+      "summary": "Searchable index of all standard county reports (separate from AI professional reports).",
+      "steps": [
+        "Open Reports → Reports hub.",
+        "Search by report name or keyword.",
+        "Open the report card, set filters, generate/export.",
+        "Use Report Library to archive approved outputs.",
+        "Use Scheduled Reports for recurring email delivery."
+      ],
+      "tips": [
+        "Built-in reports use county templates; AI professional reports use the sparkle assistant."
+      ]
+    },
+    {
+      "id": "pmc-ward-reports",
+      "title": "PMC ward reports",
+      "menuPath": "Monitoring → PMC Ward Reports",
+      "route": "/monitoring/pmc-ward-reports",
+      "keywords": ["pmc", "ward report", "ward monitoring", "pmc ward"],
+      "summary": "Ward-level Project Monitoring Committee reporting.",
+      "steps": [
+        "Open Monitoring → PMC Ward Reports.",
+        "Filter by ward, period, or financial year as required.",
+        "Complete or review ward PMC entries.",
+        "Export or submit according to county procedure."
+      ],
+      "tips": []
+    },
+    {
+      "id": "finance-dashboard",
+      "title": "Finance Dashboard",
+      "menuPath": "Dashboard → Finance Dashboard",
+      "route": "/finance-dashboard",
+      "keywords": ["finance dashboard", "absorption", "disbursement", "paid", "budget dashboard"],
+      "summary": "High-level finance KPIs for projects in your scope.",
+      "steps": [
+        "Open Dashboard → Finance Dashboard.",
+        "Set department, financial year, and status filters.",
+        "Review summary cards and charts.",
+        "Use AI Assistant here for finance summaries or Finance Summary professional reports."
+      ],
+      "tips": []
+    }
+  ]
+}

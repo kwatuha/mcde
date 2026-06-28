@@ -17,7 +17,7 @@ export const STORAGE_KEYS = {
   CACHE_TIMESTAMP: '@machakos_collector_cache_ts',
 };
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.0.2';
 
 export const THEME = {
   primary: '#1565C0',

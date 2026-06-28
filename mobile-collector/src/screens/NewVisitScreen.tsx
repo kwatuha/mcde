@@ -21,6 +21,7 @@ import {
   getCachedTemplates,
   getVisitDraft,
   savePendingSubmission,
+  setCachedProjects,
   setVisitDraft,
 } from '../services/offlineStore';
 import { makeLocalId } from '../services/syncService';
@@ -64,8 +65,17 @@ const NewVisitScreen: React.FC = () => {
       if (!tpl) {
         tpl = await apiService.getTemplate(templateId);
       }
+      let projectRows = cachedProjects;
+      if (projectRows.length === 0) {
+        try {
+          projectRows = await apiService.listProjects({ limit: 500 });
+          await setCachedProjects(projectRows);
+        } catch {
+          // Form still loads; user can retry project picker after syncing checklists.
+        }
+      }
       setTemplate(tpl);
-      setProjects(cachedProjects);
+      setProjects(projectRows);
       setTitle(
         draft?.title ||
           `${tpl?.name || templateNameParam || 'Visit'} — ${todayIso()}`
@@ -75,7 +85,7 @@ const NewVisitScreen: React.FC = () => {
         setAnswers(draft.answers);
       }
       if (draft?.projectId) {
-        const p = cachedProjects.find((x) => x.id === draft.projectId);
+        const p = projectRows.find((x) => x.id === draft.projectId);
         if (p) setProject(p);
       }
     } catch (error: any) {

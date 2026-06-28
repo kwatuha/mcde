@@ -17,6 +17,7 @@ const {
     readOtpEnabledFlag,
     fetchUserOtpEnabledFromDb,
     shouldBypassLoginOtpForMobileCollector,
+    mobileCollectorBypassEnabled,
     readOtpChannel,
 } = require('../services/loginOtpService');
 const { isAdvantaConfigured } = require('../services/advantaSmsService');

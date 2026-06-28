@@ -8,15 +8,30 @@ import {
 } from './offlineStore';
 import { PendingSubmission } from '../types/dataCollection';
 
-export async function refreshCatalog(): Promise<{ templates: number; projects: number }> {
-  const [templates, projects] = await Promise.all([
-    apiService.listTemplates({ category: undefined }),
-    apiService.listProjects({ limit: 3000 }),
-  ]);
+export type CatalogRefreshResult = {
+  templates: number;
+  projects: number;
+  /** Checklists saved but project list could not be refreshed. */
+  partial?: boolean;
+};
+
+/** Download checklists (required) and projects (best-effort) for offline use. */
+export async function refreshCatalog(): Promise<CatalogRefreshResult> {
+  const templates = await apiService.listTemplates({});
   await setCachedTemplates(templates);
-  await setCachedProjects(projects);
-  await apiService.reportAppUsage('app_sync');
-  return { templates: templates.length, projects: projects.length };
+
+  let projects = 0;
+  let partial = false;
+  try {
+    const rows = await apiService.listProjects({ limit: 500 });
+    await setCachedProjects(rows);
+    projects = rows.length;
+  } catch {
+    partial = true;
+  }
+
+  apiService.reportAppUsage('app_sync').catch(() => {});
+  return { templates: templates.length, projects, partial };
 }
 
 export async function syncPendingSubmissions(): Promise<{
