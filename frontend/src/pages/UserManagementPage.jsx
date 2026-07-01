@@ -6,9 +6,11 @@ import {
   Chip, Checkbox, Switch, Avatar, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Divider,
   DialogContentText, InputAdornment, Grid, Autocomplete,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip,
+  Menu, ListItemIcon, ListItemText,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { DataGrid } from "@mui/x-data-grid";
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, MarkEmailRead as MarkEmailReadIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon, TableChart as ExcelIcon, Security as SecurityIcon, SyncAlt as SyncAltIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, PersonAdd as PersonAddIcon, Settings as SettingsIcon, Lock as LockIcon, LockReset as LockResetIcon, MarkEmailRead as MarkEmailReadIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Search as SearchIcon, Clear as ClearIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, AccountTree as AccountTreeIcon, ExpandMore as ExpandMoreIcon, ViewList as ViewListIcon, Hub as HubIcon, AdminPanelSettings as AdminPanelSettingsIcon, TableChart as ExcelIcon, Security as SecurityIcon, SyncAlt as SyncAltIcon, MoreVert as MoreVertIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import apiService from '../api/userService';
@@ -16,6 +18,7 @@ import apiServiceMain from '../api';
 import axiosInstance from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "./dashboard/theme";
+import { brand } from '../theme/colorTokens';
 import menuConfig from '../configs/menuConfig.json';
 import {
   isSuperAdminUser,
@@ -490,6 +493,308 @@ function getUserAccessLevelGroups(user, options = {}) {
   return groups;
 }
 
+/** Filled icon button for data-grid row actions — white icon on tone background. */
+function TableActionIconButton({ title, onClick, disabled, tone = 'neutral', children }) {
+  const colors = tokens(useTheme().palette.mode);
+  const toneBg = {
+    neutral: { main: colors.blueAccent[500], hover: colors.blueAccent[600] },
+    info: { main: colors.blueAccent[700], hover: colors.blueAccent[600] },
+    scope: { main: colors.purple?.[700] || colors.blueAccent[800], hover: colors.purple?.[600] || colors.blueAccent[700] },
+    danger: { main: colors.redAccent[700], hover: colors.redAccent[600] },
+    success: { main: colors.greenAccent[700], hover: colors.greenAccent[600] },
+  }[tone] || { main: colors.blueAccent[500], hover: colors.blueAccent[600] };
+
+  const button = (
+    <IconButton
+      size="small"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={title}
+      sx={{
+        width: 36,
+        height: 36,
+        borderRadius: '8px',
+        border: 'none',
+        color: disabled ? alpha(brand.onPrimary, 0.45) : brand.onPrimary,
+        bgcolor: disabled ? alpha(colors.primary[500], 0.35) : toneBg.main,
+        boxShadow: disabled ? 'none' : '0 1px 2px rgba(0,0,0,0.12)',
+        '& .MuiSvgIcon-root': {
+          color: 'inherit',
+        },
+        '&:hover': disabled
+          ? {}
+          : {
+              bgcolor: toneBg.hover,
+              color: brand.onPrimary,
+            },
+      }}
+    >
+      {children}
+    </IconButton>
+  );
+
+  return (
+    <Tooltip title={title} arrow placement="top">
+      {disabled ? <span>{button}</span> : button}
+    </Tooltip>
+  );
+}
+
+/** Active / disabled status pill — white label on tone background (matches action buttons). */
+function UserStatusBadge({
+  isActive,
+  canToggle = false,
+  onToggle,
+  title,
+  size = 'default',
+}) {
+  const colors = tokens(useTheme().palette.mode);
+  const compact = size === 'compact';
+  const bg = isActive ? colors.greenAccent[700] : colors.redAccent[700];
+  const hoverBg = isActive ? colors.redAccent[600] : colors.greenAccent[600];
+
+  return (
+    <Box
+      m={compact ? 0 : '0 auto'}
+      px={compact ? 1 : undefined}
+      py={compact ? 0.25 : undefined}
+      p={compact ? undefined : '6px 12px'}
+      display="inline-flex"
+      justifyContent="center"
+      alignItems="center"
+      gap={0.5}
+      bgcolor={bg}
+      borderRadius="8px"
+      onClick={() => {
+        if (canToggle && onToggle) onToggle();
+      }}
+      title={title}
+      sx={{
+        cursor: canToggle ? 'pointer' : 'default',
+        transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.12)',
+        minWidth: 'fit-content',
+        whiteSpace: 'nowrap',
+        color: brand.onPrimary,
+        '&:hover': canToggle
+          ? {
+              bgcolor: hoverBg,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+            }
+          : {},
+      }}
+    >
+      {isActive ? (
+        <CheckCircleIcon sx={{ color: brand.onPrimary, fontSize: compact ? 16 : 18 }} />
+      ) : (
+        <BlockIcon sx={{ color: brand.onPrimary, fontSize: compact ? 16 : 18 }} />
+      )}
+      <Typography sx={{ color: brand.onPrimary, fontSize: compact ? '0.75rem' : '0.875rem', fontWeight: 700 }}>
+        {isActive ? 'Active' : 'Disabled'}
+      </Typography>
+    </Box>
+  );
+}
+
+/** Stable badge colour from role name (handles long display names like "Sub-County Administrator"). */
+function resolveRoleBadgeColor(roleName, colors) {
+  const r = String(roleName || '').trim().toLowerCase();
+  if (!r) return colors.blueAccent[700];
+  if (r.includes('super admin')) return colors.redAccent[700];
+  if (r.includes('sub-county') || r.includes('subcounty')) return colors.blueAccent[700];
+  if (r.includes('ward')) return colors.greenAccent[700];
+  if (r.includes('ict')) return colors.blueAccent[600];
+  if (r.includes('architect')) return colors.purple?.[700] || colors.blueAccent[800];
+  if (r.includes('viewer')) return colors.greenAccent[600];
+  if (r.includes('monitor')) return colors.orange?.[600] || colors.blueAccent[600];
+  if (r.includes('admin')) return colors.primary[500] || colors.blueAccent[600];
+  if (r.includes('approver')) return colors.purple?.[600] || colors.blueAccent[700];
+  if (r.includes('officer') || r.includes('entry')) return colors.blueAccent[500];
+  let hash = 0;
+  for (let i = 0; i < r.length; i += 1) {
+    hash = r.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const palette = [
+    colors.blueAccent[700],
+    colors.greenAccent[700],
+    colors.purple?.[700] || colors.blueAccent[800],
+    colors.blueAccent[600],
+  ];
+  return palette[Math.abs(hash) % palette.length];
+}
+
+/** Role pill — full name in tooltip; truncates cleanly inside narrow columns. */
+function UserRoleBadge({ role, size = 'default' }) {
+  const colors = tokens(useTheme().palette.mode);
+  const label = String(role || '').trim() || 'N/A';
+  const compact = size === 'compact';
+  const bg = resolveRoleBadgeColor(label, colors);
+
+  return (
+    <Tooltip title={label} arrow placement="top">
+      <Chip
+        size="small"
+        label={label}
+        sx={{
+          maxWidth: '100%',
+          height: compact ? 24 : 28,
+          bgcolor: bg,
+          color: brand.onPrimary,
+          fontWeight: 700,
+          borderRadius: '8px',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.12)',
+          '& .MuiChip-label': {
+            px: compact ? 1 : 1.25,
+            py: 0.25,
+            color: brand.onPrimary,
+            fontSize: compact ? '0.7rem' : '0.8rem',
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: 'block',
+          },
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+function UserRowActionsCell({
+  row,
+  currentUser,
+  isSuperAdmin,
+  canUpdate,
+  canDelete,
+  onView,
+  onProjectAccess,
+  onResetPassword,
+  onDelete,
+  onResendCredentials,
+}) {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const isCurrentUser = row.userId === currentUser?.id;
+  const canMutate = canMdaIctAdminMutateUser(currentUser, row);
+
+  const menuItems = [];
+  if (canUpdate) {
+    menuItems.push({
+      key: 'scope',
+      label: 'Project access',
+      icon: <AccountTreeIcon fontSize="small" />,
+      disabled: !canMutate,
+      title: canMutate
+        ? 'County-wide, sector, department, ward, and other data scopes'
+        : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE,
+      onClick: () => canMutate && onProjectAccess(row),
+    });
+    menuItems.push({
+      key: 'reset',
+      label: 'Reset password',
+      icon: <LockResetIcon fontSize="small" />,
+      disabled: isCurrentUser || !canMutate,
+      title: isCurrentUser
+        ? 'Use profile to change your password'
+        : !canMutate
+          ? MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
+          : 'Reset password to reset123',
+      onClick: () => !isCurrentUser && canMutate && onResetPassword(row),
+    });
+  }
+  if (isSuperAdmin && canUpdate) {
+    menuItems.push({
+      key: 'credentials',
+      label: 'Resend login email',
+      icon: <SecurityIcon fontSize="small" />,
+      disabled: !row?.email,
+      title: row?.email ? 'Resend login credentials (Super Admin only)' : 'User has no email address',
+      onClick: () => row?.email && onResendCredentials(row),
+    });
+  }
+  if (isSuperAdmin && canDelete) {
+    menuItems.push({
+      key: 'delete',
+      label: 'Delete user',
+      icon: <DeleteIcon fontSize="small" />,
+      disabled: isCurrentUser,
+      danger: true,
+      title: isCurrentUser ? 'You cannot delete your own account' : 'Delete user (Super Admin only)',
+      onClick: () => !isCurrentUser && onDelete(row.userId, row.username),
+    });
+  }
+
+  const closeMenu = () => setMenuAnchor(null);
+
+  return (
+    <Stack direction="row" spacing={0.75} justifyContent="center" alignItems="center">
+      <TableActionIconButton title="View details" tone="info" onClick={() => onView(row)}>
+        <VisibilityIcon sx={{ fontSize: 18 }} />
+      </TableActionIconButton>
+      {menuItems.length > 0 && (
+        <>
+          <TableActionIconButton
+            title="More actions"
+            tone="neutral"
+            onClick={(e) => setMenuAnchor(e.currentTarget)}
+          >
+            <MoreVertIcon sx={{ fontSize: 18 }} />
+          </TableActionIconButton>
+          <Menu
+            anchorEl={menuAnchor}
+            open={Boolean(menuAnchor)}
+            onClose={closeMenu}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{
+              paper: {
+                sx: {
+                  minWidth: 220,
+                  mt: 0.5,
+                  borderRadius: 1.5,
+                  border: `1px solid ${alpha(colors.primary[300], 0.4)}`,
+                },
+              },
+            }}
+          >
+            {menuItems.map((item) => (
+              <Tooltip key={item.key} title={item.title} placement="left" arrow>
+                <span>
+                  <MenuItem
+                    disabled={item.disabled}
+                    onClick={() => {
+                      closeMenu();
+                      item.onClick();
+                    }}
+                    sx={{
+                      py: 1,
+                      gap: 1,
+                      color: item.danger && !item.disabled ? colors.redAccent[400] : undefined,
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 32,
+                        color: item.danger && !item.disabled ? colors.redAccent[400] : 'inherit',
+                      }}
+                    >
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.label}
+                      primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }}
+                    />
+                  </MenuItem>
+                </span>
+              </Tooltip>
+            ))}
+          </Menu>
+        </>
+      )}
+    </Stack>
+  );
+}
 
 function UserManagementPage() {
   const { user, logout, hasPrivilege } = useAuth();
@@ -3161,35 +3466,14 @@ function UserManagementPage() {
     {
       field: "role",
       headerName: "Role",
-      flex: 1,
-      minWidth: 170,
-      renderCell: ({ row: { role } }) => {
-        const roleColors = {
-          'admin': colors.redAccent[600],
-          'manager': colors.blueAccent[600],
-          'data_entry': colors.orange?.[600] || colors.yellowAccent[600],
-          'viewer': colors.greenAccent[600],
-          'project_lead': colors.purple?.[600] || colors.blueAccent[700],
-        };
-        return (
-          <Box
-            width="fit-content"
-            maxWidth="100%"
-            m="0 auto"
-            p="6px 12px"
-            display="inline-flex"
-            justifyContent="center"
-            alignItems="center"
-            backgroundColor={roleColors[role?.toLowerCase()] || colors.grey[600]}
-            borderRadius="6px"
-            sx={{ boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
-          >
-            <Typography color={colors.grey[100]} sx={{ fontSize: '0.875rem', fontWeight: 600, textTransform: 'capitalize' }}>
-              {role || 'N/A'}
-            </Typography>
-          </Box>
-        );
-      },
+      flex: 1.15,
+      minWidth: 200,
+      cellClassName: 'role-column-cell',
+      renderCell: ({ row: { role } }) => (
+        <Box sx={{ width: '100%', minWidth: 0, display: 'flex', alignItems: 'center' }}>
+          <UserRoleBadge role={role} />
+        </Box>
+      ),
     },
     {
       field: "isActive",
@@ -3205,28 +3489,10 @@ function UserManagementPage() {
           userId !== user.id &&
           canMdaIctAdminMutateUser(user, row);
         return (
-          <Box
-            m="0 auto"
-            p="6px 12px"
-            display="inline-flex"
-            justifyContent="center"
-            alignItems="center"
-            gap={0.5}
-            backgroundColor={isActive ? colors.greenAccent[600] : colors.redAccent[600]}
-            borderRadius="6px"
-            sx={{
-              cursor: canToggle ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-              minWidth: 'fit-content',
-              whiteSpace: 'nowrap',
-              '&:hover': canToggle ? {
-                transform: 'scale(1.08)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-                backgroundColor: isActive ? colors.redAccent[500] : colors.greenAccent[500]
-              } : {}
-            }}
-            onClick={() => { if (canToggle) handleToggleUserStatus(row); }}
+          <UserStatusBadge
+            isActive={!!isActive}
+            canToggle={canToggle}
+            onToggle={() => handleToggleUserStatus(row)}
             title={
               canToggle
                 ? `Click to ${isActive ? 'disable' : 'enable'} user`
@@ -3236,12 +3502,7 @@ function UserManagementPage() {
                     : 'Disabled'
                   : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
             }
-          >
-            {isActive ? <CheckCircleIcon sx={{ color: colors.grey[100], fontSize: '18px' }} /> : <BlockIcon sx={{ color: colors.grey[100], fontSize: '18px' }} />}
-            <Typography color={colors.grey[100]} sx={{ fontSize: '0.875rem', fontWeight: 600 }}>
-              {isActive ? 'Active' : 'Disabled'}
-            </Typography>
-          </Box>
+          />
         );
       },
     },
@@ -3289,122 +3550,25 @@ function UserManagementPage() {
     {
       field: "actions",
       headerName: "Actions",
-      width: 208,
+      width: 112,
       sortable: false,
       filterable: false,
       headerAlign: 'center',
       align: 'center',
-      renderCell: (params) => {
-        const isCurrentUser = params.row.userId === user.id;
-        return (
-          <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center" flexWrap="wrap">
-            <IconButton
-              size="small"
-              sx={{
-                color: colors.grey[100],
-                backgroundColor: colors.greenAccent[700],
-                '&:hover': { backgroundColor: colors.greenAccent[600], transform: 'scale(1.1)' },
-                transition: 'all 0.2s ease'
-              }}
-              onClick={() => handleOpenViewDetails(params.row)}
-              title="View details"
-            >
-              <VisibilityIcon fontSize="small" />
-            </IconButton>
-            {hasPrivilege('user.update') && (
-              <IconButton
-                size="small"
-                disabled={!canMdaIctAdminMutateUser(user, params.row)}
-                sx={{
-                  color: colors.grey[100],
-                  backgroundColor: colors.purple?.[700] || colors.blueAccent[800],
-                  '&:hover': canMdaIctAdminMutateUser(user, params.row)
-                    ? { backgroundColor: colors.purple?.[600] || colors.blueAccent[700], transform: 'scale(1.1)' }
-                    : {},
-                  transition: 'all 0.2s ease',
-                  opacity: canMdaIctAdminMutateUser(user, params.row) ? 1 : 0.45,
-                }}
-                onClick={() => canMdaIctAdminMutateUser(user, params.row) && handleOpenStandaloneOrgDialog(params.row)}
-                title={
-                  canMdaIctAdminMutateUser(user, params.row)
-                    ? 'Project access — county-wide, sector, department, ward, and other data scopes'
-                    : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
-                }
-              >
-                <AccountTreeIcon fontSize="small" />
-              </IconButton>
-            )}
-            {hasPrivilege('user.update') && (
-              <IconButton
-                size="small"
-                disabled={isCurrentUser || !canMdaIctAdminMutateUser(user, params.row)}
-                sx={{
-                  color: colors.grey[100],
-                  backgroundColor: colors.blueAccent[700],
-                  '&:hover':
-                    !isCurrentUser && canMdaIctAdminMutateUser(user, params.row)
-                      ? { backgroundColor: colors.blueAccent[600], transform: 'scale(1.1)' }
-                      : {},
-                  transition: 'all 0.2s ease',
-                  opacity: isCurrentUser || !canMdaIctAdminMutateUser(user, params.row) ? 0.5 : 1,
-                }}
-                onClick={() =>
-                  !isCurrentUser &&
-                  canMdaIctAdminMutateUser(user, params.row) &&
-                  handleOpenResetPasswordDialog(params.row)
-                }
-                title={
-                  isCurrentUser
-                    ? 'Use profile to change your password'
-                    : !canMdaIctAdminMutateUser(user, params.row)
-                      ? MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
-                      : 'Reset Password to reset123'
-                }
-              >
-                <LockResetIcon fontSize="small" />
-              </IconButton>
-            )}
-            {isSuperAdmin && hasPrivilege('user.delete') && (
-              <IconButton
-                size="small"
-                disabled={isCurrentUser}
-                sx={{
-                  color: colors.grey[100],
-                  backgroundColor: colors.redAccent[700],
-                  '&:hover': !isCurrentUser ? { backgroundColor: colors.redAccent[600], transform: 'scale(1.1)' } : {},
-                  transition: 'all 0.2s ease',
-                  opacity: isCurrentUser ? 0.5 : 1,
-                }}
-                onClick={() => !isCurrentUser && handleOpenDeleteConfirmDialog(params.row.userId, params.row.username)}
-                title={
-                  isCurrentUser
-                    ? 'You cannot delete your own account'
-                    : 'Delete User (Super Admin only)'
-                }
-              >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            )}
-            {isSuperAdmin && hasPrivilege('user.update') && (
-              <IconButton
-                size="small"
-                disabled={!params.row?.email}
-                sx={{
-                  color: colors.grey[100],
-                  backgroundColor: colors.greenAccent[800],
-                  '&:hover': params.row?.email ? { backgroundColor: colors.greenAccent[700], transform: 'scale(1.1)' } : {},
-                  transition: 'all 0.2s ease',
-                  opacity: params.row?.email ? 1 : 0.45,
-                }}
-                onClick={() => params.row?.email && handleOpenResendCredentialsDialog(params.row)}
-                title={params.row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
-              >
-                <SecurityIcon fontSize="small" />
-              </IconButton>
-            )}
-          </Stack>
-        );
-      },
+      renderCell: (params) => (
+        <UserRowActionsCell
+          row={params.row}
+          currentUser={user}
+          isSuperAdmin={isSuperAdmin}
+          canUpdate={hasPrivilege('user.update')}
+          canDelete={hasPrivilege('user.delete')}
+          onView={handleOpenViewDetails}
+          onProjectAccess={handleOpenStandaloneOrgDialog}
+          onResetPassword={handleOpenResetPasswordDialog}
+          onDelete={handleOpenDeleteConfirmDialog}
+          onResendCredentials={handleOpenResendCredentialsDialog}
+        />
+      ),
     },
   ];
 
@@ -3425,10 +3589,11 @@ function UserManagementPage() {
           justifyContent="center"
           alignItems="center"
           gap={0.5}
-          backgroundColor={colors.redAccent[700]}
-          borderRadius="6px"
+          bgcolor={colors.redAccent[700]}
+          borderRadius="8px"
+          sx={{ boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
         >
-          <Typography color={colors.grey[100]} sx={{ fontSize: '0.875rem', fontWeight: 600 }}>
+          <Typography sx={{ color: brand.onPrimary, fontSize: '0.875rem', fontWeight: 700 }}>
             Voided
           </Typography>
         </Box>
@@ -3443,19 +3608,13 @@ function UserManagementPage() {
       headerAlign: 'center',
       align: 'center',
       renderCell: (params) => (
-        <IconButton
-          size="small"
-          sx={{
-            color: colors.grey[100],
-            backgroundColor: colors.greenAccent[700],
-            '&:hover': { backgroundColor: colors.greenAccent[600], transform: 'scale(1.1)' },
-            transition: 'all 0.2s ease'
-          }}
-          onClick={() => handleRestoreVoidedUser(params.row.userId, params.row.username)}
+        <TableActionIconButton
           title="Restore user"
+          tone="success"
+          onClick={() => handleRestoreVoidedUser(params.row.userId, params.row.username)}
         >
-          <CheckCircleIcon fontSize="small" />
-        </IconButton>
+          <CheckCircleIcon sx={{ fontSize: 18 }} />
+        </TableActionIconButton>
       ),
     },
   ];
@@ -3471,16 +3630,24 @@ function UserManagementPage() {
       sortable: false,
       filterable: false,
       renderCell: (params) => (
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={0.75} justifyContent="center">
           {hasPrivilege('role.update') && (
-            <IconButton sx={{ color: colors.grey[100] }} onClick={() => handleOpenEditRoleDialog(params.row)}>
-              <EditIcon />
-            </IconButton>
+            <TableActionIconButton
+              title="Edit role"
+              tone="info"
+              onClick={() => handleOpenEditRoleDialog(params.row)}
+            >
+              <EditIcon sx={{ fontSize: 18 }} />
+            </TableActionIconButton>
           )}
           {hasPrivilege('role.delete') && (
-            <IconButton sx={{ color: colors.redAccent[500] }} onClick={() => handleOpenDeleteRoleConfirm(params.row.roleId, params.row.roleName)}>
-              <DeleteIcon />
-            </IconButton>
+            <TableActionIconButton
+              title="Delete role"
+              tone="danger"
+              onClick={() => handleOpenDeleteRoleConfirm(params.row.roleId, params.row.roleName)}
+            >
+              <DeleteIcon sx={{ fontSize: 18 }} />
+            </TableActionIconButton>
           )}
         </Stack>
       ),
@@ -3498,16 +3665,24 @@ function UserManagementPage() {
       sortable: false,
       filterable: false,
       renderCell: (params) => (
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={0.75} justifyContent="center">
           {hasPrivilege('privilege.update') && (
-            <IconButton sx={{ color: colors.grey[100] }} onClick={() => handleOpenEditPrivilegeDialog(params.row)}>
-              <EditIcon />
-            </IconButton>
+            <TableActionIconButton
+              title="Edit privilege"
+              tone="info"
+              onClick={() => handleOpenEditPrivilegeDialog(params.row)}
+            >
+              <EditIcon sx={{ fontSize: 18 }} />
+            </TableActionIconButton>
           )}
           {hasPrivilege('privilege.delete') && (
-            <IconButton sx={{ color: colors.redAccent[500] }} onClick={() => handleOpenDeletePrivilegeConfirm(params.row.privilegeId, params.row.privilegeName)}>
-              <DeleteIcon />
-            </IconButton>
+            <TableActionIconButton
+              title="Delete privilege"
+              tone="danger"
+              onClick={() => handleOpenDeletePrivilegeConfirm(params.row.privilegeId, params.row.privilegeName)}
+            >
+              <DeleteIcon sx={{ fontSize: 18 }} />
+            </TableActionIconButton>
           )}
         </Stack>
       ),
@@ -3931,31 +4106,14 @@ function UserManagementPage() {
                         <Typography sx={{ flex: '1 1 160px', color: colors.grey[200], fontSize: '0.8rem', minWidth: 0 }} noWrap>
                           {row.email}
                         </Typography>
-                        <Chip
-                          label={row.role || '—'}
-                          size="small"
-                          sx={{
-                            flexShrink: 0,
-                            height: 22,
-                            fontSize: '0.7rem',
-                            textTransform: 'capitalize',
-                            width: 'fit-content',
-                            maxWidth: 'none',
-                            '& .MuiChip-label': { px: 1.1 },
-                          }}
-                        />
-                        <Box
-                          onClick={() => { if (canToggle) handleToggleUserStatus(row); }}
-                          sx={{
-                            cursor: canToggle ? 'pointer' : 'default',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 0.5,
-                            px: 1,
-                            py: 0.25,
-                            borderRadius: '6px',
-                            backgroundColor: row.isActive ? colors.greenAccent[700] : colors.redAccent[700],
-                          }}
+                        <Box sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 220 }}>
+                          <UserRoleBadge role={row.role} size="compact" />
+                        </Box>
+                        <UserStatusBadge
+                          isActive={!!row.isActive}
+                          canToggle={canToggle}
+                          onToggle={() => handleToggleUserStatus(row)}
+                          size="compact"
                           title={
                             canToggle
                               ? `Click to ${row.isActive ? 'disable' : 'enable'}`
@@ -3965,57 +4123,20 @@ function UserManagementPage() {
                                   : 'Disabled'
                                 : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
                           }
-                        >
-                          {row.isActive ? (
-                            <CheckCircleIcon sx={{ color: colors.grey[100], fontSize: '16px' }} />
-                          ) : (
-                            <BlockIcon sx={{ color: colors.grey[100], fontSize: '16px' }} />
-                          )}
-                          <Typography sx={{ color: colors.grey[100], fontSize: '0.75rem', fontWeight: 600 }}>
-                            {row.isActive ? 'Active' : 'Disabled'}
-                          </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, ml: { xs: 0, sm: 'auto' } }}>
-                          <IconButton size="small" sx={{ color: colors.grey[100] }} onClick={() => handleOpenViewDetails(row)} title="View details">
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
-                          {hasPrivilege('user.update') && user.id !== row.userId && (
-                            <IconButton
-                              size="small"
-                              disabled={!canMdaIctAdminMutateUser(user, row)}
-                              sx={{ color: colors.blueAccent[400] }}
-                              onClick={() => canMdaIctAdminMutateUser(user, row) && handleOpenResetPasswordDialog(row)}
-                              title={
-                                canMdaIctAdminMutateUser(user, row)
-                                  ? 'Reset password'
-                                  : MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE
-                              }
-                            >
-                              <LockResetIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                          {isSuperAdmin && hasPrivilege('user.delete') && (
-                            <IconButton
-                              size="small"
-                              disabled={isCurrentUser}
-                              sx={{ color: colors.redAccent[400] }}
-                              onClick={() => !isCurrentUser && handleOpenDeleteConfirmDialog(row.userId, row.username)}
-                              title={isCurrentUser ? 'You cannot delete your own account' : 'Delete (Super Admin only)'}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                          {isSuperAdmin && hasPrivilege('user.update') && (
-                            <IconButton
-                              size="small"
-                              disabled={!row?.email}
-                              sx={{ color: colors.greenAccent[400] }}
-                              onClick={() => row?.email && handleOpenResendCredentialsDialog(row)}
-                              title={row?.email ? 'Resend login credentials email (Super Admin only)' : 'User has no email address'}
-                            >
-                              <SecurityIcon fontSize="small" />
-                            </IconButton>
-                          )}
+                        />
+                        <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0, ml: { xs: 0, sm: 'auto' } }}>
+                          <UserRowActionsCell
+                            row={row}
+                            currentUser={user}
+                            isSuperAdmin={isSuperAdmin}
+                            canUpdate={hasPrivilege('user.update')}
+                            canDelete={hasPrivilege('user.delete')}
+                            onView={handleOpenViewDetails}
+                            onProjectAccess={handleOpenStandaloneOrgDialog}
+                            onResetPassword={handleOpenResetPasswordDialog}
+                            onDelete={handleOpenDeleteConfirmDialog}
+                            onResendCredentials={handleOpenResendCredentialsDialog}
+                          />
                         </Stack>
                       </Paper>
                     );
@@ -4043,8 +4164,8 @@ function UserManagementPage() {
               '&:focus-within': { outline: 'none' },
             },
             "& .MuiDataGrid-row": {
-              minHeight: '42px !important',
-              maxHeight: '42px !important',
+              minHeight: '48px !important',
+              maxHeight: '48px !important',
               transition: 'background-color 0.2s ease',
               '&:hover': {
                 backgroundColor: `${colors.blueAccent[700]} !important`,
@@ -4062,6 +4183,14 @@ function UserManagementPage() {
             "& .username-column--cell": {
               color: colors.greenAccent[300],
               fontWeight: 600,
+            },
+            "& .role-column-cell": {
+              overflow: 'hidden',
+              alignItems: 'center',
+              '& .MuiDataGrid-cellContent': {
+                width: '100%',
+                overflow: 'hidden',
+              },
             },
             "& .MuiDataGrid-columnHeaders": {
               backgroundColor: `${colors.blueAccent[700]} !important`,
@@ -4150,7 +4279,7 @@ function UserManagementPage() {
             rows={filteredUsers}
             columns={userColumns}
             getRowId={(row) => row.userId}
-            rowHeight={42}
+            rowHeight={48}
             pageSizeOptions={[10, 25, 50, 100]}
             initialState={{
               pagination: {
@@ -4184,14 +4313,7 @@ function UserManagementPage() {
             const u = viewDetailsUser;
             const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || '—';
             const initials = fullName !== '—' ? fullName.split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase() : '?';
-            const roleColors = {
-              admin: colors.redAccent[600],
-              manager: colors.blueAccent[600],
-              data_entry: colors.orange?.[600] || colors.yellowAccent?.[600],
-              viewer: colors.greenAccent[600],
-              project_lead: colors.purple?.[600] || colors.blueAccent[700],
-            };
-            const roleBg = roleColors[u.role?.toLowerCase()] || colors.grey[600];
+            const roleBg = resolveRoleBadgeColor(u.role, colors);
             const DetailRow = ({ label, value, emptyChar = '—' }) => (
               <Grid item xs={6} sm={4}>
                 <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', fontSize: '0.7rem' }}>
@@ -4230,11 +4352,11 @@ function UserManagementPage() {
                         label={u.isActive ? 'Active' : 'Disabled'}
                         sx={{
                           height: 22,
-                          backgroundColor: u.isActive ? colors.greenAccent[600] : colors.redAccent[600],
-                          color: colors.grey[100],
-                          fontWeight: 600,
+                          backgroundColor: u.isActive ? colors.greenAccent[700] : colors.redAccent[700],
+                          color: brand.onPrimary,
+                          fontWeight: 700,
                           fontSize: '0.7rem',
-                          '& .MuiChip-label': { px: 1 },
+                          '& .MuiChip-label': { px: 1, color: brand.onPrimary },
                         }}
                       />
                       {u.role && (
@@ -4243,12 +4365,17 @@ function UserManagementPage() {
                           label={u.role}
                           sx={{
                             height: 22,
+                            maxWidth: '100%',
                             backgroundColor: roleBg,
-                            color: colors.grey[100],
-                            fontWeight: 600,
+                            color: brand.onPrimary,
+                            fontWeight: 700,
                             fontSize: '0.7rem',
-                            textTransform: 'capitalize',
-                            '& .MuiChip-label': { px: 1 },
+                            '& .MuiChip-label': {
+                              px: 1,
+                              color: brand.onPrimary,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            },
                           }}
                         />
                       )}
