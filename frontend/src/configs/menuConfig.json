@@ -360,6 +360,13 @@
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
           "roles": ["admin"]
+        },
+        {
+          "title": "Escalation rules",
+          "icon": "ReportProblemIcon",
+          "route": "PROJECT_ESCALATION_RULES",
+          "permissionsAny": ["project.update", "approval_levels.update"],
+          "roles": ["admin"]
         }
       ]
     },
@@ -449,6 +456,12 @@
           "permissionsAny": ["pmc_report.read", "pmc_report.create", "pmc_report.submit", "pmc_report.review", "project.read_all"]
         },
         {
+          "title": "Village monitoring workflow",
+          "icon": "FactCheckIcon",
+          "route": "VILLAGE_MONITORING_WORKFLOW",
+          "permissionsAny": ["monitoring_report.read", "monitoring_report.create", "monitoring_report.submit", "monitoring_report.ward_review", "monitoring_report.subcounty_review", "monitoring_report.chief_approve"]
+        },
+        {
           "title": "Ward Accountability",
           "icon": "LocationCityIcon",
           "route": "WARD_ACCOUNTABILITY",
@@ -516,6 +529,12 @@
           "icon": "AssignmentTurnedInIcon",
           "route": "PMC_WARD_REPORTS",
           "permissionsAny": ["pmc_report.read", "pmc_report.create", "pmc_report.submit", "pmc_report.review", "project.read_all"]
+        },
+        {
+          "title": "Village monitoring workflow",
+          "icon": "FactCheckIcon",
+          "route": "VILLAGE_MONITORING_WORKFLOW",
+          "permissionsAny": ["monitoring_report.read", "monitoring_report.create", "monitoring_report.submit", "monitoring_report.ward_review", "monitoring_report.subcounty_review", "monitoring_report.chief_approve"]
         },
         {
           "title": "County Operations",
@@ -733,6 +752,13 @@
           "icon": "ApprovalIcon",
           "route": "APPROVAL_LEVELS_MANAGEMENT",
           "permission": "approval_levels.read",
+          "roles": ["admin"]
+        },
+        {
+          "title": "Escalation rules",
+          "icon": "ReportProblemIcon",
+          "route": "PROJECT_ESCALATION_RULES",
+          "permissionsAny": ["project.update", "approval_levels.update"],
           "roles": ["admin"]
         },
         {

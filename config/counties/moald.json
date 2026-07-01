@@ -1,0 +1,70 @@
+{
+  "tenantType": "ministry",
+  "county": {
+    "code": "MOALD",
+    "name": "MOALD",
+    "displayName": "Ministry of Agriculture and Livestock Development"
+  },
+  "database": {
+    "name": "moalddb",
+    "seedFile": "api/init.sql"
+  },
+  "docker": {
+    "ports": {
+      "nginx": 8284,
+      "frontend": 5378,
+      "publicDashboard": 5379,
+      "api": 3120,
+      "postgres": 5433
+    },
+    "containers": {
+      "nginx": "moald_nginx_proxy",
+      "frontend": "moald_react_frontend",
+      "publicDashboard": "moald_public_dashboard",
+      "api": "moald_node_api"
+    }
+  },
+  "organization": {
+    "name": "Ministry of Agriculture and Livestock Development",
+    "contact": {
+      "email": "info@kilimo.go.ke",
+      "phone": "+254-20-271-0000",
+      "address": "Kilimo House, Cathedral Road, Nairobi",
+      "website": "https://www.kilimo.go.ke"
+    }
+  },
+  "branding": {
+    "systemName": "MOALD Monitoring and Evaluation System",
+    "systemAcronym": "MOALD-MES",
+    "productName": "MOALD-PIMS",
+    "productSubtitle": "Project & Programme Investment Management System",
+    "publicPortalName": "MOALD Public Investment Portal",
+    "loginTitle": "Ministry of Agriculture and Livestock Development",
+    "loginSubtitle": "Monitoring and Evaluation System",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/tenants/moald/logo.png",
+      "public": "assets/tenants/moald/logo.png"
+    }
+  },
+  "labels": {
+    "department": "Department",
+    "section": "Section",
+    "directorate": "Directorate",
+    "project": "Investment",
+    "subcounty": "Region",
+    "ward": "County",
+    "program": "Flagship Programme",
+    "subprogram": "Sub-programme"
+  },
+  "features": {
+    "departments": true,
+    "sections": true,
+    "directorates": true,
+    "projects": true,
+    "subcounties": true,
+    "wards": true,
+    "programs": true,
+    "subprograms": true
+  }
+}

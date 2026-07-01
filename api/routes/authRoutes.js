@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db'); // Your database connection pool
 const orgScope = require('../services/organizationScopeService');
 const uiAccess = require('../services/uiAccessService');
+const contractorAuth = require('../services/contractorAuthService');
 const authenticate = require('../middleware/authenticate');
 const { normalizeRoleForCompare, ADMIN_LIKE_ROLE_NAMES, isAdminLikeRequester } = require('../utils/roleUtils');
 const { canSendEmail, sendPasswordResetEmail } = require('../services/accountEmailService');
@@ -174,18 +175,25 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
         }
     }
     const normalizedRole = normalizeRoleForCompare(user.roleName || user.role || '');
+    const isContractorLogin = contractorAuth.isContractorRole(normalizedRole);
     const hasScopeBypass = orgScope.userHasOrganizationBypass(userPrivileges)
         || normalizedRole === 'super admin'
         || normalizedRole === 'super_admin'
         || normalizedRole === 'superadmin';
     if (DB_TYPE === 'postgresql'
         && !hasScopeBypass
+        && !isContractorLogin
         && organizationScopes.length === 0
         && projectScopes.length === 0) {
         return res.status(403).json({
             error: 'Your account has no organization or project access scope. Contact an administrator to assign access before signing in.',
         });
     }
+
+    const contractorProfile = await contractorAuth.fetchContractorProfileForUser(userId);
+    const contractorId = contractorProfile
+        ? (contractorProfile.contractorId ?? contractorProfile.contractorid)
+        : null;
 
     const payload = {
         user: {
@@ -195,6 +203,8 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             email: user.email,
             roleId,
             roleName: user.role,
+            firstName: user.firstName || user.firstname || null,
+            lastName: user.lastName || user.lastname || null,
             ministry: user.ministry || null,
             stateDepartment: user.state_department || user.stateDepartment || null,
             directorate: user.directorate || null,
@@ -202,6 +212,18 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             organizationScopes,
             projectScopes,
             uiProfile,
+            contractorId: contractorId || null,
+            contractorProfile: contractorProfile
+                ? {
+                    contractorId,
+                    companyName: contractorProfile.companyName || contractorProfile.companyname || '',
+                    contactPerson: contractorProfile.contactPerson || contractorProfile.contactperson || '',
+                    email: contractorProfile.email || '',
+                    phone: contractorProfile.phone || '',
+                    contractorTypeId: contractorProfile.contractorTypeId ?? contractorProfile.contractortypeid ?? null,
+                    contractorTypeName: contractorProfile.contractorTypeName || contractorProfile.contractortypename || '',
+                }
+                : null,
         },
     };
     const isSuperAdmin = normalizedRole === 'super admin';
@@ -256,12 +278,12 @@ router.get('/me', authenticate, async (req, res) => {
         }
 
         return res.json({
-            user: {
+            user: await contractorAuth.enrichUserWithContractor({
                 ...req.user,
                 organizationScopes,
                 projectScopes,
                 uiProfile,
-            },
+            }),
         });
     } catch (error) {
         console.error('Error loading session user:', error);

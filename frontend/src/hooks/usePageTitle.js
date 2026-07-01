@@ -24,6 +24,10 @@ const routeTitles = {
     title: 'PMC Ward Reports',
     subtitle: 'Ward upload and sub-county approval of signed PMC progress reports',
   },
+  '/monitoring/village-workflow': {
+    title: 'Village monitoring workflow',
+    subtitle: 'Village → Ward → Sub-county → Chief Officer approval chain',
+  },
   '/projects/planning-activity-links': {
     title: 'Project activity links',
     subtitle: 'Associate Planning catalog activities with projects',
@@ -157,6 +161,7 @@ const routeTitles = {
   '/user-management': { title: 'User Management', subtitle: 'Users & Roles' },
   '/workflow-management': { title: 'Workflow Management', subtitle: 'Process Management' },
   '/approval-levels-management': { title: 'Approvals & workflows', subtitle: 'Approval levels & workflow configuration' },
+  '/project-escalation-rules': { title: 'Escalation rules', subtitle: 'Project signal detection & notification settings' },
   '/kenya-wards': { title: 'Wards', subtitle: 'Machakos County ward reference (IEBC)' },
   '/sublocation-villages': { title: 'Sublocations & Villages', subtitle: 'Machakos sublocation and village reference' },
   '/yearly-trends-report': { title: 'Projects by Location & Year', subtitle: 'Project counts, budget, and payments by start year and location' },

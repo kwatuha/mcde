@@ -5816,6 +5816,41 @@ router.get('/county-operations/summary', async (req, res) => {
         ]);
 
         const summary = queries[0].rows?.[0] || {};
+
+        let escalationRows = [];
+        try {
+            const escalationEngine = require('../services/projectEscalationEngine');
+            await escalationEngine.ensureReady();
+            const signals = await escalationEngine.listSignals(req.user, { limit: 100 });
+            escalationRows = signals.map((s) => ({
+                projectId: s.projectId,
+                projectName: s.projectName,
+                department: s.department,
+                section: s.section,
+                status: s.title,
+                progress: s.evidence?.progress ?? null,
+                allocatedBudget: s.evidence?.allocatedBudget ?? null,
+                disbursedBudget: null,
+                absorptionRate: s.evidence?.absorptionRate ?? null,
+                statusReason: s.message,
+                signalId: s.signalId,
+                severity: s.severity,
+                ruleCode: s.ruleCode,
+                escalationLevel: s.escalationLevel,
+                category: s.category,
+                detectedAt: s.detectedAt,
+                source: 'escalation_engine',
+            }));
+        } catch (escErr) {
+            console.warn('county-operations escalation rows skipped:', escErr.message);
+        }
+
+        const legacyAttention = queries[8].rows || [];
+        const mergedAttention = [
+            ...escalationRows,
+            ...legacyAttention.filter((r) => !escalationRows.some((e) => e.projectId === r.projectId)),
+        ].slice(0, 50);
+
         return res.json({
             filters: req.query || {},
             generatedAt: new Date().toISOString(),
@@ -5824,6 +5859,8 @@ router.get('/county-operations/summary', async (req, res) => {
                 absorptionRate: Number(summary.allocatedBudget || 0) > 0
                     ? (Number(summary.disbursedBudget || 0) / Number(summary.allocatedBudget || 0)) * 100
                     : 0,
+                attentionProjects: Number(summary.attentionProjects || 0) + escalationRows.length,
+                escalationSignals: escalationRows.length,
             },
             departmentRows: queries[1].rows || [],
             regionalRows: queries[2].rows || [],
@@ -5832,7 +5869,8 @@ router.get('/county-operations/summary', async (req, res) => {
             indicatorRegionRows: queries[5].rows || [],
             indicatorDepartmentWardRows: queries[6].rows || [],
             evaluationRows: queries[7].rows || [],
-            attentionRows: queries[8].rows || [],
+            attentionRows: mergedAttention,
+            escalationRows,
         });
     } catch (error) {
         console.error('Error fetching county operations report:', error);

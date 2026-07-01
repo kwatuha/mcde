@@ -1,15 +1,20 @@
 const fs = require('fs');
 const path = require('path');
+const { getTenantBranding, resolveTenantLogoPath } = require('../config/countyConfig');
 
 let logoBufferCache = undefined;
 
 function getCountyOfficialName() {
+  const branding = getTenantBranding();
   return process.env.CERT_COUNTY_NAME
     || process.env.VITE_CERT_COUNTY_NAME
+    || branding.loginTitle
+    || branding.systemName
     || 'County Government of Machakos';
 }
 
 function countyLogoCandidates() {
+  const tenantLogo = resolveTenantLogoPath('admin');
   const explicit = process.env.COUNTY_LOGO_PATH
     || process.env.CERT_LOGO_PATH
     || process.env.VITE_CERT_LOGO_PATH;
@@ -19,6 +24,7 @@ function countyLogoCandidates() {
     path.resolve(__dirname, '..'),
   ];
   const candidates = [
+    tenantLogo,
     explicit,
     ...roots.flatMap((root) => [
       path.join(root, 'api', 'assets', 'gpris.png'),

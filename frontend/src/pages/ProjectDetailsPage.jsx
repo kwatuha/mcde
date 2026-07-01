@@ -54,6 +54,7 @@ import {
 } from '@mui/icons-material';
 import apiService, { API_BASE_URL } from '../api';
 import pmcReportService from '../api/pmcReportService';
+import villageMonitoringService from '../api/villageMonitoringService';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
@@ -383,6 +384,15 @@ function ProjectDetailsPage() {
     const [editingMonitoringRecord, setEditingMonitoringRecord] = useState(null);
     const [pmcReports, setPmcReports] = useState([]);
     const [loadingPmcReports, setLoadingPmcReports] = useState(false);
+    const [villageVisits, setVillageVisits] = useState([]);
+    const [loadingVillageVisits, setLoadingVillageVisits] = useState(false);
+    const canViewVillageMonitoring = useMemo(() => (
+        hasPrivilege('monitoring_report.read')
+        || hasPrivilege('monitoring_report.submit')
+        || hasPrivilege('monitoring_report.ward_review')
+        || hasPrivilege('monitoring_report.subcounty_review')
+        || hasPrivilege('monitoring_report.chief_approve')
+    ), [hasPrivilege]);
     
     // NEW: State for Contractors
     const [assignedContractors, setAssignedContractors] = useState([]);
@@ -1460,6 +1470,7 @@ function ProjectDetailsPage() {
             // NEW: Fetch monitoring records
             await fetchMonitoringRecords();
             await fetchPmcReports();
+            await fetchVillageVisits();
             
             // NEW: Fetch teams (don't fail if this errors)
             try {
@@ -1581,6 +1592,24 @@ function ProjectDetailsPage() {
             setLoadingPmcReports(false);
         }
     }, [projectId, user]);
+
+    const fetchVillageVisits = useCallback(async () => {
+        if (!canViewVillageMonitoring) {
+            setVillageVisits([]);
+            return;
+        }
+
+        setLoadingVillageVisits(true);
+        try {
+            const data = await villageMonitoringService.listReports({ projectId, queue: '' });
+            setVillageVisits(Array.isArray(data?.rows) ? data.rows : []);
+        } catch (err) {
+            console.warn('Error fetching village monitoring visits:', err);
+            setVillageVisits([]);
+        } finally {
+            setLoadingVillageVisits(false);
+        }
+    }, [projectId, canViewVillageMonitoring]);
 
     // NEW: Function to fetch project photos
     const fetchProjectPhotos = useCallback(async () => {
@@ -4034,6 +4063,20 @@ function ProjectDetailsPage() {
                                     onClick: () => navigate(`${ROUTES.PMC_WARD_REPORTS}?projectId=${projectId}`),
                                     icon: <AssignmentTurnedInIcon />,
                                 },
+                                ...(canViewVillageMonitoring ? [{
+                                    title: 'Village Visits',
+                                    value: loadingVillageVisits ? '...' : villageVisits.length,
+                                    helper: villageVisits.length
+                                        ? [
+                                            `${villageVisits.filter((v) => v.workflowStatus === 'approved').length} published`,
+                                            `${villageVisits.filter((v) => v.workflowStatus === 'draft').length} draft`,
+                                            `${villageVisits.filter((v) => ['pending_ward', 'pending_subcounty', 'pending_chief', 'returned_to_ward'].includes(v.workflowStatus)).length} in review`,
+                                        ].filter((part) => !part.startsWith('0 ')).join(' · ') || 'Field visits through the village monitoring approval chain.'
+                                        : 'No village monitoring visits linked to this project yet.',
+                                    action: 'Open Workflow',
+                                    onClick: () => navigate(`${ROUTES.VILLAGE_MONITORING_WORKFLOW}?projectId=${projectId}`),
+                                    icon: <FactCheckIcon />,
+                                }] : []),
                                 {
                                     title: 'Evaluation Rows',
                                     value: loadingPlanningSnapshot ? '...' : planningSnapshot.evaluations.length,
@@ -6191,6 +6234,7 @@ function ProjectDetailsPage() {
                                                     setInspectionFormData((prev) => ({ ...prev, checklistAnswers: answers }))
                                                 }
                                                 disabled={!canModifyOrCreateProjects}
+                                                projectId={projectId}
                                             />
                                         </>
                                     ) : null}

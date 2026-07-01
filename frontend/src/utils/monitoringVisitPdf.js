@@ -13,6 +13,25 @@ function normalizeAnswer(item, value) {
     if (value === 'yes') return 'Yes';
     if (value === 'no') return 'No';
   }
+  if (item?.type === 'photo') {
+    const photos = Array.isArray(value?.photos) ? value.photos : [];
+    if (!photos.length) return '—';
+    return photos
+      .map((p) => {
+        const name = p.fileName || 'Photo';
+        const geo = p.lat != null && p.lng != null ? ` (${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)})` : '';
+        return `${name}${geo}`;
+      })
+      .join('; ');
+  }
+  if (item?.type === 'location') {
+    if (typeof value !== 'object') return '—';
+    const lat = Number(value.lat);
+    const lng = Number(value.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '—';
+    const acc = value.accuracy != null ? ` ±${Math.round(Number(value.accuracy))}m` : '';
+    return `${lat.toFixed(6)}, ${lng.toFixed(6)}${acc}`;
+  }
   if (Array.isArray(value)) return value.join(', ') || '—';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);

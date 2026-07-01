@@ -36,6 +36,20 @@
       "website": "https://www.machos.go.ke"
     }
   },
+  "branding": {
+    "systemName": "Monitoring County Management and Evaluation",
+    "systemAcronym": "MCME",
+    "productName": "E-CIMES",
+    "productSubtitle": "County Integrated Monitoring and Evaluation System",
+    "publicPortalName": "Machakos Public Investment Portal",
+    "loginTitle": "County Government of Machakos",
+    "loginSubtitle": "Monitoring County Management and Evaluation",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/tenants/machakos/logo.png",
+      "public": "assets/tenants/machakos/logo.png"
+    }
+  },
   "labels": {
     "department": "Department",
     "section": "Section",

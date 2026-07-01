@@ -3,166 +3,112 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Button, Paper, Grid, CircularProgress, Alert,
   List, ListItem, ListItemText,
-  Chip, Snackbar, Card, CardContent
+  Chip, Snackbar, Card, CardContent, Avatar, Stack, Divider
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
   PendingActions as PendingActionsIcon,
   CheckCircle as CheckCircleIcon,
   RateReview as RateReviewIcon,
-  PersonAdd as PersonAddIcon,
-  People as PeopleIcon
+  Paid as PaidIcon,
+  PhotoCamera as PhotoCameraIcon,
+  Business as BusinessIcon,
+  Email as EmailIcon,
+  Phone as PhoneIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext.jsx';
-import { isAdmin } from '../utils/privilegeUtils.js';
 import apiService from '../api';
+import { formatCurrency } from '../utils/helpers';
+import { brand } from '../theme/colorTokens';
 
-const PersonalDashboard = () => {
+const ContractorDashboard = () => {
   const navigate = useNavigate();
-  const { user, authLoading, hasPrivilege } = useAuth();
- 
+  const { user, authLoading } = useAuth();
+
   const contractorId = user?.contractorId;
+  const profile = user?.contractorProfile;
 
   const [projects, setProjects] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  
-  // User approval management states
-  const [pendingUsers, setPendingUsers] = useState([]);
-  const [approvedUsersSummary, setApprovedUsersSummary] = useState(null);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  
-  // Check if user can approve users
-  const canApproveUsers = isAdmin(user) || hasPrivilege('user.update') || hasPrivilege('user.approve');
-const fetchData = useCallback(async () => {
-  console.log("Starting fetchData...");
-  setLoading(true);
-  setError(null);
-  
-  // Log the user details here
-  console.log("User details before fetching projects:", user);
-  console.log("Contractor ID being used:", contractorId);
 
-  if (!contractorId) {
-    console.error("fetchData aborted: contractorId is not defined.");
-    setLoading(false);
-    return;
-  }
-
-  try {
-    const projectsData = await apiService.contractors.getProjectsByContractor(contractorId); 
-    const normalizedProjects = Array.isArray(projectsData)
-      ? projectsData
-      : Array.isArray(projectsData?.projects)
-        ? projectsData.projects
-        : Array.isArray(projectsData?.data)
-          ? projectsData.data
+  const fetchData = useCallback(async () => {
+    if (!contractorId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const [projectsData, paymentsData] = await Promise.all([
+        apiService.contractors.getProjectsByContractor(contractorId),
+        apiService.contractors.getPaymentRequestsByContractor(contractorId),
+      ]);
+      const normalizedProjects = Array.isArray(projectsData)
+        ? projectsData
+        : Array.isArray(projectsData?.projects)
+          ? projectsData.projects
           : [];
-
-    setProjects(normalizedProjects);
-
-  } catch (err) {
-    console.error('An error occurred during API calls:', err);
-    setError(err.response?.data?.message || 'Failed to load dashboard data.');
-  } finally {
-    setLoading(false);
-  }
-}, [contractorId, user]);
-
-// Fetch pending users and approved users summary if user can approve users
-const fetchUserApprovalData = useCallback(async () => {
-  if (!canApproveUsers) return;
-  
-  setLoadingUsers(true);
-  try {
-    const [pendingData, summaryData] = await Promise.all([
-      apiService.users.getPendingUsers(),
-      apiService.users.getApprovedUsersSummary()
-    ]);
-    
-    setPendingUsers(Array.isArray(pendingData) ? pendingData : []);
-    setApprovedUsersSummary(summaryData);
-  } catch (err) {
-    console.error('Error fetching user approval data:', err);
-    // Don't set error state for user approval data, just log it
-  } finally {
-    setLoadingUsers(false);
-  }
-}, [canApproveUsers]);
-
-  useEffect(() => {
-    // Only fetch data when contractorId is available and not during auth loading
-    if (!authLoading && contractorId) {
-      console.log("useEffect triggered with valid contractorId. Calling fetchData().");
-      fetchData();
-    } else if (!authLoading && !contractorId) {
-      // If auth is done but no contractorId is present, stop loading.
-      console.log("Auth is complete, but no contractorId found. Stopping loader.");
+      setProjects(normalizedProjects);
+      setPayments(Array.isArray(paymentsData) ? paymentsData : []);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load dashboard data.');
+    } finally {
       setLoading(false);
     }
-  }, [fetchData, contractorId, authLoading]);
-  
+  }, [contractorId]);
+
   useEffect(() => {
-    if (!authLoading && canApproveUsers) {
-      fetchUserApprovalData();
-    }
-  }, [authLoading, canApproveUsers, fetchUserApprovalData]);
-  
-  const handleCloseSnackbar = () => {
-    setSnackbar({ ...snackbar, open: false });
-  };
-  
-  // Filter projects by approval status
+    if (!authLoading && contractorId) fetchData();
+    else if (!authLoading) setLoading(false);
+  }, [fetchData, contractorId, authLoading]);
+
   const projectCategories = useMemo(() => {
     const toBool = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
-
-    const pendingApproval = projects.filter(proj => {
-      const isApproved = toBool(proj.approved_for_public);
-      const needsRevision = toBool(proj.revision_requested);
-      return !isApproved && !needsRevision;
-    });
-
-    const approved = projects.filter(proj => {
-      const isApproved = toBool(proj.approved_for_public);
-      return isApproved;
-    });
-
-    const requestedForReview = projects.filter(proj => {
-      const needsRevision = toBool(proj.revision_requested);
-      return needsRevision;
-    });
-
-    return { pendingApproval, approved, requestedForReview };
+    return {
+      pendingApproval: projects.filter((p) => !toBool(p.approved_for_public) && !toBool(p.revision_requested)),
+      approved: projects.filter((p) => toBool(p.approved_for_public)),
+      requestedForReview: projects.filter((p) => toBool(p.revision_requested)),
+    };
   }, [projects]);
 
-  const handleViewProjectDetails = (projectId) => {
-    navigate(`/projects/${projectId}`);
-  };
-  
-  const handleViewUserManagement = () => {
-    navigate('/user-management');
-  };
-  
-  const handleApproveUser = async (userId) => {
-    try {
-      await apiService.users.updateUser(userId, { isActive: true });
-      setSnackbar({ open: true, message: 'User approved successfully!', severity: 'success' });
-      fetchUserApprovalData();
-    } catch (err) {
-      console.error('Error approving user:', err);
-      setSnackbar({ 
-        open: true, 
-        message: err.response?.data?.message || 'Failed to approve user.', 
-        severity: 'error' 
-      });
-    }
-  };
+  const paymentStats = useMemo(() => {
+    const pending = payments.filter((p) => {
+      const s = String(p.approvalWorkflowStatus || p.approvalworkflowstatus || 'pending').toLowerCase();
+      return s.includes('pending') || s === 'submitted';
+    });
+    const approved = payments.filter((p) =>
+      String(p.approvalWorkflowStatus || p.approvalworkflowstatus || '').toLowerCase().includes('approved')
+    );
+    const totalRequested = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    return { pending: pending.length, approved: approved.length, total: payments.length, totalRequested };
+  }, [payments]);
+
+  const recentPayments = useMemo(() => payments.slice(0, 5), [payments]);
+
+  const handleViewProjectDetails = (projectId) => navigate(`/projects/${projectId}`);
 
   if (authLoading || (loading && !error)) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!contractorId) {
+    return (
+      <Box sx={{ p: 3, maxWidth: 720, mx: 'auto' }}>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Your user account is not linked to a contractor company record. An administrator must link your account
+          under Contractor Management before you can view projects or request payments.
+        </Alert>
+        <Typography variant="body2" color="text.secondary">
+          Signed in as <strong>{user?.email || user?.username}</strong> ({user?.roleName || 'Contractor'}).
+        </Typography>
       </Box>
     );
   }
@@ -174,441 +120,226 @@ const fetchUserApprovalData = useCallback(async () => {
       </Box>
     );
   }
-  
+
+  const companyName = profile?.companyName || 'Your company';
+  const contactPerson = profile?.contactPerson || user?.firstName || user?.username || 'Contractor';
+
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" component="h1" gutterBottom sx={{ color: '#0A2342', fontWeight: 'bold' }}>
-        Personal Dashboard
-      </Typography>
-      <Typography variant="h6" gutterBottom sx={{ color: '#333', mb: 3 }}>
-        Welcome, {user?.firstName || 'User'}. Here's an overview of your activities in the system.
-      </Typography>
-
-      <Grid container spacing={3} sx={{ mt: 2 }}>
-        {/* Projects Pending Approval Section */}
-        <Grid item xs={12} md={4}>
-          <Card elevation={3} sx={{ height: '100%', borderRadius: '8px', borderLeft: '4px solid #ff9800' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <PendingActionsIcon sx={{ color: '#ff9800', mr: 1, fontSize: 28 }} />
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-                  Projects Pending Approval
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {projectCategories.pendingApproval.length} project{projectCategories.pendingApproval.length !== 1 ? 's' : ''} awaiting approval
-              </Typography>
-              <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-                {projectCategories.pendingApproval.length > 0 ? (
-                  projectCategories.pendingApproval.map(proj => (
-                    <ListItem key={proj.id} divider sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 1.5 }}>
-                      <ListItemText 
-                        primary={proj.projectName || proj.name || `Project #${proj.id}`}
-                        secondary={
-                          <React.Fragment>
-                            <Typography component="span" variant="body2" color="text.primary">
-                              Status: {proj.status || 'N/A'}
-                            </Typography>
-                            {proj.createdAt && (
-                              <>
-                                <br />
-                                <Typography component="span" variant="caption" color="text.secondary">
-                                  Created: {new Date(proj.createdAt).toLocaleDateString()}
-                                </Typography>
-                              </>
-                            )}
-                          </React.Fragment>
-                        }
-                      />
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<VisibilityIcon />}
-                        onClick={() => handleViewProjectDetails(proj.id)}
-                        sx={{ mt: 1 }}
-                      >
-                        View Details
-                      </Button>
-                    </ListItem>
-                  ))
-                ) : (
-                  <Alert severity="info" sx={{ mt: 1 }}>No projects pending approval.</Alert>
-                )}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Approved Projects Section */}
-        <Grid item xs={12} md={4}>
-          <Card elevation={3} sx={{ height: '100%', borderRadius: '8px', borderLeft: '4px solid #4caf50' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <CheckCircleIcon sx={{ color: '#4caf50', mr: 1, fontSize: 28 }} />
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-                  Approved Projects
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {projectCategories.approved.length} project{projectCategories.approved.length !== 1 ? 's' : ''} approved
-              </Typography>
-              <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-                {projectCategories.approved.length > 0 ? (
-                  projectCategories.approved.map(proj => (
-                    <ListItem key={proj.id} divider sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 1.5 }}>
-                      <ListItemText 
-                        primary={proj.projectName || proj.name || `Project #${proj.id}`}
-                        secondary={
-                          <React.Fragment>
-                            <Typography component="span" variant="body2" color="text.primary">
-                              Status: {proj.status || 'N/A'}
-                            </Typography>
-                            {proj.approved_at && (
-                              <>
-                                <br />
-                                <Typography component="span" variant="caption" color="text.secondary">
-                                  Approved: {new Date(proj.approved_at).toLocaleDateString()}
-                                </Typography>
-                              </>
-                            )}
-                          </React.Fragment>
-                        }
-                      />
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<VisibilityIcon />}
-                        onClick={() => handleViewProjectDetails(proj.id)}
-                        sx={{ mt: 1 }}
-                      >
-                        View Details
-                      </Button>
-                    </ListItem>
-                  ))
-                ) : (
-                  <Alert severity="info" sx={{ mt: 1 }}>No approved projects yet.</Alert>
-                )}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Projects Requested for Review Section */}
-        <Grid item xs={12} md={4}>
-          <Card elevation={3} sx={{ height: '100%', borderRadius: '8px', borderLeft: '4px solid #2196f3' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <RateReviewIcon sx={{ color: '#2196f3', mr: 1, fontSize: 28 }} />
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-                  Projects Requested for Review
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {projectCategories.requestedForReview.length} project{projectCategories.requestedForReview.length !== 1 ? 's' : ''} requiring revision
-              </Typography>
-              <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-                {projectCategories.requestedForReview.length > 0 ? (
-                  projectCategories.requestedForReview.map(proj => (
-                    <ListItem key={proj.id} divider sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 1.5 }}>
-                      <ListItemText 
-                        primary={proj.projectName || proj.name || `Project #${proj.id}`}
-                        secondary={
-                          <React.Fragment>
-                            <Typography component="span" variant="body2" color="text.primary">
-                              Status: {proj.status || 'N/A'}
-                            </Typography>
-                            {proj.revision_requested_at && (
-                              <>
-                                <br />
-                                <Typography component="span" variant="caption" color="text.secondary">
-                                  Review requested: {new Date(proj.revision_requested_at).toLocaleDateString()}
-                                </Typography>
-                              </>
-                            )}
-                            {proj.revision_notes && (
-                              <>
-                                <br />
-                                <Typography component="span" variant="caption" color="error.main" sx={{ fontStyle: 'italic' }}>
-                                  {proj.revision_notes.length > 50 
-                                    ? `${proj.revision_notes.substring(0, 50)}...` 
-                                    : proj.revision_notes}
-                                </Typography>
-                              </>
-                            )}
-                          </React.Fragment>
-                        }
-                      />
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<VisibilityIcon />}
-                        onClick={() => handleViewProjectDetails(proj.id)}
-                        sx={{ mt: 1 }}
-                      >
-                        View Details
-                      </Button>
-                    </ListItem>
-                  ))
-                ) : (
-                  <Alert severity="info" sx={{ mt: 1 }}>No projects requested for review.</Alert>
-                )}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Summary Statistics */}
-        <Grid item xs={12}>
-          <Paper elevation={2} sx={{ p: 3, borderRadius: '8px', bgcolor: '#f5f5f5' }}>
-            <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-              Activity Summary
+    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1280, mx: 'auto' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.5, md: 3 },
+          mb: 3,
+          borderRadius: 3,
+          background: `linear-gradient(135deg, ${brand.main} 0%, ${brand.dark} 100%)`,
+          color: brand.onPrimary,
+        }}
+      >
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+          <Avatar
+            sx={{
+              width: 64,
+              height: 64,
+              bgcolor: 'rgba(255,255,255,0.2)',
+              fontSize: 28,
+              fontWeight: 700,
+            }}
+          >
+            {companyName.charAt(0).toUpperCase()}
+          </Avatar>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+              {companyName}
             </Typography>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ color: '#ff9800', fontWeight: 'bold' }}>
-                    {projectCategories.pendingApproval.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Pending Approval
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
-                    {projectCategories.approved.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Approved
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ color: '#2196f3', fontWeight: 'bold' }}>
-                    {projectCategories.requestedForReview.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Requested for Review
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h4" sx={{ color: '#0A2342', fontWeight: 'bold' }}>
-                    {projects.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Projects
-                  </Typography>
-                </Box>
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
-        
-        {/* User Approval Management Section - Only show if user can approve users */}
-        {canApproveUsers && (
-          <>
-            {/* Pending Users Approval Section */}
-            <Grid item xs={12} md={6}>
-              <Card elevation={3} sx={{ height: '100%', borderRadius: '8px', borderLeft: '4px solid #f44336' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PersonAddIcon sx={{ color: '#f44336', mr: 1, fontSize: 28 }} />
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-                        Pending Users Approval
-                      </Typography>
-                    </Box>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={handleViewUserManagement}
-                      sx={{ ml: 2 }}
-                    >
-                      Manage Users
-                    </Button>
-                  </Box>
-                  {loadingUsers ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                      <CircularProgress size={24} />
-                    </Box>
-                  ) : (
-                    <>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        {pendingUsers.length} user{pendingUsers.length !== 1 ? 's' : ''} awaiting approval
-                      </Typography>
-                      <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-                        {pendingUsers.length > 0 ? (
-                          pendingUsers.slice(0, 5).map((pendingUser) => (
-                            <ListItem key={pendingUser.userId} divider sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 1.5 }}>
-                              <ListItemText 
-                                primary={`${pendingUser.firstName || ''} ${pendingUser.lastName || ''}`.trim() || pendingUser.username}
-                                secondary={
-                                  <React.Fragment>
-                                    <Typography component="span" variant="body2" color="text.primary">
-                                      {pendingUser.email}
-                                    </Typography>
-                                    {pendingUser.role && (
-                                      <>
-                                        <br />
-                                        <Chip 
-                                          label={pendingUser.role} 
-                                          size="small" 
-                                          sx={{ mt: 0.5, fontSize: '0.7rem' }}
-                                        />
-                                      </>
-                                    )}
-                                    {pendingUser.createdAt && (
-                                      <>
-                                        <br />
-                                        <Typography component="span" variant="caption" color="text.secondary">
-                                          Registered: {new Date(pendingUser.createdAt).toLocaleDateString()}
-                                        </Typography>
-                                      </>
-                                    )}
-                                  </React.Fragment>
-                                }
-                              />
-                              <Button
-                                variant="contained"
-                                size="small"
-                                startIcon={<CheckCircleIcon />}
-                                onClick={() => handleApproveUser(pendingUser.userId)}
-                                sx={{ mt: 1, bgcolor: '#4caf50', '&:hover': { bgcolor: '#45a049' } }}
-                              >
-                                Approve
-                              </Button>
-                            </ListItem>
-                          ))
-                        ) : (
-                          <Alert severity="info" sx={{ mt: 1 }}>No pending users.</Alert>
-                        )}
-                      </List>
-                      {pendingUsers.length > 5 && (
-                        <Box sx={{ mt: 2, textAlign: 'center' }}>
-                          <Button
-                            variant="text"
-                            size="small"
-                            onClick={handleViewUserManagement}
-                          >
-                            View all {pendingUsers.length} pending users
-                          </Button>
-                        </Box>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
+            <Typography variant="body1" sx={{ opacity: 0.92, mt: 0.5 }}>
+              Welcome back, {contactPerson}
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>
+              {profile?.contractorTypeName && (
+                <Chip
+                  size="small"
+                  icon={<BusinessIcon sx={{ color: 'inherit !important' }} />}
+                  label={profile.contractorTypeName}
+                  sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }}
+                />
+              )}
+              {profile?.email && (
+                <Chip
+                  size="small"
+                  icon={<EmailIcon sx={{ color: 'inherit !important' }} />}
+                  label={profile.email}
+                  sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }}
+                />
+              )}
+              {profile?.phone && (
+                <Chip
+                  size="small"
+                  icon={<PhoneIcon sx={{ color: 'inherit !important' }} />}
+                  label={profile.phone}
+                  sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }}
+                />
+              )}
+            </Stack>
+          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/contractor-dashboard/payments')}
+              sx={{ bgcolor: '#fff', color: brand.main, '&:hover': { bgcolor: brand.surface } }}
+            >
+              Request payment
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<PhotoCameraIcon />}
+              onClick={() => navigate('/contractor-dashboard/photos')}
+              sx={{ borderColor: 'rgba(255,255,255,0.7)', color: '#fff', '&:hover': { borderColor: '#fff' } }}
+            >
+              Upload photos
+            </Button>
+          </Stack>
+        </Stack>
+      </Paper>
 
-            {/* Approved Users Summary Section */}
-            <Grid item xs={12} md={6}>
-              <Card elevation={3} sx={{ height: '100%', borderRadius: '8px', borderLeft: '4px solid #4caf50' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PeopleIcon sx={{ color: '#4caf50', mr: 1, fontSize: 28 }} />
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0A2342' }}>
-                        Approved Users Summary
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {[
+          { label: 'Assigned projects', value: projects.length, color: brand.main },
+          { label: 'Pending payments', value: paymentStats.pending, color: '#ed6c02' },
+          { label: 'Approved payments', value: paymentStats.approved, color: '#2e7d32' },
+          { label: 'Total requested', value: formatCurrency(paymentStats.totalRequested), color: brand.dark, isText: true },
+        ].map((stat) => (
+          <Grid item xs={6} md={3} key={stat.label}>
+            <Card elevation={2} sx={{ borderRadius: 2, height: '100%' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                <Typography variant={stat.isText ? 'h6' : 'h4'} sx={{ fontWeight: 700, color: stat.color }}>
+                  {stat.value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {stat.label}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={5}>
+          <Card elevation={2} sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <PaidIcon color="primary" /> Recent payment requests
+                </Typography>
+                <Button size="small" onClick={() => navigate('/contractor-dashboard/payments')}>
+                  View all
+                </Button>
+              </Stack>
+              <Divider sx={{ mb: 1 }} />
+              {recentPayments.length === 0 ? (
+                <Alert severity="info">No payment requests yet. Submit your first request from the Payments page.</Alert>
+              ) : (
+                <List dense>
+                  {recentPayments.map((p) => (
+                    <ListItem key={p.requestId || p.requestid} divider>
+                      <ListItemText
+                        primary={formatCurrency(p.amount)}
+                        secondary={
+                          <>
+                            {p.projectName || `Project #${p.projectId}`}
+                            <br />
+                            <Chip
+                              size="small"
+                              label={p.approvalWorkflowStatus || 'Submitted'}
+                              sx={{ mt: 0.5 }}
+                              color={
+                                String(p.approvalWorkflowStatus || '').toLowerCase().includes('approved')
+                                  ? 'success'
+                                  : 'warning'
+                              }
+                              variant="outlined"
+                            />
+                          </>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={7}>
+          <Card elevation={2} sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                Project overview
+              </Typography>
+              <Grid container spacing={1}>
+                {[
+                  { label: 'Pending approval', count: projectCategories.pendingApproval.length, icon: PendingActionsIcon, color: '#ed6c02' },
+                  { label: 'Approved', count: projectCategories.approved.length, icon: CheckCircleIcon, color: '#2e7d32' },
+                  { label: 'Needs revision', count: projectCategories.requestedForReview.length, icon: RateReviewIcon, color: brand.main },
+                ].map((item) => (
+                  <Grid item xs={12} sm={4} key={item.label}>
+                    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, textAlign: 'center' }}>
+                      <item.icon sx={{ color: item.color, mb: 0.5 }} />
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>{item.count}</Typography>
+                      <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {projectCategories.approved.length > 0 && (
+          <Grid item xs={12}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+              Active projects
+            </Typography>
+            <Grid container spacing={2}>
+              {projectCategories.approved.slice(0, 6).map((proj) => (
+                <Grid item xs={12} sm={6} md={4} key={proj.id}>
+                  <Card elevation={1} sx={{ borderRadius: 2, borderLeft: `4px solid ${brand.main}` }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        {proj.projectName || proj.name || `Project #${proj.id}`}
                       </Typography>
-                    </Box>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={handleViewUserManagement}
-                      sx={{ ml: 2 }}
-                    >
-                      View All
-                    </Button>
-                  </Box>
-                  {loadingUsers ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                      <CircularProgress size={24} />
-                    </Box>
-                  ) : approvedUsersSummary ? (
-                    <>
-                      <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={6}>
-                          <Box sx={{ textAlign: 'center', p: 2, bgcolor: '#f5f5f5', borderRadius: '8px' }}>
-                            <Typography variant="h4" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
-                              {approvedUsersSummary.totalApproved || 0}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Total Approved
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Box sx={{ textAlign: 'center', p: 2, bgcolor: '#f5f5f5', borderRadius: '8px' }}>
-                            <Typography variant="h4" sx={{ color: '#2196f3', fontWeight: 'bold' }}>
-                              {approvedUsersSummary.approvedLast7Days || 0}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Last 7 Days
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Box sx={{ textAlign: 'center', p: 2, bgcolor: '#f5f5f5', borderRadius: '8px' }}>
-                            <Typography variant="h4" sx={{ color: '#ff9800', fontWeight: 'bold' }}>
-                              {approvedUsersSummary.approvedLast30Days || 0}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Last 30 Days
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Box sx={{ textAlign: 'center', p: 2, bgcolor: '#f5f5f5', borderRadius: '8px' }}>
-                            <Typography variant="h4" sx={{ color: '#9c27b0', fontWeight: 'bold' }}>
-                              {approvedUsersSummary.uniqueRoles || 0}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Unique Roles
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                      {approvedUsersSummary.roleBreakdown && approvedUsersSummary.roleBreakdown.length > 0 && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#0A2342' }}>
-                            Breakdown by Role:
-                          </Typography>
-                          <List dense>
-                            {approvedUsersSummary.roleBreakdown.slice(0, 5).map((item, index) => (
-                              <ListItem key={index} sx={{ py: 0.5 }}>
-                                <ListItemText
-                                  primary={item.role || 'Unknown'}
-                                  secondary={`${item.count || 0} users`}
-                                  primaryTypographyProps={{ variant: 'body2' }}
-                                  secondaryTypographyProps={{ variant: 'caption' }}
-                                />
-                              </ListItem>
-                            ))}
-                          </List>
-                        </Box>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Status: {proj.status || 'Active'}
+                      </Typography>
+                      {proj.costOfProject != null && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Contract: {formatCurrency(proj.costOfProject)}
+                        </Typography>
                       )}
-                    </>
-                  ) : (
-                    <Alert severity="info" sx={{ mt: 1 }}>No approved users data available.</Alert>
-                  )}
-                </CardContent>
-              </Card>
+                      <Button
+                        size="small"
+                        startIcon={<VisibilityIcon />}
+                        onClick={() => handleViewProjectDetails(proj.id)}
+                        sx={{ mt: 1 }}
+                      >
+                        View project
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
             </Grid>
-          </>
+          </Grid>
         )}
       </Grid>
-      
-      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
-        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
+
+      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
+        <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>
   );
 };
 
-export default PersonalDashboard;
+export default ContractorDashboard;

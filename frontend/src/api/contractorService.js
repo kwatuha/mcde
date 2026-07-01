@@ -75,6 +75,14 @@ const contractorService = {
     const response = await axiosInstance.get(`/contractors/${contractorId}/payment-requests`);
     return response.data;
   },
+  createPaymentRequest: async (contractorId, payload) => {
+    const response = await axiosInstance.post(`/contractors/${contractorId}/payment-requests`, payload);
+    return response.data;
+  },
+  getMyProfile: async () => {
+    const response = await axiosInstance.get('/contractors/me/profile');
+    return response.data;
+  },
   getPhotosByContractor: async (contractorId) => {
     const response = await axiosInstance.get(`/contractors/${contractorId}/photos`);
     return response.data;

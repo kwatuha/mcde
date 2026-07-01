@@ -1,0 +1,71 @@
+{
+  "_comment": "Copy to config/counties/<tenant-code>.json and customize. Set COUNTY_CODE=<tenant-code> in api/.env.",
+  "tenantType": "county",
+  "county": {
+    "code": "TENANT",
+    "name": "Tenant Name",
+    "displayName": "Organization Display Name"
+  },
+  "database": {
+    "name": "tenant_db",
+    "seedFile": "api/init.sql"
+  },
+  "docker": {
+    "ports": {
+      "nginx": 8080,
+      "frontend": 5175,
+      "publicDashboard": 5174,
+      "api": 3000,
+      "postgres": 5433
+    },
+    "containers": {
+      "nginx": "tenant_nginx_proxy",
+      "frontend": "tenant_react_frontend",
+      "publicDashboard": "tenant_public_dashboard",
+      "api": "tenant_node_api"
+    }
+  },
+  "organization": {
+    "name": "Organization Full Name",
+    "contact": {
+      "email": "info@example.go.ke",
+      "phone": "+254-700-000-000",
+      "address": "Head office address",
+      "website": "https://www.example.go.ke"
+    }
+  },
+  "branding": {
+    "systemName": "Monitoring and Evaluation System",
+    "systemAcronym": "MES",
+    "productName": "Project Investment Management System",
+    "productSubtitle": "Project & Programme Investment Management System",
+    "publicPortalName": "Public Investment Portal",
+    "loginTitle": "Organization Display Name",
+    "loginSubtitle": "Monitoring and Evaluation System",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/tenants/tenant/logo.png",
+      "public": "assets/tenants/tenant/logo.png"
+    }
+  },
+  "labels": {
+    "department": "Department",
+    "section": "Section",
+    "directorate": "Directorate",
+    "project": "Project",
+    "subcounty": "Sub-County",
+    "ward": "Ward",
+    "program": "Programme",
+    "subprogram": "Sub-programme"
+  },
+  "features": {
+    "departments": true,
+    "sections": true,
+    "directorates": true,
+    "projects": true,
+    "subcounties": true,
+    "wards": true,
+    "programs": true,
+    "subprograms": true
+  }
+}

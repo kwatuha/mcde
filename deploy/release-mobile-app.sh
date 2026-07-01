@@ -29,7 +29,7 @@ SKIP_BUILD=0
 LOCAL_ONLY=0
 APK_PATH=""
 TARGETS_FILE="${TARGETS_FILE:-$ROOT/deploy/mobile-app-targets.env}"
-SSH_IDENTITY="${SSH_IDENTITY:-}"
+SSH_IDENTITY="${SSH_IDENTITY:-$HOME/.ssh/id_asusme}"
 SINGLE_TARGET="${MOBILE_APP_TARGET:-}"
 
 usage() {
@@ -181,6 +181,11 @@ fi
 apk_container="/app/uploads/mobile-app/\${STAGING_BASENAME}"
 published=0
 
+compose_env_args=()
+if [[ -f deploy/.env.deploy ]]; then
+  compose_env_args=(--env-file deploy/.env.deploy)
+fi
+
 register_in_api_container() {
   local container="\$1"
   local apk_in_container="\$2"
@@ -204,11 +209,11 @@ register_via_compose() {
   if [[ ! -f "\$compose_file" ]]; then
     return 1
   fi
-  if ! docker compose -f "\$compose_file" ps api 2>/dev/null | grep -qiE 'up|running'; then
+  if ! docker compose "\${compose_env_args[@]}" -f "\$compose_file" ps api 2>/dev/null | grep -qiE 'up|running'; then
     return 1
   fi
   echo "    Registering release via docker compose (\$compose_file) ..."
-  docker compose -f "\$compose_file" exec -T api \\
+  docker compose "\${compose_env_args[@]}" -f "\$compose_file" exec -T api \\
     node scripts/publishMobileAppRelease.js \\
     --version "\$VERSION" \\
     --apk "\$apk_in_container" \\
@@ -227,13 +232,41 @@ register_via_host_node() {
     "\${extra_args[@]}"
 }
 
-if register_in_api_container machakosme_node_api "\$apk_container"; then
+verify_release_in_db() {
+  local expected="\$1"
+  local actual=""
+  if docker ps --format '{{.Names}}' | grep -qx machakosme_node_api; then
+    actual=\$(docker exec machakosme_node_api node -e "
+const pool=require('./config/db');
+pool.query('SELECT version FROM mobile_app_releases WHERE voided = FALSE ORDER BY created_at DESC, id DESC LIMIT 1')
+  .then(r => { process.stdout.write(String(r.rows?.[0]?.version || '')); process.exit(0); })
+  .catch(() => process.exit(2));
+" 2>/dev/null || true)
+  fi
+  if [[ -z "\$actual" ]] && command -v node >/dev/null 2>&1 && [[ -f api/scripts/publishMobileAppRelease.js ]]; then
+    actual=\$(node -e "
+require('dotenv').config({ path: 'api/.env' });
+const pool=require('./api/config/db');
+pool.query('SELECT version FROM mobile_app_releases WHERE voided = FALSE ORDER BY created_at DESC, id DESC LIMIT 1')
+  .then(r => { process.stdout.write(String(r.rows?.[0]?.version || '')); process.exit(0); })
+  .catch(() => process.exit(2));
+" 2>/dev/null || true)
+  fi
+  if [[ "\$actual" != "\$expected" ]]; then
+    echo "ERROR: Database still shows release v\${actual:-<none>}, expected v\$expected." >&2
+    return 1
+  fi
+  echo "    Verified database current release: v\$actual"
+  return 0
+}
+
+if register_via_compose docker-compose.server.yml "\$apk_container"; then
   published=1
-elif register_via_compose docker-compose.server.yml "\$apk_container"; then
-  published=1
-elif register_via_compose docker-compose.yml "\$apk_container"; then
+elif register_in_api_container machakosme_node_api "\$apk_container"; then
   published=1
 elif register_via_compose docker-compose.production.yml "\$apk_container"; then
+  published=1
+elif register_via_compose docker-compose.yml "\$apk_container"; then
   published=1
 elif register_via_host_node "\$REMOTE_STAGING"; then
   published=1
@@ -241,10 +274,19 @@ fi
 
 if [[ "\$published" != "1" ]]; then
   echo "ERROR: APK copied to \$REMOTE_STAGING but release was NOT registered in the database." >&2
-  echo "       Remote servers usually have no host node — register inside the API container:" >&2
+  echo "       Server: \$(hostname -f 2>/dev/null || hostname) — path \$REMOTE_PATH" >&2
+  echo "       Register inside the API container:" >&2
   echo "         cd \$REMOTE_PATH" >&2
-  echo "         docker exec machakosme_node_api node scripts/publishMobileAppRelease.js --version \$VERSION --apk \$apk_container \${extra_args[*]}" >&2
-  echo "       If the script is missing, redeploy the API image first: ./deploy/mcmes-deploy.sh" >&2
+  echo "         docker compose \${compose_env_args[*]} -f docker-compose.server.yml exec -T api \\" >&2
+  echo "           node scripts/publishMobileAppRelease.js --version \$VERSION --apk \$apk_container \${extra_args[*]}" >&2
+  echo "       Or: docker exec machakosme_node_api node scripts/publishMobileAppRelease.js ..." >&2
+  echo "       If the script is missing, redeploy the API first: ./deploy/deploy-to-server.sh" >&2
+  exit 1
+fi
+
+if ! verify_release_in_db "\$VERSION"; then
+  echo "ERROR: Release registration did not update the active version in PostgreSQL." >&2
+  echo "       Staging APK kept at: \$REMOTE_STAGING (for manual retry)" >&2
   exit 1
 fi
 
@@ -277,9 +319,34 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
   exit 0
 fi
 
+PUBLISH_OK=()
+PUBLISH_FAIL=()
 for target in "${TARGETS[@]}"; do
   [[ -z "$target" || "$target" =~ ^# ]] && continue
-  publish_remote "$target"
+  if publish_remote "$target"; then
+    PUBLISH_OK+=("$target")
+  else
+    PUBLISH_FAIL+=("$target")
+    echo ""
+    echo "ERROR: Publish failed for ${target}" >&2
+    if [[ "$target" == *"165.22.227.234"* ]] || [[ "$target" == *"kunye@"* ]]; then
+      echo "       Retry monitoring only:" >&2
+      echo "         ./deploy/release-mobile-app-monitoring.sh --version ${VERSION} --skip-build --notes $(printf '%q' "$NOTES")" >&2
+    elif [[ "$target" == *"84.247.128.58"* ]] || [[ "$target" == *"administrator@"* ]]; then
+      echo "       Retry MCmes only:" >&2
+      echo "         ./deploy/release-mobile-app-mcmes.sh --version ${VERSION} --skip-build --notes $(printf '%q' "$NOTES")" >&2
+    fi
+  fi
 done
 
-echo "==> Published v${VERSION} to ${#TARGETS[@]} server(s). Staff will see a dashboard notification for the new release."
+echo ""
+if [[ ${#PUBLISH_FAIL[@]} -gt 0 ]]; then
+  echo "==> Partial failure: ${#PUBLISH_OK[@]} server(s) ok, ${#PUBLISH_FAIL[@]} failed." >&2
+  for t in "${PUBLISH_OK[@]}"; do echo "    OK:   $t"; done
+  for t in "${PUBLISH_FAIL[@]}"; do echo "    FAIL: $t" >&2; done
+  exit 1
+fi
+
+echo "==> Published v${VERSION} to ${#PUBLISH_OK[@]} server(s):"
+for t in "${PUBLISH_OK[@]}"; do echo "    - $t"; done
+echo "    Staff will see a dashboard notification after refresh."

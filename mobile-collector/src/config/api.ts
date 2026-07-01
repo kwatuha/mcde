@@ -17,11 +17,11 @@ export const STORAGE_KEYS = {
   CACHE_TIMESTAMP: '@machakos_collector_cache_ts',
 };
 
-export const APP_VERSION = '1.0.2';
+export const APP_VERSION = '1.0.11';
 
 export const THEME = {
-  primary: '#1565C0',
-  primaryDark: '#0D47A1',
+  primary: '#005A9A',
+  primaryDark: '#003559',
   accent: '#2E7D32',
   background: '#F5F7FA',
   card: '#FFFFFF',

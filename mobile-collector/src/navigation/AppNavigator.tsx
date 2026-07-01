@@ -10,6 +10,7 @@ import LoginScreen from '../screens/LoginScreen';
 import TemplatesScreen from '../screens/TemplatesScreen';
 import SubmissionsScreen from '../screens/SubmissionsScreen';
 import NewVisitScreen from '../screens/NewVisitScreen';
+import MainTabBar from '../components/MainTabBar';
 import { STORAGE_KEYS, THEME } from '../config/api';
 import { refreshCatalog } from '../services/syncService';
 
@@ -22,21 +23,26 @@ const Tab = createBottomTabNavigator();
 
 const MainTabs = () => (
   <Tab.Navigator
+    tabBar={(props) => <MainTabBar {...props} />}
     screenOptions={{
-      tabBarActiveTintColor: THEME.primary,
-      tabBarInactiveTintColor: '#999',
       headerShown: false,
     }}
   >
     <Tab.Screen
       name="Checklists"
       component={TemplatesScreen}
-      options={{ title: 'Checklists' }}
+      options={{
+        title: 'Checklists',
+        tabBarLabel: 'Checklists',
+      }}
     />
     <Tab.Screen
       name="Submissions"
       component={SubmissionsScreen}
-      options={{ title: 'Visits' }}
+      options={{
+        title: 'Visits',
+        tabBarLabel: 'My visits',
+      }}
     />
   </Tab.Navigator>
 );

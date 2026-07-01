@@ -72,6 +72,7 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const AuditTrailPage = lazy(() => import('./pages/AuditTrailPage'));
 const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage'));
 const ApprovalLevelsManagementPage = lazy(() => import('./pages/ApprovalLevelsManagementPage'));
+const ProjectEscalationRulesPage = lazy(() => import('./pages/ProjectEscalationRulesPage'));
 const FeedbackManagementPage = lazy(() => import('./pages/FeedbackManagementPage'));
 const FeedbackModerationPage = lazy(() => import('./pages/FeedbackModerationPage'));
 const HrModulePage = lazy(() => import('./pages/HrModulePage'));
@@ -315,6 +316,10 @@ const router = createBrowserRouter([
       {
         path: 'approval-levels-management',
         element: <LazyRoute component={ApprovalLevelsManagementPage} />,
+      },
+      {
+        path: 'project-escalation-rules',
+        element: <LazyRoute component={ProjectEscalationRulesPage} />,
       },
       {
         path: 'feedback-management',

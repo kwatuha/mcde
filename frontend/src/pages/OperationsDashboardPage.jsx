@@ -870,7 +870,7 @@ export default function OperationsDashboardPage() {
               Operational Attention Projects
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Projects flagged by status risk, delay, or low absorption/progress
+              Rule-based escalations (milestones, finance, risks, quality) plus legacy status flags
             </Typography>
             <TableContainer sx={{ mt: 1, maxHeight: 300, overflowX: 'hidden' }}>
               <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
@@ -885,7 +885,7 @@ export default function OperationsDashboardPage() {
                 <TableBody>
                   {attentionRows.slice(0, 8).map((row) => (
                     <TableRow
-                      key={row.projectId}
+                      key={row.signalId ? `sig-${row.signalId}` : `proj-${row.projectId}`}
                       hover
                       sx={{ cursor: 'pointer' }}
                       onClick={() => navigate(`${ROUTES.PROJECTS}/${row.projectId}`)}
@@ -894,9 +894,17 @@ export default function OperationsDashboardPage() {
                         <Typography variant="body2" fontWeight={800} noWrap title={row.projectName}>
                           {row.projectName}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap title={row.statusReason || row.latestUpdateSummary || row.status}>
-                          {row.statusReason || row.latestUpdateSummary || row.status || 'Needs follow-up'}
-                        </Typography>
+                        <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                          {row.severity && (
+                            <Chip label={row.severity} size="small" color={row.severity === 'critical' || row.severity === 'high' ? 'error' : 'warning'} sx={{ height: 18, fontSize: '0.65rem' }} />
+                          )}
+                          {row.escalationLevel != null && (
+                            <Chip label={`L${row.escalationLevel}`} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                          )}
+                          <Typography variant="caption" color="text.secondary" noWrap title={row.statusReason || row.latestUpdateSummary || row.status}>
+                            {row.statusReason || row.latestUpdateSummary || row.status || 'Needs follow-up'}
+                          </Typography>
+                        </Box>
                       </TableCell>
                       <TableCell sx={{ minWidth: 0 }}>
                         <Typography variant="body2" noWrap title={row.department || 'Unassigned'}>

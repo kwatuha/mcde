@@ -29,6 +29,8 @@ import procurementService from './procurementService';
 import aiAssistantService from './aiAssistantService';
 import adpService from './adpService';
 import rriService from './rriService';
+import projectEscalationService from './projectEscalationService';
+import villageMonitoringService from './villageMonitoringService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -131,6 +133,8 @@ const apiService = {
   aiAssistant: aiAssistantService,
   adp: adpService,
   rri: rriService,
+  projectEscalations: projectEscalationService,
+  villageMonitoring: villageMonitoringService,
   projectPhotos,
 };
 

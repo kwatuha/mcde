@@ -8,109 +8,29 @@
  */
 
 import { createTheme } from '@mui/material/styles';
+import { appColorTokens, brand, muiPaletteColors, uiSurfaces } from './colorTokens';
 
-// ==================== COLOR PALETTE ====================
-// All colors clearly defined - change these to customize your theme!
-
+// Re-export for pages that import from modernTheme
 export const colors = {
-  // Primary Brand Colors (Blues)
-  primary: {
-    light: '#64b5f6',      // Light blue
-    main: '#1976d2',       // Main blue (from public dashboard)
-    dark: '#1565c0',       // Dark blue
-    darker: '#0d47a1',     // Darker blue
-    contrastText: '#ffffff'
-  },
-  
-  // Secondary Accent Colors (Purples)
-  secondary: {
-    light: '#ba68c8',      // Light purple
-    main: '#9c27b0',       // Main purple (used in ward tab)
-    dark: '#7b1fa2',       // Dark purple
-    contrastText: '#ffffff'
-  },
-  
-  // Success Colors (Greens)
-  success: {
-    light: '#81c784',      // Light green
-    main: '#4caf50',       // Main green
-    dark: '#388e3c',       // Dark green
-    contrastText: '#ffffff'
-  },
-  
-  // Warning Colors (Oranges/Ambers)
-  warning: {
-    light: '#ffb74d',      // Light orange
-    main: '#ff9800',       // Main orange
-    dark: '#f57c00',       // Dark orange
-    contrastText: '#000000'
-  },
-  
-  // Error Colors (Reds)
-  error: {
-    light: '#e57373',      // Light red
-    main: '#f44336',       // Main red
-    dark: '#d32f2f',       // Dark red
-    contrastText: '#ffffff'
-  },
-  
-  // Info Colors (Cyans)
-  info: {
-    light: '#4fc3f7',      // Light cyan
-    main: '#29b6f6',       // Main cyan
-    dark: '#0288d1',       // Dark cyan
-    contrastText: '#ffffff'
-  },
-  
-  // Gradient Colors (for cards, headers, etc.)
+  primary: muiPaletteColors.primary,
+  secondary: muiPaletteColors.secondary,
+  success: muiPaletteColors.success,
+  warning: muiPaletteColors.warning,
+  error: muiPaletteColors.error,
+  info: muiPaletteColors.info,
   gradients: {
-    purple: ['#667eea', '#764ba2'],      // Purple gradient
-    blue: ['#4facfe', '#00f2fe'],        // Blue gradient
-    pink: ['#f093fb', '#f5576c'],        // Pink gradient
-    orange: ['#fa709a', '#fee140'],      // Orange gradient
-    green: ['#30cfd0', '#330867'],       // Green gradient
-    sunset: ['#ff6e7f', '#bfe9ff'],      // Sunset gradient
+    purple: ['#667eea', '#764ba2'],
+    blue: [brand.main, brand.light],
+    pink: ['#f093fb', '#f5576c'],
+    orange: ['#fa709a', '#fee140'],
+    green: ['#30cfd0', '#330867'],
+    sunset: ['#ff6e7f', '#bfe9ff'],
   },
-  
-  // Neutral/Grey Scale
-  grey: {
-    50: '#fafafa',
-    100: '#f5f5f5',
-    200: '#eeeeee',
-    300: '#e0e0e0',
-    400: '#bdbdbd',
-    500: '#9e9e9e',
-    600: '#757575',
-    700: '#616161',
-    800: '#424242',
-    900: '#212121'
-  },
-  
-  // Background Colors
-  background: {
-    default: '#f5f7fa',        // Main app background (light grey-blue)
-    paper: '#ffffff',          // Card/paper background (white)
-    hover: '#f0f2f5',          // Hover state background
-    selected: '#e3f2fd',       // Selected item background
-    disabled: '#fafafa'        // Disabled state background
-  },
-  
-  // Text Colors
-  text: {
-    primary: '#1a202c',        // Main text (dark grey)
-    secondary: '#718096',      // Secondary text (medium grey)
-    disabled: '#cbd5e0',       // Disabled text (light grey)
-    hint: '#a0aec0',           // Hint text
-    white: '#ffffff',          // White text (for dark backgrounds)
-  },
-  
-  // Divider & Border Colors
-  divider: '#e2e8f0',
-  border: {
-    light: '#e2e8f0',
-    main: '#cbd5e0',
-    dark: '#a0aec0'
-  }
+  grey: muiPaletteColors.grey,
+  background: muiPaletteColors.background,
+  text: muiPaletteColors.text,
+  divider: muiPaletteColors.divider,
+  border: muiPaletteColors.border,
 };
 
 // ==================== MUI THEME CONFIGURATION ====================
@@ -276,6 +196,23 @@ export const modernTheme = createTheme({
   ],
   
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        html: {
+          colorScheme: 'light',
+        },
+        body: {
+          WebkitFontSmoothing: 'antialiased',
+          MozOsxFontSmoothing: 'grayscale',
+          textRendering: 'optimizeLegibility',
+          backgroundColor: colors.background.default,
+          color: colors.text.primary,
+        },
+        '#root': {
+          minHeight: '100vh',
+        },
+      },
+    },
     // Button customization
     MuiButton: {
       styleOverrides: {
@@ -291,9 +228,16 @@ export const modernTheme = createTheme({
         },
         contained: {
           '&:hover': {
-            boxShadow: '0px 4px 12px rgba(0,0,0,0.15)'
-          }
-        }
+            boxShadow: `0px 4px 12px ${brand.main}40`,
+          },
+        },
+        containedPrimary: {
+          backgroundColor: brand.main,
+          color: brand.onPrimary,
+          '&:hover': {
+            backgroundColor: brand.hover,
+          },
+        },
       }
     },
     
@@ -302,13 +246,14 @@ export const modernTheme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 12,
-          boxShadow: '0px 2px 8px rgba(0,0,0,0.08)',
+          boxShadow: uiSurfaces.cardShadow,
+          border: `1px solid ${uiSurfaces.cardBorder}`,
           transition: 'all 0.3s ease',
           '&:hover': {
-            boxShadow: '0px 8px 24px rgba(0,0,0,0.12)'
-          }
-        }
-      }
+            boxShadow: uiSurfaces.cardShadowHover,
+          },
+        },
+      },
     },
     
     // Paper customization

@@ -1,5 +1,6 @@
 import apiService from './api';
 import {
+  getCachedTemplates,
   getPendingSubmissions,
   removePendingSubmission,
   savePendingSubmission,
@@ -7,6 +8,9 @@ import {
   setCachedTemplates,
 } from './offlineStore';
 import { PendingSubmission } from '../types/dataCollection';
+import { uploadPendingPhotosInAnswers } from '../utils/attachmentUpload';
+import { extractApiError, shouldQueueOffline } from '../utils/apiErrorUtils';
+import { extractProgressStatusFromAnswers } from '../utils/progressStatus';
 
 export type CatalogRefreshResult = {
   templates: number;
@@ -44,27 +48,35 @@ export async function syncPendingSubmissions(): Promise<{
   let failed = 0;
   const errors: string[] = [];
 
+  const templates = await getCachedTemplates();
+
   for (const item of pending) {
     if (item.status !== 'pending' && item.status !== 'failed') continue;
     try {
+      const answers = await uploadPendingPhotosInAnswers(item.answers);
+      const tpl = templates.find((t) => t.templateId === item.templateId);
+      const progressStatus = extractProgressStatusFromAnswers(tpl?.structure, answers);
       await apiService.createSubmission({
         templateId: item.templateId,
+        subjectType: item.subjectType || 'project',
         projectId: item.projectId,
+        rriProgrammeId: item.rriProgrammeId,
         visitDate: item.visitDate,
         title: item.title,
-        answers: item.answers,
+        answers,
+        ...(progressStatus ? { progressStatus } : {}),
       });
       await removePendingSubmission(item.localId);
       synced += 1;
-    } catch (err: any) {
+    } catch (err: unknown) {
       failed += 1;
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        'Upload failed';
+      const message = extractApiError(err);
       errors.push(`${item.title || item.localId}: ${message}`);
-      const updated: PendingSubmission = { ...item, status: 'failed', lastError: message };
+      const updated: PendingSubmission = {
+        ...item,
+        status: shouldQueueOffline(err) ? 'pending' : 'failed',
+        lastError: message,
+      };
       await savePendingSubmission(updated);
     }
   }

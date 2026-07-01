@@ -1,8 +1,13 @@
 import { createContext, useState, useMemo } from "react";
 import { createTheme } from "@mui/material/styles";
+import { appColorTokens } from "../../theme/colorTokens";
 
-// color design tokens export
-export const tokens = (mode) => ({
+// color design tokens export — light/professional use unified appColorTokens
+export const tokens = (mode) => {
+  if (mode === "light" || mode === "professional") {
+    return appColorTokens;
+  }
+  return {
   ...(mode === "dark"
     ? {
         grey: {
@@ -282,7 +287,8 @@ export const tokens = (mode) => ({
           900: "#78350f",
         },
       }),
-});
+};
+};
 
 // mui theme settings
 export const themeSettings = (mode) => {

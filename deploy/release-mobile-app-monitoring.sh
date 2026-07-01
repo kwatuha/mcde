@@ -21,16 +21,14 @@ cd "$ROOT"
 DEPLOY_HOST="${DEPLOY_HOST:-165.22.227.234}"
 DEPLOY_USER="${DEPLOY_USER:-kunye}"
 DEPLOY_PATH="${DEPLOY_PATH:-/home/kunye/dev/machakos}"
-SSH_IDENTITY="${SSH_IDENTITY:-}"
+SSH_IDENTITY="${SSH_IDENTITY:-$HOME/.ssh/id_asusme}"
 
 TARGET="${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}"
 
 echo "==> Monitoring server mobile app release"
 echo "    Server: ${TARGET}"
-echo "    (Same host as deploy/deploy-to-server.sh — monitoring.icskenya.co.ke when HTTPS is enabled)"
+echo "    Staff:   ${PUBLIC_URL}/mobile-app"
 echo ""
 
-if [[ -n "$SSH_IDENTITY" ]]; then
-  export SSH_IDENTITY
-fi
+export SSH_IDENTITY
 exec "$ROOT/deploy/release-mobile-app.sh" --target "$TARGET" "$@"

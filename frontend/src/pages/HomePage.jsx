@@ -68,6 +68,7 @@ import logo from '../assets/logo.png';
 import apiService from '../api';
 import mobileAppService from '../api/mobileAppService';
 import pmcReportService from '../api/pmcReportService';
+import villageMonitoringService from '../api/villageMonitoringService';
 import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
@@ -264,6 +265,29 @@ const HomePage = () => {
     return isAdmin(user) || hasPrivilege('pmc_report.submit') || hasPrivilege('pmc_report.create');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
 
+  const canAccessMonitoringWorkflow = React.useMemo(() => {
+    if (!user) return false;
+    return isAdmin(user) || hasPrivilege('monitoring_report.read')
+      || hasPrivilege('monitoring_report.submit')
+      || hasPrivilege('monitoring_report.ward_review')
+      || hasPrivilege('monitoring_report.subcounty_review')
+      || hasPrivilege('monitoring_report.chief_approve');
+  }, [user?.roleName, user?.privileges, hasPrivilege]);
+
+  const monitoringWorkflowQueueRoute = React.useMemo(() => {
+    if (!user) return ROUTES.VILLAGE_MONITORING_WORKFLOW;
+    if (isAdmin(user) || hasPrivilege('monitoring_report.chief_approve')) {
+      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=chief`;
+    }
+    if (hasPrivilege('monitoring_report.subcounty_review')) {
+      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=subcounty`;
+    }
+    if (hasPrivilege('monitoring_report.ward_review')) {
+      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=ward`;
+    }
+    return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=village`;
+  }, [user, hasPrivilege]);
+
   const [projectStats, setProjectStats] = useState({
     total: 0,
     active: 0,
@@ -286,6 +310,8 @@ const HomePage = () => {
   const [workflowPendingRows, setWorkflowPendingRows] = useState([]);
   const [pmcPendingReview, setPmcPendingReview] = useState([]);
   const [pmcReturnedReports, setPmcReturnedReports] = useState([]);
+  const [monitoringSummary, setMonitoringSummary] = useState(null);
+  const [escalationSignals, setEscalationSignals] = useState([]);
   const [mobileAppReleaseInfo, setMobileAppReleaseInfo] = useState(null);
   /** Block navigation and show required privileges (e.g. finance list needs document.read_all). */
   const [workflowPathAccessModal, setWorkflowPathAccessModal] = useState({
@@ -408,6 +434,7 @@ const HomePage = () => {
           setWorkflowPendingRows([]);
           setPmcPendingReview([]);
           setPmcReturnedReports([]);
+          setEscalationSignals([]);
           setLoadingNotifications(false);
         }
         return;
@@ -540,6 +567,26 @@ const HomePage = () => {
           setPmcPendingReview(Array.isArray(pmcSubmittedData?.rows) ? pmcSubmittedData.rows : []);
           setPmcReturnedReports(Array.isArray(pmcReturnedData?.rows) ? pmcReturnedData.rows : []);
         }
+
+        try {
+          const esc = await apiService.projectEscalations.listSignals({ limit: 15 });
+          if (isMounted) setEscalationSignals(Array.isArray(esc) ? esc : []);
+        } catch (escErr) {
+          console.warn('Escalation signals skipped:', escErr?.response?.data?.message || escErr.message);
+          if (isMounted) setEscalationSignals([]);
+        }
+
+        if (canAccessMonitoringWorkflow) {
+          try {
+            const monSum = await villageMonitoringService.getSummary();
+            if (isMounted) setMonitoringSummary(monSum);
+          } catch (monErr) {
+            console.warn('Monitoring workflow summary skipped:', monErr?.response?.data?.message || monErr.message);
+            if (isMounted) setMonitoringSummary(null);
+          }
+        } else if (isMounted) {
+          setMonitoringSummary(null);
+        }
       } catch (error) {
         console.error('Error fetching notifications:', error);
         if (isMounted) {
@@ -549,6 +596,7 @@ const HomePage = () => {
           setWorkflowPendingRows([]);
           setPmcPendingReview([]);
           setPmcReturnedReports([]);
+          setEscalationSignals([]);
         }
       } finally {
         if (isMounted) {
@@ -562,7 +610,7 @@ const HomePage = () => {
     return () => {
       isMounted = false;
     };
-  }, [user?.userId, canApproveUsers, canManageProjects, canReviewPmcReports, canSubmitPmcReports]);
+  }, [user?.userId, canApproveUsers, canManageProjects, canReviewPmcReports, canSubmitPmcReports, canAccessMonitoringWorkflow]);
 
   useEffect(() => {
     let isMounted = true;
@@ -634,6 +682,19 @@ const HomePage = () => {
     });
   }
 
+  if (user && escalationSignals.length > 0) {
+    const critical = escalationSignals.filter((s) => s.severity === 'critical' || s.severity === 'high').length;
+    notificationItems.push({
+      type: 'project-escalations',
+      title: 'Project escalations',
+      count: escalationSignals.length,
+      icon: <WarningIcon />,
+      color: critical > 0 ? '#c62828' : '#ef6c00',
+      route: ROUTES.OPERATIONS_DASHBOARD,
+      description: `${escalationSignals.length} open signal${escalationSignals.length > 1 ? 's' : ''} (schedule, finance, quality, risk)${critical > 0 ? ` · ${critical} high priority` : ''}`,
+    });
+  }
+
   if (user && workflowPendingRows.length > 0) {
     notificationItems.push({
       type: 'workflow-pending-steps',
@@ -672,6 +733,32 @@ const HomePage = () => {
       description: pmcReturnedReports.length > 0
         ? `${pmcReturnedReports.length} PMC report${pmcReturnedReports.length > 1 ? 's' : ''} returned for revision`
         : 'No returned PMC reports',
+    });
+  }
+
+  if (canAccessMonitoringWorkflow && monitoringSummary?.myQueue > 0) {
+    notificationItems.push({
+      type: 'monitoring-workflow-queue',
+      title: 'Village monitoring queue',
+      count: monitoringSummary.myQueue,
+      icon: <FactCheckIcon />,
+      color: monitoringSummary.returnedToWard > 0 ? '#d84315' : '#00695c',
+      route: monitoringWorkflowQueueRoute,
+      description: monitoringSummary.returnedToWard > 0
+        ? `${monitoringSummary.myQueue} report(s) need action (${monitoringSummary.returnedToWard} returned for revision)`
+        : `${monitoringSummary.myQueue} monitoring report(s) awaiting your action`,
+    });
+  }
+
+  if (canAccessMonitoringWorkflow && monitoringSummary?.draft > 0 && (hasPrivilege('monitoring_report.submit') || hasPrivilege('monitoring_report.create'))) {
+    notificationItems.push({
+      type: 'monitoring-drafts',
+      title: 'Monitoring drafts not submitted',
+      count: monitoringSummary.draft,
+      icon: <FactCheckIcon />,
+      color: '#ef6c00',
+      route: `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=village`,
+      description: `${monitoringSummary.draft} visit draft(s) — submit to ward when ready`,
     });
   }
 

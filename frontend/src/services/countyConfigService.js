@@ -47,6 +47,12 @@ export const fetchCountyConfig = async () => {
         program: 'Programme',
         subprogram: 'Sub-programme'
       },
+      branding: {
+        loginTitle: 'County Government of Machakos',
+        loginSubtitle: 'Monitoring County Management and Evaluation',
+        republicLine: 'REPUBLIC OF KENYA',
+        hasLogo: false,
+      },
       features: {
         departments: true,
         sections: true,

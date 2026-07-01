@@ -63,34 +63,44 @@ const TemplatesScreen: React.FC = () => {
   };
 
   const refreshAll = async (opts: { silent?: boolean } = {}) => {
+    let result: Awaited<ReturnType<typeof refreshCatalog>> | null = null;
+    let catalogError: unknown = null;
+
     try {
-      const result = await refreshCatalog();
-      const cachedCount = await loadLocal();
-      const sync = await syncPendingSubmissions();
-      if (sync.synced > 0) {
-        Alert.alert('Synced', `${sync.synced} pending visit(s) uploaded.`);
-      } else if (sync.failed > 0) {
-        Alert.alert('Sync issues', sync.errors.slice(0, 3).join('\n'));
-      } else if (result.partial && !opts.silent) {
-        Alert.alert(
-          'Partial sync',
-          'Checklists downloaded. The project list could not be refreshed — tap Sync again before starting a visit.'
-        );
-      }
-      return result;
-    } catch (error: any) {
-      const cachedCount = await loadLocal();
+      result = await refreshCatalog();
+    } catch (error) {
+      catalogError = error;
+    }
+
+    const cachedCount = await loadLocal();
+
+    // Upload queued visits even when checklist download fails.
+    const sync = await syncPendingSubmissions();
+    if (sync.synced > 0) {
+      Alert.alert('Synced', `${sync.synced} pending visit(s) uploaded.`);
+    } else if (sync.failed > 0 && !opts.silent) {
+      Alert.alert('Sync issues', sync.errors.slice(0, 3).join('\n'));
+    } else if (result?.partial && !opts.silent) {
+      Alert.alert(
+        'Partial sync',
+        'Checklists downloaded. The project list could not be refreshed — tap Sync again before starting a visit.'
+      );
+    }
+
+    if (catalogError) {
       if (!opts.silent || cachedCount === 0) {
         Alert.alert(
           cachedCount > 0 ? 'Sync issue' : 'Offline mode',
-          `${apiErrorMessage(error)}\n\n${
+          `${apiErrorMessage(catalogError)}\n\n${
             cachedCount > 0
-              ? 'Showing cached checklists.'
+              ? 'Showing cached checklists. Queued visits were still uploaded if possible.'
               : 'No checklists cached yet. Pull down to retry.'
           }`
         );
       }
     }
+
+    return result;
   };
 
   useFocusEffect(

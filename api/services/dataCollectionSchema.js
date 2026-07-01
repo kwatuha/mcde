@@ -47,6 +47,10 @@ async function ensureDataCollectionTemplatesTable() {
     ALTER TABLE data_collection_templates
     ADD COLUMN IF NOT EXISTS voided BOOLEAN NOT NULL DEFAULT FALSE
   `);
+  await pool.query(`
+    ALTER TABLE data_collection_templates
+    ADD COLUMN IF NOT EXISTS allowed_subject_types JSONB NOT NULL DEFAULT '["project"]'::jsonb
+  `);
 }
 
 async function ensureDataCollectionSubmissionsTable() {
@@ -110,6 +114,85 @@ async function ensureDataCollectionSubmissionsTable() {
     CREATE INDEX IF NOT EXISTS idx_dcs_inspection_id ON data_collection_submissions (inspection_id)
     WHERE voided = false
   `);
+  await pool.query(`
+    ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS subject_type TEXT NOT NULL DEFAULT 'project'
+  `);
+  await pool.query(`
+    ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS rri_programme_id BIGINT NULL
+  `);
+  await ensureMonitoringWorkflowColumns();
+}
+
+/** Workflow columns + audit table (idempotent; safe without full SQL migration). */
+async function ensureMonitoringWorkflowColumns() {
+  const alters = [
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS workflow_status TEXT NOT NULL DEFAULT 'draft'`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS progress_status TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS subcounty TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS ward TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS sublocation TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS village TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS village_submitted_by BIGINT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS village_submitted_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS ward_reviewed_by BIGINT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS ward_reviewed_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS subcounty_reviewed_by BIGINT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS subcounty_reviewed_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS chief_reviewed_by BIGINT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS chief_reviewed_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS review_comment TEXT NULL`,
+    `ALTER TABLE data_collection_submissions ADD COLUMN IF NOT EXISTS published_to_public_at TIMESTAMPTZ NULL`,
+  ];
+  for (const sql of alters) {
+    await pool.query(sql);
+  }
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_dcs_workflow_status
+    ON data_collection_submissions (workflow_status)
+    WHERE voided = false
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS data_collection_submission_actions (
+      action_id BIGSERIAL PRIMARY KEY,
+      submission_id BIGINT NOT NULL,
+      action_type TEXT NOT NULL,
+      from_status TEXT NULL,
+      to_status TEXT NULL,
+      comment TEXT NULL,
+      actor_user_id BIGINT NULL,
+      changed_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_dcs_actions_submission
+    ON data_collection_submission_actions (submission_id, created_at ASC)
+  `);
+}
+
+async function ensureDataCollectionAttachmentsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS data_collection_attachments (
+      file_id SERIAL PRIMARY KEY,
+      submission_id INTEGER NULL,
+      item_id TEXT NULL,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT NULL,
+      file_size BIGINT NULL,
+      lat DOUBLE PRECISION NULL,
+      lng DOUBLE PRECISION NULL,
+      accuracy DOUBLE PRECISION NULL,
+      captured_at TIMESTAMP WITHOUT TIME ZONE NULL,
+      created_by INTEGER NULL,
+      created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_dca_submission_id
+    ON data_collection_attachments (submission_id)
+    WHERE submission_id IS NOT NULL
+  `);
 }
 
 async function ensureInspectionChecklistColumns() {
@@ -128,5 +211,7 @@ async function ensureInspectionChecklistColumns() {
 module.exports = {
   ensureDataCollectionTemplatesTable,
   ensureDataCollectionSubmissionsTable,
+  ensureDataCollectionAttachmentsTable,
   ensureInspectionChecklistColumns,
+  ensureMonitoringWorkflowColumns,
 };

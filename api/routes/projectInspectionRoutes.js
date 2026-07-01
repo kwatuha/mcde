@@ -5,26 +5,9 @@ const multer = require('multer');
 const pool = require('../config/db');
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 const { ensureInspectionChecklistColumns } = require('../services/dataCollectionSchema');
+const { validateAnswers: validateChecklistAgainstTemplate } = require('../services/checklistAnswerUtils');
 
 const router = express.Router();
-
-function validateChecklistAgainstTemplate(structure, answers) {
-  if (!structure || !structure.sections) return [];
-  const missing = [];
-  for (const sec of structure.sections) {
-    for (const it of sec.items || []) {
-      if (!it.required) continue;
-      const v = answers?.[it.id];
-      const empty =
-        v === undefined ||
-        v === null ||
-        (typeof v === 'string' && v.trim() === '') ||
-        (it.type === 'yes_no' && v !== 'yes' && v !== 'no');
-      if (empty) missing.push(it.label || it.id);
-    }
-  }
-  return missing;
-}
 
 const uploadsRoot = path.join(__dirname, '..', '..', 'uploads', 'project-inspections');
 if (!fs.existsSync(uploadsRoot)) {

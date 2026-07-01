@@ -8,12 +8,16 @@ import {
   DataCollectionTemplate,
   LoginOtpChallenge,
   ProjectLite,
+  RriProgrammeLite,
+  VisitSubjectType,
 } from '../types/dataCollection';
 
 export interface AuthUser {
   id: number;
   username?: string;
   email?: string;
+  firstName?: string;
+  lastName?: string;
   roleName?: string;
 }
 
@@ -127,8 +131,36 @@ class ApiService {
       id: user?.id ?? user?.userId ?? user?.actualUserId,
       username: user?.username,
       email: user?.email,
+      firstName: user?.firstName ?? user?.firstname,
+      lastName: user?.lastName ?? user?.lastname,
       roleName: user?.roleName ?? user?.role,
     };
+  }
+
+  private async geographyNames(path: string, params: Record<string, string> = {}): Promise<string[]> {
+    const response = await this.client.get(path, { params });
+    const data = response.data?.data ?? response.data;
+    return Array.isArray(data) ? data.filter(Boolean) : [];
+  }
+
+  async getGeographySubcounties(): Promise<string[]> {
+    return this.geographyNames('/api/geography/subcounties');
+  }
+
+  async getGeographyWards(subcounty: string): Promise<string[]> {
+    return this.geographyNames('/api/geography/wards', { subcounty });
+  }
+
+  async getGeographySublocations(subcounty: string, ward: string): Promise<string[]> {
+    return this.geographyNames('/api/geography/sublocations', { subcounty, ward });
+  }
+
+  async getGeographyVillages(
+    subcounty: string,
+    ward: string,
+    sublocation: string
+  ): Promise<string[]> {
+    return this.geographyNames('/api/geography/villages', { subcounty, ward, sublocation });
   }
 
   async logout(): Promise<void> {
@@ -170,28 +202,137 @@ class ApiService {
     const response = await this.client.get('/api/projects', { params });
     const rows = Array.isArray(response.data) ? response.data : response.data?.data ?? [];
     return rows.map((p: any) => ({
-      id: Number(p.id),
-      projectName: p.projectName || p.name || `Project #${p.id}`,
+      id: Number(p.id ?? p.projectId ?? p.project_id),
+      projectName: p.projectName || p.name || `Project #${p.id ?? p.projectId}`,
       status: p.status,
       departmentName: p.departmentName,
     }));
   }
 
-  async listSubmissions(opts: { projectId?: number } = {}): Promise<DataCollectionSubmission[]> {
-    const params: Record<string, number> = {};
+  async listRriProgrammes(): Promise<RriProgrammeLite[]> {
+    const response = await this.client.get('/api/rri');
+    const rows = Array.isArray(response.data) ? response.data : [];
+    return rows.map((p: any) => ({
+      programmeId: Number(p.programmeId ?? p.id),
+      name: p.name || p.programmeName || `Programme #${p.programmeId ?? p.id}`,
+      status: p.status,
+      sector: p.sector,
+    }));
+  }
+
+  async getProjectFieldOptions(
+    projectId: number,
+    source: 'project_milestones' | 'project_bq_items' | 'indicator',
+    opts: { subjectType?: VisitSubjectType; rriProgrammeId?: number } = {}
+  ): Promise<{ options: Array<{ id: number; label: string }> }> {
+    const params: Record<string, string | number> = { projectId, source };
+    if (opts.subjectType) params.subjectType = opts.subjectType;
+    if (opts.rriProgrammeId != null) params.rriProgrammeId = opts.rriProgrammeId;
+    const response = await this.client.get('/api/data-collection/project-field-options', { params });
+    return response.data;
+  }
+
+  async getFieldOptions(opts: {
+    source: 'project_milestones' | 'project_bq_items' | 'indicator';
+    subjectType?: VisitSubjectType;
+    projectId?: number;
+    rriProgrammeId?: number;
+  }): Promise<{ options: Array<{ id: number; label: string }> }> {
+    const params: Record<string, string | number> = { source: opts.source };
+    if (opts.subjectType) params.subjectType = opts.subjectType;
     if (opts.projectId != null) params.projectId = opts.projectId;
+    if (opts.rriProgrammeId != null) params.rriProgrammeId = opts.rriProgrammeId;
+    const response = await this.client.get('/api/data-collection/field-options', { params });
+    return response.data;
+  }
+
+  async listSubmissions(opts: {
+    projectId?: number;
+    rriProgrammeId?: number;
+    subjectType?: VisitSubjectType;
+  } = {}): Promise<DataCollectionSubmission[]> {
+    const params: Record<string, number | string> = {};
+    if (opts.projectId != null) params.projectId = opts.projectId;
+    if (opts.rriProgrammeId != null) params.rriProgrammeId = opts.rriProgrammeId;
+    if (opts.subjectType) params.subjectType = opts.subjectType;
     const response = await this.client.get('/api/data-collection/submissions', { params });
     return Array.isArray(response.data) ? response.data : [];
   }
 
   async createSubmission(body: {
     templateId: number;
-    projectId: number;
+    subjectType?: VisitSubjectType;
+    projectId?: number;
+    rriProgrammeId?: number;
     visitDate?: string;
     title?: string;
     answers: Record<string, unknown>;
+    progressStatus?: string;
+    inspectionId?: number;
   }): Promise<DataCollectionSubmission> {
     const response = await this.client.post('/api/data-collection/submissions', body);
+    return response.data;
+  }
+
+  async submitMonitoringToWard(submissionId: number): Promise<DataCollectionSubmission> {
+    const response = await this.client.post(
+      `/api/village-monitoring/reports/${submissionId}/submit`
+    );
+    return response.data;
+  }
+
+  async submitAllMonitoringDrafts(): Promise<{
+    submitted: DataCollectionSubmission[];
+    failed: Array<{ submissionId: number; title?: string; message: string }>;
+    total: number;
+  }> {
+    const response = await this.client.post('/api/village-monitoring/reports/submit-drafts');
+    return response.data;
+  }
+
+  async uploadAttachment(
+    localUri: string,
+    meta: {
+      itemId?: string;
+      fileName?: string;
+      mimeType?: string;
+      lat?: number | null;
+      lng?: number | null;
+      accuracy?: number | null;
+      capturedAt?: string;
+    } = {}
+  ): Promise<{
+    fileId: number;
+    url: string;
+    fileName: string;
+    lat?: number | null;
+    lng?: number | null;
+    accuracy?: number | null;
+    capturedAt?: string;
+  }> {
+    const form = new FormData();
+    form.append('file', {
+      uri: localUri,
+      type: meta.mimeType || 'image/jpeg',
+      name: meta.fileName || 'photo.jpg',
+    } as unknown as Blob);
+    if (meta.itemId) form.append('itemId', meta.itemId);
+    if (meta.lat != null) form.append('lat', String(meta.lat));
+    if (meta.lng != null) form.append('lng', String(meta.lng));
+    if (meta.accuracy != null) form.append('accuracy', String(meta.accuracy));
+    if (meta.capturedAt) form.append('capturedAt', meta.capturedAt);
+
+    // Do not set Content-Type manually — RN/axios must add the multipart boundary.
+    const response = await this.client.post('/api/data-collection/attachments', form, {
+      timeout: 120000,
+      headers: { Accept: 'application/json' },
+      transformRequest: (data, headers) => {
+        if (headers) {
+          delete (headers as Record<string, unknown>)['Content-Type'];
+        }
+        return data;
+      },
+    });
     return response.data;
   }
 

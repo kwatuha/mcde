@@ -4,6 +4,9 @@ const multer = require('multer');
 const ExcelJS = require('exceljs');
 const XLSX = require('xlsx');
 const pool = require('../config/db');
+const privilege = require('../middleware/privilegeMiddleware');
+const contractorAuth = require('../services/contractorAuthService');
+const contractorPayment = require('../services/contractorPaymentService');
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
 const isPostgres = DB_TYPE === 'postgresql';
 const rowsOf = (result) => {
@@ -171,6 +174,31 @@ const upload = multer({ storage: storage });
 const excelUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 4 * 1024 * 1024 },
+});
+
+async function guardContractorAccess(req, res, contractorId) {
+    if (!contractorAuth.callerCanAccessContractor(req, contractorId)) {
+        res.status(403).json({ message: 'You do not have access to this contractor profile.' });
+        return false;
+    }
+    return true;
+}
+
+// --- Contractor self profile (must be before /:contractorId routes) ---
+router.get('/me/profile', async (req, res) => {
+    try {
+        const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
+        const profile = await contractorAuth.fetchContractorProfileForUser(userId);
+        if (!profile) {
+            return res.status(404).json({
+                message: 'No contractor profile is linked to your account. Contact an administrator.',
+            });
+        }
+        res.status(200).json(profile);
+    } catch (error) {
+        console.error('Error fetching contractor self profile:', error);
+        res.status(500).json({ message: 'Error fetching contractor profile', error: error.message });
+    }
 });
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -497,6 +525,7 @@ router.post('/import/confirm', async (req, res) => {
  */
 router.get('/:contractorId/projects', async (req, res) => {
     const { contractorId } = req.params;
+    if (!(await guardContractorAccess(req, res, contractorId))) return;
     try {
         const DB_TYPE = process.env.DB_TYPE || 'mysql';
         
@@ -575,21 +604,53 @@ router.get('/:contractorId/projects', async (req, res) => {
 /**
  * @route GET /api/contractors/:contractorId/payment-requests
  * @description Get all payment requests submitted by a specific contractor.
- * @access Private (contractor only)
+ * @access Private (contractor or staff)
  */
 router.get('/:contractorId/payment-requests', async (req, res) => {
     const { contractorId } = req.params;
+    if (!(await guardContractorAccess(req, res, contractorId))) return;
     try {
-        const [rows] = await pool.query(
-            'SELECT * FROM project_payment_requests WHERE contractorId = ? AND voided = 0 ORDER BY submittedAt DESC',
-            [contractorId]
-        );
+        const rows = await contractorPayment.listPaymentRequestsForContractor(contractorId);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error fetching contractor payment requests:', error);
         res.status(500).json({ message: 'Error fetching contractor payment requests', error: error.message });
     }
 });
+
+/**
+ * @route POST /api/contractors/:contractorId/payment-requests
+ * @description Submit a new payment request for an assigned project.
+ * @access Private (contractor)
+ */
+router.post(
+    '/:contractorId/payment-requests',
+    privilege(['payment_request.create']),
+    async (req, res) => {
+        const { contractorId } = req.params;
+        if (!(await guardContractorAccess(req, res, contractorId))) return;
+        const { projectId, amount, description, invoiceNumber } = req.body;
+        const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
+        try {
+            const result = await contractorPayment.createPaymentRequest({
+                contractorId,
+                projectId,
+                amount,
+                description,
+                invoiceNumber,
+                userId,
+            });
+            res.status(201).json(result);
+        } catch (error) {
+            const code = error.statusCode || 500;
+            if (code >= 500) console.error('Error creating contractor payment request:', error);
+            res.status(code).json({
+                message: error.message || 'Error submitting payment request',
+                error: error.message,
+            });
+        }
+    }
+);
 
 // --- Get Photos by a Contractor ---
 /**
@@ -599,8 +660,26 @@ router.get('/:contractorId/payment-requests', async (req, res) => {
  */
 router.get('/:contractorId/photos', async (req, res) => {
     const { contractorId } = req.params;
+    if (!(await guardContractorAccess(req, res, contractorId))) return;
+    const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
     try {
-        const [rows] = await pool.query(
+        if (isPostgres) {
+            const result = await pool.query(
+                `SELECT
+                    id AS "photoId",
+                    "projectId",
+                    "documentPath" AS "filePath",
+                    description AS caption,
+                    status,
+                    "createdAt" AS "submittedAt"
+                 FROM project_documents
+                 WHERE "userId" = $1 AND "documentType" = 'photo' AND COALESCE(voided, false) = false
+                 ORDER BY "createdAt" DESC`,
+                [userId]
+            );
+            return res.status(200).json(rowsOf(result));
+        }
+        const result = await pool.query(
             `SELECT
                 id AS photoId,
                 projectId,
@@ -611,9 +690,9 @@ router.get('/:contractorId/photos', async (req, res) => {
              FROM project_documents
              WHERE userId = ? AND documentType = 'photo' AND voided = 0
              ORDER BY createdAt DESC`,
-            [contractorId] // Assuming userId in documents table corresponds to contractorId
+            [userId]
         );
-        res.status(200).json(rows);
+        res.status(200).json(rowsOf(result));
     } catch (error) {
         console.error('Error fetching contractor photos:', error);
         res.status(500).json({ message: 'Error fetching contractor photos', error: error.message });
@@ -628,24 +707,43 @@ router.get('/:contractorId/photos', async (req, res) => {
  */
 router.post('/:contractorId/photos', upload.single('file'), async (req, res) => {
     const { contractorId } = req.params;
+    if (!(await guardContractorAccess(req, res, contractorId))) return;
     const { projectId, caption } = req.body;
     const file = req.file;
+    const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
     if (!file || !projectId) {
         return res.status(400).json({ message: 'File and projectId are required.' });
     }
-    const newDocument = {
-        projectId,
-        documentType: 'photo',
-        documentCategory: 'general',
-        documentPath: file.path,
-        description: caption || `Photo submitted by contractor ${contractorId}`,
-        userId: contractorId,
-        status: 'pending_review',
-        voided: 0,
-    };
+    const assigned = await contractorPayment.isContractorAssignedToProject(contractorId, projectId);
+    if (!assigned) {
+        return res.status(403).json({ message: 'You are not assigned to this project.' });
+    }
+    const relativePath = file.path.replace(/\\/g, '/');
     try {
-        const [result] = await pool.query('INSERT INTO project_documents SET ?', newDocument);
-        res.status(201).json({ message: 'Photo uploaded successfully', photoId: result.insertId });
+        if (isPostgres) {
+            const result = await pool.query(
+                `INSERT INTO project_documents (
+                    "projectId", "documentType", "documentCategory", "documentPath",
+                    description, "userId", status, voided, "createdAt", "updatedAt"
+                 ) VALUES ($1, 'photo', 'progress', $2, $3, $4, 'pending_review', false, NOW(), NOW())
+                 RETURNING id`,
+                [Number(projectId), relativePath, caption || `Progress photo`, Number(userId)]
+            );
+            const photoId = rowsOf(result)[0]?.id;
+            return res.status(201).json({ message: 'Photo uploaded successfully', photoId });
+        }
+        const newDocument = {
+            projectId,
+            documentType: 'photo',
+            documentCategory: 'progress',
+            documentPath: relativePath,
+            description: caption || `Progress photo`,
+            userId,
+            status: 'pending_review',
+            voided: 0,
+        };
+        const result = await pool.query('INSERT INTO project_documents SET ?', newDocument);
+        res.status(201).json({ message: 'Photo uploaded successfully', photoId: metaOf(result).insertId });
     } catch (error) {
         console.error('Error uploading contractor photo:', error);
         res.status(500).json({ message: 'Error uploading contractor photo', error: error.message });

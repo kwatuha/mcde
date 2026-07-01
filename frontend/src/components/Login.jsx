@@ -24,6 +24,7 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import gprisLogo from '../assets/gpris.png';
+import usePublicCountyConfig from '../hooks/usePublicCountyConfig';
 
 /** Login page palette — ICT.go.ke top bar blue (#005a9a) and shades */
 const micde = {
@@ -49,6 +50,8 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [logoFailed, setLogoFailed] = useState(false);
+    const { loginTitle, loginSubtitle, logoUrl } = usePublicCountyConfig();
+    const displayLogo = logoUrl || gprisLogo;
     const [error, setError] = useState('');
     const [infoMessage, setInfoMessage] = useState('');
     const [loading, setLoading] = useState(false);
@@ -237,8 +240,8 @@ const Login = () => {
                             {!logoFailed ? (
                                 <Box
                                     component="img"
-                                    src={gprisLogo}
-                                    alt="MCME — Monitoring County Management and Evaluation"
+                                    src={displayLogo}
+                                    alt={loginTitle}
                                     onError={() => setLogoFailed(true)}
                                     sx={{
                                         maxWidth: '100%',
@@ -270,7 +273,7 @@ const Login = () => {
                                         mb: 0.5,
                                     }}
                                 >
-                                    County Government of Machakos
+                                    {loginTitle}
                                 </Typography>
                             )}
                         </Box>
@@ -288,8 +291,24 @@ const Login = () => {
                                     lineHeight: 1.3,
                                 }}
                             >
-                                County Government of Machakos
+                                {loginTitle}
                             </Typography>
+                            {loginSubtitle ? (
+                                <Typography
+                                    component="p"
+                                    sx={{
+                                        m: 0,
+                                        mt: 0.75,
+                                        fontWeight: 500,
+                                        color: micde.textSecondary,
+                                        fontFamily: fontStack,
+                                        fontSize: { xs: '0.8125rem', sm: '0.875rem' },
+                                        lineHeight: 1.35,
+                                    }}
+                                >
+                                    {loginSubtitle}
+                                </Typography>
+                            ) : null}
                             <Box
                                 aria-hidden
                                 sx={{

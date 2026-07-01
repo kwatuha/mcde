@@ -8,9 +8,10 @@ Checklists are created in the web app (**Monitoring → Checklists & visits**). 
 
 - Sign in with Machakos credentials (including SMS/email OTP)
 - Download checklist templates and project list for offline use
-- Dynamic form renderer for all web field types: yes/no, text, textarea, number, select, multi-select
+- Dynamic form renderer for all web field types: yes/no, text, textarea, number, select, multi-select, **photo**, **GPS location**
 - Auto-save visit drafts locally while filling a form
 - Queue submissions when offline; sync from **Checklists → Sync**
+- **Geotagged photos** — camera/gallery capture with optional GPS; uploads on submit or sync
 - View submitted and queued visits
 
 ## API configuration
@@ -119,8 +120,7 @@ There is no silent auto-update (Play Store / OTA). Field staff install the new A
 
 - SQLite for larger offline datasets
 - NetInfo connectivity indicator
-- Photo attachments per checklist item
-- Inspection-linked checklists (not just monitoring visits)
+- Inspection-linked checklists (pick/create inspection from mobile)
 - Play Store / MDM distribution
 
 ## Origin

@@ -1,117 +1,88 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Card,
   CardContent,
   Typography,
   Box,
   Chip,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
   Avatar,
   Button,
   Alert,
   AlertTitle,
+  CircularProgress,
   useTheme,
 } from '@mui/material';
 import {
   Warning as WarningIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
-  CheckCircle as CheckCircleIcon,
   Schedule as ScheduleIcon,
   TrendingUp as TrendingUpIcon,
   Assignment as AssignmentIcon,
-  Person as PersonIcon,
   PriorityHigh as PriorityHighIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import apiService from '../api';
+import { ROUTES } from '../configs/appConfig';
 import { tokens } from '../pages/dashboard/theme';
+
+function formatWhen(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function iconForCategory(category) {
+  switch (category) {
+    case 'finance':
+      return <TrendingUpIcon />;
+    case 'schedule':
+      return <ScheduleIcon />;
+    case 'quality':
+      return <WarningIcon />;
+    case 'risk':
+      return <ErrorIcon />;
+    case 'monitoring':
+      return <AssignmentIcon />;
+    default:
+      return <InfoIcon />;
+  }
+}
 
 const ProjectAlertsCard = ({ currentUser }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const navigate = useNavigate();
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
 
-  // Mock data for project alerts
-  const [alerts] = useState([
-    {
-      id: 1,
-      type: 'high_risk',
-      title: 'High Risk Project Alert',
-      project: 'Water Management Initiative',
-      description: 'Project marked as HIGH RISK due to budget overruns and timeline delays',
-      severity: 'critical',
-      timestamp: '2 hours ago',
-      assignedTo: 'Dr. Aisha Mwangi',
-      actionRequired: 'Immediate budget review and timeline adjustment',
-      status: 'active',
-    },
-    {
-      id: 2,
-      type: 'budget_exceeded',
-      title: 'Budget Exceeded',
-      project: 'Healthcare Infrastructure',
-      description: 'Project budget exceeded by 15%. Additional funding required.',
-      severity: 'high',
-      timestamp: '4 hours ago',
-      assignedTo: 'John Kiprotich',
-      actionRequired: 'Budget approval for additional funding',
-      status: 'pending',
-    },
-    {
-      id: 3,
-      type: 'timeline_delay',
-      title: 'Timeline Delay',
-      project: 'Education Development',
-      description: 'Project delayed by 2 weeks due to permit issues',
-      severity: 'medium',
-      timestamp: '6 hours ago',
-      assignedTo: 'Grace Akinyi',
-      actionRequired: 'Update project timeline and stakeholder communication',
-      status: 'active',
-    },
-    {
-      id: 4,
-      type: 'quality_issue',
-      title: 'Quality Control Issue',
-      project: 'Road Infrastructure',
-      description: 'Quality standards not met in recent inspection. Re-work required.',
-      severity: 'high',
-      timestamp: '8 hours ago',
-      assignedTo: 'Peter Mwangi',
-      actionRequired: 'Immediate re-inspection and corrective measures',
-      status: 'active',
-    },
-    {
-      id: 5,
-      type: 'resource_shortage',
-      title: 'Resource Shortage',
-      project: 'Housing Development',
-      description: 'Critical materials shortage affecting construction progress',
-      severity: 'medium',
-      timestamp: '1 day ago',
-      assignedTo: 'Mary Wanjiku',
-      actionRequired: 'Source alternative suppliers or adjust timeline',
-      status: 'pending',
-    },
-  ]);
-
-  const getAlertIcon = (type) => {
-    switch (type) {
-      case 'high_risk':
-        return <ErrorIcon />;
-      case 'budget_exceeded':
-        return <TrendingUpIcon />;
-      case 'timeline_delay':
-        return <ScheduleIcon />;
-      case 'quality_issue':
-        return <WarningIcon />;
-      case 'resource_shortage':
-        return <AssignmentIcon />;
-      default:
-        return <InfoIcon />;
+  const load = useCallback(async () => {
+    if (!currentUser) {
+      setAlerts([]);
+      setLoading(false);
+      return;
     }
-  };
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await apiService.projectEscalations.listSignals({ limit: 12 });
+      setAlerts(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Could not load project alerts');
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const getSeverityColor = (severity) => {
     switch (severity) {
@@ -128,285 +99,154 @@ const ProjectAlertsCard = ({ currentUser }) => {
     }
   };
 
-  const getSeverityText = (severity) => {
-    switch (severity) {
-      case 'critical':
-        return 'CRITICAL';
-      case 'high':
-        return 'HIGH';
-      case 'medium':
-        return 'MEDIUM';
-      case 'low':
-        return 'LOW';
-      default:
-        return 'UNKNOWN';
+  const handleAction = async (signalId, action) => {
+    setBusyId(signalId);
+    try {
+      if (action === 'acknowledge') {
+        await apiService.projectEscalations.acknowledge(signalId, 'Acknowledged from dashboard');
+      } else {
+        await apiService.projectEscalations.resolve(signalId, 'Resolved from dashboard');
+      }
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Action failed');
+    } finally {
+      setBusyId(null);
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active':
-        return colors.redAccent?.[500] || '#f44336';
-      case 'pending':
-        return colors.yellowAccent?.[500] || '#ff9800';
-      case 'resolved':
-        return colors.greenAccent?.[500] || '#4caf50';
-      default:
-        return colors.grey[400];
-    }
-  };
-
-  const handleAlertAction = (alertId, action) => {
-    console.log(`Alert ${alertId}: ${action}`);
-    // TODO: Implement alert actions
-  };
-
-  const criticalAlerts = alerts.filter(alert => alert.severity === 'critical' || alert.severity === 'high');
-  const activeAlerts = alerts.filter(alert => alert.status === 'active');
+  const criticalAlerts = alerts.filter((a) => a.severity === 'critical' || a.severity === 'high');
+  const openAlerts = alerts.filter((a) => a.status === 'open');
 
   return (
-      <Card sx={{ 
+    <Card
+      sx={{
         height: '100%',
-        borderRadius: 3, 
+        borderRadius: 3,
         bgcolor: '#ffffff',
-        boxShadow: `0 4px 20px rgba(0,0,0,0.04)`,
-        border: `1px solid rgba(0,0,0,0.08)`,
-        transition: 'all 0.3s ease',
-        '&:hover': {
-          transform: 'translateY(-2px)',
-          boxShadow: `0 8px 30px rgba(0,0,0,0.08)`,
-        }
-      }}>
+        boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
+        border: '1px solid rgba(0,0,0,0.08)',
+      }}
+    >
       <CardContent sx={{ p: { xs: 2, sm: 3 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Typography variant="h6" fontWeight="bold" color="#000000">
-            Project Alerts
+            Project Escalations
           </Typography>
           <Box display="flex" alignItems="center" gap={1}>
-            <Chip 
-              label={`${criticalAlerts.length} critical`}
+            <Chip
+              label={`${criticalAlerts.length} high+`}
               size="small"
-              sx={{ 
-                bgcolor: colors.redAccent?.[500] || '#f44336',
-                color: 'white',
-                fontWeight: 'bold',
-                fontSize: '0.7rem'
-              }}
+              sx={{ bgcolor: '#f44336', color: 'white', fontWeight: 'bold', fontSize: '0.7rem' }}
             />
-            <Chip 
-              label={`${activeAlerts.length} active`}
+            <Chip
+              label={`${openAlerts.length} open`}
               size="small"
-              sx={{ 
-                bgcolor: colors.yellowAccent?.[500] || '#ff9800',
-                color: 'white',
-                fontWeight: 'bold',
-                fontSize: '0.7rem'
-              }}
+              sx={{ bgcolor: '#ff9800', color: 'white', fontWeight: 'bold', fontSize: '0.7rem' }}
             />
+            <Button size="small" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
           </Box>
         </Box>
 
-        {criticalAlerts.length > 0 && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 2, 
-                bgcolor: '#fff5f5',
-              border: `1px solid ${colors.redAccent?.[500] || '#f44336'}`,
-            }}
-          >
-            <AlertTitle sx={{ fontWeight: 'bold' }}>
-              {criticalAlerts.length} Critical Alert{criticalAlerts.length > 1 ? 's' : ''} Require Immediate Attention
-            </AlertTitle>
-            Please review and take action on high-priority alerts.
+        {error && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
           </Alert>
         )}
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, overflowY: 'auto' }}>
-          {alerts.map((alert) => (
-            <Box 
-              key={alert.id}
-              sx={{ 
-                p: 2,
-                borderRadius: 2,
-                bgcolor: '#ffffff',
-                border: `1px solid ${getSeverityColor(alert.severity)}30`,
-                borderLeft: `4px solid ${getSeverityColor(alert.severity)}`,
-                transition: 'all 0.2s ease',
-                '&:hover': {
-                  bgcolor: theme.palette.mode === 'dark' ? colors.primary[600] : colors.primary[200],
-                  transform: 'translateX(4px)',
-                }
-              }}
-            >
-              <Box display="flex" alignItems="flex-start" gap={2}>
-                <Avatar 
-                  sx={{ 
-                    bgcolor: getSeverityColor(alert.severity),
-                    width: 40,
-                    height: 40,
-                    mt: 0.5
+        {loading ? (
+          <Box display="flex" justifyContent="center" py={4}>
+            <CircularProgress size={32} />
+          </Box>
+        ) : alerts.length === 0 ? (
+          <Alert severity="success" sx={{ flex: 1 }}>
+            No open project escalations in your scope.
+          </Alert>
+        ) : (
+          <>
+            {criticalAlerts.length > 0 && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                <AlertTitle sx={{ fontWeight: 'bold' }}>
+                  {criticalAlerts.length} high-priority escalation{criticalAlerts.length > 1 ? 's' : ''}
+                </AlertTitle>
+                Review schedule, finance, quality, or risk signals below.
+              </Alert>
+            )}
+
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, overflowY: 'auto' }}>
+              {alerts.map((alert) => (
+                <Box
+                  key={alert.signalId}
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: '#ffffff',
+                    border: `1px solid ${getSeverityColor(alert.severity)}30`,
+                    borderLeft: `4px solid ${getSeverityColor(alert.severity)}`,
                   }}
                 >
-                  {getAlertIcon(alert.type)}
-                </Avatar>
-                
-                <Box flex={1}>
-                  <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <Typography 
-                      variant="subtitle2" 
-                      fontWeight="bold" 
-                      color="#000000"
-                      sx={{ fontSize: '0.9rem' }}
-                    >
-                      {alert.title}
-                    </Typography>
-                    <Chip 
-                      label={getSeverityText(alert.severity)} 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: getSeverityColor(alert.severity),
-                        color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: '0.6rem',
-                        height: 20
-                      }}
-                    />
-                    <Chip 
-                      label={alert.status.toUpperCase()} 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: getStatusColor(alert.status),
-                        color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: '0.6rem',
-                        height: 20
-                      }}
-                    />
-                    {alert.severity === 'critical' && (
-                      <PriorityHighIcon sx={{ color: colors.redAccent?.[500] || '#f44336', fontSize: 16 }} />
-                    )}
-                  </Box>
-                  
-                  <Typography 
-                    variant="body2" 
-                    color="#333333"
-                    fontWeight="500"
-                    sx={{ fontSize: '0.8rem', mb: 1 }}
-                  >
-                    {alert.description}
-                  </Typography>
-                  
-                  <Box 
-                    sx={{ 
-                      p: 1.5, 
-                      borderRadius: 1, 
-                      bgcolor: '#f8fafc',
-                      border: `1px solid ${theme.palette.mode === 'dark' ? colors.primary[300] : colors.primary[300]}`,
-                      mb: 1
-                    }}
-                  >
-                    <Typography 
-                      variant="caption" 
-                      color={theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[600]}
-                      sx={{ fontSize: '0.7rem', fontWeight: 'bold', display: 'block', mb: 0.5 }}
-                    >
-                      Action Required:
-                    </Typography>
-                    <Typography 
-                      variant="body2" 
-                      color="#000000"
-                      fontWeight="500"
-                      sx={{ fontSize: '0.8rem' }}
-                    >
-                      {alert.actionRequired}
-                    </Typography>
-                  </Box>
-                  
-                  <Box display="flex" alignItems="center" justifyContent="space-between">
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        <PersonIcon sx={{ fontSize: 12, color: theme.palette.mode === 'dark' ? colors.grey[400] : colors.grey[600] }} />
-                        <Typography 
-                          variant="caption" 
-                          color={theme.palette.mode === 'dark' ? colors.grey[300] : colors.grey[600]}
-                          sx={{ fontSize: '0.7rem' }}
-                        >
-                          {alert.assignedTo}
+                  <Box display="flex" alignItems="flex-start" gap={2}>
+                    <Avatar sx={{ bgcolor: getSeverityColor(alert.severity), width: 40, height: 40 }}>
+                      {iconForCategory(alert.category)}
+                    </Avatar>
+                    <Box flex={1}>
+                      <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
+                        <Typography variant="subtitle2" fontWeight="bold">
+                          {alert.title}
                         </Typography>
+                        <Chip label={String(alert.severity || 'medium').toUpperCase()} size="small" color="default" />
+                        <Chip label={`L${alert.escalationLevel || 1}`} size="small" variant="outlined" />
+                        {alert.severity === 'critical' && (
+                          <PriorityHighIcon sx={{ color: '#f44336', fontSize: 16 }} />
+                        )}
                       </Box>
-                      
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        <ScheduleIcon sx={{ fontSize: 12, color: '#666666' }} />
-                        <Typography 
-                          variant="caption" 
-                          color="#555555"
-                          fontWeight="600"
-                          sx={{ fontSize: '0.7rem' }}
-                        >
-                          {alert.timestamp}
-                        </Typography>
-                      </Box>
-                      
-                      <Typography 
-                        variant="caption" 
-                        color={colors.blueAccent?.[500] || '#2196f3'}
-                        sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
-                      >
-                        {alert.project}
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        {alert.message}
                       </Typography>
-                    </Box>
-                    
-                    <Box display="flex" gap={1}>
-                      <Button 
-                        size="small" 
-                        variant="contained"
-                        onClick={() => handleAlertAction(alert.id, 'acknowledge')}
-                        sx={{ 
-                          bgcolor: colors.blueAccent?.[500] || '#2196f3',
-                          fontSize: '0.7rem',
-                          height: 24,
-                          minWidth: 60,
-                          '&:hover': { bgcolor: colors.blueAccent?.[600] || '#1976d2' }
-                        }}
-                      >
-                        Acknowledge
-                      </Button>
-                      <Button 
-                        size="small" 
-                        variant="outlined"
-                        onClick={() => handleAlertAction(alert.id, 'resolve')}
-                        sx={{ 
-                          borderColor: colors.greenAccent?.[500] || '#4caf50',
-                          color: colors.greenAccent?.[500] || '#4caf50',
-                          fontSize: '0.7rem',
-                          height: 24,
-                          minWidth: 60,
-                          '&:hover': { 
-                            borderColor: colors.greenAccent?.[600] || '#388e3c',
-                            bgcolor: colors.greenAccent?.[500] + '10'
-                          }
-                        }}
-                      >
-                        Resolve
-                      </Button>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {alert.projectName} · {alert.department || '—'} · {formatWhen(alert.detectedAt)}
+                      </Typography>
+                      <Box display="flex" gap={1} mt={1.5} flexWrap="wrap">
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => navigate(`${ROUTES.PROJECTS}/${alert.projectId}`)}
+                        >
+                          Open project
+                        </Button>
+                        {alert.status === 'open' && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={busyId === alert.signalId}
+                            onClick={() => handleAction(alert.signalId, 'acknowledge')}
+                          >
+                            Acknowledge
+                          </Button>
+                        )}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={busyId === alert.signalId}
+                          onClick={() => handleAction(alert.signalId, 'resolve')}
+                        >
+                          Resolve
+                        </Button>
+                      </Box>
                     </Box>
                   </Box>
                 </Box>
-              </Box>
+              ))}
             </Box>
-          ))}
-        </Box>
+          </>
+        )}
 
-        <Box mt={2} pt={2} borderTop={`1px solid ${theme.palette.mode === 'dark' ? colors.primary[300] : colors.primary[200]}`}>
-          <Typography 
-            variant="caption" 
-            color="#666666"
-            fontWeight="500"
-            sx={{ fontSize: '0.7rem' }}
-          >
-            Monitor project health and take immediate action on critical alerts
-          </Typography>
+        <Box mt={2} pt={2} borderTop="1px solid rgba(0,0,0,0.08)">
+          <Button size="small" onClick={() => navigate(ROUTES.OPERATIONS_DASHBOARD)}>
+            View operations dashboard
+          </Button>
         </Box>
       </CardContent>
     </Card>

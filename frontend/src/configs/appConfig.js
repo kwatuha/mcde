@@ -78,6 +78,7 @@ export const ROUTES = {
     /** CIMES-style project monitoring records list (sidebar under Monitoring). */
     MONITORING_PROJECT_MONITORING: '/monitoring/project-monitoring',
     PMC_WARD_REPORTS: '/monitoring/pmc-ward-reports',
+    VILLAGE_MONITORING_WORKFLOW: '/monitoring/village-workflow',
     WARD_ACCOUNTABILITY: '/monitoring/ward-accountability',
     PROJECT_PARTNERS: '/partners',
     PROCUREMENT: '/procurement',
@@ -155,6 +156,7 @@ export const ROUTES = {
     HR_PUBLIC_HOLIDAYS: '/hr-module?view=publicHolidays',
     WORKFLOW_MANAGEMENT: '/workflow-management',
     APPROVAL_LEVELS_MANAGEMENT: '/approval-levels-management', // ✨ NEW: Add the approval levels management route
+    PROJECT_ESCALATION_RULES: '/project-escalation-rules',
     AI_USAGE: '/ai-usage',
     FEEDBACK_MANAGEMENT: '/feedback-management', // ✨ NEW: Public feedback management route
     ABSORPTION_REPORT: '/absorption-report', // ✨ NEW: Absorption report route

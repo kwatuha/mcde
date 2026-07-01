@@ -1,0 +1,286 @@
+{
+  "templateKey": "reference-county-site-monitoring",
+  "name": "Reference — County Project Site Monitoring Visit",
+  "description": "Reference monitoring checklist for county infrastructure and development projects. Demonstrates supported field types including logged-in user (auto-fill), admin area cascades (sub-county → ward → sublocation → village), GPS, photos, project milestones, BQ items, and M&E indicators. Usable for project or RRI programme visits.",
+  "templateCategory": "monitoring_checklist",
+  "isActive": true,
+  "allowedSubjectTypes": ["project", "rri_programme"],
+  "structure": {
+    "sections": [
+      {
+        "id": "visit_details",
+        "title": "1. Visit identification",
+        "items": [
+          {
+            "id": "officer_name",
+            "label": "Monitoring officer name",
+            "type": "user",
+            "required": true
+          },
+          {
+            "id": "contractor_name",
+            "label": "Contractor / implementing firm on site",
+            "type": "text",
+            "required": false
+          },
+          {
+            "id": "visit_type",
+            "label": "Visit type",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Progress monitoring",
+              "Quality inspection",
+              "Compliance audit",
+              "Follow-up visit",
+              "Final inspection"
+            ]
+          },
+          {
+            "id": "visit_area",
+            "label": "Visit area (sub-county → ward → sublocation → village)",
+            "type": "area_location",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "project_scope",
+        "title": "2. Project scope (database-linked — reference field types)",
+        "items": [
+          {
+            "id": "milestone_inspected",
+            "label": "Project milestone this visit relates to (loaded from project record)",
+            "type": "project_milestones",
+            "required": true
+          },
+          {
+            "id": "bq_line_inspected",
+            "label": "Primary BoQ / activity line inspected (loaded from project record)",
+            "type": "project_bq_items",
+            "required": true
+          },
+          {
+            "id": "bq_lines_also_observed",
+            "label": "Other BoQ / activity lines also observed on site (multi-select from project)",
+            "type": "project_bq_items",
+            "required": false,
+            "allowMultiple": true
+          },
+          {
+            "id": "indicator_reported",
+            "label": "M&E indicator this visit reports on (loaded from project or RRI programme planning links)",
+            "type": "indicator",
+            "required": false
+          }
+        ]
+      },
+      {
+        "id": "progress_status",
+        "title": "3. Physical progress & site activity",
+        "items": [
+          {
+            "id": "physical_progress_pct",
+            "label": "Physical progress observed (% complete)",
+            "type": "number",
+            "required": true
+          },
+          {
+            "id": "works_match_design",
+            "label": "Works observed align with approved designs and Bill of Quantities",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "contractor_present",
+            "label": "Contractor personnel present on site during visit",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "implementation_status",
+            "label": "Overall implementation status",
+            "type": "select",
+            "required": true,
+            "options": [
+              "On track",
+              "Minor delays",
+              "At risk",
+              "Stalled",
+              "Completed"
+            ]
+          },
+          {
+            "id": "components_observed",
+            "label": "Work components observed on site (select all that apply)",
+            "type": "multi_select",
+            "required": true,
+            "options": [
+              "Earthworks / site preparation",
+              "Foundations / substructure",
+              "Superstructure / main works",
+              "Finishes",
+              "Mechanical / electrical",
+              "Landscaping / external works",
+              "Signage / branding",
+              "Other"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "quality_safety",
+        "title": "4. Quality, safety & compliance",
+        "items": [
+          {
+            "id": "workmanship_acceptable",
+            "label": "Quality of workmanship is acceptable for the stage reached",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "safety_measures",
+            "label": "Site safety measures in place (PPE, signage, barricades where needed)",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "environmental_safeguards",
+            "label": "Environmental safeguards observed (erosion control, waste management)",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "quality_safety_notes",
+            "label": "Quality, safety, or environmental concerns noted",
+            "type": "textarea",
+            "required": false,
+            "showIf": {
+              "any": [
+                { "itemId": "workmanship_acceptable", "op": "eq", "value": "no" },
+                { "itemId": "safety_measures", "op": "eq", "value": "no" },
+                { "itemId": "environmental_safeguards", "op": "eq", "value": "no" }
+              ]
+            }
+          },
+          {
+            "id": "non_conformances",
+            "label": "Non-conformances observed (select all that apply)",
+            "type": "multi_select",
+            "required": false,
+            "options": [
+              "Material substitution without approval",
+              "Dimensional / specification variance",
+              "Incomplete works for claimed stage",
+              "Poor workmanship",
+              "Safety breach",
+              "None observed"
+            ],
+            "showIf": {
+              "itemId": "workmanship_acceptable",
+              "op": "eq",
+              "value": "no"
+            }
+          }
+        ]
+      },
+      {
+        "id": "stakeholder_feedback",
+        "title": "5. Community & stakeholder feedback",
+        "items": [
+          {
+            "id": "community_engagement_visible",
+            "label": "Community engagement information or project signage visible",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "stakeholder_sentiment",
+            "label": "Stakeholder sentiment during visit",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Supportive",
+              "Neutral",
+              "Concerns raised",
+              "Not assessed"
+            ]
+          },
+          {
+            "id": "community_feedback_summary",
+            "label": "Summary of community or beneficiary feedback",
+            "type": "textarea",
+            "required": false
+          }
+        ]
+      },
+      {
+        "id": "recommendations",
+        "title": "6. Recommendations & follow-up",
+        "items": [
+          {
+            "id": "monitoring_recommendation",
+            "label": "Monitoring recommendation",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Continue as planned",
+              "Issue reminder to contractor",
+              "Escalate to project manager / department head",
+              "Schedule re-inspection within 7 days",
+              "Recommend payment caution / hold pending correction"
+            ]
+          },
+          {
+            "id": "action_points",
+            "label": "Action points and follow-up required",
+            "type": "textarea",
+            "required": true
+          },
+          {
+            "id": "days_to_revisit",
+            "label": "Recommended days until next site visit",
+            "type": "number",
+            "required": false,
+            "showIf": {
+              "itemId": "monitoring_recommendation",
+              "op": "in",
+              "values": [
+                "Schedule re-inspection within 7 days",
+                "Escalate to project manager / department head"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "geotagged_evidence",
+        "title": "7. Geotagged evidence (reference field types)",
+        "items": [
+          {
+            "id": "site_gps",
+            "label": "Site GPS coordinates (capture at main project location)",
+            "type": "location",
+            "required": true
+          },
+          {
+            "id": "site_overview_photo",
+            "label": "Site overview photo (single upload, GPS optional)",
+            "type": "photo",
+            "required": false,
+            "maxPhotos": 1,
+            "requireGps": false
+          },
+          {
+            "id": "progress_photos",
+            "label": "Progress evidence photos (up to 4, GPS required on each photo)",
+            "type": "photo",
+            "required": true,
+            "maxPhotos": 4,
+            "requireGps": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const { computeFrontLoadRisk, groupLinesByMilestone } = require('../services/procurementFrontLoadService');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -3477,27 +3478,6 @@ async function fetchMilestoneSequenceMap(projectId) {
   return new Map();
 }
 
-function groupLinesByMilestone(lines, milestoneOrderMap) {
-  const groups = new Map();
-  for (const line of lines || []) {
-    const name = String(line.milestoneName || line.milestone_name || 'General').trim() || 'General';
-    const key = name.toLowerCase();
-    if (!groups.has(key)) {
-      groups.set(key, {
-        milestoneName: name,
-        sequenceOrder: milestoneOrderMap.get(key) ?? 9999,
-        total: 0,
-        lineCount: 0,
-      });
-    }
-    const group = groups.get(key);
-    const amount = Number(line.amount ?? line.budgetAmount ?? line.budget_amount ?? 0);
-    group.total += Number.isFinite(amount) ? amount : 0;
-    group.lineCount += 1;
-  }
-  return [...groups.values()].sort((a, b) => a.sequenceOrder - b.sequenceOrder || a.milestoneName.localeCompare(b.milestoneName));
-}
-
 function buildCumulativeCurve(groups, total) {
   const safeTotal = Number(total) > 0 ? Number(total) : 0;
   let running = 0;
@@ -3511,50 +3491,6 @@ function buildCumulativeCurve(groups, total) {
       cumulativePercent: safeTotal > 0 ? Number(((running / safeTotal) * 100).toFixed(2)) : 0,
     };
   });
-}
-
-function computeFrontLoadRisk(plannedGroups, quotedGroups, options = {}) {
-  const plannedTotal = plannedGroups.reduce((sum, g) => sum + Number(g.total || 0), 0);
-  const quotedTotal = quotedGroups.reduce((sum, g) => sum + Number(g.total || 0), 0);
-  if (plannedTotal <= 0 || quotedTotal <= 0) {
-    return {
-      riskLevel: 'none',
-      frontLoadIndex: 0,
-      plannedEarlyPercent: 0,
-      quotedEarlyPercent: 0,
-      alerts: ['Insufficient planned or quoted totals for comparison.'],
-    };
-  }
-
-  const earlyCount = Math.max(1, Math.ceil(plannedGroups.length * (options.earlyFraction || 0.33)));
-  const plannedEarly = plannedGroups.slice(0, earlyCount).reduce((sum, g) => sum + Number(g.total || 0), 0);
-  const quotedEarly = quotedGroups.slice(0, earlyCount).reduce((sum, g) => sum + Number(g.total || 0), 0);
-  const plannedEarlyPercent = Number(((plannedEarly / plannedTotal) * 100).toFixed(2));
-  const quotedEarlyPercent = Number(((quotedEarly / quotedTotal) * 100).toFixed(2));
-  const frontLoadIndex = Number((quotedEarlyPercent - plannedEarlyPercent).toFixed(2));
-
-  const alerts = [];
-  let riskLevel = 'low';
-  if (frontLoadIndex >= 20 || (quotedEarlyPercent >= 40 && plannedEarlyPercent < 15)) {
-    riskLevel = 'high';
-    alerts.push('Quoted amount is heavily front-loaded versus the planned baseline.');
-  } else if (frontLoadIndex >= 10 || quotedEarlyPercent >= 30) {
-    riskLevel = 'medium';
-    alerts.push('Quoted distribution is more front-loaded than planned.');
-  }
-  if (quotedTotal > plannedTotal * 1.1) {
-    alerts.push(`Quoted total exceeds planned by ${((quotedTotal / plannedTotal - 1) * 100).toFixed(1)}%.`);
-    if (riskLevel === 'low') riskLevel = 'medium';
-  }
-
-  return {
-    riskLevel,
-    frontLoadIndex,
-    plannedEarlyPercent,
-    quotedEarlyPercent,
-    earlyMilestoneCount: earlyCount,
-    alerts,
-  };
 }
 
 async function fetchProjectFinancials(projectId) {

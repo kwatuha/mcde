@@ -20,6 +20,7 @@ import ProjectStatusPage from './pages/ProjectStatusPage';
 import ProjectUpdatesPage from './pages/ProjectUpdatesPage';
 import MonitoringProjectMonitoringPage from './pages/MonitoringProjectMonitoringPage';
 import PmcWardReportsPage from './pages/PmcWardReportsPage';
+import VillageMonitoringWorkflowPage from './pages/VillageMonitoringWorkflowPage';
 import ProjectMilestonesPage from './pages/ProjectMilestonesPage';
 import ProjectEvaluationPage from './pages/ProjectEvaluationPage';
 import ProjectDocumentsByProjectPage from './pages/ProjectDocumentsByProjectPage';
@@ -90,6 +91,8 @@ import ProjectCategoryPage from './pages/ProjectCategoryPage';
 import ProjectPhotoManager from './pages/ProjectPhotoManager';
 // NEW: Import the PersonalDashboard component (formerly ContractorDashboard)
 import PersonalDashboard from './pages/ContractorDashboard';
+import ContractorPaymentsPage from './pages/ContractorPaymentsPage';
+import ContractorPhotosPage from './pages/ContractorPhotosPage';
 // NEW: Import the ContractorManagementPage component
 import ContractorManagementPage from './pages/ContractorManagementPage';
 import ContractorTypesPage from './pages/ContractorTypesPage';
@@ -99,6 +102,7 @@ import HrModulePage from './pages/HrModulePage';
 import WorkflowManagementPage from './pages/WorkflowManagementPage';
 // ✨ NEW: Import the ApprovalLevelsManagementPage component
 import ApprovalLevelsManagementPage from './pages/ApprovalLevelsManagementPage';
+import ProjectEscalationRulesPage from './pages/ProjectEscalationRulesPage';
 // ✨ NEW: Import the AdminPage component
 import AdminPage from './pages/AdminPage';
 import AuditTrailPage from './pages/AuditTrailPage';
@@ -297,6 +301,14 @@ const router = createBrowserRouter([
         element: <PersonalDashboard />,
       },
       {
+        path: 'contractor-dashboard/payments',
+        element: <ContractorPaymentsPage />,
+      },
+      {
+        path: 'contractor-dashboard/photos',
+        element: <ContractorPhotosPage />,
+      },
+      {
         path: 'contractor-management',
         element: <ContractorManagementPage />,
       },
@@ -335,6 +347,10 @@ const router = createBrowserRouter([
       {
         path: 'monitoring/pmc-ward-reports',
         element: <PmcWardReportsPage />,
+      },
+      {
+        path: 'monitoring/village-workflow',
+        element: <VillageMonitoringWorkflowPage />,
       },
       {
         path: 'monitoring/ward-accountability',
@@ -499,6 +515,10 @@ const router = createBrowserRouter([
       {
         path: 'approval-levels-management',
         element: <ApprovalLevelsManagementPage />,
+      },
+      {
+        path: 'project-escalation-rules',
+        element: <ProjectEscalationRulesPage />,
       },
       {
         path: 'feedback-management',

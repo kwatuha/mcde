@@ -32,6 +32,10 @@ const workflowRoutes = require('./routes/projectWorkflowRoutes');
 const approvalLevelsRoutes = require('./routes/approvalLevelsRoutes');
 const approvalWorkflowRoutes = require('./routes/approvalWorkflowRoutes');
 const { startEscalationMonitor } = require('./services/approvalWorkflowEngine');
+const {
+  ensureReady: ensureProjectEscalationReady,
+  startProjectEscalationMonitor,
+} = require('./services/projectEscalationEngine');
 const paymentStatusRoutes = require('./routes/paymentStatusRoutes');
 const dashboardConfigRoutes = require('./routes/dashboardConfigRoutes');
 const dataAccessRoutes = require('./routes/dataAccessRoutes');
@@ -64,8 +68,10 @@ const procurementRoutes = require('./routes/procurementRoutes')
 const aiAssistantRoutes = require('./routes/aiAssistantRoutes')
 const adpRoutes = require('./routes/adpRoutes');
 const pmcReportRoutes = require('./routes/pmcReportRoutes');
+const villageMonitoringRoutes = require('./routes/villageMonitoringRoutes');
 const rriRoutes = require('./routes/rriRoutes');
 const accountabilityRoutes = require('./routes/accountabilityRoutes');
+const projectEscalationRoutes = require('./routes/projectEscalationRoutes');
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -136,6 +142,7 @@ app.use('/api/procurement', procurementRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/adp', adpRoutes);
 app.use('/api/pmc-reports', pmcReportRoutes);
+app.use('/api/village-monitoring', villageMonitoringRoutes);
 app.use('/api/rri', rriRoutes);
 app.use('/api/payment-requests', paymentRequestRoutes);
 app.use('/api/projects', projectRouter);
@@ -162,6 +169,7 @@ app.use('/api/projects/documents', projectDocumentsRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/approval-workflow', approvalWorkflowRoutes);
+app.use('/api/project-escalations', projectEscalationRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
 app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/kenya-wards', kenyaWardsRoutes);
@@ -252,6 +260,13 @@ server.listen(port, bindHost, async () => {
         console.log('Approval escalation monitor: started (auto warning/escalation checks enabled).');
     } catch (e) {
         console.warn('Approval escalation monitor failed to start:', e.message);
+    }
+    try {
+        await ensureProjectEscalationReady();
+        startProjectEscalationMonitor();
+        console.log('Project escalation monitor: started (rule evaluation on interval).');
+    } catch (e) {
+        console.warn('Project escalation monitor failed to start:', e.message);
     }
     try {
         await ensureMobileAppTables();

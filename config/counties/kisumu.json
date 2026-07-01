@@ -36,6 +36,20 @@
       "website": "https://www.kisumu.go.ke"
     }
   },
+  "branding": {
+    "systemName": "Kisumu Monitoring and Evaluation System",
+    "systemAcronym": "K-MES",
+    "productName": "Kisumu-PIMS",
+    "productSubtitle": "County Project Investment Management System",
+    "publicPortalName": "Kisumu Public Investment Portal",
+    "loginTitle": "Kisumu County Government",
+    "loginSubtitle": "Monitoring and Evaluation System",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/tenants/kisumu/logo.png",
+      "public": "assets/tenants/kisumu/logo.png"
+    }
+  },
   "labels": {
     "department": "Department",
     "section": "Section",

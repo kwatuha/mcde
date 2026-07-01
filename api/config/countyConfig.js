@@ -58,10 +58,56 @@ function reloadCountyConfig() {
   return getCountyConfig();
 }
 
+function getProjectRoot() {
+  return path.join(__dirname, '../..');
+}
+
+function resolveConfigAssetPath(relativePath) {
+  if (!relativePath || typeof relativePath !== 'string') return null;
+  const normalized = relativePath.replace(/^\/+/, '');
+  const absolute = path.join(getProjectRoot(), normalized);
+  try {
+    return fs.existsSync(absolute) && fs.statSync(absolute).isFile() ? absolute : null;
+  } catch {
+    return null;
+  }
+}
+
+function getTenantBranding() {
+  const config = getCountyConfig();
+  const branding = config?.branding || {};
+  const organization = config?.organization || {};
+  const county = config?.county || {};
+  return {
+    tenantType: config?.tenantType || 'county',
+    systemName: branding.systemName || organization.name || county.displayName || county.name || '',
+    systemAcronym: branding.systemAcronym || '',
+    productName: branding.productName || '',
+    productSubtitle: branding.productSubtitle || '',
+    publicPortalName: branding.publicPortalName || '',
+    loginTitle: branding.loginTitle || county.displayName || organization.name || county.name || '',
+    loginSubtitle: branding.loginSubtitle || branding.systemName || '',
+    republicLine: branding.republicLine || 'REPUBLIC OF KENYA',
+    logoAdminPath: resolveConfigAssetPath(branding.logo?.admin),
+    logoPublicPath: resolveConfigAssetPath(branding.logo?.public || branding.logo?.admin),
+  };
+}
+
+function resolveTenantLogoPath(kind = 'admin') {
+  const branding = getTenantBranding();
+  if (kind === 'public' && branding.logoPublicPath) return branding.logoPublicPath;
+  if (branding.logoAdminPath) return branding.logoAdminPath;
+  return branding.logoPublicPath;
+}
+
 module.exports = {
   getCountyConfig,
   reloadCountyConfig,
-  loadCountyConfig
+  loadCountyConfig,
+  getProjectRoot,
+  resolveConfigAssetPath,
+  getTenantBranding,
+  resolveTenantLogoPath,
 };
 
 
