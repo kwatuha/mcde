@@ -106,6 +106,9 @@ const ApprovalLevelsManagementPage = () => {
   const [workflowFormErrors, setWorkflowFormErrors] = useState({});
   const [editWorkflowDefinitionId, setEditWorkflowDefinitionId] = useState(null);
   const [workflowDefinitionLocked, setWorkflowDefinitionLocked] = useState(false);
+  const [cloneSourceDefinitionId, setCloneSourceDefinitionId] = useState(null);
+  const [cloneSourceVersion, setCloneSourceVersion] = useState(null);
+  const [deactivatePreviousOnCreate, setDeactivatePreviousOnCreate] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -212,6 +215,9 @@ const ApprovalLevelsManagementPage = () => {
   const resetWorkflowDraft = () => {
     setEditWorkflowDefinitionId(null);
     setWorkflowDefinitionLocked(false);
+    setCloneSourceDefinitionId(null);
+    setCloneSourceVersion(null);
+    setDeactivatePreviousOnCreate(false);
     setWorkflowDraft({
       entity_type: 'payment_request',
       code: 'default',
@@ -279,6 +285,48 @@ const ApprovalLevelsManagementPage = () => {
     },
     [hasPrivilege]
   );
+
+  const handleCloneWorkflowAsNewVersion = useCallback(
+    (deactivatePrevious = false) => {
+      const sourceId = editWorkflowDefinitionId;
+      const sourceVersion = Number(workflowDraft.version || 1);
+      const entityType = workflowDraft.entity_type;
+      const code = workflowDraft.code || 'default';
+      const sameFamily = (workflowDefs || []).filter(
+        (d) => String(d.entity_type || '') === String(entityType || '')
+          && String(d.code || 'default') === String(code || 'default')
+      );
+      const maxVer = sameFamily.reduce((max, d) => Math.max(max, Number(d.version || 1)), 0);
+      const nextVersion = Math.max(sourceVersion + 1, maxVer + 1);
+
+      setWorkflowDraft((prev) => ({
+        ...prev,
+        version: nextVersion,
+        active: true,
+        name: prev.name?.trim()
+          ? `${prev.name.trim()} (v${nextVersion})`
+          : `${entityType || 'workflow'} v${nextVersion}`,
+      }));
+      setCloneSourceDefinitionId(sourceId);
+      setCloneSourceVersion(sourceVersion);
+      setDeactivatePreviousOnCreate(Boolean(deactivatePrevious));
+      setEditWorkflowDefinitionId(null);
+      setWorkflowDefinitionLocked(false);
+      setWorkflowFormErrors({});
+      setSnackbar({
+        open: true,
+        message: deactivatePrevious
+          ? `Version ${nextVersion} ready. Adjust steps, then click Create & deactivate previous. Version ${sourceVersion} will be turned off automatically.`
+          : `Version ${nextVersion} ready. Adjust steps and roles, then click Create definition.`,
+        severity: 'info',
+      });
+    },
+    [editWorkflowDefinitionId, workflowDraft.entity_type, workflowDraft.code, workflowDraft.version, workflowDefs]
+  );
+
+  const handleCloneAndDeactivatePrevious = useCallback(() => {
+    handleCloneWorkflowAsNewVersion(true);
+  }, [handleCloneWorkflowAsNewVersion]);
 
   const handleWorkflowStepField = (index, field, value) => {
     setWorkflowDraft((prev) => {
@@ -364,7 +412,16 @@ const ApprovalLevelsManagementPage = () => {
           link_template: workflowDraft.link_template?.trim() || null,
           steps,
         });
-        setSnackbar({ open: true, message: 'Workflow definition created.', severity: 'success' });
+        if (cloneSourceDefinitionId && deactivatePreviousOnCreate) {
+          await apiService.approvalWorkflow.updateDefinition(cloneSourceDefinitionId, { active: false });
+          setSnackbar({
+            open: true,
+            message: `Workflow v${workflowDraft.version} created and version ${cloneSourceVersion ?? 'previous'} deactivated.`,
+            severity: 'success',
+          });
+        } else {
+          setSnackbar({ open: true, message: 'Workflow definition created.', severity: 'success' });
+        }
         setCreateWorkflowOpen(false);
         resetWorkflowDraft();
         await loadWorkflowPanels();
@@ -410,6 +467,19 @@ const ApprovalLevelsManagementPage = () => {
         headerName: 'Active',
         width: 90,
         renderCell: (params) => (params.row.active === true || params.row.active === 1 ? 'Yes' : 'No'),
+      },
+      {
+        field: 'used_in_requests',
+        headerName: 'In use',
+        width: 90,
+        renderCell: (params) => {
+          const count = Number(params.row.used_in_requests || 0);
+          return count > 0 ? (
+            <Chip size="small" color="warning" variant="outlined" label={String(count)} title={`${count} approval request(s) — clone as new version to edit steps`} />
+          ) : (
+            <Typography variant="caption" color="text.secondary">—</Typography>
+          );
+        },
       },
       {
         field: '_edit',
@@ -950,22 +1020,74 @@ const ApprovalLevelsManagementPage = () => {
         <DialogContent dividers sx={{ pt: 1 }}>
           <Stack spacing={3}>
             {workflowDefinitionLocked && (
-              <Alert severity="warning">
-                This definition already has approval requests. You can still change <strong>display name</strong>, <strong>active</strong>, and the{' '}
-                <strong>open item link</strong> below. To change steps or <code>entity_type</code>, create a <strong>new version</strong> (or code) with &quot;Add workflow definition&quot;.
+              <Alert
+                severity="warning"
+                action={(
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Button color="inherit" size="small" variant="outlined" onClick={() => handleCloneWorkflowAsNewVersion(false)}>
+                      Clone only
+                    </Button>
+                    <Button color="warning" size="small" variant="contained" onClick={handleCloneAndDeactivatePrevious}>
+                      Clone &amp; deactivate previous
+                    </Button>
+                  </Stack>
+                )}
+              >
+                This definition already has approval requests, so <strong>steps and entity type are locked</strong> to protect in-flight approvals.
+                You can still change <strong>display name</strong>, <strong>active</strong>, and <strong>open item link</strong> below, then click Save changes.
+                To add or change approval steps (e.g. Chief Engineer after Resident Engineer), use <strong>Clone &amp; deactivate previous</strong>: copies steps to a new version and turns off the old one when you save.
               </Alert>
             )}
+            {cloneSourceDefinitionId && editWorkflowDefinitionId == null ? (
+              <Alert severity="info" variant="outlined">
+                <Stack spacing={1}>
+                  <Typography variant="body2">
+                    Creating version {workflowDraft.version}
+                    {cloneSourceVersion != null ? ` from version ${cloneSourceVersion}` : ''}.
+                    Edit steps below, then save.
+                  </Typography>
+                  <FormControlLabel
+                    control={(
+                      <Switch
+                        checked={deactivatePreviousOnCreate}
+                        onChange={(e) => setDeactivatePreviousOnCreate(e.target.checked)}
+                        color="primary"
+                      />
+                    )}
+                    label={
+                      cloneSourceVersion != null
+                        ? `Deactivate version ${cloneSourceVersion} when the new definition is saved`
+                        : 'Deactivate previous version when the new definition is saved'
+                    }
+                  />
+                </Stack>
+              </Alert>
+            ) : null}
+            {!workflowDefinitionLocked && editWorkflowDefinitionId != null ? (
+              <Alert severity="success" variant="outlined">
+                No approval requests use this definition yet — all fields including steps can be edited.
+              </Alert>
+            ) : null}
             <Alert severity="info" variant="outlined">
               <Typography variant="body2">
                 This form saves workflow definitions and steps used by the approval engine.
               </Typography>
             </Alert>
 
-            <Box>
+            <Box
+              sx={{
+                p: workflowDefinitionLocked ? 2 : 0,
+                borderRadius: workflowDefinitionLocked ? 1 : 0,
+                border: workflowDefinitionLocked ? 1 : 0,
+                borderColor: 'success.light',
+                bgcolor: workflowDefinitionLocked ? 'success.50' : 'transparent',
+              }}
+            >
               <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
-                Definition
+                {workflowDefinitionLocked ? 'Editable while in use' : 'Definition'}
               </Typography>
-              <Grid container spacing={2} sx={{ mt: 0.5 }}>
+              <Grid container spacing={2} sx={{ mt: workflowDefinitionLocked ? 0.5 : 0.5 }}>
+                {!workflowDefinitionLocked ? (
                 <Grid item xs={12}>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.75 }}>
                     Quick entity types (click or type your own — lowercase, underscores recommended)
@@ -998,6 +1120,19 @@ const ApprovalLevelsManagementPage = () => {
                     inputProps={{ spellCheck: false, autoCapitalize: 'off' }}
                   />
                 </Grid>
+                ) : (
+                <Grid item xs={12}>
+                  <TextField
+                    label="Entity type"
+                    fullWidth
+                    disabled
+                    value={workflowDraft.entity_type}
+                    helperText="Locked because this definition is already in use"
+                  />
+                </Grid>
+                )}
+                {!workflowDefinitionLocked ? (
+                <>
                 <Grid item xs={12} sm={5}>
                   <TextField
                     label="Code"
@@ -1021,6 +1156,18 @@ const ApprovalLevelsManagementPage = () => {
                     helperText="Integer ≥ 1"
                   />
                 </Grid>
+                </>
+                ) : (
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="Version"
+                    fullWidth
+                    disabled
+                    value={`v${workflowDraft.version} (locked)`}
+                    helperText="Use Clone as new version to bump version"
+                  />
+                </Grid>
+                )}
                 <Grid item xs={12} sm={4} sx={{ display: 'flex', alignItems: 'center' }}>
                   <FormControlLabel
                     control={
@@ -1205,8 +1352,22 @@ const ApprovalLevelsManagementPage = () => {
           >
             Cancel
           </Button>
+          {workflowDefinitionLocked ? (
+            <>
+              <Button onClick={() => handleCloneWorkflowAsNewVersion(false)} variant="outlined" disabled={workflowLoading}>
+                Clone only
+              </Button>
+              <Button onClick={handleCloneAndDeactivatePrevious} variant="contained" color="warning" disabled={workflowLoading}>
+                Clone &amp; deactivate previous
+              </Button>
+            </>
+          ) : null}
           <Button onClick={handleSubmitWorkflowDefinition} variant="contained" disabled={workflowLoading} size="large">
-            {editWorkflowDefinitionId != null ? 'Save changes' : 'Create definition'}
+            {editWorkflowDefinitionId != null
+              ? 'Save changes'
+              : cloneSourceDefinitionId && deactivatePreviousOnCreate
+                ? 'Create & deactivate previous'
+                : 'Create definition'}
           </Button>
         </DialogActions>
       </Dialog>

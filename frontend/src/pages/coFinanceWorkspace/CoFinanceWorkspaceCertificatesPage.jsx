@@ -29,11 +29,11 @@ import ApprovalWorkflowPanel from '../../components/approval/ApprovalWorkflowPan
 import { ROUTES } from '../../configs/appConfig';
 import {
   formatPreviousApprovalSummary,
-  isResidentEngineerPriorApproval,
+  isChiefEngineerPriorApproval,
   workflowDetailLine,
 } from '../../utils/certificateWorkflowDisplay.js';
-import { ENGINEER_WORKSPACE_ROUTES, workflowChip } from './engineerWorkspaceShared';
-import { useEngineerWorkspaceData } from './useEngineerWorkspaceData';
+import { CO_FINANCE_WORKSPACE_ROUTES, workflowChip } from './coFinanceWorkspaceShared';
+import { useCoFinanceWorkspaceData } from './useCoFinanceWorkspaceData';
 
 function certificateLabel(row) {
   return [row.certType, row.certSubType].filter(Boolean).join(' · ')
@@ -51,16 +51,16 @@ function PriorApprovalCell({ row }) {
     );
   }
 
-  const isResident = isResidentEngineerPriorApproval(row);
+  const isChiefApproved = isChiefEngineerPriorApproval(row);
 
   return (
     <Stack spacing={0.5}>
-      {isResident ? (
+      {isChiefApproved ? (
         <Chip
           size="small"
           color="success"
           variant="outlined"
-          label="Resident Engineer approved"
+          label="Chief Engineer approved"
           sx={{ alignSelf: 'flex-start', fontWeight: 700 }}
         />
       ) : (
@@ -72,17 +72,17 @@ function PriorApprovalCell({ row }) {
           sx={{ alignSelf: 'flex-start' }}
         />
       )}
-      <Typography variant="body2" sx={{ fontWeight: isResident ? 600 : 500 }}>
+      <Typography variant="body2" sx={{ fontWeight: isChiefApproved ? 600 : 500 }}>
         {summary}
       </Typography>
     </Stack>
   );
 }
 
-export default function EngineerWorkspaceCertificatesPage() {
+export default function CoFinanceWorkspaceCertificatesPage() {
   const { user, hasPrivilege } = useAuth();
   const navigate = useNavigate();
-  const { loading, error, load, certificates, pendingCerts, summary } = useEngineerWorkspaceData({
+  const { loading, error, load, certificates, pendingCerts, summary } = useCoFinanceWorkspaceData({
     include: 'certificates,workflow',
   });
   const [expandedCertId, setExpandedCertId] = useState(null);
@@ -95,7 +95,7 @@ export default function EngineerWorkspaceCertificatesPage() {
       const score = (row) => {
         let value = 0;
         if (String(row.approvalWorkflowStatus || '').toLowerCase() === 'pending') value += 4;
-        if (isResidentEngineerPriorApproval(row)) value += 2;
+        if (isChiefEngineerPriorApproval(row)) value += 2;
         if (formatPreviousApprovalSummary(row)) value += 1;
         return value;
       };
@@ -103,8 +103,8 @@ export default function EngineerWorkspaceCertificatesPage() {
     })
   ), [certificates]);
 
-  const residentApprovedCount = summary.residentEngineerApprovedPending
-    ?? sortedCertificates.filter(isResidentEngineerPriorApproval).length;
+  const chiefEngineerApprovedCount = summary.chiefEngineerApprovedPending
+    ?? sortedCertificates.filter(isChiefEngineerPriorApproval).length;
   const priorApprovedCount = summary.certificatesWithPriorApproval
     ?? sortedCertificates.filter((row) => Boolean(formatPreviousApprovalSummary(row))).length;
 
@@ -117,7 +117,7 @@ export default function EngineerWorkspaceCertificatesPage() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(ENGINEER_WORKSPACE_ROUTES.overview)}
+          onClick={() => navigate(CO_FINANCE_WORKSPACE_ROUTES.overview)}
           size="small"
         >
           Workspace
@@ -131,12 +131,12 @@ export default function EngineerWorkspaceCertificatesPage() {
 
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>Certificates</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Payment certificates assigned to your approval step. Items approved by the Resident Engineer appear first.
+        Payment certificates assigned to your co-finance approval step. Items approved by the Chief Engineer appear first.
       </Typography>
 
       {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
 
-      {!loading && residentApprovedCount > 0 ? (
+      {!loading && chiefEngineerApprovedCount > 0 ? (
         <Alert
           severity="warning"
           icon={<FactCheckIcon fontSize="inherit" />}
@@ -146,7 +146,7 @@ export default function EngineerWorkspaceCertificatesPage() {
               color="inherit"
               size="small"
               onClick={() => {
-                const first = sortedCertificates.find(isResidentEngineerPriorApproval);
+                const first = sortedCertificates.find(isChiefEngineerPriorApproval);
                 if (first) openApprovePanel(first.certificateId);
               }}
             >
@@ -155,8 +155,8 @@ export default function EngineerWorkspaceCertificatesPage() {
           )}
         >
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
-            {residentApprovedCount} certificate{residentApprovedCount !== 1 ? 's' : ''} approved by the Resident Engineer
-            {residentApprovedCount !== 1 ? ' are' : ' is'} waiting for your approval.
+            {chiefEngineerApprovedCount} certificate{chiefEngineerApprovedCount !== 1 ? 's' : ''} approved by the Chief Engineer
+            {chiefEngineerApprovedCount !== 1 ? ' are' : ' is'} waiting for your approval.
           </Typography>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
             Expand a row or use Review &amp; approve to complete the Chief Engineer step.
@@ -164,7 +164,7 @@ export default function EngineerWorkspaceCertificatesPage() {
         </Alert>
       ) : null}
 
-      {!loading && residentApprovedCount === 0 && priorApprovedCount > 0 ? (
+      {!loading && chiefEngineerApprovedCount === 0 && priorApprovedCount > 0 ? (
         <Alert severity="info" sx={{ mb: 2 }}>
           {priorApprovedCount} certificate{priorApprovedCount !== 1 ? 's' : ''} passed an earlier approval step and
           {' '}
@@ -198,7 +198,7 @@ export default function EngineerWorkspaceCertificatesPage() {
                 <TableCell />
                 <TableCell>Certificate</TableCell>
                 <TableCell>Project</TableCell>
-                <TableCell>Resident / prior approval</TableCell>
+                <TableCell>Chief Engineer / prior approval</TableCell>
                 <TableCell>Your step</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -215,8 +215,8 @@ export default function EngineerWorkspaceCertificatesPage() {
               ) : sortedCertificates.map((row) => {
                 const expanded = expandedCertId === row.certificateId;
                 const priorSummary = formatPreviousApprovalSummary(row);
-                const isResidentApproved = isResidentEngineerPriorApproval(row);
-                const highlightRow = isResidentApproved
+                const isChiefApproved = isChiefEngineerPriorApproval(row);
+                const highlightRow = isChiefApproved
                   || (String(row.approvalWorkflowStatus || '').toLowerCase() === 'pending' && priorSummary);
 
                 return (
@@ -224,9 +224,9 @@ export default function EngineerWorkspaceCertificatesPage() {
                     <TableRow
                       hover
                       sx={highlightRow ? {
-                        bgcolor: isResidentApproved ? 'warning.50' : 'action.hover',
+                        bgcolor: isChiefApproved ? 'warning.50' : 'action.hover',
                         borderLeft: '4px solid',
-                        borderLeftColor: isResidentApproved ? 'warning.main' : 'info.main',
+                        borderLeftColor: isChiefApproved ? 'warning.main' : 'info.main',
                       } : undefined}
                     >
                       <TableCell width={40}>
@@ -264,7 +264,7 @@ export default function EngineerWorkspaceCertificatesPage() {
                             <Button
                               size="small"
                               variant="contained"
-                              color={isResidentApproved ? 'warning' : 'primary'}
+                              color={isChiefApproved ? 'warning' : 'primary'}
                               onClick={() => openApprovePanel(row.certificateId)}
                               sx={{ textTransform: 'none' }}
                             >
@@ -287,7 +287,7 @@ export default function EngineerWorkspaceCertificatesPage() {
                           <Collapse in={expanded} unmountOnExit>
                             <Box sx={{ py: 2, px: 1 }}>
                               {priorSummary ? (
-                                <Alert severity={isResidentApproved ? 'warning' : 'info'} sx={{ mb: 2 }}>
+                                <Alert severity={isChiefApproved ? 'warning' : 'info'} sx={{ mb: 2 }}>
                                   Prior approval: {priorSummary}. Complete your step below.
                                 </Alert>
                               ) : null}

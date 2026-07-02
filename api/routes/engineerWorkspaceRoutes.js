@@ -20,10 +20,11 @@ const canAccess = privilege(
 
 router.get('/workspace', canAccess, async (req, res) => {
     try {
-        const { search, limit } = req.query;
+        const { search, limit, include } = req.query;
         const data = await engineerWorkspace.getEngineerWorkspace(req.user, {
             search: search || '',
             limit: limit ? Number(limit) : 100,
+            include: include || undefined,
         });
         res.json(data);
     } catch (error) {

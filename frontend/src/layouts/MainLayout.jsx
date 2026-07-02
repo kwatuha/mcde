@@ -23,13 +23,14 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
-import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser } from '../utils/privilegeUtils.js';
 import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
 import {
   getFirstVisibleMenuPath,
   hasRestrictiveMenuProfile,
   isAlwaysAllowedUiProfilePath,
   isContractorPortalPath,
+  isCoFinanceWorkflowPath,
   isEngineerWorkflowPath,
   isPathAllowedByVisibleMenu,
   isUiProfileBypassUser,
@@ -107,6 +108,7 @@ function MainLayoutContent() {
       !isUiProfileBypassUser(user) &&
       !isAlwaysAllowedUiProfilePath(location.pathname, user) &&
       !(isContractor(user) && isContractorPortalPath(location.pathname)) &&
+      !(isCoFinancePortalUser(user) && isCoFinanceWorkflowPath(location.pathname)) &&
       !(isEngineerPortalUser(user) && isEngineerWorkflowPath(location.pathname)) &&
       !isPathAllowedByVisibleMenu(location.pathname, menuCategories)
     ) {

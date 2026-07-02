@@ -164,6 +164,37 @@ export function isContractorPortalPath(pathname) {
   return base === root || base.startsWith(`${root}/`);
 }
 
+export function isCoFinancePortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.CO_FINANCE_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+/** Co-finance workspace routes plus finance and project detail pages used during review. */
+export function isCoFinanceWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isCoFinancePortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const financeCerts = normalizePath(ROUTES.FINANCE_PAYMENT_CERTIFICATES);
+  if (financeCerts && (base === financeCerts || base.startsWith(`${financeCerts}/`))) {
+    return true;
+  }
+  const paymentList = normalizePath(ROUTES.FINANCE_PAYMENT_LIST);
+  if (paymentList && (base === paymentList || base.startsWith(`${paymentList}/`))) {
+    return true;
+  }
+  const budgetMgmt = normalizePath(ROUTES.BUDGET_MANAGEMENT);
+  if (budgetMgmt && (base === budgetMgmt || base.startsWith(`${budgetMgmt}/`))) {
+    return true;
+  }
+  const workflowApprovals = normalizePath(ROUTES.WORKFLOW_APPROVALS);
+  if (workflowApprovals && (base === workflowApprovals || base.startsWith(`${workflowApprovals}/`))) {
+    return true;
+  }
+  return false;
+}
+
 /** Engineer workspace root and nested pages (projects, payments, certificates). */
 export function isEngineerPortalPath(pathname) {
   const base = normalizePath(pathname);

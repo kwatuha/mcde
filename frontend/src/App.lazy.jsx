@@ -72,6 +72,11 @@ const EngineerWorkspaceProjectsPage = lazy(() => import('./pages/engineerWorkspa
 const EngineerWorkspacePaymentsPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspacePaymentsPage'));
 const EngineerWorkspaceCertificatesPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceCertificatesPage'));
 const EngineerWorkspaceProgressPhotosPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceProgressPhotosPage'));
+const CoFinanceWorkspacePage = lazy(() => import('./pages/CoFinanceWorkspacePage'));
+const CoFinanceWorkspaceProjectsPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceProjectsPage'));
+const CoFinanceWorkspacePaymentsPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspacePaymentsPage'));
+const CoFinanceWorkspaceCertificatesPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceCertificatesPage'));
+const CoFinanceWorkspaceFinancePage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceFinancePage'));
 const ContractorManagementPage = lazy(() => import('./pages/ContractorManagementPage'));
 const ContractorTypesPage = lazy(() => import('./pages/ContractorTypesPage'));
 const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
@@ -177,6 +182,26 @@ const router = createBrowserRouter([
       {
         path: 'engineer-workspace/progress-photos',
         element: <LazyRoute component={EngineerWorkspaceProgressPhotosPage} />,
+      },
+      {
+        path: 'co-finance-workspace',
+        element: <LazyRoute component={CoFinanceWorkspacePage} />,
+      },
+      {
+        path: 'co-finance-workspace/projects',
+        element: <LazyRoute component={CoFinanceWorkspaceProjectsPage} />,
+      },
+      {
+        path: 'co-finance-workspace/payments',
+        element: <LazyRoute component={CoFinanceWorkspacePaymentsPage} />,
+      },
+      {
+        path: 'co-finance-workspace/certificates',
+        element: <LazyRoute component={CoFinanceWorkspaceCertificatesPage} />,
+      },
+      {
+        path: 'co-finance-workspace/finance',
+        element: <LazyRoute component={CoFinanceWorkspaceFinancePage} />,
       },
       {
         path: 'contractor-management',

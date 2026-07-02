@@ -225,14 +225,24 @@ function ensureReady() {
 
 async function listDefinitions(entityType) {
   await ensureReady();
+  const usedExpr = isPostgres
+    ? `(SELECT COUNT(*)::int FROM approval_requests ar WHERE ar.definition_id = d.definition_id)`
+    : `(SELECT COUNT(*) FROM approval_requests ar WHERE ar.definition_id = d.definition_id)`;
   if (entityType) {
     const r = await pool.query(
-      'SELECT * FROM approval_workflow_definitions WHERE entity_type = ? ORDER BY entity_type, code, version',
+      `SELECT d.*, ${usedExpr} AS used_in_requests
+       FROM approval_workflow_definitions d
+       WHERE d.entity_type = ?
+       ORDER BY d.entity_type, d.code, d.version`,
       [entityType]
     );
     return rowsFromResult(r);
   }
-  const r = await pool.query('SELECT * FROM approval_workflow_definitions ORDER BY entity_type, code, version');
+  const r = await pool.query(
+    `SELECT d.*, ${usedExpr} AS used_in_requests
+     FROM approval_workflow_definitions d
+     ORDER BY d.entity_type, d.code, d.version`
+  );
   return rowsFromResult(r);
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import engineerWorkspaceService from '../../api/engineerWorkspaceService';
+import coFinanceWorkspaceService from '../../api/coFinanceWorkspaceService';
 
-export function useEngineerWorkspaceData({
+export function useCoFinanceWorkspaceData({
   initialSearch = '',
   autoLoad = true,
   include = 'all',
@@ -26,14 +26,14 @@ export function useEngineerWorkspaceData({
     setError('');
     try {
       const q = searchOverride !== undefined ? searchOverride : searchRef.current;
-      const payload = await engineerWorkspaceService.getWorkspace({
+      const payload = await coFinanceWorkspaceService.getWorkspace({
         search: String(q || '').trim() || undefined,
         limit: 120,
         include: includeRef.current,
       });
       setData(payload);
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to load engineer workspace');
+      setError(e?.response?.data?.message || e?.message || 'Failed to load co-finance workspace');
       setData(null);
     } finally {
       setLoading(false);
@@ -56,5 +56,7 @@ export function useEngineerWorkspaceData({
     certificates: data?.certificates || [],
     summary: data?.summary || {},
     pendingCerts: data?.pendingWorkflow?.certificates || [],
+    pendingPayments: data?.pendingWorkflow?.paymentRequests || [],
+    pendingAll: data?.pendingWorkflow?.all || [],
   };
 }

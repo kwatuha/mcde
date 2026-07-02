@@ -9,9 +9,17 @@ const isPostgres = DB_TYPE === 'postgresql';
 
 const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
 
-const hasProjectScopeBypass = (user) => (
-    isAdminLikeRequester(user) || orgScope.userHasOrganizationBypass(user?.privileges || [])
-);
+const hasProjectScopeBypass = (user) => {
+    const privs = user?.privileges || [];
+    return (
+        isAdminLikeRequester(user)
+        || orgScope.userHasOrganizationBypass(privs)
+        || privs.includes('project.read_all')
+        || privs.includes('payment_request.read_all')
+        || privs.includes('document.read_all')
+        || privs.includes('budget.read')
+    );
+};
 
 async function buildScopedProjectWhere(user, alias = 'p') {
     const userId = getScopeUserId(user);
@@ -194,12 +202,12 @@ async function fetchCertificatesForWorkspace(user, projectIds) {
     return result.rows || [];
 }
 
-function isResidentEngineerPriorStep(row) {
+function isChiefEngineerPriorStep(row) {
     const hay = [
         row?.previousStepRoleName,
         row?.previousStepName,
-    ].filter(Boolean).join(' ').toLowerCase();
-    return hay.includes('resident') && hay.includes('engineer');
+    ].filter(Boolean).join(' ').toLowerCase().replace(/[\s-]+/g, '_');
+    return (hay.includes('chief') && hay.includes('engineer')) || hay.includes('chief_engineer');
 }
 
 function countCertificatesWithPriorApproval(certificates) {
@@ -210,20 +218,20 @@ function countCertificatesWithPriorApproval(certificates) {
     }).length;
 }
 
-function countResidentEngineerApprovedPending(certificates) {
+function countChiefEngineerApprovedPending(certificates) {
     return (certificates || []).filter((row) => {
         const status = String(row.approvalWorkflowStatus || '').toLowerCase();
-        return status === 'pending' && isResidentEngineerPriorStep(row);
+        return status === 'pending' && isChiefEngineerPriorStep(row);
     }).length;
 }
 
 function parseWorkspaceInclude(raw) {
     if (raw == null || raw === '') {
-        return new Set(['projects', 'payments', 'certificates', 'photos', 'workflow', 'certCounts']);
+        return new Set(['projects', 'payments', 'certificates', 'workflow', 'certCounts']);
     }
     const parts = String(raw).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (parts.includes('all')) {
-        return new Set(['projects', 'payments', 'certificates', 'photos', 'workflow', 'certCounts']);
+        return new Set(['projects', 'payments', 'certificates', 'workflow', 'certCounts']);
     }
     return new Set(parts);
 }
@@ -254,7 +262,7 @@ function buildCertificateScopeFilter(user) {
     return { entityTypes, pendingFilter, params, roleParamIndex: params.length };
 }
 
-async function countResidentEngineerApprovedPendingCerts(user, projectIds) {
+async function countChiefEngineerApprovedPendingCerts(user, projectIds) {
     if (!isPostgres || !projectIds.length) return 0;
     await approvalWorkflowEngine.ensureReady();
 
@@ -287,8 +295,10 @@ async function countResidentEngineerApprovedPendingCerts(user, projectIds) {
              WHERE prev.request_id = ar.request_id
                AND prev.status = 'approved'
                AND (
-                 LOWER(COALESCE(r.name, '')) LIKE '%resident%engineer%'
-                 OR LOWER(COALESCE(prev.step_name, '')) LIKE '%resident%engineer%'
+                 LOWER(COALESCE(r.name, '')) LIKE '%chief%engineer%'
+                 OR LOWER(COALESCE(prev.step_name, '')) LIKE '%chief%engineer%'
+                 OR LOWER(REPLACE(COALESCE(r.name, ''), '-', ' ')) LIKE '%chief%engineer%'
+                 OR LOWER(REPLACE(COALESCE(prev.step_name, ''), '-', ' ')) LIKE '%chief%engineer%'
                )
            )`,
         queryParams
@@ -389,22 +399,7 @@ function countPendingProgressPhotos(photos) {
     }).length;
 }
 
-async function getEngineerProgressPhotos(user, options = {}) {
-    const projects = await fetchScopedProjects(user, { limit: options.limit || 120 });
-    const projectIds = projects.map((p) => p.projectId);
-    const photos = await fetchProgressPhotosForWorkspace(projectIds, options);
-    return {
-        projects: projects.map((p) => ({ projectId: p.projectId, projectName: p.projectName })),
-        photos,
-        summary: {
-            totalPhotos: photos.length,
-            pendingReview: countPendingProgressPhotos(photos),
-            projectCount: new Set(photos.map((p) => p.projectId)).size,
-        },
-    };
-}
-
-async function getEngineerWorkspace(user, options = {}) {
+async function getCoFinanceWorkspace(user, options = {}) {
     await checklistService.ensureSchema();
     const include = parseWorkspaceInclude(options.include);
 
@@ -416,8 +411,7 @@ async function getEngineerWorkspace(user, options = {}) {
         paymentRequests,
         certificates,
         pendingWorkflow,
-        progressPhotoSummary,
-        residentEngineerApprovedPending,
+        chiefEngineerApprovedPending,
     ] = await Promise.all([
         include.has('projects')
             ? checklistService.getBulkChecklistSummaries(projectIds)
@@ -431,11 +425,8 @@ async function getEngineerWorkspace(user, options = {}) {
         include.has('workflow')
             ? approvalWorkflowEngine.listPendingForUser(user).catch(() => [])
             : Promise.resolve([]),
-        include.has('photos')
-            ? fetchProgressPhotoSummary(projectIds)
-            : Promise.resolve({ totalPhotos: 0, pendingReview: 0 }),
         include.has('certCounts') && !include.has('certificates')
-            ? countResidentEngineerApprovedPendingCerts(user, projectIds)
+            ? countChiefEngineerApprovedPendingCerts(user, projectIds)
             : Promise.resolve(null),
     ]);
 
@@ -490,17 +481,16 @@ async function getEngineerWorkspace(user, options = {}) {
             }).length,
             pendingCertificates: pendingCertificates.length,
             certificatesWithPriorApproval: countCertificatesWithPriorApproval(certificates),
-            residentEngineerApprovedPending: include.has('certificates')
-                ? countResidentEngineerApprovedPending(certificates)
-                : (residentEngineerApprovedPending ?? 0),
+            chiefEngineerApprovedPending: include.has('certificates')
+                ? countChiefEngineerApprovedPending(certificates)
+                : (chiefEngineerApprovedPending ?? 0),
             projectsWithoutScope: projectsWithMeta.filter((p) => p.scopeStatus === 'none').length,
-            progressPhotos: progressPhotoSummary.totalPhotos,
-            progressPhotosPendingReview: progressPhotoSummary.pendingReview,
+            pendingPaymentWorkflow: pendingPaymentRequests.length,
+            pendingAllWorkflow: (pendingWorkflow || []).length,
         },
     };
 }
 
 module.exports = {
-    getEngineerWorkspace,
-    getEngineerProgressPhotos,
+    getCoFinanceWorkspace,
 };

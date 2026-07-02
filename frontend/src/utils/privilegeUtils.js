@@ -3,8 +3,6 @@
  * Centralized privilege checking functions for the application
  */
 
-import { getProfileLandingPath } from './uiProfileUtils.js';
-
 const ADMIN_ROLE_IDS = new Set([1]);
 const ADMIN_ROLE_NAMES = new Set([
   'admin',
@@ -19,6 +17,17 @@ const PROJECT_BY_SECTOR_ALLOWED_ROLES = new Set(['mda_ict_admin', 'super_admin']
 
 export const normalizeRoleName = (roleName) =>
   String(roleName || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+/** Inline landing path read — avoid importing uiProfileUtils (pulls menuConfig on every page). */
+function getEngineerWorkspaceLandingPath(user) {
+  const profile = user?.uiProfile || user?.ui_profile || null;
+  if (!profile) return null;
+  let path = String(profile.landingPath ?? profile.landing_path ?? '').trim();
+  if (!path) return null;
+  if (!path.startsWith('/')) path = `/${path}`;
+  const base = path.split('?')[0].split('#')[0];
+  return base || null;
+}
 
 /**
  * Helper function to check if the user has a specific privilege.
@@ -68,21 +77,53 @@ export const isContractor = (user) => {
   return normalizeRoleName(user?.roleName || user?.role) === 'contractor' || user?.contractorId;
 };
 
+function getCoFinanceWorkspaceLandingPath(user) {
+  const profile = user?.uiProfile || user?.ui_profile || null;
+  if (!profile) return null;
+  let path = String(profile.landingPath ?? profile.landing_path ?? '').trim();
+  if (!path) return null;
+  if (!path.startsWith('/')) path = `/${path}`;
+  const base = path.split('?')[0].split('#')[0];
+  return base || null;
+}
+
+/**
+ * County co-finance officers use the co-finance workspace (final certificate sign-off after engineers).
+ */
+export const isCoFinancePortalUser = (user) => {
+  if (!user || isContractor(user)) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const landing = getCoFinanceWorkspaceLandingPath(user);
+  if (landing?.startsWith('/co-finance-workspace')) return true;
+  if (
+    normalizedRole.includes('co_finance')
+    || normalizedRole.includes('cofinance')
+    || normalizedRole.includes('county_finance')
+  ) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
 /**
  * Resident / site / chief engineers use the engineer workspace sidebar (mirrors contractor portal).
  * UI profile landing path takes precedence so roles with the same profile get the same sidebar
  * even when the role name does not contain "engineer" or the user has broader privileges.
  */
 export const isEngineerPortalUser = (user) => {
-  if (!user || isContractor(user)) return false;
-
-  const landing = getProfileLandingPath(user);
-  if (landing?.startsWith('/engineer-workspace')) return true;
-
-  if (isAdmin(user)) return false;
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
-  return normalizedRole.includes('engineer');
+  const landing = getEngineerWorkspaceLandingPath(user);
+  if (landing?.startsWith('/engineer-workspace') || normalizedRole.includes('engineer')) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
 };
 
 export const isMdaIctAdminOrSuperAdmin = (user) => {

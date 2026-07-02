@@ -79,7 +79,9 @@ function QuickActionCard({ title, description, icon: Icon, color, onClick }) {
 export default function EngineerWorkspacePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { loading, error, load, summary, projects, paymentRequests, certificates, pendingCerts } = useEngineerWorkspaceData();
+  const { loading, error, load, summary, projects, paymentRequests, certificates, pendingCerts } = useEngineerWorkspaceData({
+    include: 'projects,payments,workflow,photos,certCounts',
+  });
 
   const quickActions = [
     {

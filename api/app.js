@@ -75,6 +75,7 @@ const rriRoutes = require('./routes/rriRoutes');
 const accountabilityRoutes = require('./routes/accountabilityRoutes');
 const projectEscalationRoutes = require('./routes/projectEscalationRoutes');
 const engineerWorkspaceRoutes = require('./routes/engineerWorkspaceRoutes');
+const coFinanceWorkspaceRoutes = require('./routes/coFinanceWorkspaceRoutes');
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -176,6 +177,7 @@ app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/approval-workflow', approvalWorkflowRoutes);
 app.use('/api/project-escalations', projectEscalationRoutes);
 app.use('/api/engineer', engineerWorkspaceRoutes);
+app.use('/api/co-finance', coFinanceWorkspaceRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
 app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/kenya-wards', kenyaWardsRoutes);

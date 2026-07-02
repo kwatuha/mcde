@@ -91,6 +91,24 @@ export function isResidentEngineerPriorApproval(doc) {
   return hay.includes('resident') && hay.includes('engineer');
 }
 
+export function isChiefEngineerPriorApproval(doc) {
+  const hay = [
+    pickField(doc, 'previousStepRoleName', 'previous_step_role_name'),
+    pickField(doc, 'previousStepName', 'previous_step_name'),
+  ].filter(Boolean).join(' ').toLowerCase().replace(/[\s-]+/g, '_');
+  return (hay.includes('chief') && hay.includes('engineer')) || hay.includes('chief_engineer');
+}
+
+export function isCoFinancePriorStepLabel(doc) {
+  const hay = [
+    pickField(doc, 'previousStepRoleName', 'previous_step_role_name'),
+    pickField(doc, 'previousStepName', 'previous_step_name'),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return isChiefEngineerPriorApproval(doc)
+    || (hay.includes('co') && hay.includes('finance'))
+    || hay.includes('county finance');
+}
+
 export function isAwaitingMyApprovalStep(doc) {
   const status = String(
     doc?.approvalWorkflowStatus ?? doc?.approval_workflow_status ?? ''

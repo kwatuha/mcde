@@ -199,6 +199,7 @@ export const ROUTES = {
     FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
     FINANCE_PAYMENT_LIST: '/finance/payment-list',
     ENGINEER_WORKSPACE: '/engineer-workspace',
+    CO_FINANCE_WORKSPACE: '/co-finance-workspace',
     FINANCE_FUNDING_SOURCES_REPORT: '/finance/funding-sources-report',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',
