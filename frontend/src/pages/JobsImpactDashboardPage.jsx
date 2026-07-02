@@ -48,6 +48,7 @@ import {
 } from 'recharts';
 import { tokens } from './dashboard/theme';
 import { useNavigate } from 'react-router-dom';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import sectorsService from '../api/sectorsService';
 import projectService from '../api/projectService';
 
@@ -91,6 +92,7 @@ const JobsImpactDashboardPage = () => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     department: '',
     project: '',
@@ -273,6 +275,40 @@ const JobsImpactDashboardPage = () => {
     jobsSummary.totalJobs > 0
       ? Math.round((jobsSummary.totalIndirectJobs / jobsSummary.totalJobs) * 100)
       : 0;
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'jobs-dashboard',
+      filters,
+      screenSummary: {
+        totalJobs: jobsSummary.totalJobs,
+        male: jobsSummary.totalMale,
+        female: jobsSummary.totalFemale,
+        directJobs: jobsSummary.totalDirectJobs,
+        indirectJobs: jobsSummary.totalIndirectJobs,
+        femaleShare: `${femalePct}%`,
+        directShare: `${directSharePct}%`,
+      },
+      screenRows: topProjects.slice(0, 8).map((project) => ({
+        project: project.projectName || project.name || `Project #${project.projectId || project.id}`,
+        jobs: project.jobsCount || project.totalJobs || 0,
+        ward: project.ward || project.wardNames || '',
+      })),
+      screenHighlights: jobsByCategory.slice(0, 5).map((row) => (
+        `${row.category_name || row.categoryName || 'Category'}: ${row.jobs_count || row.jobsCount || 0} jobs`
+      )),
+    });
+    return () => clearAIPageContext();
+  }, [
+    filters,
+    jobsSummary,
+    femalePct,
+    directSharePct,
+    topProjects,
+    jobsByCategory,
+    setAIPageContext,
+    clearAIPageContext,
+  ]);
 
   return (
     <Box

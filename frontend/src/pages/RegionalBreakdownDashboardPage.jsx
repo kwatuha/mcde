@@ -24,6 +24,7 @@ import { LocationOn, Map as MapIcon, PictureAsPdf as PictureAsPdfIcon, Print as 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import projectService from '../api/projectService';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { getProjectWardKey } from '../utils/projectWardKey';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl, getCountyOfficialName } from '../utils/countyOfficialPdfHeader';
 import { printElementInNewWindow } from '../utils/printWindow';
@@ -46,6 +47,7 @@ const fmtPercent = (v) => `${Number(v || 0).toFixed(1)}%`;
 
 const RegionalBreakdownDashboardPage = () => {
   const navigate = useNavigate();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const countyName = getCountyOfficialName();
   const [activeTab, setActiveTab] = useState(0);
   const [rows, setRows] = useState([]);
@@ -134,6 +136,30 @@ const RegionalBreakdownDashboardPage = () => {
       totalPaid,
     };
   }, [normalized, subcountyRows.length, wardRows.length]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'regional-breakdown',
+      screenSummary: {
+        subcounties: totals.subcounties,
+        wards: totals.wards,
+        projects: totals.totalProjects,
+        totalBudget: totals.totalBudget,
+        totalPaid: totals.totalPaid,
+        absorption: totals.totalBudget > 0
+          ? `${((totals.totalPaid / totals.totalBudget) * 100).toFixed(1)}%`
+          : '0%',
+      },
+      screenRows: (activeTab === 1 ? wardRows : subcountyRows).slice(0, 10).map((row) => ({
+        area: activeTab === 1 ? row.ward : row.subcounty,
+        subcounty: row.subcounty,
+        projects: row.projectCount,
+        budget: shortCurrency(row.totalBudget),
+        paid: shortCurrency(row.totalPaid),
+      })),
+    });
+    return () => clearAIPageContext();
+  }, [activeTab, totals, subcountyRows, wardRows, setAIPageContext, clearAIPageContext]);
 
   const chartRows = useMemo(() => {
     const scopeRows = activeTab === 1 ? wardRows : subcountyRows;

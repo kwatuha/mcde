@@ -60,6 +60,7 @@ import {
 } from 'recharts';
 import { tokens } from './dashboard/theme';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import {
   buildProjectOrganizationScopeMeta,
   filterProjectsByOrganizationScope,
@@ -145,6 +146,7 @@ const SystemDashboardPage = () => {
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     ministry: '',
     stateDepartment: '',
@@ -600,6 +602,42 @@ const SystemDashboardPage = () => {
   const animTotalBudget = useCountUp(Math.round(kpis.totalBudget || 0));
   const animAbsorption = useCountUp(kpis.absorptionRate || 0);
   const animOverallProgress = useCountUp(overallProgress || 0);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'summary-statistics',
+      filters,
+      screenSummary: {
+        projects: kpis.totalProjects,
+        totalBudget: kpis.totalBudget,
+        totalDisbursed: kpis.totalDisbursed,
+        absorption: `${kpis.absorptionRate}%`,
+        departments: kpis.departments,
+        wards: kpis.wards,
+        jobs: kpis.jobs,
+        overallProgress: `${overallProgress}%`,
+      },
+      screenRows: [
+        ...statusChartData.slice(0, 6).map((row) => ({
+          status: row.name,
+          projects: row.value,
+        })),
+        ...projectsBySubcounty.slice(0, 4).map((row) => ({
+          subcounty: row.name,
+          projects: row.value,
+        })),
+      ],
+    });
+    return () => clearAIPageContext();
+  }, [
+    filters,
+    kpis,
+    overallProgress,
+    statusChartData,
+    projectsBySubcounty,
+    setAIPageContext,
+    clearAIPageContext,
+  ]);
 
   return (
     <Box

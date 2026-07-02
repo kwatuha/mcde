@@ -12,6 +12,7 @@ import {
   RateReview as RateReviewIcon,
   Paid as PaidIcon,
   PhotoCamera as PhotoCameraIcon,
+  FolderOpen as FolderOpenIcon,
   Business as BusinessIcon,
   Email as EmailIcon,
   Phone as PhoneIcon,
@@ -198,6 +199,14 @@ const ContractorDashboard = () => {
               sx={{ borderColor: 'rgba(255,255,255,0.7)', color: '#fff', '&:hover': { borderColor: '#fff' } }}
             >
               Upload photos
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<FolderOpenIcon />}
+              onClick={() => navigate('/contractor-dashboard/project-files')}
+              sx={{ borderColor: 'rgba(255,255,255,0.7)', color: '#fff', '&:hover': { borderColor: '#fff' } }}
+            >
+              Project files
             </Button>
           </Stack>
         </Stack>

@@ -45,6 +45,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import reportsService from '../api/reportsService';
 import { ROUTES } from '../configs/appConfig';
 import { tokens } from './dashboard/theme';
@@ -239,6 +240,7 @@ export default function OperationsDashboardPage() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     financialYear: '',
     period: '',
@@ -433,6 +435,37 @@ export default function OperationsDashboardPage() {
       wardCount: uniqueCount(regionalRows, 'ward'),
     };
   }, [activityRows, departmentRows, evaluationRows, indicatorDepartmentWardRows, indicatorRegionRows, periodRows, regionalRows, summary]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'operations-dashboard',
+      filters,
+      screenSummary: {
+        projects: numberValue(summary.projectCount),
+        completedProjects: numberValue(summary.completedProjects),
+        attentionProjects: numberValue(summary.attentionProjects),
+        indicatorAchievement: `${dashboard.indicatorAchievement.toFixed(1)}%`,
+        completionRate: `${dashboard.completionRate.toFixed(1)}%`,
+        attentionRate: `${dashboard.attentionRate.toFixed(1)}%`,
+        departments: dashboard.departmentPerformance.length,
+        subCounties: dashboard.subCountyCount,
+        wards: dashboard.wardCount,
+      },
+      screenRows: dashboard.departmentPerformance.slice(0, 8).map((row) => ({
+        department: row.name,
+        projects: row.projects,
+        progress: `${row.progress.toFixed(1)}%`,
+        absorption: `${row.absorption.toFixed(1)}%`,
+        attention: row.attention,
+      })),
+      screenHighlights: [
+        dashboard.topDepartment ? `Top department: ${dashboard.topDepartment.name}` : null,
+        dashboard.riskDepartment ? `Highest attention: ${dashboard.riskDepartment.name}` : null,
+        dashboard.weakestKpi ? `Weakest KPI: ${dashboard.weakestKpi.label}` : null,
+      ].filter(Boolean),
+    });
+    return () => clearAIPageContext();
+  }, [filters, summary, dashboard, setAIPageContext, clearAIPageContext]);
 
   const resetFilters = () => {
     setFilters({ financialYear: '', period: '', department: '', section: '', status: '', subCounty: '' });

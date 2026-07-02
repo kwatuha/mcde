@@ -149,6 +149,12 @@ const MonitoringProjectMonitoringPage = () => {
         mediumWarnings: totals.mediumWarnings,
         evidenceItems: totals.evidenceTotal,
       },
+      screenRows: rows.slice(0, 10).map((row) => ({
+        project: row.projectName || `#${row.projectId}`,
+        warning: row.warningLevel || '',
+        date: row.reportDate || row.observationDate || '',
+        comment: String(row.comment || row.observation || '').slice(0, 120),
+      })),
     });
     return () => clearAIPageContext();
   }, [filters, rows, totals, setAIPageContext, clearAIPageContext]);

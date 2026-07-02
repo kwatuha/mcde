@@ -51,6 +51,7 @@ import {
     Description as DescriptionIcon,
     AssignmentTurnedIn as AssignmentTurnedInIcon,
     AccountBalanceWallet as AccountBalanceWalletIcon,
+    FolderShared as FolderSharedIcon,
 } from '@mui/icons-material';
 import apiService, { API_BASE_URL } from '../api';
 import pmcReportService from '../api/pmcReportService';
@@ -157,6 +158,8 @@ import ProjectCidpImplementationLinksPage from './ProjectCidpImplementationLinks
 import ProjectAdpImplementationLinksPage from './ProjectAdpImplementationLinksPage';
 import ProjectInceptionPanel from '../components/project/ProjectInceptionPanel';
 import ProjectPaymentRequestsPanel from '../components/project/ProjectPaymentRequestsPanel';
+import ProjectFileChecklistPanel, { ProjectFileChecklistSummary } from '../components/project/ProjectFileChecklistPanel';
+import projectFileChecklistService from '../api/projectFileChecklistService';
 
 import {
   getProfileTabVisibilitySet,
@@ -182,6 +185,8 @@ const PROJECT_DETAIL_TAB_ALIASES = {
     implementation: 9,
     inception: 10,
     payments: 11,
+    'file-checklist': 12,
+    documents: 12,
 };
 
 const PROJECT_DETAIL_TAB_KEYS = {
@@ -197,6 +202,7 @@ const PROJECT_DETAIL_TAB_KEYS = {
     9: 'implementation-plan',
     10: 'inception',
     11: 'payments',
+    12: 'file-checklist',
 };
 
 const PROJECT_DETAIL_TAB_DEFINITIONS = [
@@ -204,6 +210,7 @@ const PROJECT_DETAIL_TAB_DEFINITIONS = [
     { value: 9, key: 'implementation-plan', label: 'Plan', icon: AccountTreeIcon },
     { value: 10, key: 'inception', label: 'Inception', icon: DescriptionIcon },
     { value: 11, key: 'payments', label: 'Payments', icon: PaidIcon },
+    { value: 12, key: 'file-checklist', label: 'Project File', icon: FolderSharedIcon },
     { value: 1, key: 'financials', label: 'Financials', icon: MoneyIcon },
     { value: 2, key: 'sites', label: 'Sites', icon: LocationOnIcon },
     { value: 3, key: 'jobs', label: 'Jobs', icon: WorkIcon },
@@ -582,6 +589,7 @@ function ProjectDetailsPage() {
     const [planningDocumentsCount, setPlanningDocumentsCount] = useState(0);
     const [loadingPlanningSnapshot, setLoadingPlanningSnapshot] = useState(false);
     const [planningSnapshotError, setPlanningSnapshotError] = useState(null);
+    const [fileChecklistProgress, setFileChecklistProgress] = useState(null);
     const { setAIPageContext, clearAIPageContext } = useAIPageContext();
     const canViewProjectDocuments =
         checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
@@ -701,6 +709,22 @@ function ProjectDetailsPage() {
         if (![0, 9].includes(activeTab) || !projectId) return;
         loadPlanningSnapshot();
     }, [activeTab, projectId, loadPlanningSnapshot]);
+
+    useEffect(() => {
+        if (!projectId || !canViewProjectDocuments) {
+            setFileChecklistProgress(null);
+            return;
+        }
+        let mounted = true;
+        projectFileChecklistService.getChecklist(projectId)
+            .then((data) => {
+                if (mounted) setFileChecklistProgress(data?.progress || null);
+            })
+            .catch(() => {
+                if (mounted) setFileChecklistProgress(null);
+            });
+        return () => { mounted = false; };
+    }, [projectId, canViewProjectDocuments, activeTab]);
 
     const handleCloseImplementationModal = useCallback(() => {
         const shouldRefreshPlanningSnapshot = activeTab === 9 || ['cidp', 'adp'].includes(implementationModal);
@@ -3833,7 +3857,10 @@ function ProjectDetailsPage() {
                                     <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_PLANNING_ACTIVITY_LINKS}?projectId=${encodeURIComponent(projectId)}`}>View Activities</Button>
                                     <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_PLANNING_RISK_LINKS}?projectId=${encodeURIComponent(projectId)}`}>View Risks</Button>
                                     {canViewProjectDocuments && (
-                                        <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}>View Documents</Button>
+                                        <>
+                                            <Button size="small" onClick={() => setActiveTab(12)}>Project File</Button>
+                                            <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}>View Documents</Button>
+                                        </>
                                     )}
                                 </Stack>
                             </Box>
@@ -3847,7 +3874,7 @@ function ProjectDetailsPage() {
                                 <Alert severity="warning">{planningSnapshotError}</Alert>
                             ) : (
                                 <Grid container spacing={1.5}>
-                                    <Grid item xs={12} md={4}>
+                                    <Grid item xs={12} md={3}>
                                         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
                                                 Activities ({planningSnapshot.activities.length})
@@ -3869,7 +3896,7 @@ function ProjectDetailsPage() {
                                             </Stack>
                                         </Paper>
                                     </Grid>
-                                    <Grid item xs={12} md={4}>
+                                    <Grid item xs={12} md={3}>
                                         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
                                                 Risks ({planningSnapshot.risks.length})
@@ -3891,7 +3918,7 @@ function ProjectDetailsPage() {
                                             </Stack>
                                         </Paper>
                                     </Grid>
-                                    <Grid item xs={12} md={4}>
+                                    <Grid item xs={12} md={3}>
                                         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, height: '100%' }}>
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: theme.palette.primary.main }}>
                                                 Documents ({canViewProjectDocuments ? planningDocumentsCount : '—'})
@@ -3918,6 +3945,14 @@ function ProjectDetailsPage() {
                                             </Stack>
                                         </Paper>
                                     </Grid>
+                                    {canViewProjectDocuments ? (
+                                        <Grid item xs={12} md={3}>
+                                            <ProjectFileChecklistSummary
+                                                progress={fileChecklistProgress}
+                                                onOpen={() => setActiveTab(12)}
+                                            />
+                                        </Grid>
+                                    ) : null}
                                 </Grid>
                             )}
                         </Box>
@@ -7304,6 +7339,16 @@ function ProjectDetailsPage() {
                         <ProjectPaymentRequestsPanel
                             projectId={projectId}
                             onOpenCertificatesTab={() => setActiveTab(7)}
+                        />
+                    </Box>
+                )}
+
+                {activeTab === 12 && canViewProjectDocuments && (
+                    <Box>
+                        <ProjectFileChecklistPanel
+                            projectId={projectId}
+                            canEdit={checkUserPrivilege(user, 'document.create') || checkUserPrivilege(user, 'project.update')}
+                            onProgressChange={setFileChecklistProgress}
                         />
                     </Box>
                 )}

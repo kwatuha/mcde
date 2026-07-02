@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer'); // Import multer for file uploads
 const path = require('path');
 const pool = require('../config/db'); // Import the database connection pool
+const { assertMilestonePhaseGate } = require('../services/projectFileChecklistService');
 
 // --- Multer Configuration for file uploads ---
 // Define storage for uploaded files
@@ -64,6 +65,13 @@ const normalizeMilestonePayload = (body = {}) => {
         milestoneSource: body.milestoneSource || body.milestone_source || null,
         remarks: body.remarks != null ? String(body.remarks).trim() : description,
     };
+};
+
+const isMilestoneCompleting = (payload) => {
+    if (payload.completed) return true;
+    const status = String(payload.status || '').toLowerCase();
+    if (status === 'completed' || status === 'complete') return true;
+    return Number(payload.progress) >= 100;
 };
 
 const runSafeDdl = async (sql) => {
@@ -306,6 +314,13 @@ router.post('/', async (req, res) => {
     }
 
     try {
+        if (isMilestoneCompleting(payload)) {
+            await assertMilestonePhaseGate(
+                Number(payload.projectId),
+                payload.milestoneName,
+                req.user?.id ?? req.user?.userId ?? null
+            );
+        }
         await ensureMilestoneCimesColumns();
         if (isPostgres) {
             const result = await pool.query(
@@ -412,6 +427,13 @@ router.put('/:milestoneId', async (req, res) => {
     const payload = normalizeMilestonePayload(req.body);
 
     try {
+        if (isMilestoneCompleting(payload)) {
+            await assertMilestonePhaseGate(
+                Number(payload.projectId),
+                payload.milestoneName,
+                req.user?.id ?? req.user?.userId ?? null
+            );
+        }
         await ensureMilestoneCimesColumns();
         if (isPostgres) {
             const result = await pool.query(

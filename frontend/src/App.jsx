@@ -93,6 +93,7 @@ import ProjectPhotoManager from './pages/ProjectPhotoManager';
 import PersonalDashboard from './pages/ContractorDashboard';
 import ContractorPaymentsPage from './pages/ContractorPaymentsPage';
 import ContractorPhotosPage from './pages/ContractorPhotosPage';
+import ContractorFileChecklistPage from './pages/ContractorFileChecklistPage';
 // NEW: Import the ContractorManagementPage component
 import ContractorManagementPage from './pages/ContractorManagementPage';
 import ContractorTypesPage from './pages/ContractorTypesPage';
@@ -307,6 +308,10 @@ const router = createBrowserRouter([
       {
         path: 'contractor-dashboard/photos',
         element: <ContractorPhotosPage />,
+      },
+      {
+        path: 'contractor-dashboard/project-files',
+        element: <ContractorFileChecklistPage />,
       },
       {
         path: 'contractor-management',

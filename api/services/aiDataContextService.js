@@ -29,8 +29,9 @@ function latestUserMessage(messages = []) {
 function detectNeedsData(question, context = {}) {
     const page = pageEntity(context);
     if (page.projectId || page.budgetId || page.adpPlanId) return true;
+    if (page.pageType || page.screenSummary || (Array.isArray(page.screenRows) && page.screenRows.length)) return true;
     const text = `${question} ${context?.path || ''} ${context?.title || ''} ${page.pageType || ''}`.toLowerCase();
-    return /\b(project|projects|status|budget|paid|payment|finance|pending|bill|cidp|adp|programme|program|subprogram|ward|subcounty|sub-county|sublocation|village|dashboard|report|milestone|procurement|contract|stalled|ongoing|completed|implementation|absorption|monitoring|pmc|gap|attention|summarize|summary|how many|which|compare|linkage|linked|unbudgeted)\b/.test(text);
+    return /\b(project|projects|status|budget|paid|payment|finance|pending|bill|cidp|adp|programme|program|subprogram|ward|subcounty|sub-county|sublocation|village|dashboard|report|milestone|procurement|contract|stalled|ongoing|completed|implementation|absorption|monitoring|pmc|gap|attention|summarize|summary|how many|which|compare|linkage|linked|unbudgeted|operations|regional|jobs|impact)\b/.test(text);
 }
 
 function detectStatus(question) {
@@ -44,10 +45,72 @@ function detectStatus(question) {
     return '';
 }
 
-function detectIntents(question, context = {}) {
+function isReportLikeQuestion(question = '') {
+    const text = String(question || '').toLowerCase();
+    return /\b(report|document|executive summary|well[- ]formatted|professional|downloadable|word|pdf|docx)\b/.test(text);
+}
+
+function detectIntentsFromPage(context = {}) {
+    const page = pageEntity(context);
+    const path = String(context?.path || '').toLowerCase();
+    const pageType = String(page.pageType || '').toLowerCase();
+    const intents = new Set();
+
+    const add = (...items) => items.forEach((item) => intents.add(item));
+
+    if (page.projectId || /\/projects\/\d+/.test(path)) {
+        add('projectDetail', 'projects', 'monitoring', 'cidp', 'adp');
+    }
+    if (page.budgetId || pageType === 'budget-management' || path.includes('/budget-management')) {
+        add('budget', 'adp', 'cidp');
+    }
+    if (page.adpPlanId || pageType === 'adp-implementation' || path.includes('/adp-implementation')) {
+        add('adp', 'cidp', 'budget');
+    }
+    if (
+        ['finance-dashboard', 'payment-list', 'project-finance-overview', 'pending-bills-report'].includes(pageType)
+        || /finance-dashboard|payment-list|project-finance-overview|pending-bills/.test(path)
+    ) {
+        add('finance', 'projects');
+    }
+    if (pageType === 'project-monitoring' || /monitoring\/project-monitoring/.test(path)) {
+        add('monitoring', 'projects');
+    }
+    if (pageType === 'pmc-ward-reports' || /pmc-ward/.test(path)) {
+        add('pmc', 'monitoring');
+    }
+    if (
+        ['status-report', 'project-registry', 'project-by-status-dashboard'].includes(pageType)
+        || /status-report|project-by-status/.test(path)
+    ) {
+        add('projects', 'location', 'finance');
+    }
+    if (pageType === 'operations-dashboard' || path.includes('/operations-dashboard')) {
+        add('monitoring', 'location', 'finance', 'projects');
+    }
+    if (pageType === 'summary-statistics' || path.includes('/summary-statistics')) {
+        add('projects', 'location', 'finance', 'cidp');
+    }
+    if (
+        ['regional-breakdown', 'regional-dashboard', 'regional-reports'].includes(pageType)
+        || /regional-dashboard|regional-reports|regional-breakdown/.test(path)
+    ) {
+        add('location', 'projects', 'finance');
+    }
+    if (pageType === 'jobs-dashboard' || path.includes('/jobs-dashboard')) {
+        add('projects', 'location');
+    }
+    if (page.screenSummary || (Array.isArray(page.screenRows) && page.screenRows.length)) {
+        add('projects');
+    }
+
+    return [...intents];
+}
+
+function detectIntentsFromQuestion(question, context = {}) {
     const page = pageEntity(context);
     const text = `${question} ${context?.path || ''}`.toLowerCase();
-    const intents = new Set(['projects']);
+    const intents = new Set();
 
     if (page.projectId || /\/projects\/\d+/.test(text)) intents.add('projectDetail');
     if (page.budgetId || /\bbudget|container|wishlist\b/.test(text)) intents.add('budget');
@@ -56,9 +119,20 @@ function detectIntents(question, context = {}) {
     if (/\bmonitor|stalled|attention|risk|warning|challenge\b/.test(text)) intents.add('monitoring');
     if (page.pageType === 'pmc-ward-reports' || /\bpmc\b/.test(text)) intents.add('pmc');
     if (/\bward|subcounty|sub-county|sublocation|village|location|regional\b/.test(text)) intents.add('location');
-    if (/\bpaid|payment|finance|absorption|disbursed\b/.test(text)) intents.add('finance');
+    if (/\bpaid|payment|finance|absorption|disbursed|pending bill\b/.test(text)) intents.add('finance');
+    if (/\bjobs|employment|impact|beneficiar\b/.test(text)) intents.add('location');
 
     return [...intents];
+}
+
+function detectIntents(question, context = {}) {
+    const fromPage = detectIntentsFromPage(context);
+    const fromQuestion = detectIntentsFromQuestion(question, context);
+    const merged = new Set([...fromPage, ...fromQuestion, 'projects']);
+    if (isReportLikeQuestion(question) && fromPage.length) {
+        fromPage.forEach((intent) => merged.add(intent));
+    }
+    return [...merged];
 }
 
 function extractSearchTerms(question) {
@@ -541,6 +615,32 @@ async function getBudgetDetail(budgetId) {
     return result.rows?.[0] || null;
 }
 
+async function getFinanceHighlights(user) {
+    const { where, params } = await scopedWhere(user);
+    params.push(8);
+    const result = await pool.query(
+        `
+        SELECT
+            p.project_id AS "projectId",
+            p.name AS "projectName",
+            COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned') AS department,
+            ${budgetExpr('p')} AS budget,
+            ${paidExpr('p')} AS paid,
+            CASE
+                WHEN ${budgetExpr('p')} > 0 THEN ROUND((${paidExpr('p')} / ${budgetExpr('p')}) * 100, 1)
+                ELSE 0
+            END AS absorption
+        FROM projects p
+        WHERE ${where.join(' AND ')}
+          AND ${budgetExpr('p')} > 0
+        ORDER BY absorption ASC, ${budgetExpr('p')} DESC NULLS LAST
+        LIMIT $${params.length}
+        `,
+        params
+    );
+    return result.rows || [];
+}
+
 async function getMonitoringHighlights(user) {
     const { where, params } = await scopedWhere(user, 'p');
     params.push(6);
@@ -677,6 +777,25 @@ function formatPageContext(context = {}) {
             .map(([key, value]) => `${key}=${value}`);
         if (active.length) lines.push(`- Active filters: ${active.join(', ')}.`);
     }
+    if (Array.isArray(page.screenHighlights) && page.screenHighlights.length) {
+        lines.push('- Screen highlights:');
+        page.screenHighlights.slice(0, 8).forEach((item) => {
+            lines.push(`  - ${typeof item === 'string' ? item : Object.entries(item).map(([k, v]) => `${k}: ${v}`).join('; ')}`);
+        });
+    }
+    return lines.join('\n');
+}
+
+function formatScreenRows(rows = []) {
+    if (!Array.isArray(rows) || !rows.length) return '';
+    const lines = ['SCREEN TABLE DATA (primary source — reflect this in the report):'];
+    rows.slice(0, 12).forEach((row, index) => {
+        if (!row || typeof row !== 'object') return;
+        const parts = Object.entries(row)
+            .filter(([, value]) => value != null && String(value).trim() !== '')
+            .map(([key, value]) => `${key}: ${value}`);
+        if (parts.length) lines.push(`  ${index + 1}. ${parts.join('; ')}`);
+    });
     return lines.join('\n');
 }
 
@@ -690,6 +809,9 @@ function formatDataContext(context) {
     }
     if (context.pageContextText) {
         lines.push(context.pageContextText);
+    }
+    if (context.screenRowsText) {
+        lines.push(context.screenRowsText);
     }
     if (context.projectSummary) {
         const s = context.projectSummary;
@@ -773,6 +895,12 @@ function formatDataContext(context) {
             lines.push(`  - #${row.projectId} ${row.projectName}; warning ${row.warningLevel || 'n/a'}; ${row.observationDate || 'n/a'}: ${row.comment || 'No comment'}.`);
         });
     }
+    if (context.financeHighlights?.length) {
+        lines.push('- Low absorption / finance attention projects:');
+        context.financeHighlights.forEach((row) => {
+            lines.push(`  - #${row.projectId} ${row.projectName}; ${row.department}; budget KES ${money(row.budget)}; paid KES ${money(row.paid)}; absorption ${row.absorption}%.`);
+        });
+    }
     if (context.pmcSummary && Object.keys(context.pmcSummary).length) {
         const s = context.pmcSummary;
         lines.push(`- PMC ward reports: ${s.total || 0} total; ${s.draft || 0} draft; ${s.submitted || 0} awaiting review; ${s.returned || 0} returned; ${s.approved || 0} approved.`);
@@ -820,6 +948,9 @@ async function buildAiDataContext({ user, messages, context }) {
             tasks.stalledProjects = getStalledProjects(user);
             tasks.monitoringHighlights = getMonitoringHighlights(user);
         }
+        if (intents.includes('finance')) {
+            tasks.financeHighlights = getFinanceHighlights(user);
+        }
         if (intents.includes('pmc') || intents.includes('monitoring') || page.pageType === 'pmc-ward-reports') {
             tasks.pmcSummary = getPmcSummary(user);
             tasks.pmcHighlights = getPmcHighlights(user);
@@ -843,13 +974,14 @@ async function buildAiDataContext({ user, messages, context }) {
         );
         const data = Object.fromEntries(entries);
         data.pageContextText = pageContextText;
+        data.screenRowsText = formatScreenRows(page.screenRows);
         if (helpContextText) {
             data.helpManual = helpContextText;
         }
         const text = formatDataContext(data);
         const sources = Object.keys(data).filter((key) => {
             const value = data[key];
-            if (key === 'pageContextText' || key === 'helpManual') return Boolean(value);
+            if (key === 'pageContextText' || key === 'helpManual' || key === 'screenRowsText') return Boolean(value);
             if (Array.isArray(value)) return value.length > 0;
             if (value && typeof value === 'object') return Object.keys(value).length > 0;
             return Boolean(value);

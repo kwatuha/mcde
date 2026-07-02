@@ -69,6 +69,7 @@ import {
 } from '../utils/organizationChartLabels';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAIPageContext } from '../context/AIPageContext.jsx';
 import {
   buildProjectOrganizationScopeMeta,
   filterProjectsByOrganizationScope,
@@ -147,6 +148,7 @@ const ProjectByStatusDashboardPage = () => {
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setAIPageContext, clearAIPageContext } = useAIPageContext();
   const [filters, setFilters] = useState({
     ministry: '',
     stateDepartment: '',
@@ -421,6 +423,40 @@ const ProjectByStatusDashboardPage = () => {
 
     return stats;
   }, [filteredProjects]);
+
+  useEffect(() => {
+    setAIPageContext({
+      pageType: 'project-by-status-dashboard',
+      filters,
+      screenSummary: {
+        projects: totalProjects,
+        totalBudget,
+        totalPaid,
+        absorption: `${overallAbsorption}%`,
+        completed: statusStats.Completed || 0,
+        ongoing: statusStats.Ongoing || 0,
+        stalled: statusStats.Stalled || 0,
+        notStarted: statusStats['Not started'] || 0,
+      },
+      screenRows: statusData.statusChart.slice(0, 8).map((row) => ({
+        status: row.name,
+        projects: row.count,
+        budget: formatCurrency(row.budget || 0),
+        absorption: `${row.absorptionRate || 0}%`,
+      })),
+    });
+    return () => clearAIPageContext();
+  }, [
+    filters,
+    totalProjects,
+    totalBudget,
+    totalPaid,
+    overallAbsorption,
+    statusStats,
+    statusData.statusChart,
+    setAIPageContext,
+    clearAIPageContext,
+  ]);
 
   const countCompleted = useCountUp(statusStats['Completed'] || 0);
   const countOngoing = useCountUp(statusStats['Ongoing'] || 0);

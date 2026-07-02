@@ -178,9 +178,13 @@ async function askOpenAIReport({ prompt, reportType, user, context, dataContext 
         'Do not use Markdown. Do not include prose outside JSON.',
         'The system will format the final Word/PDF document, so focus on clear content, concise findings, and useful recommendations.',
         'Use only live data included in the context. Do not invent project counts, budgets, paid amounts, or project names.',
+        'When CURRENT PAGE CONTEXT or SCREEN TABLE DATA is provided, treat it as the primary source and tailor the report to that screen — not a generic county-wide overview.',
+        'Reflect active filters and on-screen metrics in the executive summary and findings.',
         'Return this JSON shape exactly: {"title":"","subtitle":"","executiveSummary":"","sections":[{"heading":"","paragraphs":[""],"bullets":[""]}],"tables":[{"title":"","headers":[""],"rows":[[""]]}],"recommendations":[""],"conclusion":""}.',
         `Report type: ${reportType || 'General M&E report'}.`,
-        context?.path ? `User is on screen: ${context.path}${context.title ? ` (${context.title})` : ''}. Tailor findings to this screen.` : '',
+        context?.pageType
+            ? `Active screen type: ${String(context.pageType).replace(/-/g, ' ')}. The report title and findings must match this screen.`
+            : (context?.path ? `User is on screen: ${context.path}${context.title ? ` (${context.title})` : ''}. Tailor findings to this screen.` : ''),
         dataContext?.text ? `LIVE DATA CONTEXT:\n${dataContext.text}` : 'No live data context was retrieved. Produce general guidance and say where data should be reviewed.',
     ].join('\n');
 

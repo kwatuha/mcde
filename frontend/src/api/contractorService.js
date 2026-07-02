@@ -97,6 +97,21 @@ const contractorService = {
     });
     return response.data;
   },
+
+  getProjectFileChecklist: async (contractorId, projectId) => {
+    const response = await axiosInstance.get(
+      `/contractors/${contractorId}/projects/${projectId}/file-checklist`
+    );
+    return response.data;
+  },
+  uploadChecklistDocument: async (contractorId, projectId, itemId, formData) => {
+    const response = await axiosInstance.post(
+      `/contractors/${contractorId}/projects/${projectId}/file-checklist/items/${itemId}/upload`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data;
+  },
   
   // linkToUser removed: contractor_users table no longer exists
 };

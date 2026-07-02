@@ -184,6 +184,7 @@ export function inferReportType(message = '', context = {}) {
 
   if (
     /\boperations|operational delivery|operations dashboard\b/.test(text)
+    || context.pageType === 'operations-dashboard'
     || /operations-dashboard/.test(context.path || '')
   ) {
     return 'General M&E Report';
@@ -191,13 +192,15 @@ export function inferReportType(message = '', context = {}) {
 
   if (
     /\bregional|ward breakdown|subcounty|regional breakdown\b/.test(text)
-    || /regional-reports|regional-breakdown/.test(context.path || '')
+    || ['regional-breakdown', 'regional-dashboard', 'regional-reports'].includes(context.pageType)
+    || /regional-reports|regional-breakdown|regional-dashboard/.test(context.path || '')
   ) {
     return 'General M&E Report';
   }
 
   if (
     /\bjobs|impact|employment|beneficiar\b/.test(text)
+    || context.pageType === 'jobs-dashboard'
     || /jobs-dashboard/.test(context.path || '')
   ) {
     return 'General M&E Report';
@@ -205,6 +208,7 @@ export function inferReportType(message = '', context = {}) {
 
   if (
     /\bsummary statistics|county-wide|executive summary\b/.test(text)
+    || context.pageType === 'summary-statistics'
     || /summary-statistics/.test(context.path || '')
   ) {
     return 'General M&E Report';
@@ -228,8 +232,8 @@ export function inferReportType(message = '', context = {}) {
 
   if (
     /\bproject status|stalled|ongoing|completed|registry|status report\b/.test(text)
-    || ['project-details', 'status-report', 'project-registry'].includes(context.pageType)
-    || /\/projects\/\d+|status-report/.test(context.path || '')
+    || ['project-details', 'status-report', 'project-registry', 'project-by-status-dashboard'].includes(context.pageType)
+    || /\/projects\/\d+|status-report|project-by-status/.test(context.path || '')
   ) {
     return 'Project Status Report';
   }
@@ -244,20 +248,96 @@ export function detectReportOutputFormat(message = '') {
   return 'docx';
 }
 
+export function getDefaultReportType(context = {}) {
+  return inferReportType('', context);
+}
+
+export function getDefaultReportPrompt(context = {}) {
+  const pageType = context.pageType || '';
+  const path = String(context.path || '').split('?')[0];
+  const title = context.title || pageType.replace(/-/g, ' ') || 'this screen';
+  const hasFilters = context.filters
+    && Object.values(context.filters).some((value) => String(value ?? '').trim() !== '');
+  const filterHint = hasFilters ? ' Apply the active filters shown on screen.' : '';
+
+  if (pageType === 'project-details' && context.projectName) {
+    return `Draft a professional project status and monitoring report for "${context.projectName}". Include budget, progress, CIDP/ADP linkage, risks, and next steps.${filterHint}`;
+  }
+  if (pageType === 'finance-dashboard' || path.includes('/finance-dashboard')) {
+    return `Draft a finance summary report for the Finance Dashboard: absorption, paid vs budget, and projects needing payment follow-up.${filterHint}`;
+  }
+  if (pageType === 'payment-list' || path.includes('/payment-list')) {
+    return `Draft a payment list summary report covering disbursements, absorption, and outstanding balances.${filterHint}`;
+  }
+  if (pageType === 'pending-bills-report' || path.includes('/pending-bills-report')) {
+    return `Draft a pending bills report highlighting departments and projects with the highest outstanding amounts.${filterHint}`;
+  }
+  if (pageType === 'status-report' || path.includes('/status-report')) {
+    return `Draft a project status report for the filtered projects on this status report screen.${filterHint}`;
+  }
+  if (pageType === 'project-monitoring' || path.includes('/monitoring/project-monitoring')) {
+    return `Draft a monitoring summary report from the observations and warning levels on this screen.${filterHint}`;
+  }
+  if (pageType === 'pmc-ward-reports' || path.includes('/pmc-ward')) {
+    return `Draft a PMC ward reporting summary covering submission status, gaps, and follow-up actions.${filterHint}`;
+  }
+  if (pageType === 'adp-implementation' || path.includes('/adp-implementation')) {
+    return `Draft an ADP implementation report: planned vs budgeted vs linked registry projects.${filterHint}`;
+  }
+  if (pageType === 'budget-management' || path.includes('/budget-management')) {
+    return `Draft a budget management report for the budget view currently open, including ADP linkage gaps.${filterHint}`;
+  }
+  if (pageType === 'operations-dashboard' || path.includes('/operations-dashboard')) {
+    return `Draft an operations dashboard report: departmental performance, KPI achievement, evaluations, and projects needing attention.${filterHint}`;
+  }
+  if (pageType === 'project-by-status-dashboard' || path.includes('/project-by-status')) {
+    return `Draft a project-by-status report with status distribution, budget exposure, and stalled or at-risk categories.${filterHint}`;
+  }
+  if (pageType === 'jobs-dashboard' || path.includes('/jobs-dashboard')) {
+    return `Draft a jobs and impact report: employment totals, gender split, direct vs indirect jobs, and top contributing projects.${filterHint}`;
+  }
+  if (pageType === 'summary-statistics' || path.includes('/summary-statistics')) {
+    return `Draft a county-wide M&E summary report from the statistics visible on this dashboard.${filterHint}`;
+  }
+  if (pageType === 'regional-breakdown' || path.includes('/regional')) {
+    return `Draft a regional breakdown report by sub-county and ward: project counts, budgets, and absorption.${filterHint}`;
+  }
+  if (pageType === 'project-registry' || (path.includes('/projects') && !/\/projects\/\d+/.test(path))) {
+    return `Draft a project registry summary for the filtered project list: status mix, locations, and monitoring priorities.${filterHint}`;
+  }
+
+  return `Draft a professional report based on the data currently visible on ${title}.${filterHint} Include executive summary, key findings, tables, risks, and recommendations.`;
+}
+
 export function buildReportPromptFromChat(userMessage = '', pageContext = {}) {
   const pageLabel = pageContext.title
     || pageContext.pageType?.replace(/-/g, ' ')
     || pageContext.path
     || 'the current screen';
+  const filterParts = pageContext.filters
+    ? Object.entries(pageContext.filters)
+      .filter(([, value]) => String(value ?? '').trim() !== '')
+      .map(([key, value]) => `${key}: ${value}`)
+    : [];
+  const summaryParts = pageContext.screenSummary
+    ? Object.entries(pageContext.screenSummary)
+      .filter(([, value]) => value != null && value !== '')
+      .map(([key, value]) => `${key}: ${value}`)
+    : [];
+
   return [
     String(userMessage || '').trim(),
-    `Use live data for ${pageLabel}.`,
+    `Focus on ${pageLabel} — use the screen context and live data for this view, not a generic county overview.`,
+    filterParts.length ? `Active filters: ${filterParts.join('; ')}.` : '',
+    summaryParts.length ? `On-screen totals: ${summaryParts.join('; ')}.` : '',
     'Include executive summary, key findings, tables where useful, risks or gaps, and actionable recommendations.',
   ].filter(Boolean).join(' ');
 }
 
 export const DATA_SOURCE_LABELS = {
   pageContextText: 'Current screen',
+  screenRowsText: 'Screen table data',
+  financeHighlights: 'Finance highlights',
   projectSummary: 'Project totals',
   statusBreakdown: 'Status breakdown',
   matchingProjects: 'Matching projects',

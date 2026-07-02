@@ -53,6 +53,8 @@ MIGRATIONS=(
   api/migrations/20260703_village_monitoring_workflow.sql
   api/migrations/20260704_contractor_portal.sql
   api/migrations/20260706_data_collection_subject_types.sql
+  api/migrations/20260708_project_file_checklist.sql
+  api/migrations/20260709_project_file_checklist_phase2.sql
 )
 
 if [[ "${SKIP_SEED_TEMPLATE:-0}" != "1" ]]; then

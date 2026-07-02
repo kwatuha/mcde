@@ -30,6 +30,8 @@ import {
   formatAssistantSections,
   formatDataSourceLabel,
   getAIStarterMessages,
+  getDefaultReportPrompt,
+  getDefaultReportType,
   inferReportType,
   parseInlineMarkdown,
   REPORT_TYPE_OPTIONS,
@@ -168,11 +170,18 @@ export default function AIAssistantPanel({ pageContext }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportPrompt, setReportPrompt] = useState('Draft a professional report using my accessible live project data.');
-  const [reportType, setReportType] = useState(REPORT_TYPE_OPTIONS[0]);
+  const defaultReportType = useMemo(() => getDefaultReportType(pageContext || {}), [pageContext]);
+  const defaultReportPrompt = useMemo(() => getDefaultReportPrompt(pageContext || {}), [pageContext]);
+  const [reportPrompt, setReportPrompt] = useState(defaultReportPrompt);
+  const [reportType, setReportType] = useState(defaultReportType);
   const [reportOutput, setReportOutput] = useState('docx');
   const [reportGenerating, setReportGenerating] = useState(false);
   const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    setReportType(defaultReportType);
+    setReportPrompt(defaultReportPrompt);
+  }, [defaultReportType, defaultReportPrompt]);
 
   const starterMessages = useMemo(
     () => getAIStarterMessages(pageContext || {}),
@@ -451,8 +460,9 @@ export default function AIAssistantPanel({ pageContext }) {
           ) : null}
           {statusLoaded && status.configured ? (
             <Alert severity="info">
-              Ask questions for live summaries, or request a &quot;well formatted report&quot; to download Word/PDF using the official template.
-              {pageContext?.pageType ? ` Context: ${pageContext.pageType.replace(/-/g, ' ')}.` : ''}
+              Ask questions for live summaries, or request a &quot;well formatted report&quot; to download Word/PDF.
+              Reports use data from the screen you are on
+              {pageContext?.pageType ? ` (${pageContext.pageType.replace(/-/g, ' ')})` : pageContext?.path ? ` (${pageContext.path})` : ''}.
             </Alert>
           ) : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
@@ -592,7 +602,8 @@ export default function AIAssistantPanel({ pageContext }) {
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
-              AI drafts structured content, then the system formats the final Word/PDF document using a fixed professional template.
+              AI drafts structured content from this screen&apos;s data, then formats the final Word/PDF document.
+              Default report type: {defaultReportType}.
             </Alert>
             <TextField
               select

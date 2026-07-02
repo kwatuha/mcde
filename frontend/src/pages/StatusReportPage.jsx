@@ -311,9 +311,18 @@ export default function StatusReportPage() {
         totalPaid,
         totalBalance,
       },
+      screenRows: visibleRows.slice(0, 12).map((row) => ({
+        project: row.projectName || row.name || `#${row.projectId}`,
+        status: row.status,
+        department: row.department || row.stateDepartment || '',
+        ward: row.ward || '',
+        budget: formatCurrency(row.budget),
+        paid: formatCurrency(row.paid),
+        balance: formatCurrency(row.balance),
+      })),
     });
     return () => clearAIPageContext();
-  }, [filters, visibleRows.length, groupedRows.length, totalBudget, totalPaid, totalBalance, setAIPageContext, clearAIPageContext]);
+  }, [filters, visibleRows, groupedRows.length, totalBudget, totalPaid, totalBalance, setAIPageContext, clearAIPageContext]);
 
   const departmentOptions = useMemo(
     () => (filterOptions.departments || []).map((item) => item?.name || item?.alias || item).filter(Boolean),

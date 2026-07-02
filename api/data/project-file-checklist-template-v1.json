@@ -1,0 +1,128 @@
+{
+  "version": "1.0.0",
+  "name": "County Project File Checklist Guide",
+  "categories": [
+    {
+      "key": "pre_contract",
+      "label": "Pre-Contract Documents",
+      "sortOrder": 1,
+      "items": [
+        { "key": "inception_scoping_report", "label": "Inception and/or Scoping report", "suggestedDocumentType": "concept_note", "required": true },
+        { "key": "design_reports_esia_nema", "label": "Design reports and drawings including ESIA report and NEMA license if available", "required": true },
+        { "key": "advert", "label": "Advert", "required": true },
+        { "key": "pre_tender_site_visit_attendance", "label": "Pre-tender site visit attendance list", "required": true },
+        { "key": "pre_tender_site_visit_certificate", "label": "Pre-tender site visit certificate", "required": true }
+      ]
+    },
+    {
+      "key": "bidders_evaluation",
+      "label": "Bidders Evaluation Records",
+      "sortOrder": 2,
+      "items": [
+        { "key": "opening_reports_minutes", "label": "Opening reports and minutes", "required": true },
+        { "key": "evaluation_reports_minutes", "label": "Evaluation Reports and Minutes", "suggestedDocumentType": "evaluation_report", "required": true },
+        { "key": "bidder_tender_documents", "label": "Submitted filled tender documents for all bidders and related selection records including professional opinions", "allowsMultiple": true, "required": true }
+      ]
+    },
+    {
+      "key": "contractual_obligations",
+      "label": "Contractual Obligations Documents",
+      "sortOrder": 3,
+      "items": [
+        { "key": "contract_priced_boq", "label": "Contract document and priced BoQ (tender document filled by selected bidder)", "suggestedDocumentType": "contract_agreement", "required": true },
+        { "key": "award_letter", "label": "Award letter or notification of Award", "suggestedDocumentType": "award_letter", "required": true },
+        { "key": "acceptance_letter", "label": "Acceptance letter", "required": true },
+        { "key": "agreement", "label": "Agreement", "suggestedDocumentType": "contract_agreement", "required": true }
+      ]
+    },
+    {
+      "key": "delegation_authority",
+      "label": "Delegation of Authority / Appointment of Supervision Staff",
+      "sortOrder": 4,
+      "items": [
+        { "key": "resident_engineer_appointment", "label": "Resident Engineer appointment letter", "required": true },
+        { "key": "assistant_resident_engineer_appointment", "label": "Assistant(s) Resident Engineer appointment letter(s) or deputies where applicable", "allowsMultiple": true, "required": false },
+        { "key": "surveyor_appointment", "label": "Surveyor appointment letter", "required": true },
+        { "key": "assistant_engineer_appointment", "label": "Assistant Engineer(s) appointment letter(s) if applicable", "allowsMultiple": true, "required": false },
+        { "key": "site_inspector_appointment", "label": "Site inspector(s) appointment letter(s)", "allowsMultiple": true, "required": false },
+        { "key": "other_supervision_staff_appointment", "label": "Appointment of other staff such as social officer etc.", "allowsMultiple": true, "required": false }
+      ]
+    },
+    {
+      "key": "litigation",
+      "label": "Litigation Records",
+      "sortOrder": 5,
+      "items": [
+        { "key": "ppra_decisions", "label": "PPRA decisions", "allowsMultiple": true, "required": false },
+        { "key": "summons", "label": "Summons", "allowsMultiple": true, "required": false },
+        { "key": "stop_orders", "label": "Stop orders", "allowsMultiple": true, "required": false },
+        { "key": "court_rulings", "label": "Court ruling(s)", "allowsMultiple": true, "required": false },
+        { "key": "other_litigation_records", "label": "Any other litigation records related to the project", "allowsMultiple": true, "required": false }
+      ]
+    },
+    {
+      "key": "pre_commencement",
+      "label": "Pre-Commencement Commitment Documents",
+      "sortOrder": 6,
+      "items": [
+        { "key": "performance_guarantee", "label": "Performance guarantee — letters and correspondence", "required": true, "contractorUploadable": true },
+        { "key": "contractors_all_risks_insurance", "label": "Contractor's all works risk insurance", "required": true, "contractorUploadable": true },
+        { "key": "site_agent_superintendent_cvs", "label": "Site agent and deputies — CVs, academic documents and identification", "allowsMultiple": true, "required": true, "contractorUploadable": true },
+        { "key": "surveyor_cvs_pre_commencement", "label": "Surveyor — CVs, academic documents and identification", "required": false },
+        { "key": "foremen_cvs", "label": "Foremen — CVs, academic documents and identification", "allowsMultiple": true, "required": false, "contractorUploadable": true },
+        { "key": "other_key_staff_cvs", "label": "Any other key staff as required by the contract", "allowsMultiple": true, "required": false, "contractorUploadable": true },
+        { "key": "resourced_program_of_works", "label": "Resourced Program of works", "required": true, "contractorUploadable": true },
+        { "key": "cashflow_projection", "label": "Cashflow projection superimposed into program of works", "required": true, "contractorUploadable": true },
+        { "key": "technical_proposal_documents", "label": "Other technical proposal documents (traffic management, QMP, social & environmental management plan, etc.)", "allowsMultiple": true, "required": false, "contractorUploadable": true }
+      ]
+    },
+    {
+      "key": "site_handover",
+      "label": "Site Handover",
+      "sortOrder": 7,
+      "items": [
+        { "key": "order_to_commence", "label": "Order to commence", "required": true },
+        { "key": "possession_of_site", "label": "Possession of site", "required": true },
+        { "key": "handover_meeting_minutes", "label": "Handover meeting minutes if available", "required": false }
+      ]
+    },
+    {
+      "key": "contract_administration",
+      "label": "Contract Administration and Works Management",
+      "sortOrder": 8,
+      "items": [
+        { "key": "advance_payment_guarantee", "label": "Advance Payment Guarantee where applicable", "required": false },
+        { "key": "bill_one_instructions", "label": "Bill one item instructions", "required": false },
+        { "key": "bill_one_expenditure_records", "label": "Bill one expenditure records", "allowsMultiple": true, "required": false },
+        { "key": "works_instructions", "label": "Works instructions", "allowsMultiple": true, "required": true },
+        { "key": "rates_request_letters", "label": "Rates request letters if any", "allowsMultiple": true, "required": false },
+        { "key": "rates_response_letters", "label": "Rates response letters if any", "allowsMultiple": true, "required": false },
+        { "key": "appraisals_and_approval", "label": "Appraisals if any and its approval", "allowsMultiple": true, "required": false },
+        { "key": "value_engineering_reports", "label": "Value Engineering reports and their approval if any", "allowsMultiple": true, "required": false },
+        { "key": "bill_one_expenditure_approval", "label": "Approval on expenditure of bill one", "required": false },
+        { "key": "dayworks_approval_and_records", "label": "Approval on expenditure of dayworks items and Dayworks records", "allowsMultiple": true, "required": false },
+        { "key": "notices_to_contractor", "label": "Notices to the contractor", "allowsMultiple": true, "suggestedDocumentType": "warning_letter", "required": false },
+        { "key": "material_testing_certificates", "label": "Material testing and test certificates", "allowsMultiple": true, "required": true },
+        { "key": "works_requisition_approvals", "label": "Works requisition approvals", "allowsMultiple": true, "required": false },
+        { "key": "acknowledgements_receipts_invoices", "label": "Acknowledgements, receipts, logbook, invoices and forwarding letters", "allowsMultiple": true, "suggestedDocumentType": "invoice", "required": false },
+        { "key": "daily_works_record", "label": "Daily works record", "allowsMultiple": true, "required": true },
+        { "key": "approved_contractor_site_staff_cvs", "label": "Approved CVs of Contractor's Site Staff", "allowsMultiple": true, "required": false },
+        { "key": "contractor_hr_reports", "label": "Contractor's human resource reports for the project", "allowsMultiple": true, "required": false },
+        { "key": "site_meeting_minutes", "label": "Site meetings minutes and notices", "allowsMultiple": true, "required": true },
+        { "key": "technical_meeting_minutes", "label": "Technical meeting minutes if any", "allowsMultiple": true, "required": false },
+        { "key": "monthly_progress_reports_photos", "label": "Monthly Progress reports and photos", "allowsMultiple": true, "suggestedDocumentType": "progress_photo", "required": true, "contractorUploadable": true },
+        { "key": "status_reports_project_tracking", "label": "Status reports / Project Tracking", "allowsMultiple": true, "required": true },
+        { "key": "surveyor_reports_levels_volumes", "label": "Surveyor's reports including levels and volumes", "allowsMultiple": true, "required": true },
+        { "key": "social_engagement_records", "label": "Social engagement and stakeholder management notices, records, meeting minutes and reports", "allowsMultiple": true, "required": false },
+        { "key": "request_for_inspections", "label": "Request for inspections", "allowsMultiple": true, "required": false },
+        { "key": "inspection_acceptance_committee_appointment", "label": "Appointment of inspection and acceptance committees", "allowsMultiple": true, "required": false },
+        { "key": "inspection_acceptance_committee_minutes", "label": "Inspection and acceptance committee minutes", "allowsMultiple": true, "required": false },
+        { "key": "measurement_sheets", "label": "Measurement Sheets", "allowsMultiple": true, "required": true },
+        { "key": "interim_payment_certificates", "label": "Interim Payment certificates and related invoices", "allowsMultiple": true, "suggestedDocumentType": "payment_certificate", "required": true },
+        { "key": "retention_payment_certificate", "label": "Retention payment certificate", "suggestedDocumentType": "payment_certificate", "required": false },
+        { "key": "completion_certificates", "label": "Substantial completion certificates and/or Completion Certificates", "allowsMultiple": true, "suggestedDocumentType": "completion_letter", "required": false },
+        { "key": "taking_over_certificate", "label": "Taking over certificate", "suggestedDocumentType": "completion_letter", "required": false }
+      ]
+    }
+  ]
+}
