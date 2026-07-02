@@ -73,12 +73,12 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import CelebrationIcon from '@mui/icons-material/Celebration';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ChecklistIcon from '@mui/icons-material/Checklist';
-import EngineeringIcon from '@mui/icons-material/Engineering';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import SpeedIcon from '@mui/icons-material/Speed';
 import ArticleIcon from '@mui/icons-material/Article';
 import UpdateIcon from '@mui/icons-material/Update';
+import EngineeringIcon from '@mui/icons-material/Engineering';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useMenuCategory } from '../context/MenuCategoryContext.jsx';
@@ -92,7 +92,7 @@ import {
   TREE_NAV_BORDER as TREE_BORDER,
 } from '../configs/treeNavChrome.js';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
-import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser } from '../utils/privilegeUtils.js';
 import { isSuperAdminUser } from '../utils/roleUtils.js';
 import gprisLogo from '../assets/gpris.png';
 import logoFallback from '../assets/logo.png';
@@ -446,6 +446,8 @@ const Sidebar = ({
   const previousFullPathRef = useRef(fullPath);
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isAdminLike = isAdmin(user);
+  const showContractorMenu = isContractor(user);
+  const showEngineerMenu = isEngineerPortalUser(user);
 
   // Memoize setSelected to prevent Item components from re-rendering unnecessarily
   const stableSetSelected = useCallback((value) => {
@@ -499,25 +501,39 @@ const Sidebar = ({
   );
 
   useEffect(() => {
-    if ((!isTreeLayout && !isMobile) || !activeCategoryIdForPath || normalizedRole === 'contractor') return;
+    if ((!isTreeLayout && !isMobile) || !activeCategoryIdForPath || showContractorMenu || showEngineerMenu) return;
     setOpenTreeGroups(new Set([activeCategoryIdForPath]));
-  }, [isTreeLayout, isMobile, activeCategoryIdForPath, normalizedRole]);
+  }, [isTreeLayout, isMobile, activeCategoryIdForPath, showContractorMenu, showEngineerMenu]);
 
   useEffect(() => {
-    if ((!isTreeLayout && !isMobile) || normalizedRole !== 'contractor') return;
+    if ((!isTreeLayout && !isMobile) || !showContractorMenu) return;
     setOpenTreeGroups((prev) => {
       if (prev.has('contractor-root')) return prev;
       const next = new Set(prev);
       next.add('contractor-root');
       return next;
     });
-  }, [isTreeLayout, isMobile, normalizedRole]);
+  }, [isTreeLayout, isMobile, showContractorMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showEngineerMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('engineer-root')) return prev;
+      const next = new Set(prev);
+      next.add('engineer-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showEngineerMenu]);
 
   /** When the mobile drawer opens, expand the current section so items are visible immediately. */
   useEffect(() => {
     if (!isMobile || !mobileOpen) return;
-    if (normalizedRole === 'contractor') {
+    if (showContractorMenu) {
       setOpenTreeGroups(new Set(['contractor-root']));
+      return;
+    }
+    if (showEngineerMenu) {
+      setOpenTreeGroups(new Set(['engineer-root']));
       return;
     }
     if (activeCategoryIdForPath) {
@@ -525,7 +541,7 @@ const Sidebar = ({
     } else if (menuCategories.length > 0) {
       setOpenTreeGroups(new Set([menuCategories[0].id]));
     }
-  }, [isMobile, mobileOpen, activeCategoryIdForPath, normalizedRole, menuCategories]);
+  }, [isMobile, mobileOpen, activeCategoryIdForPath, showContractorMenu, showEngineerMenu, menuCategories]);
 
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
@@ -551,7 +567,6 @@ const Sidebar = ({
   // Organized menu groups
   const dashboardItems = [
     { title: "Dashboard", to: ROUTES.DASHBOARD, icon: <DashboardIcon /> },
-    { title: "Engineer Workspace", to: ROUTES.ENGINEER_WORKSPACE, icon: <EngineeringIcon />, privilege: () => hasPrivilege('project.read') || hasPrivilege('project.read_all') || hasPrivilege('project.update') },
     { title: "Raw Data", to: ROUTES.RAW_DATA, icon: <TableChartIcon /> },
     { title: "Projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
     { title: "Personal Dashboard", to: ROUTES.CONTRACTOR_DASHBOARD, icon: <PaidIcon /> },
@@ -591,16 +606,27 @@ const Sidebar = ({
     { title: "Project Files", to: `${ROUTES.CONTRACTOR_DASHBOARD}/project-files`, icon: <UploadFileIcon /> },
   ];
 
+  const engineerItems = [
+    { title: "Workspace", to: ROUTES.ENGINEER_WORKSPACE, icon: <EngineeringIcon /> },
+    { title: "Project Registry", to: `${ROUTES.ENGINEER_WORKSPACE}/projects`, icon: <FolderOpenIcon /> },
+    { title: "Progress Photos", to: `${ROUTES.ENGINEER_WORKSPACE}/progress-photos`, icon: <PhotoCameraIcon /> },
+    { title: "Payment Requests", to: `${ROUTES.ENGINEER_WORKSPACE}/payments`, icon: <PaidIcon /> },
+    { title: "Certificates", to: `${ROUTES.ENGINEER_WORKSPACE}/certificates`, icon: <FactCheckIcon /> },
+  ];
+
   // Get all items for search
   const allItems = useMemo(() => {
-    if (normalizedRole === 'contractor') {
+    if (showContractorMenu) {
       return contractorItems;
+    }
+    if (showEngineerMenu) {
+      return engineerItems;
     }
     if (isAdminLike) {
       return [...dashboardItems, ...reportingItems, ...managementItems, ...adminItems];
     }
     return [...dashboardItems, ...reportingItems, ...managementItems];
-  }, [normalizedRole, isAdminLike]);
+  }, [showContractorMenu, showEngineerMenu, isAdminLike]);
 
   const collapsedWidth = 64; // Width with icons only
   const currentWidth = effectiveCollapsed ? collapsedWidth : expandedSidebarWidth;
@@ -756,7 +782,7 @@ const Sidebar = ({
                 </Typography>
               )}
               {effectiveCollapsed ? <Box sx={{ mb: 0.25 }} /> : null}
-              {normalizedRole === 'contractor' ? (
+              {showContractorMenu ? (
                 <MenuGroup
                   title="Contractor"
                   icon={
@@ -777,6 +803,36 @@ const Sidebar = ({
                 >
                   <SearchableMenu
                     items={contractorItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : showEngineerMenu ? (
+                <MenuGroup
+                  title="Engineer"
+                  icon={
+                    <EngineeringIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('engineer-root')}
+                  onToggle={() => toggleTreeGroup('engineer-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.ENGINEER_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={engineerItems}
                     selected={selected}
                     setSelected={stableSetSelected}
                     theme={theme}
@@ -825,6 +881,90 @@ const Sidebar = ({
                   );
                 })
               )}
+            </>
+          ) : showContractorMenu ? (
+            <>
+              {!effectiveCollapsed && (
+                <Box sx={{
+                  px: 1.5,
+                  py: 1,
+                  mb: 1.5,
+                  mt: 4,
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(255,255,255,0.5)',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)'}`,
+                }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: theme.palette.mode === 'dark'
+                        ? colors.blueAccent[400]
+                        : '#0284c7',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Contractor
+                  </Typography>
+                </Box>
+              )}
+              {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+              <SearchableMenu
+                items={contractorItems}
+                selected={selected}
+                setSelected={stableSetSelected}
+                theme={theme}
+                isCollapsed={effectiveCollapsed}
+                onAfterNavigate={closeMobileNav}
+              />
+            </>
+          ) : showEngineerMenu ? (
+            <>
+              {!effectiveCollapsed && (
+                <Box sx={{
+                  px: 1.5,
+                  py: 1,
+                  mb: 1.5,
+                  mt: 4,
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(255,255,255,0.5)',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.palette.mode === 'dark'
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)'}`,
+                }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: theme.palette.mode === 'dark'
+                        ? colors.blueAccent[400]
+                        : '#0284c7',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Engineer
+                  </Typography>
+                </Box>
+              )}
+              {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+              <SearchableMenu
+                items={engineerItems}
+                selected={selected}
+                setSelected={stableSetSelected}
+                theme={theme}
+                isCollapsed={effectiveCollapsed}
+                onAfterNavigate={closeMobileNav}
+              />
             </>
           ) : (
             <>

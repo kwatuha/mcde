@@ -92,6 +92,10 @@ import ProjectPhotoManager from './pages/ProjectPhotoManager';
 // NEW: Import the PersonalDashboard component (formerly ContractorDashboard)
 import PersonalDashboard from './pages/ContractorDashboard';
 import EngineerWorkspacePage from './pages/EngineerWorkspacePage';
+import EngineerWorkspaceProjectsPage from './pages/engineerWorkspace/EngineerWorkspaceProjectsPage';
+import EngineerWorkspacePaymentsPage from './pages/engineerWorkspace/EngineerWorkspacePaymentsPage';
+import EngineerWorkspaceCertificatesPage from './pages/engineerWorkspace/EngineerWorkspaceCertificatesPage';
+import EngineerWorkspaceProgressPhotosPage from './pages/engineerWorkspace/EngineerWorkspaceProgressPhotosPage';
 import ContractorPaymentsPage from './pages/ContractorPaymentsPage';
 import ContractorPhotosPage from './pages/ContractorPhotosPage';
 import ContractorFileChecklistPage from './pages/ContractorFileChecklistPage';
@@ -318,6 +322,22 @@ const router = createBrowserRouter([
       {
         path: 'engineer-workspace',
         element: <EngineerWorkspacePage />,
+      },
+      {
+        path: 'engineer-workspace/projects',
+        element: <EngineerWorkspaceProjectsPage />,
+      },
+      {
+        path: 'engineer-workspace/payments',
+        element: <EngineerWorkspacePaymentsPage />,
+      },
+      {
+        path: 'engineer-workspace/certificates',
+        element: <EngineerWorkspaceCertificatesPage />,
+      },
+      {
+        path: 'engineer-workspace/progress-photos',
+        element: <EngineerWorkspaceProgressPhotosPage />,
       },
       {
         path: 'contractor-management',

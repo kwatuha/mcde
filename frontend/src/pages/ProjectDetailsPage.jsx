@@ -210,7 +210,7 @@ const PROJECT_DETAIL_TAB_DEFINITIONS = [
     { value: 9, key: 'implementation-plan', label: 'Plan', icon: AccountTreeIcon },
     { value: 10, key: 'inception', label: 'Inception', icon: DescriptionIcon },
     { value: 11, key: 'payments', label: 'Payments', icon: PaidIcon },
-    { value: 12, key: 'file-checklist', label: 'Project File', icon: FolderSharedIcon },
+    { value: 12, key: 'file-checklist', label: 'File', icon: FolderSharedIcon },
     { value: 1, key: 'financials', label: 'Financials', icon: MoneyIcon },
     { value: 2, key: 'sites', label: 'Sites', icon: LocationOnIcon },
     { value: 3, key: 'jobs', label: 'Jobs', icon: WorkIcon },
@@ -225,6 +225,30 @@ const getVisibleProjectDetailTabKeySet = (user) => {
     if (isUiProfileBypassUser(user)) return null;
     return getProfileTabVisibilitySet(user);
 };
+
+/** Tabs that stay available when the user has the matching privilege (even if UI profile omits them). */
+const PRIVILEGE_PROJECT_DETAIL_TAB_RULES = [
+    { privileges: ['project.file_checklist.read', 'project.file_checklist.update'], tabKey: 'file-checklist' },
+    { privileges: ['project.update'], tabKey: 'bq' },
+    { privileges: ['payment_request.read_all', 'payment_request.update'], tabKey: 'payments' },
+    { privileges: ['document.read_all', 'payment_request.update'], tabKey: 'certificates' },
+];
+
+function getPrivilegeProjectDetailTabKeys(user) {
+    const keys = new Set();
+    for (const rule of PRIVILEGE_PROJECT_DETAIL_TAB_RULES) {
+        if (rule.privileges.some((name) => checkUserPrivilege(user, name))) {
+            keys.add(rule.tabKey);
+        }
+    }
+    return keys;
+}
+
+function resolveProjectDetailTabKeyFromParam(tabParam) {
+    const tabKey = String(tabParam || '').trim().toLowerCase();
+    if (!tabKey || PROJECT_DETAIL_TAB_ALIASES[tabKey] === undefined) return null;
+    return PROJECT_DETAIL_TAB_KEYS[PROJECT_DETAIL_TAB_ALIASES[tabKey]] || tabKey;
+}
 
 const snakeToCamelCase = (obj) => {
     if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
@@ -592,13 +616,31 @@ function ProjectDetailsPage() {
     const [fileChecklistProgress, setFileChecklistProgress] = useState(null);
     const { setAIPageContext, clearAIPageContext } = useAIPageContext();
     const canViewProjectDocuments =
-        checkUserPrivilege(user, 'document.read_all') || checkUserPrivilege(user, 'document.create');
+        checkUserPrivilege(user, 'document.read_all')
+        || checkUserPrivilege(user, 'document.create')
+        || checkUserPrivilege(user, 'project.file_checklist.read')
+        || checkUserPrivilege(user, 'project.file_checklist.update');
     const visibleProjectDetailTabs = useMemo(() => {
-        const visibleKeys = getVisibleProjectDetailTabKeySet(user);
-        if (!visibleKeys) return PROJECT_DETAIL_TAB_DEFINITIONS;
-        const filtered = PROJECT_DETAIL_TAB_DEFINITIONS.filter((tab) => visibleKeys.has(tab.key));
-        return filtered.length ? filtered : PROJECT_DETAIL_TAB_DEFINITIONS;
-    }, [user]);
+        const profileKeys = getVisibleProjectDetailTabKeySet(user);
+        const privilegeKeys = getPrivilegeProjectDetailTabKeys(user);
+        const urlTabKey = resolveProjectDetailTabKeyFromParam(searchParams.get('tab'));
+        const allowedKeys = new Set([...privilegeKeys]);
+        if (urlTabKey) allowedKeys.add(urlTabKey);
+
+        if (!profileKeys) {
+            return PROJECT_DETAIL_TAB_DEFINITIONS;
+        }
+
+        for (const tab of PROJECT_DETAIL_TAB_DEFINITIONS) {
+            if (profileKeys.has(tab.key)) allowedKeys.add(tab.key);
+        }
+
+        if (!allowedKeys.size) {
+            return PROJECT_DETAIL_TAB_DEFINITIONS;
+        }
+
+        return PROJECT_DETAIL_TAB_DEFINITIONS.filter((tab) => allowedKeys.has(tab.key));
+    }, [user, searchParams]);
     const visibleProjectDetailTabValues = useMemo(
         () => new Set(visibleProjectDetailTabs.map((tab) => tab.value)),
         [visibleProjectDetailTabs]
@@ -3858,7 +3900,7 @@ function ProjectDetailsPage() {
                                     <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_PLANNING_RISK_LINKS}?projectId=${encodeURIComponent(projectId)}`}>View Risks</Button>
                                     {canViewProjectDocuments && (
                                         <>
-                                            <Button size="small" onClick={() => setActiveTab(12)}>Project File</Button>
+                                            <Button size="small" onClick={() => setActiveTab(12)}>File</Button>
                                             <Button size="small" component={RouterLink} to={`${ROUTES.PROJECT_DOCUMENTS_BY_PROJECT}?projectId=${encodeURIComponent(projectId)}`}>View Documents</Button>
                                         </>
                                     )}
@@ -7347,7 +7389,11 @@ function ProjectDetailsPage() {
                     <Box>
                         <ProjectFileChecklistPanel
                             projectId={projectId}
-                            canEdit={checkUserPrivilege(user, 'document.create') || checkUserPrivilege(user, 'project.update')}
+                            canEdit={
+                                checkUserPrivilege(user, 'document.create')
+                                || checkUserPrivilege(user, 'project.update')
+                                || checkUserPrivilege(user, 'project.file_checklist.update')
+                            }
                             onProgressChange={setFileChecklistProgress}
                         />
                     </Box>

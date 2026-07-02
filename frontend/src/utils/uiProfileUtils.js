@@ -56,8 +56,19 @@ export function getProfileTabVisibilitySet(user) {
   return keys.length ? new Set(keys) : null;
 }
 
+export function isExplicitUiProfile(user) {
+  if (isUiProfileBypassUser(user)) return false;
+  const profile = getUserUiProfile(user);
+  if (!profile) return false;
+  const name = String(profile.name || '').trim().toLowerCase();
+  if (!name) return false;
+  return name !== 'default';
+}
+
 export function hasRestrictiveMenuProfile(user) {
-  return Boolean(getProfileMenuVisibilitySet(user));
+  if (isUiProfileBypassUser(user)) return false;
+  if (getProfileMenuVisibilitySet(user)) return true;
+  return isExplicitUiProfile(user);
 }
 
 export function hasRestrictiveTabProfile(user) {
@@ -80,7 +91,11 @@ export function applyUiProfileToMenuCategories(categories, user) {
   if (isUiProfileBypassUser(user)) return categories;
 
   const visibleKeys = getProfileMenuVisibilitySet(user);
-  if (!visibleKeys) return categories;
+  if (!visibleKeys) {
+    // Named profiles (e.g. CountyEngineer) restrict navigation even before menu keys are saved.
+    if (hasRestrictiveMenuProfile(user)) return [];
+    return categories;
+  }
 
   return categories
     .map((category) => {
@@ -127,11 +142,18 @@ const ALWAYS_ALLOWED_PATH_PREFIXES = [
   '/profile',
 ].map(normalizePath).filter(Boolean);
 
-export function isAlwaysAllowedUiProfilePath(pathname) {
+export function isAlwaysAllowedUiProfilePath(pathname, user = null) {
   const base = normalizePath(pathname);
-  return ALWAYS_ALLOWED_PATH_PREFIXES.some(
+  if (ALWAYS_ALLOWED_PATH_PREFIXES.some(
     (prefix) => base === prefix || base.startsWith(`${prefix}/`)
-  );
+  )) {
+    return true;
+  }
+  const landing = user ? getProfileLandingPath(user) : null;
+  if (landing && (base === landing || base.startsWith(`${landing}/`))) {
+    return true;
+  }
+  return false;
 }
 
 /** Contractor portal root and nested pages (payments, photos, project files). */
@@ -142,20 +164,46 @@ export function isContractorPortalPath(pathname) {
   return base === root || base.startsWith(`${root}/`);
 }
 
-export function getFirstVisibleMenuPath(visibleCategories) {
+/** Engineer workspace root and nested pages (projects, payments, certificates). */
+export function isEngineerPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.ENGINEER_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+/**
+ * Routes engineers open from the workspace (project detail tabs, finance certificates).
+ * Without this, restrictive UI profiles redirect back to /engineer-workspace.
+ */
+export function isEngineerWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isEngineerPortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const financeCerts = normalizePath(ROUTES.FINANCE_PAYMENT_CERTIFICATES);
+  if (financeCerts && (base === financeCerts || base.startsWith(`${financeCerts}/`))) {
+    return true;
+  }
+  return false;
+}
+
+export function getFirstVisibleMenuPath(visibleCategories, user = null) {
   for (const category of visibleCategories || []) {
     for (const submenu of category.submenus || []) {
       const path = submenuPath(submenu);
       if (path) return path;
     }
   }
+  const landing = user ? getProfileLandingPath(user) : null;
+  if (landing) return landing;
   return ROUTES.HOME;
 }
 
 export function canAccessRouteKeyByUiProfile(user, routeKey) {
   if (!routeKey || isUiProfileBypassUser(user)) return true;
+  if (!hasRestrictiveMenuProfile(user)) return true;
   const visibleKeys = getProfileMenuVisibilitySet(user);
-  if (!visibleKeys) return true;
+  if (!visibleKeys) return false;
   if (visibleKeys.has(`route:${routeKey}`)) return true;
   for (const category of menuConfig.menuCategories || []) {
     if (!visibleKeys.has(categoryVisibilityKey(category))) continue;

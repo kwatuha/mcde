@@ -3,6 +3,8 @@
  * Centralized privilege checking functions for the application
  */
 
+import { getProfileLandingPath } from './uiProfileUtils.js';
+
 const ADMIN_ROLE_IDS = new Set([1]);
 const ADMIN_ROLE_NAMES = new Set([
   'admin',
@@ -64,6 +66,23 @@ export const isAdmin = (user) => {
  */
 export const isContractor = (user) => {
   return normalizeRoleName(user?.roleName || user?.role) === 'contractor' || user?.contractorId;
+};
+
+/**
+ * Resident / site / chief engineers use the engineer workspace sidebar (mirrors contractor portal).
+ * UI profile landing path takes precedence so roles with the same profile get the same sidebar
+ * even when the role name does not contain "engineer" or the user has broader privileges.
+ */
+export const isEngineerPortalUser = (user) => {
+  if (!user || isContractor(user)) return false;
+
+  const landing = getProfileLandingPath(user);
+  if (landing?.startsWith('/engineer-workspace')) return true;
+
+  if (isAdmin(user)) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  return normalizedRole.includes('engineer');
 };
 
 export const isMdaIctAdminOrSuperAdmin = (user) => {

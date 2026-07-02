@@ -44,7 +44,9 @@ export const ROLE_PRIVILEGE_TEMPLATES = [
     suggestedUiProfileName: 'Projects Review',
     suggestedLandingPath: '/engineer-workspace',
     setupNotes: [
-      'Create a UI profile with landing page /engineer-workspace and menus for projects + finance.',
+      'Assign the engineer UI profile on the role (default UI profile) so the engineer sidebar loads for any role name.',
+      'Role names containing "engineer" (e.g. Resident Engineer, Chief Engineer) also enable the sidebar when no profile is set.',
+      'Create a UI profile with landing page /engineer-workspace and assign it as this role\'s default UI profile.',
       'Assign project scope (department / ward / explicit projects) so the engineer only sees their sites.',
     ],
   },

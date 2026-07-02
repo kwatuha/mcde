@@ -74,6 +74,7 @@ const PROJECT_DETAIL_UI_TAB_OPTIONS = [
   { key: 'projectDetails:implementation-plan', label: 'CIDP / Implementation Plan', group: 'Finance and planning', description: 'CIDP linkage and implementation plan context.' },
   { key: 'projectDetails:inception', label: 'Inception', group: 'Delivery evidence', description: 'Inception reports and project kick-off documentation.' },
   { key: 'projectDetails:payments', label: 'Payments', group: 'Finance and planning', description: 'Payment requests and contractor payment workflow.' },
+  { key: 'projectDetails:file-checklist', label: 'File', group: 'Delivery evidence', description: 'Required project file checklist and compliance register.' },
 ];
 
 const USER_FORM_TEXT_FIELD_NAMES = [
@@ -498,16 +499,65 @@ function getUserAccessLevelGroups(user, options = {}) {
   return groups;
 }
 
-/** Filled icon button for data-grid row actions — white icon on tone background. */
-function adminManagementDataGridSx(colors, theme) {
+/** Shared DataGrid styling for Role / Privilege management dialogs. */
+function adminManagementDataGridSx(colors, theme, { height = 400 } = {}) {
   const isDark = theme.palette.mode === 'dark';
+  const headerBg = colors.blueAccent[700];
+  const headerFg = brand.onPrimary;
+  const rowBg = isDark ? colors.primary[400] : '#ffffff';
+  const rowBorder = isDark ? colors.grey[700] : '#e5e7eb';
+  const cellColor = isDark ? colors.grey[100] : colors.grey[100];
+
   return {
+    height,
+    width: '100%',
+    border: 0,
+    borderRadius: '8px',
+    overflow: 'hidden',
+    backgroundColor: rowBg,
     '& .MuiDataGrid-root': {
       border: 'none',
+      borderRadius: '8px',
+    },
+    '& .MuiDataGrid-columnHeaders': {
+      backgroundColor: `${headerBg} !important`,
+      borderBottom: `2px solid ${colors.blueAccent[600]}`,
+      minHeight: '44px !important',
+      maxHeight: '44px !important',
+      lineHeight: '44px',
+    },
+    '& .MuiDataGrid-columnHeader': {
+      padding: '6px 12px',
+      backgroundColor: `${headerBg} !important`,
+      color: `${headerFg} !important`,
+      '&:focus': { outline: 'none' },
+      '&:focus-within': { outline: 'none' },
+    },
+    '& .MuiDataGrid-columnHeaderTitle': {
+      fontWeight: 700,
+      fontSize: '0.85rem',
+      color: `${headerFg} !important`,
+    },
+    '& .MuiDataGrid-columnSeparator': {
+      color: alpha(headerFg, 0.25),
     },
     '& .MuiDataGrid-cell': {
-      borderBottom: 'none',
-      color: colors.grey[100],
+      borderBottom: `1px solid ${rowBorder}`,
+      color: cellColor,
+      padding: '6px 12px',
+      display: 'flex',
+      alignItems: 'center',
+      '&:focus': { outline: 'none' },
+      '&:focus-within': { outline: 'none' },
+    },
+    '& .MuiDataGrid-row': {
+      minHeight: '44px !important',
+      maxHeight: '44px !important',
+      backgroundColor: rowBg,
+      transition: 'background-color 0.2s ease',
+      '&:hover': {
+        backgroundColor: `${isDark ? colors.blueAccent[800] : '#eef6ff'} !important`,
+      },
     },
     '& .username-column--cell': {
       color: isDark ? colors.greenAccent[300] : colors.greenAccent[700],
@@ -515,35 +565,38 @@ function adminManagementDataGridSx(colors, theme) {
       WebkitFontSmoothing: 'antialiased',
       MozOsxFontSmoothing: 'grayscale',
     },
-    '& .MuiDataGrid-columnHeaders': {
-      backgroundColor: `${colors.blueAccent[700]} !important`,
-      borderBottom: 'none',
-      '& .MuiDataGrid-columnHeaderTitle': {
-        fontWeight: 700,
-        color: brand.onPrimary,
-      },
-    },
     '& .MuiDataGrid-virtualScroller': {
-      backgroundColor: colors.primary[400],
+      backgroundColor: rowBg,
     },
     '& .MuiDataGrid-footerContainer': {
-      borderTop: 'none',
-      backgroundColor: `${colors.blueAccent[700]} !important`,
+      borderTop: `2px solid ${colors.blueAccent[600]}`,
+      backgroundColor: `${headerBg} !important`,
+      minHeight: 48,
       '& .MuiTablePagination-root, & .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiTablePagination-select': {
-        color: `${brand.onPrimary} !important`,
+        color: `${headerFg} !important`,
         fontWeight: 600,
       },
       '& .MuiIconButton-root': {
-        color: `${brand.onPrimary} !important`,
+        color: `${headerFg} !important`,
       },
     },
     '& .MuiCheckbox-root': {
       color: `${isDark ? colors.greenAccent[200] : colors.greenAccent[600]} !important`,
     },
     '& .MuiDataGrid-cellContent': {
-      fontSize: '0.875rem',
+      fontSize: '0.85rem',
       lineHeight: 1.4,
     },
+  };
+}
+
+function adminManagementDataGridPaperSx(colors, theme) {
+  const isDark = theme.palette.mode === 'dark';
+  return {
+    border: `1px solid ${isDark ? colors.grey[700] : '#d0d7de'}`,
+    borderRadius: 2,
+    overflow: 'hidden',
+    backgroundColor: isDark ? colors.primary[500] : '#ffffff',
   };
 }
 
@@ -1013,6 +1066,7 @@ function UserManagementPage() {
 
   // Role Management States
   const [openRoleManagementDialog, setOpenRoleManagementDialog] = useState(false);
+  const [roleManagementSearch, setRoleManagementSearch] = useState('');
   const [roles, setRoles] = useState([]);
   const [openRoleDialog, setOpenRoleDialog] = useState(false);
   const [currentRoleToEdit, setCurrentRoleToEdit] = useState(null);
@@ -1529,6 +1583,33 @@ function UserManagementPage() {
       setCountyPositions([]);
     }
   }, [isSuperAdmin]);
+
+  const uiProfileById = useMemo(() => {
+    const map = new Map();
+    for (const profile of uiProfiles) {
+      if (profile?.id != null) map.set(String(profile.id), profile);
+    }
+    return map;
+  }, [uiProfiles]);
+
+  const filteredRoles = useMemo(() => {
+    const q = roleManagementSearch.trim().toLowerCase();
+    if (!q) return roles;
+    return roles.filter((role) => {
+      const profileName = role.uiProfileId
+        ? (uiProfileById.get(String(role.uiProfileId))?.name || '')
+        : '';
+      const haystack = [
+        role.roleName,
+        role.description,
+        profileName,
+        role.roleId,
+      ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(q);
+    });
+  }, [roles, roleManagementSearch, uiProfileById]);
 
   const handleCountyPositionSelect = (positionId) => {
     setSelectedCountyPositionId(positionId);
@@ -2948,10 +3029,12 @@ function UserManagementPage() {
     }
     fetchRoles();
     fetchPrivileges();
+    fetchUiProfiles();
     setOpenRoleManagementDialog(true);
   };
 
   const handleCloseRoleManagementDialog = () => {
+    setRoleManagementSearch('');
     setOpenRoleManagementDialog(false);
   };
 
@@ -3723,6 +3806,51 @@ function UserManagementPage() {
     { field: "roleId", headerName: "ID", width: 90 },
     { field: "roleName", headerName: "Role Name", flex: 1, cellClassName: "username-column--cell" },
     { field: "description", headerName: "Description", flex: 2 },
+    {
+      field: "uiProfile",
+      headerName: "Default UI Profile",
+      flex: 1,
+      minWidth: 170,
+      valueGetter: (_value, row) => {
+        const profileId = row?.uiProfileId;
+        if (!profileId) return '';
+        return uiProfileById.get(String(profileId))?.name || `Profile #${profileId}`;
+      },
+      renderCell: (params) => {
+        const profileId = params.row.uiProfileId;
+        if (!profileId) {
+          return (
+            <Chip
+              size="small"
+              label="None"
+              variant="outlined"
+              color="warning"
+              sx={{ fontSize: '0.75rem' }}
+            />
+          );
+        }
+        const profile = uiProfileById.get(String(profileId));
+        const name = profile?.name || `Profile #${profileId}`;
+        const landingPath = profile?.landingPath || profile?.landing_path;
+        return (
+          <Tooltip
+            title={
+              landingPath
+                ? `Landing page: ${landingPath}`
+                : 'Users without their own UI profile inherit this navigation.'
+            }
+          >
+            <Chip
+              size="small"
+              label={name}
+              variant="outlined"
+              color="primary"
+              sx={{ fontSize: '0.75rem', maxWidth: '100%' }}
+            />
+          </Tooltip>
+        );
+      },
+    },
     {
       field: "actions",
       headerName: "Actions",
@@ -6114,7 +6242,7 @@ function UserManagementPage() {
           >
             <Box sx={{ p: 1.5, borderBottom: `1px solid ${theme.palette.mode === 'dark' ? colors.grey[700] : '#e5e7eb'}` }}>
               <Typography variant="body2" sx={{ color: theme.palette.mode === 'dark' ? colors.grey[200] : '#374151' }}>
-                Expand a menu group, then select only the items this profile should show. Use “Whole group” when the user should see every current and future item in that group.
+                Expand a menu group, then tick only the items this profile should show. &ldquo;Whole group&rdquo; or &ldquo;Groups only&rdquo; exposes every item in that group (including ones added later). For a tight menu like the contractor portal, pick individual items only.
               </Typography>
             </Box>
             {uiMenuVisibilityGroups.map((group) => {
@@ -6340,6 +6468,46 @@ function UserManagementPage() {
           Role Management
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: colors.primary[400] }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Default UI profile controls menus and landing page for users on this role (unless a user has their own profile).
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search roles by name, description, or UI profile…"
+              value={roleManagementSearch}
+              onChange={(e) => setRoleManagementSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: roleManagementSearch ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setRoleManagementSearch('')} edge="end">
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+              sx={{
+                flex: 1,
+                backgroundColor: theme.palette.mode === 'dark' ? colors.primary[500] : '#ffffff',
+                borderRadius: 1,
+              }}
+            />
+            {roleManagementSearch.trim() ? (
+              <Chip
+                size="small"
+                icon={<SearchIcon sx={{ fontSize: '0.9rem !important' }} />}
+                label={`${filteredRoles.length} of ${roles.length}`}
+                variant="outlined"
+                sx={{ flexShrink: 0 }}
+              />
+            ) : null}
+          </Stack>
           {isSuperAdmin && hasPrivilege('role.create') && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateRoleDialog} sx={{ mb: 2, backgroundColor: colors.greenAccent[600], '&:hover': { backgroundColor: colors.greenAccent[700] }, color: 'white' }}>
               Add New Role
@@ -6351,17 +6519,27 @@ function UserManagementPage() {
                 ? 'No roles found. Use Add New Role to create one.'
                 : 'No roles found.'}
             </Alert>
+          ) : filteredRoles.length === 0 ? (
+            <Alert severity="info">
+              No roles found matching &ldquo;{roleManagementSearch}&rdquo;. Try a different search term.
+            </Alert>
           ) : (
-            <Box
-              height="400px"
-              sx={adminManagementDataGridSx(colors, theme)}
-            >
+            <Paper elevation={0} sx={adminManagementDataGridPaperSx(colors, theme)}>
               <DataGrid
-                rows={roles}
+                rows={filteredRoles}
                 columns={roleColumns}
                 getRowId={(row) => row.roleId}
+                disableRowSelectionOnClick
+                density="compact"
+                rowHeight={44}
+                columnHeaderHeight={44}
+                pageSizeOptions={[10, 25, 50]}
+                initialState={{
+                  pagination: { paginationModel: { pageSize: 10 } },
+                }}
+                sx={adminManagementDataGridSx(colors, theme, { height: 400 })}
               />
-            </Box>
+            </Paper>
           )}
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>
@@ -6604,16 +6782,22 @@ function UserManagementPage() {
                 : 'No privileges found.'}
             </Alert>
           ) : (
-            <Box
-              height="400px"
-              sx={adminManagementDataGridSx(colors, theme)}
-            >
+            <Paper elevation={0} sx={adminManagementDataGridPaperSx(colors, theme)}>
               <DataGrid
                 rows={privileges}
                 columns={privilegeColumns}
                 getRowId={(row) => row.privilegeId}
+                disableRowSelectionOnClick
+                density="compact"
+                rowHeight={44}
+                columnHeaderHeight={44}
+                pageSizeOptions={[10, 25, 50]}
+                initialState={{
+                  pagination: { paginationModel: { pageSize: 10 } },
+                }}
+                sx={adminManagementDataGridSx(colors, theme, { height: 400 })}
               />
-            </Box>
+            </Paper>
           )}
         </DialogContent>
         <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}`, backgroundColor: colors.primary[400] }}>

@@ -129,6 +129,12 @@
       "icon": "AssessmentIcon",
       "submenus": [
         {
+          "title": "Engineer Workspace",
+          "icon": "AssignmentIcon",
+          "route": "ENGINEER_WORKSPACE",
+          "permissionsAny": ["project.read", "project.read_all", "project.update"]
+        },
+        {
           "title": "Projects Registry",
           "icon": "FolderOpenIcon",
           "route": "PROJECTS"

@@ -33,10 +33,14 @@ async function fetchScopedProjects(user, { search = '', limit = 100 } = {}) {
 
     const { clause, params } = await buildScopedProjectWhere(user, 'p');
     const where = ['COALESCE(p.voided, false) = false'];
-    const queryParams = [...params];
-    let idx = queryParams.length + 1;
+    const queryParams = [];
+    let idx = 1;
 
-    if (clause) where.push(clause.replace(/\?/g, () => `$${idx++}`));
+    if (clause) {
+        const scopeFragment = clause.replace(/\?/g, () => `$${idx++}`);
+        where.push(scopeFragment);
+        queryParams.push(...params);
+    }
 
     const q = String(search || '').trim();
     if (q) {
@@ -151,7 +155,15 @@ async function fetchCertificatesForWorkspace(user, projectIds) {
             c."requestDate",
             p.name AS "projectName",
             ar.status AS "approvalWorkflowStatus",
-            ar.request_id AS "approvalRequestId"
+            ar.request_id AS "approvalRequestId",
+            cur.step_name AS "approvalCurrentStepName",
+            cur.step_order AS "approvalCurrentStepOrder",
+            COALESCE(steps.total_steps, 0)::int AS "approvalTotalSteps",
+            prev.step_name AS "previousStepName",
+            prev.step_order AS "previousStepOrder",
+            prev.approver_name AS "previousStepApproverName",
+            prev.completed_at AS "previousStepApprovedAt",
+            prev.role_name AS "previousStepRoleName"
          FROM projectcertificate c
          LEFT JOIN projects p ON p.project_id = c."projectId"
          LEFT JOIN LATERAL (
@@ -162,6 +174,32 @@ async function fetchCertificatesForWorkspace(user, projectIds) {
             ORDER BY r.request_id DESC
             LIMIT 1
          ) ar ON true
+         LEFT JOIN LATERAL (
+            SELECT si.step_name, si.step_order
+            FROM approval_step_instances si
+            WHERE si.request_id = ar.request_id AND si.status = 'pending'
+            ORDER BY si.step_order ASC
+            LIMIT 1
+         ) cur ON ar.request_id IS NOT NULL
+         LEFT JOIN LATERAL (
+            SELECT
+                si.step_name,
+                si.step_order,
+                si.completed_at,
+                NULLIF(TRIM(CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, ''))), '') AS approver_name,
+                r.name AS role_name
+            FROM approval_step_instances si
+            LEFT JOIN users u ON u.userid = si.completed_by
+            LEFT JOIN roles r ON r.roleid = si.role_id
+            WHERE si.request_id = ar.request_id AND si.status = 'approved'
+            ORDER BY si.step_order DESC
+            LIMIT 1
+         ) prev ON ar.request_id IS NOT NULL
+         LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int AS total_steps
+            FROM approval_step_instances si
+            WHERE si.request_id = ar.request_id
+         ) steps ON ar.request_id IS NOT NULL
          WHERE COALESCE(c.voided, false) = false
            AND c."projectId" = ANY($1::int[])
            ${pendingFilter}
@@ -172,17 +210,149 @@ async function fetchCertificatesForWorkspace(user, projectIds) {
     return result.rows || [];
 }
 
+function isResidentEngineerPriorStep(row) {
+    const hay = [
+        row?.previousStepRoleName,
+        row?.previousStepName,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes('resident') && hay.includes('engineer');
+}
+
+function countCertificatesWithPriorApproval(certificates) {
+    return (certificates || []).filter((row) => {
+        const status = String(row.approvalWorkflowStatus || '').toLowerCase();
+        if (status !== 'pending') return false;
+        return Boolean(row.previousStepApproverName || row.previousStepRoleName || row.previousStepName);
+    }).length;
+}
+
+function countResidentEngineerApprovedPending(certificates) {
+    return (certificates || []).filter((row) => {
+        const status = String(row.approvalWorkflowStatus || '').toLowerCase();
+        return status === 'pending' && isResidentEngineerPriorStep(row);
+    }).length;
+}
+
+async function fetchProgressPhotosForWorkspace(projectIds, { projectId, status } = {}) {
+    if (!isPostgres || !projectIds.length) return [];
+
+    const params = [projectIds];
+    let idx = 2;
+    const filters = [
+        'pd."projectId" = ANY($1::int[])',
+        `pd."documentType" = 'photo'`,
+        `pd."documentCategory" = 'progress'`,
+        'COALESCE(pd.voided, false) = false',
+    ];
+
+    if (projectId) {
+        filters.push(`pd."projectId" = $${idx}`);
+        params.push(Number(projectId));
+        idx += 1;
+    }
+
+    const statusFilter = String(status || '').trim().toLowerCase();
+    if (statusFilter === 'pending_review' || statusFilter === 'pending') {
+        filters.push(`LOWER(COALESCE(pd.status, '')) IN ('pending_review', 'pending', 'submitted', '')`);
+    } else if (statusFilter && statusFilter !== 'all') {
+        filters.push(`LOWER(COALESCE(pd.status, '')) = $${idx}`);
+        params.push(statusFilter);
+        idx += 1;
+    }
+
+    const result = await pool.query(
+        `SELECT
+            pd.id AS "photoId",
+            pd."projectId",
+            p.name AS "projectName",
+            pd."milestoneId",
+            pm.milestone_name AS "milestoneName",
+            pm.sequence_order AS "milestoneSequenceOrder",
+            pd."documentPath" AS "filePath",
+            pd."originalFileName",
+            pd.description AS caption,
+            pd.status,
+            pd."createdAt" AS "submittedAt",
+            c."companyName" AS "contractorName"
+         FROM project_documents pd
+         INNER JOIN projects p ON p.project_id = pd."projectId"
+         LEFT JOIN project_milestones pm
+           ON pm.milestone_id = pd."milestoneId"
+          AND COALESCE(pm.voided, false) = false
+         LEFT JOIN contractors c
+           ON c."userId" = pd."userId"
+          AND COALESCE(c.voided, false) = false
+         WHERE ${filters.join(' AND ')}
+         ORDER BY
+            pd."projectId" ASC,
+            COALESCE(pm.sequence_order, 2147483647) ASC,
+            pd."createdAt" DESC
+         LIMIT 500`,
+        params
+    );
+    return result.rows || [];
+}
+
+async function fetchProgressPhotoSummary(projectIds) {
+    if (!isPostgres || !projectIds.length) {
+        return { totalPhotos: 0, pendingReview: 0 };
+    }
+
+    const result = await pool.query(
+        `SELECT
+            COUNT(*)::int AS "totalPhotos",
+            COUNT(*) FILTER (
+                WHERE LOWER(COALESCE(pd.status, '')) IN ('pending_review', 'pending', 'submitted', '')
+                   OR pd.status IS NULL
+            )::int AS "pendingReview"
+         FROM project_documents pd
+         WHERE pd."projectId" = ANY($1::int[])
+           AND pd."documentType" = 'photo'
+           AND pd."documentCategory" = 'progress'
+           AND COALESCE(pd.voided, false) = false`,
+        [projectIds]
+    );
+    const row = result.rows?.[0] || {};
+    return {
+        totalPhotos: Number(row.totalPhotos || 0),
+        pendingReview: Number(row.pendingReview || 0),
+    };
+}
+
+function countPendingProgressPhotos(photos) {
+    return (photos || []).filter((row) => {
+        const st = String(row.status || '').toLowerCase();
+        return !st || st.includes('pending') || st.includes('review') || st.includes('submitted');
+    }).length;
+}
+
+async function getEngineerProgressPhotos(user, options = {}) {
+    const projects = await fetchScopedProjects(user, { limit: options.limit || 120 });
+    const projectIds = projects.map((p) => p.projectId);
+    const photos = await fetchProgressPhotosForWorkspace(projectIds, options);
+    return {
+        projects: projects.map((p) => ({ projectId: p.projectId, projectName: p.projectName })),
+        photos,
+        summary: {
+            totalPhotos: photos.length,
+            pendingReview: countPendingProgressPhotos(photos),
+            projectCount: new Set(photos.map((p) => p.projectId)).size,
+        },
+    };
+}
+
 async function getEngineerWorkspace(user, options = {}) {
     await checklistService.ensureSchema();
 
     const projects = await fetchScopedProjects(user, options);
     const projectIds = projects.map((p) => p.projectId);
 
-    const [checklistMap, paymentRequests, certificates, pendingWorkflow] = await Promise.all([
+    const [checklistMap, paymentRequests, certificates, pendingWorkflow, progressPhotoSummary] = await Promise.all([
         checklistService.getBulkChecklistSummaries(projectIds),
         fetchPaymentRequestsForWorkspace(projectIds),
         fetchCertificatesForWorkspace(user, projectIds),
         approvalWorkflowEngine.listPendingForUser(user).catch(() => []),
+        fetchProgressPhotoSummary(projectIds),
     ]);
 
     const projectsWithMeta = projects.map((p) => ({
@@ -235,11 +405,16 @@ async function getEngineerWorkspace(user, options = {}) {
                 return !st || st === 'pending';
             }).length,
             pendingCertificates: pendingCertificates.length,
+            certificatesWithPriorApproval: countCertificatesWithPriorApproval(certificates),
+            residentEngineerApprovedPending: countResidentEngineerApprovedPending(certificates),
             projectsWithoutScope: projectsWithMeta.filter((p) => p.scopeStatus === 'none').length,
+            progressPhotos: progressPhotoSummary.totalPhotos,
+            progressPhotosPendingReview: progressPhotoSummary.pendingReview,
         },
     };
 }
 
 module.exports = {
     getEngineerWorkspace,
+    getEngineerProgressPhotos,
 };

@@ -68,6 +68,10 @@ const ContractorPaymentsPage = lazy(() => import('./pages/ContractorPaymentsPage
 const ContractorPhotosPage = lazy(() => import('./pages/ContractorPhotosPage'));
 const ContractorFileChecklistPage = lazy(() => import('./pages/ContractorFileChecklistPage'));
 const EngineerWorkspacePage = lazy(() => import('./pages/EngineerWorkspacePage'));
+const EngineerWorkspaceProjectsPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceProjectsPage'));
+const EngineerWorkspacePaymentsPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspacePaymentsPage'));
+const EngineerWorkspaceCertificatesPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceCertificatesPage'));
+const EngineerWorkspaceProgressPhotosPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceProgressPhotosPage'));
 const ContractorManagementPage = lazy(() => import('./pages/ContractorManagementPage'));
 const ContractorTypesPage = lazy(() => import('./pages/ContractorTypesPage'));
 const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
@@ -157,6 +161,22 @@ const router = createBrowserRouter([
       {
         path: 'engineer-workspace',
         element: <LazyRoute component={EngineerWorkspacePage} />,
+      },
+      {
+        path: 'engineer-workspace/projects',
+        element: <LazyRoute component={EngineerWorkspaceProjectsPage} />,
+      },
+      {
+        path: 'engineer-workspace/payments',
+        element: <LazyRoute component={EngineerWorkspacePaymentsPage} />,
+      },
+      {
+        path: 'engineer-workspace/certificates',
+        element: <LazyRoute component={EngineerWorkspaceCertificatesPage} />,
+      },
+      {
+        path: 'engineer-workspace/progress-photos',
+        element: <LazyRoute component={EngineerWorkspaceProgressPhotosPage} />,
       },
       {
         path: 'contractor-management',

@@ -23,13 +23,14 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
-import { isAdmin, normalizeRoleName, isContractor } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser } from '../utils/privilegeUtils.js';
 import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
 import {
   getFirstVisibleMenuPath,
   hasRestrictiveMenuProfile,
   isAlwaysAllowedUiProfilePath,
   isContractorPortalPath,
+  isEngineerWorkflowPath,
   isPathAllowedByVisibleMenu,
   isUiProfileBypassUser,
 } from '../utils/uiProfileUtils.js';
@@ -104,11 +105,12 @@ function MainLayoutContent() {
       user &&
       hasRestrictiveMenuProfile(user) &&
       !isUiProfileBypassUser(user) &&
-      !isAlwaysAllowedUiProfilePath(location.pathname) &&
+      !isAlwaysAllowedUiProfilePath(location.pathname, user) &&
       !(isContractor(user) && isContractorPortalPath(location.pathname)) &&
+      !(isEngineerPortalUser(user) && isEngineerWorkflowPath(location.pathname)) &&
       !isPathAllowedByVisibleMenu(location.pathname, menuCategories)
     ) {
-      const fallback = getFirstVisibleMenuPath(menuCategories);
+      const fallback = getFirstVisibleMenuPath(menuCategories, user);
       if (fallback && normalizePath(fallback) !== normalizePath(location.pathname)) {
         navigate(fallback, { replace: true });
       }
