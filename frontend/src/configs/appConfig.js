@@ -155,6 +155,7 @@ export const ROUTES = {
     HR_LEAVE_TYPES: '/hr-module?view=leaveTypes',
     HR_PUBLIC_HOLIDAYS: '/hr-module?view=publicHolidays',
     WORKFLOW_MANAGEMENT: '/workflow-management',
+    WORKFLOW_APPROVALS: '/workflow-approvals',
     APPROVAL_LEVELS_MANAGEMENT: '/approval-levels-management', // ✨ NEW: Add the approval levels management route
     PROJECT_ESCALATION_RULES: '/project-escalation-rules',
     AI_USAGE: '/ai-usage',
@@ -197,6 +198,7 @@ export const ROUTES = {
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
     FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
     FINANCE_PAYMENT_LIST: '/finance/payment-list',
+    ENGINEER_WORKSPACE: '/engineer-workspace',
     FINANCE_FUNDING_SOURCES_REPORT: '/finance/funding-sources-report',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',

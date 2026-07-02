@@ -12,6 +12,34 @@ export function getUserUiProfile(user) {
   return user?.uiProfile || user?.ui_profile || null;
 }
 
+export function normalizeLandingPath(value) {
+  if (value == null) return null;
+  let path = String(value).trim();
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      return null;
+    }
+  }
+  if (!path.startsWith('/')) path = `/${path}`;
+  const base = path.split('?')[0].split('#')[0];
+  if (!base || base === '/') return null;
+  return base;
+}
+
+export function getProfileLandingPath(user) {
+  const profile = getUserUiProfile(user);
+  return normalizeLandingPath(profile?.landingPath ?? profile?.landing_path);
+}
+
+export function resolvePostLoginPath(user) {
+  const fromProfile = getProfileLandingPath(user);
+  if (fromProfile) return fromProfile;
+  return ROUTES.HOME;
+}
+
 export function getProfileMenuVisibilitySet(user) {
   const profile = getUserUiProfile(user);
   return asVisibilitySet(profile?.visibleMenuKeys || profile?.visible_menu_keys);
@@ -104,6 +132,14 @@ export function isAlwaysAllowedUiProfilePath(pathname) {
   return ALWAYS_ALLOWED_PATH_PREFIXES.some(
     (prefix) => base === prefix || base.startsWith(`${prefix}/`)
   );
+}
+
+/** Contractor portal root and nested pages (payments, photos, project files). */
+export function isContractorPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.CONTRACTOR_DASHBOARD);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
 }
 
 export function getFirstVisibleMenuPath(visibleCategories) {

@@ -274,6 +274,14 @@ const HomePage = () => {
       || hasPrivilege('monitoring_report.chief_approve');
   }, [user?.roleName, user?.privileges, hasPrivilege]);
 
+  const canAccessWorkflowApprovals = React.useMemo(() => {
+    if (!user) return false;
+    return isAdmin(user)
+      || hasPrivilege('approval_levels.read')
+      || hasPrivilege('approval_levels.update')
+      || hasPrivilege('payment_request.update');
+  }, [user?.roleName, user?.privileges, hasPrivilege]);
+
   const monitoringWorkflowQueueRoute = React.useMemo(() => {
     if (!user) return ROUTES.VILLAGE_MONITORING_WORKFLOW;
     if (isAdmin(user) || hasPrivilege('monitoring_report.chief_approve')) {
@@ -695,16 +703,17 @@ const HomePage = () => {
     });
   }
 
-  if (user && workflowPendingRows.length > 0) {
+  if (user && (workflowPendingRows.length > 0 || canAccessWorkflowApprovals)) {
     notificationItems.push({
       type: 'workflow-pending-steps',
       title: 'My workflow approvals',
       count: workflowPendingRows.length,
       icon: <FactCheckIcon />,
       color: '#5e35b1',
-      // Card click opens the first pending item’s resolved URL (link_template or entity fallback), not CIDP.
-      route: resolveWorkflowNavigationPath(workflowPendingRows[0]),
-      description: `${workflowPendingRows.length} step${workflowPendingRows.length > 1 ? 's' : ''} waiting for your role (work plans, payment requests, certificates, etc.). Use the list below to open a specific item.`,
+      route: ROUTES.WORKFLOW_APPROVALS,
+      description: workflowPendingRows.length > 0
+        ? `${workflowPendingRows.length} step${workflowPendingRows.length > 1 ? 's' : ''} waiting for action (work plans, payment requests, certificates, etc.). Open the inbox to review.`
+        : 'No pending workflow steps right now. Open the inbox to review when contractor or staff submissions arrive.',
     });
   }
 

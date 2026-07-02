@@ -1,10 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
 const ExcelJS = require('exceljs');
 const XLSX = require('xlsx');
 const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
+const { contractorSelfService } = require('../middleware/contractorSelfServiceMiddleware');
 const contractorAuth = require('../services/contractorAuthService');
 const contractorPayment = require('../services/contractorPaymentService');
 const DB_TYPE = process.env.DB_TYPE || 'postgresql';
@@ -161,16 +165,30 @@ const rowVal = (row, ...keys) => {
     return null;
 };
 
-// Multer storage for documents/photos
+// Multer storage for contractor photos (repo-root uploads/documents, same as static /uploads)
+const repoRoot = path.join(__dirname, '..', '..');
+const contractorPhotoUploadDir = path.join(repoRoot, 'uploads', 'documents');
+if (!fs.existsSync(contractorPhotoUploadDir)) {
+    fs.mkdirSync(contractorPhotoUploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/documents/');
+        try {
+            if (!fs.existsSync(contractorPhotoUploadDir)) {
+                fs.mkdirSync(contractorPhotoUploadDir, { recursive: true });
+            }
+            cb(null, contractorPhotoUploadDir);
+        } catch (error) {
+            cb(error);
+        }
     },
     filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
+        const ext = path.extname(file.originalname || '') || '.jpg';
+        cb(null, `${Date.now()}-${uuidv4()}${ext}`);
+    },
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 const excelUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 4 * 1024 * 1024 },
@@ -182,6 +200,49 @@ async function guardContractorAccess(req, res, contractorId) {
         return false;
     }
     return true;
+}
+
+async function getNextProjectDocumentId() {
+    const result = await pool.query(`SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM project_documents`);
+    return Number(rowsOf(result)[0]?.next_id || 1);
+}
+
+async function resolveMilestoneIdForProject(milestoneId, projectId) {
+    if (milestoneId === '' || milestoneId == null || milestoneId === undefined) return null;
+    const mid = parseInt(String(milestoneId), 10);
+    const pid = parseInt(String(projectId), 10);
+    if (!Number.isFinite(mid) || !Number.isFinite(pid)) {
+        const err = new Error('Invalid milestone selection.');
+        err.statusCode = 400;
+        throw err;
+    }
+    if (isPostgres) {
+        const result = await pool.query(
+            `SELECT milestone_id
+             FROM project_milestones
+             WHERE milestone_id = $1 AND project_id = $2 AND COALESCE(voided, false) = false
+             LIMIT 1`,
+            [mid, pid]
+        );
+        if (!rowsOf(result).length) {
+            const err = new Error('Selected milestone does not belong to this project.');
+            err.statusCode = 400;
+            throw err;
+        }
+        return mid;
+    }
+    const result = await pool.query(
+        `SELECT milestoneId FROM project_milestones
+         WHERE milestoneId = ? AND projectId = ? AND (voided IS NULL OR voided = 0)
+         LIMIT 1`,
+        [mid, pid]
+    );
+    if (!rowsOf(result).length) {
+        const err = new Error('Selected milestone does not belong to this project.');
+        err.statusCode = 400;
+        throw err;
+    }
+    return mid;
 }
 
 // --- Contractor self profile (must be before /:contractorId routes) ---
@@ -625,7 +686,7 @@ router.get('/:contractorId/payment-requests', async (req, res) => {
  */
 router.post(
     '/:contractorId/payment-requests',
-    privilege(['payment_request.create']),
+    contractorSelfService(['payment_request.create', 'contractor.portal']),
     async (req, res) => {
         const { contractorId } = req.params;
         if (!(await guardContractorAccess(req, res, contractorId))) return;
@@ -666,15 +727,27 @@ router.get('/:contractorId/photos', async (req, res) => {
         if (isPostgres) {
             const result = await pool.query(
                 `SELECT
-                    id AS "photoId",
-                    "projectId",
-                    "documentPath" AS "filePath",
-                    description AS caption,
-                    status,
-                    "createdAt" AS "submittedAt"
-                 FROM project_documents
-                 WHERE "userId" = $1 AND "documentType" = 'photo' AND COALESCE(voided, false) = false
-                 ORDER BY "createdAt" DESC`,
+                    pd.id AS "photoId",
+                    pd."projectId",
+                    pd."milestoneId",
+                    pm.milestone_name AS "milestoneName",
+                    pm.sequence_order AS "milestoneSequenceOrder",
+                    pd."documentPath" AS "filePath",
+                    pd."originalFileName",
+                    pd.description AS caption,
+                    pd.status,
+                    pd."createdAt" AS "submittedAt"
+                 FROM project_documents pd
+                 LEFT JOIN project_milestones pm
+                   ON pm.milestone_id = pd."milestoneId"
+                  AND COALESCE(pm.voided, false) = false
+                 WHERE pd."userId" = $1
+                   AND pd."documentType" = 'photo'
+                   AND COALESCE(pd.voided, false) = false
+                 ORDER BY
+                    pd."projectId" ASC,
+                    COALESCE(pm.sequence_order, 2147483647) ASC,
+                    pd."createdAt" DESC`,
                 [userId]
             );
             return res.status(200).json(rowsOf(result));
@@ -708,7 +781,7 @@ router.get('/:contractorId/photos', async (req, res) => {
 router.post('/:contractorId/photos', upload.single('file'), async (req, res) => {
     const { contractorId } = req.params;
     if (!(await guardContractorAccess(req, res, contractorId))) return;
-    const { projectId, caption } = req.body;
+    const { projectId, caption, milestoneId } = req.body;
     const file = req.file;
     const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
     if (!file || !projectId) {
@@ -718,26 +791,54 @@ router.post('/:contractorId/photos', upload.single('file'), async (req, res) => 
     if (!assigned) {
         return res.status(403).json({ message: 'You are not assigned to this project.' });
     }
-    const relativePath = file.path.replace(/\\/g, '/');
+    const relativePath = path.relative(repoRoot, file.path).replace(/\\/g, '/');
+    const originalFileName = file.originalname || path.basename(file.path);
     try {
+        const resolvedMilestoneId = await resolveMilestoneIdForProject(milestoneId, projectId);
         if (isPostgres) {
-            const result = await pool.query(
-                `INSERT INTO project_documents (
-                    "projectId", "documentType", "documentCategory", "documentPath",
-                    description, "userId", status, voided, "createdAt", "updatedAt"
-                 ) VALUES ($1, 'photo', 'progress', $2, $3, $4, 'pending_review', false, NOW(), NOW())
-                 RETURNING id`,
-                [Number(projectId), relativePath, caption || `Progress photo`, Number(userId)]
-            );
+            const nextId = await getNextProjectDocumentId();
+            let result;
+            try {
+                result = await pool.query(
+                    `INSERT INTO project_documents (
+                        id, "projectId", "milestoneId", "documentType", "documentCategory", "documentPath",
+                        "originalFileName", description, "userId", "isProjectCover", voided,
+                        "createdAt", "updatedAt", status
+                     ) VALUES ($1, $2, $3, 'photo', 'progress', $4, $5, $6, $7, false, false, NOW(), NOW(), 'pending_review')
+                     RETURNING id`,
+                    [
+                        nextId,
+                        Number(projectId),
+                        resolvedMilestoneId,
+                        relativePath,
+                        originalFileName,
+                        caption || 'Progress photo',
+                        Number(userId),
+                    ]
+                );
+            } catch (insertErr) {
+                if (!isMissingColumn(insertErr)) throw insertErr;
+                result = await pool.query(
+                    `INSERT INTO project_documents (
+                        id, "projectId", "documentType", "documentCategory", "documentPath",
+                        description, "userId", "isProjectCover", voided,
+                        "createdAt", "updatedAt", status
+                     ) VALUES ($1, $2, 'photo', 'progress', $3, $4, $5, false, false, NOW(), NOW(), 'pending_review')
+                     RETURNING id`,
+                    [nextId, Number(projectId), relativePath, caption || 'Progress photo', Number(userId)]
+                );
+            }
             const photoId = rowsOf(result)[0]?.id;
             return res.status(201).json({ message: 'Photo uploaded successfully', photoId });
         }
         const newDocument = {
             projectId,
+            milestoneId: resolvedMilestoneId,
             documentType: 'photo',
             documentCategory: 'progress',
             documentPath: relativePath,
-            description: caption || `Progress photo`,
+            originalFileName,
+            description: caption || 'Progress photo',
             userId,
             status: 'pending_review',
             voided: 0,
@@ -746,7 +847,8 @@ router.post('/:contractorId/photos', upload.single('file'), async (req, res) => 
         res.status(201).json({ message: 'Photo uploaded successfully', photoId: metaOf(result).insertId });
     } catch (error) {
         console.error('Error uploading contractor photo:', error);
-        res.status(500).json({ message: 'Error uploading contractor photo', error: error.message });
+        const code = error.statusCode || 500;
+        res.status(code).json({ message: error.message || 'Error uploading contractor photo', error: error.message });
     }
 });
 
@@ -781,10 +883,12 @@ router.get('/', async (req, res) => {
                 () =>
                     isPostgres
                         ? `SELECT c."contractorId", c."companyName", c."contactPerson", c.email, c.phone,
-                                  c."contractorTypeId", ct.name AS "contractorTypeName",
+                                  c."userId", c."contractorTypeId", ct.name AS "contractorTypeName",
+                                  u.username AS "linkedUsername",
                                   'contractors'::text AS "sourceTable"
                            FROM contractors c
                            LEFT JOIN contractor_types ct ON ct.contractor_type_id = c."contractorTypeId" AND COALESCE(ct.voided, false) = false
+                           LEFT JOIN users u ON u.userid = c."userId" AND COALESCE(u.voided, false) = false
                            WHERE COALESCE(c.voided, false) = false ORDER BY c."companyName" ASC`
                         : `SELECT c.contractorId, c.companyName, c.contactPerson, c.email, c.phone,
                                   c.contractorTypeId, ct.name AS contractorTypeName,
@@ -808,6 +912,8 @@ router.get('/', async (req, res) => {
             contactPerson: rowVal(r, 'contactPerson', 'contact_person') || '',
             email: rowVal(r, 'email') || '',
             phone: rowVal(r, 'phone') || '',
+            userId: rowVal(r, 'userId', 'user_id', 'userid') ?? null,
+            linkedUsername: rowVal(r, 'linkedUsername', 'linked_username', 'username') || '',
             contractorTypeId: rowVal(r, 'contractorTypeId', 'contractor_type_id'),
             contractorTypeName: rowVal(r, 'contractorTypeName', 'contractor_type_name') || '',
             sourceTable: rowVal(r, 'sourceTable', 'source_table') || '',

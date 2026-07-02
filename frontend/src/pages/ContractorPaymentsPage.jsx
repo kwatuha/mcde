@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -18,14 +18,17 @@ import {
   Stack,
   TextField,
   Typography,
+  Divider,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAuth } from '../context/AuthContext';
 import apiService from '../api';
 import { formatCurrency } from '../utils/helpers';
-import { brand } from '../theme/colorTokens';
 
 const statusColor = (status) => {
   const s = String(status || '').toLowerCase();
@@ -37,6 +40,8 @@ const statusColor = (status) => {
 
 export default function ContractorPaymentsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const preselectedProjectId = searchParams.get('projectId');
   const { user, authLoading } = useAuth();
   const contractorId = user?.contractorId;
   const profile = user?.contractorProfile;
@@ -82,6 +87,12 @@ export default function ContractorPaymentsPage() {
     if (!authLoading && contractorId) load();
     else if (!authLoading) setLoading(false);
   }, [authLoading, contractorId, load]);
+
+  useEffect(() => {
+    if (!preselectedProjectId || loading) return;
+    setForm((prev) => ({ ...prev, projectId: preselectedProjectId }));
+    setDialogOpen(true);
+  }, [preselectedProjectId, loading]);
 
   const handleSubmit = async () => {
     setFormError('');
@@ -171,34 +182,16 @@ export default function ContractorPaymentsPage() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/contractor-dashboard')} size="small">
           Dashboard
         </Button>
+        <Tooltip title="Refresh list">
+          <IconButton size="small" onClick={load} disabled={loading} sx={{ color: 'text.secondary' }}>
+            <RefreshIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Stack>
-
-      <Paper
-        elevation={0}
-        sx={{
-          p: 3,
-          mb: 3,
-          borderRadius: 2,
-          background: `linear-gradient(135deg, ${brand.main} 0%, ${brand.dark} 100%)`,
-          color: brand.onPrimary,
-        }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Payment Requests
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.9 }}>
-          {profile?.companyName || 'Your company'} — submit and track payment requests for assigned projects.
-        </Typography>
-        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-          <Chip label={`Total: ${rows.length}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
-          <Chip label={`Pending: ${totalPending}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
-          <Chip label={`Approved: ${totalApproved}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
-        </Stack>
-      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -206,9 +199,33 @@ export default function ContractorPaymentsPage() {
         </Alert>
       )}
 
-      <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 2.5 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ sm: 'flex-start' }}
+          spacing={1.5}
+          sx={{ mb: 2 }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Payment requests
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+              {profile?.companyName || 'Your company'} — submit and track requests for assigned projects.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
+            <Chip size="small" label={`Total ${rows.length}`} variant="outlined" />
+            <Chip size="small" label={`Pending ${totalPending}`} color="warning" variant="outlined" />
+            <Chip size="small" label={`Approved ${totalApproved}`} color="success" variant="outlined" />
+          </Stack>
+        </Stack>
+
+        <Divider sx={{ mb: 2 }} />
+
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1} sx={{ mb: 2 }}>
-          <Typography variant="h6" sx={{ fontWeight: 600, flex: 1 }}>
+          <Typography variant="body1" sx={{ fontWeight: 600, flex: 1 }}>
             Your requests
           </Typography>
           <Button

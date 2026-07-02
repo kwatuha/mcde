@@ -24,7 +24,8 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import gprisLogo from '../assets/gpris.png';
-import usePublicCountyConfig from '../hooks/usePublicCountyConfig';
+import { resolvePostLoginPath } from '../utils/uiProfileUtils.js';
+import { usePublicCountyConfig } from '../hooks/usePublicCountyConfig.js';
 
 /** Login page palette — ICT.go.ke top bar blue (#005a9a) and shades */
 const micde = {
@@ -62,16 +63,17 @@ const Login = () => {
     const { login } = useAuth();
     const navigate = useNavigate();
 
-    const completeWithToken = (data) => {
+    const completeWithToken = async (data) => {
         if (!data?.token) {
             setError('Sign-in incomplete: no session token received.');
             return;
         }
-        login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
+        const sessionUser = await login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
         if (data.forcePasswordChange === true) {
             navigate('/force-password-change', { replace: true });
         } else {
-            navigate('/', { replace: true });
+            const target = resolvePostLoginPath(sessionUser || data.user);
+            navigate(target, { replace: true });
         }
     };
 

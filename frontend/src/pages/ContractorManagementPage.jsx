@@ -135,7 +135,7 @@ function ContractorManagementPage() {
           contactPerson: contractor.contactPerson || '',
           email: contractor.email || '',
           phone: contractor.phone || '',
-          userId: user.id || '',
+          userId: contractor.userId != null && contractor.userId !== '' ? String(contractor.userId) : '',
           contractorTypeId: contractor.contractorTypeId || '',
           __matchCompanyName: contractor.companyName || '',
           __matchEmail: contractor.email || '',
@@ -210,10 +210,6 @@ function ContractorManagementPage() {
               await apiService.contractors.updateContractor(currentContractorToEdit.contractorId, dataToSubmit);
               setSnackbar({ open: true, message: 'Contractor updated successfully!', severity: 'success' });
           } else {
-              if (!dataToSubmit.userId && user?.uid) {
-                  dataToSubmit.userId = user.uid;
-              }
-
               await apiService.contractors.createContractor(dataToSubmit);
 
               setSnackbar({ open: true, message: 'Contractor created successfully!', severity: 'success' });
@@ -274,6 +270,20 @@ function ContractorManagementPage() {
       { field: 'contactPerson', headerName: 'Contact Person', flex: 1, minWidth: 150 },
       { field: 'email', headerName: 'Email', flex: 1.5, minWidth: 250 },
       { field: 'phone', headerName: 'Phone', flex: 1, minWidth: 150 },
+      {
+          field: 'linkedUsername',
+          headerName: 'Linked user',
+          flex: 1,
+          minWidth: 180,
+          valueGetter: (_value, row) => {
+              if (row?.linkedUsername) return row.linkedUsername;
+              if (row?.userId) {
+                  const match = users.find((u) => String(u.userId) === String(row.userId));
+                  return match?.username || `User #${row.userId}`;
+              }
+              return '—';
+          },
+      },
       {
           field: 'contractorTypeName',
           headerName: 'Contractor Type',
@@ -423,22 +433,25 @@ function ContractorManagementPage() {
                           ))}
                       </Select>
                   </FormControl>
-                  {!currentContractorToEdit && (
-                      <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 200, mb: 2 }}>
-                          <InputLabel>Link to User Account</InputLabel>
-                          <Select
-                              name="userId"
-                              label="Link to User Account"
-                              value={formData.userId}
-                              onChange={handleFormChange}
-                          >
-                              <MenuItem value=""><em>None</em></MenuItem>
-                              {users.map(userItem => (
-                                  <MenuItem key={userItem.userId} value={userItem.userId}>{userItem.username} ({userItem.email})</MenuItem>
-                              ))}
-                          </Select>
-                      </FormControl>
-                  )}
+                  <FormControl fullWidth margin="dense" variant="outlined" sx={{ minWidth: 200, mb: 2 }}>
+                      <InputLabel>Link to user account</InputLabel>
+                      <Select
+                          name="userId"
+                          label="Link to user account"
+                          value={formData.userId}
+                          onChange={handleFormChange}
+                      >
+                          <MenuItem value=""><em>None — not linked</em></MenuItem>
+                          {users.map((userItem) => (
+                              <MenuItem key={userItem.userId} value={String(userItem.userId)}>
+                                  {userItem.username} ({userItem.email || 'no email'})
+                              </MenuItem>
+                          ))}
+                      </Select>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        The contractor logs in with this user account to access the contractor portal and assigned projects.
+                      </Typography>
+                  </FormControl>
               </DialogContent>
               <DialogActions sx={{ padding: '16px 24px', borderTop: `1px solid ${theme.palette.divider}` }}>
                   <Button onClick={handleCloseDialog} color="primary" variant="outlined">Cancel</Button>

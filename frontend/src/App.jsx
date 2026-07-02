@@ -91,6 +91,7 @@ import ProjectCategoryPage from './pages/ProjectCategoryPage';
 import ProjectPhotoManager from './pages/ProjectPhotoManager';
 // NEW: Import the PersonalDashboard component (formerly ContractorDashboard)
 import PersonalDashboard from './pages/ContractorDashboard';
+import EngineerWorkspacePage from './pages/EngineerWorkspacePage';
 import ContractorPaymentsPage from './pages/ContractorPaymentsPage';
 import ContractorPhotosPage from './pages/ContractorPhotosPage';
 import ContractorFileChecklistPage from './pages/ContractorFileChecklistPage';
@@ -101,6 +102,7 @@ import ContractorTypesPage from './pages/ContractorTypesPage';
 import HrModulePage from './pages/HrModulePage';
 // ✨ NEW: Import the WorkflowManagementPage component
 import WorkflowManagementPage from './pages/WorkflowManagementPage';
+import WorkflowApprovalsPage from './pages/WorkflowApprovalsPage';
 // ✨ NEW: Import the ApprovalLevelsManagementPage component
 import ApprovalLevelsManagementPage from './pages/ApprovalLevelsManagementPage';
 import ProjectEscalationRulesPage from './pages/ProjectEscalationRulesPage';
@@ -314,6 +316,10 @@ const router = createBrowserRouter([
         element: <ContractorFileChecklistPage />,
       },
       {
+        path: 'engineer-workspace',
+        element: <EngineerWorkspacePage />,
+      },
+      {
         path: 'contractor-management',
         element: <ContractorManagementPage />,
       },
@@ -516,6 +522,10 @@ const router = createBrowserRouter([
       {
         path: 'workflow-management',
         element: <WorkflowManagementPage />,
+      },
+      {
+        path: 'workflow-approvals',
+        element: <WorkflowApprovalsPage />,
       },
       {
         path: 'approval-levels-management',

@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/authenticate');
 const privilege = require('../middleware/privilegeMiddleware');
+const { contractorSelfService } = require('../middleware/contractorSelfServiceMiddleware');
 const {
+    ensureSchema,
     getProjectChecklist,
     updateItemStatus,
     linkDocument,
@@ -26,6 +28,21 @@ const upload = multer({
     dest: path.join(__dirname, '..', '..', 'uploads', 'temp'),
 });
 
+const CONTRACTOR_CHECKLIST_READ_PRIVILEGES = [
+    'contractor.portal',
+    'payment_request.create',
+    'payment_request.read_own',
+    'project.read',
+    'document.create',
+    'document.read',
+];
+
+const CONTRACTOR_CHECKLIST_UPLOAD_PRIVILEGES = [
+    'contractor.portal',
+    'payment_request.create',
+    'document.create',
+];
+
 function getUserId(req) {
     const value = req.user?.id ?? req.user?.userId ?? req.user?.actualUserId ?? null;
     return Number.isFinite(Number(value)) ? Number(value) : null;
@@ -36,6 +53,16 @@ function parseProjectId(req) {
     if (!Number.isFinite(projectId)) return null;
     return projectId;
 }
+
+router.use(async (req, res, next) => {
+    try {
+        await ensureSchema();
+        next();
+    } catch (e) {
+        console.error('projectFileChecklist ensureSchema:', e);
+        res.status(500).json({ message: 'Project file checklist schema is not ready', error: e.message });
+    }
+});
 
 router.get(
     '/projects/:projectId/file-checklist',
@@ -159,7 +186,7 @@ router.delete(
 router.get(
     '/contractors/:contractorId/projects/:projectId/file-checklist',
     auth,
-    privilege(['contractor.portal', 'payment_request.create'], { anyOf: true }),
+    contractorSelfService(CONTRACTOR_CHECKLIST_READ_PRIVILEGES),
     async (req, res) => {
         try {
             const contractorId = Number(req.params.contractorId);
@@ -186,7 +213,7 @@ router.get(
 router.post(
     '/contractors/:contractorId/projects/:projectId/file-checklist/items/:itemId/upload',
     auth,
-    privilege(['contractor.portal', 'document.create'], { anyOf: true }),
+    contractorSelfService(CONTRACTOR_CHECKLIST_UPLOAD_PRIVILEGES),
     upload.single('file'),
     async (req, res) => {
         try {

@@ -23,12 +23,13 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
-import { isAdmin, normalizeRoleName } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor } from '../utils/privilegeUtils.js';
 import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
 import {
   getFirstVisibleMenuPath,
   hasRestrictiveMenuProfile,
   isAlwaysAllowedUiProfilePath,
+  isContractorPortalPath,
   isPathAllowedByVisibleMenu,
   isUiProfileBypassUser,
 } from '../utils/uiProfileUtils.js';
@@ -104,6 +105,7 @@ function MainLayoutContent() {
       hasRestrictiveMenuProfile(user) &&
       !isUiProfileBypassUser(user) &&
       !isAlwaysAllowedUiProfilePath(location.pathname) &&
+      !(isContractor(user) && isContractorPortalPath(location.pathname)) &&
       !isPathAllowedByVisibleMenu(location.pathname, menuCategories)
     ) {
       const fallback = getFirstVisibleMenuPath(menuCategories);
@@ -120,8 +122,8 @@ function MainLayoutContent() {
   useEffect(() => {
     if (
       user &&
-      normalizedRole === 'contractor' &&
-      location.pathname !== ROUTES.CONTRACTOR_DASHBOARD &&
+      isContractor(user) &&
+      !isContractorPortalPath(location.pathname) &&
       location.pathname !== ROUTES.VERIFY_CERTIFICATE
     ) {
         navigate(ROUTES.CONTRACTOR_DASHBOARD, { replace: true });

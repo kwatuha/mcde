@@ -111,22 +111,31 @@ async function enrichUserWithContractor(user) {
     };
 }
 
+function isContractorLikeUser(user) {
+    if (!user) return false;
+    const roleName = user.roleName || user.role || '';
+    const privileges = user.privileges || [];
+    return isContractorRole(roleName)
+        || privileges.includes('contractor.portal')
+        || user.contractorId != null;
+}
+
 /**
  * True when caller may access data for the given contractor id.
  */
 function callerCanAccessContractor(req, contractorId) {
     const privileges = req.user?.privileges || [];
-    const roleName = req.user?.roleName || req.user?.role || '';
     if (privileges.includes('admin.access') || privileges.includes('organization.scope_bypass')) {
         return true;
     }
-    if (!isContractorRole(roleName)) return true;
+    if (!isContractorLikeUser(req.user)) return true;
     const ownId = req.user?.contractorId;
     return ownId != null && Number(ownId) === Number(contractorId);
 }
 
 module.exports = {
     isContractorRole,
+    isContractorLikeUser,
     fetchContractorProfileForUser,
     fetchContractorIdForUser,
     enrichUserWithContractor,

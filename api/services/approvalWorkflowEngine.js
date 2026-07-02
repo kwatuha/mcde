@@ -794,20 +794,32 @@ async function rejectStep({ requestId, user, comment }) {
   return getRequestDetail(requestId);
 }
 
+function userCanSeeAllPendingWorkflows(user) {
+  if (!user?.privileges || !Array.isArray(user.privileges)) return false;
+  return (
+    user.privileges.includes('approval_levels.update') ||
+    user.privileges.includes('approval_levels.read') ||
+    user.privileges.includes('admin.access')
+  );
+}
+
 async function listPendingForUser(user) {
   await ensureReady();
-  const roleId = user.roleId != null ? Number(user.roleId) : -1;
-  const r = await pool.query(
-    `
-    SELECT r.*, si.instance_id, si.step_order, si.step_name, si.due_at, d.link_template AS link_template
+  const baseSelect = `
+    SELECT r.*, si.instance_id, si.step_order, si.step_name, si.due_at, si.role_id,
+           d.link_template AS link_template
     FROM approval_requests r
     JOIN approval_step_instances si ON si.request_id = r.request_id AND si.status = 'pending'
     JOIN approval_workflow_definitions d ON d.definition_id = r.definition_id
-    WHERE r.status = 'pending' AND si.role_id = ?
-    ORDER BY r.created_at ASC
-  `,
-    [roleId]
-  );
+    WHERE r.status = 'pending'`;
+
+  if (userCanSeeAllPendingWorkflows(user)) {
+    const r = await pool.query(`${baseSelect} ORDER BY r.created_at ASC`);
+    return rowsFromResult(r);
+  }
+
+  const roleId = user.roleId != null ? Number(user.roleId) : -1;
+  const r = await pool.query(`${baseSelect} AND si.role_id = ? ORDER BY r.created_at ASC`, [roleId]);
   return rowsFromResult(r);
 }
 

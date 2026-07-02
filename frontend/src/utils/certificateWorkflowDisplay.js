@@ -3,7 +3,13 @@
  */
 
 export function workflowChipProps(doc) {
-  const w = String(doc.approvalWorkflowStatus ?? doc.approval_workflow_status ?? '').toLowerCase();
+  const w = String(
+    doc == null
+      ? ''
+      : typeof doc === 'string'
+        ? doc
+        : doc.approvalWorkflowStatus ?? doc.approval_workflow_status ?? ''
+  ).toLowerCase();
   if (w === 'approved') return { label: 'Approved', color: 'success' };
   if (w === 'rejected') return { label: 'Rejected', color: 'error' };
   if (w === 'pending') return { label: 'In approval', color: 'warning' };
@@ -11,10 +17,20 @@ export function workflowChipProps(doc) {
 }
 
 export function workflowDetailLine(doc) {
-  const w = String(doc.approvalWorkflowStatus ?? doc.approval_workflow_status ?? '').toLowerCase();
+  if (doc == null) {
+    return 'No approval workflow has been submitted for this certificate yet.';
+  }
+  const w = String(
+    typeof doc === 'string'
+      ? doc
+      : doc.approvalWorkflowStatus ?? doc.approval_workflow_status ?? ''
+  ).toLowerCase();
   if (w === 'approved') return 'All workflow steps are complete.';
   if (w === 'rejected') return 'This certificate was rejected in the approval workflow.';
   if (w === 'pending') {
+    if (typeof doc === 'string') {
+      return 'Awaiting action on the current approval step.';
+    }
     const total = Number(doc.approvalTotalSteps ?? doc.approval_total_steps) || 0;
     const ord =
       doc.approvalCurrentStepOrder != null
@@ -32,7 +48,7 @@ export function workflowDetailLine(doc) {
     }
     return 'Awaiting action on the current approval step.';
   }
-  if (doc.applicationStatus) {
+  if (typeof doc === 'object' && doc.applicationStatus) {
     return `Application status on file: ${doc.applicationStatus}. Submit for approval using the approval actions when a workflow is configured.`;
   }
   return 'No approval workflow has been submitted for this certificate yet.';

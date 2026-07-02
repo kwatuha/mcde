@@ -39,11 +39,13 @@ export const AuthProvider = ({ children }) => {
                 console.warn('Could not refresh session user after login:', refreshErr?.message || refreshErr);
             }
             setUser(sessionUser);
+            return sessionUser;
         } catch (error) {
             console.error("Failed to decode token on login:", error);
             localStorage.removeItem('jwtToken');
             setToken(null);
             setUser(null);
+            return null;
         }
     }, []);
 

@@ -4,6 +4,7 @@ const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const authenticate = require('./middleware/authenticate');
+const enrichContractorUser = require('./middleware/enrichContractorUser');
 
 // Load env + DB first (db.js loads api/.env); routes must not run before this or SMTP_* may be missing.
 const pool = require('./config/db');
@@ -73,6 +74,7 @@ const villageMonitoringRoutes = require('./routes/villageMonitoringRoutes');
 const rriRoutes = require('./routes/rriRoutes');
 const accountabilityRoutes = require('./routes/accountabilityRoutes');
 const projectEscalationRoutes = require('./routes/projectEscalationRoutes');
+const engineerWorkspaceRoutes = require('./routes/engineerWorkspaceRoutes');
 const { ensureReportSchedulingTables, startReportScheduler } = require('./services/reportSchedulingService');
 
 // Default 3002 matches nginx/nginx.conf, frontend/vite.config.js, and docker-compose API PORT.
@@ -132,6 +134,7 @@ app.use('/api/dashboard', dashboardConfigRoutes);
 app.use('/api/data-access', dataAccessRoutes);
 
 app.use('/api', authenticate);
+app.use('/api', enrichContractorUser);
 // Reports are project-derived and must use req.user for organization scoping.
 app.use('/api/reports', reportsRouter);
 app.use('/api/report-library', reportLibraryRoutes);
@@ -172,6 +175,7 @@ app.use('/api/workflows', workflowRoutes);
 app.use('/api/approval-levels', approvalLevelsRoutes);
 app.use('/api/approval-workflow', approvalWorkflowRoutes);
 app.use('/api/project-escalations', projectEscalationRoutes);
+app.use('/api/engineer', engineerWorkspaceRoutes);
 app.use('/api/payment-status', paymentStatusRoutes);
 app.use('/api/job-categories', jobCategoriesRoutes);
 app.use('/api/kenya-wards', kenyaWardsRoutes);

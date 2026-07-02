@@ -14,7 +14,7 @@ const paymentService = {
    * @returns {Promise<Array>} A promise that resolves to an array of payment requests.
    */
   getRequestsForProject: async (projectId) => {
-    const response = await axiosInstance.get(`/projects/${projectId}/payment-requests`);
+    const response = await axiosInstance.get(`/payment-requests/project/${projectId}`);
     return response.data;
   },
 

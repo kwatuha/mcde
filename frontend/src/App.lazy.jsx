@@ -64,6 +64,10 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const ProjectCategoryPage = lazy(() => import('./pages/ProjectCategoryPage'));
 const ProjectPhotoManager = lazy(() => import('./pages/ProjectPhotoManager'));
 const PersonalDashboard = lazy(() => import('./pages/ContractorDashboard'));
+const ContractorPaymentsPage = lazy(() => import('./pages/ContractorPaymentsPage'));
+const ContractorPhotosPage = lazy(() => import('./pages/ContractorPhotosPage'));
+const ContractorFileChecklistPage = lazy(() => import('./pages/ContractorFileChecklistPage'));
+const EngineerWorkspacePage = lazy(() => import('./pages/EngineerWorkspacePage'));
 const ContractorManagementPage = lazy(() => import('./pages/ContractorManagementPage'));
 const ContractorTypesPage = lazy(() => import('./pages/ContractorTypesPage'));
 const PaymentCertificatesPage = lazy(() => import('./pages/PaymentCertificatesPage'));
@@ -71,6 +75,7 @@ const DashboardConfigManager = lazy(() => import('./pages/DashboardConfigManager
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const AuditTrailPage = lazy(() => import('./pages/AuditTrailPage'));
 const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage'));
+const WorkflowApprovalsPage = lazy(() => import('./pages/WorkflowApprovalsPage'));
 const ApprovalLevelsManagementPage = lazy(() => import('./pages/ApprovalLevelsManagementPage'));
 const ProjectEscalationRulesPage = lazy(() => import('./pages/ProjectEscalationRulesPage'));
 const FeedbackManagementPage = lazy(() => import('./pages/FeedbackManagementPage'));
@@ -136,6 +141,22 @@ const router = createBrowserRouter([
       {
         path: 'contractor-dashboard',
         element: <LazyRoute component={PersonalDashboard} />,
+      },
+      {
+        path: 'contractor-dashboard/payments',
+        element: <LazyRoute component={ContractorPaymentsPage} />,
+      },
+      {
+        path: 'contractor-dashboard/photos',
+        element: <LazyRoute component={ContractorPhotosPage} />,
+      },
+      {
+        path: 'contractor-dashboard/project-files',
+        element: <LazyRoute component={ContractorFileChecklistPage} />,
+      },
+      {
+        path: 'engineer-workspace',
+        element: <LazyRoute component={EngineerWorkspacePage} />,
       },
       {
         path: 'contractor-management',
@@ -312,6 +333,10 @@ const router = createBrowserRouter([
       {
         path: 'workflow-management',
         element: <LazyRoute component={WorkflowManagementPage} />,
+      },
+      {
+        path: 'workflow-approvals',
+        element: <LazyRoute component={WorkflowApprovalsPage} />,
       },
       {
         path: 'approval-levels-management',

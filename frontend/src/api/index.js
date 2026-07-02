@@ -31,6 +31,7 @@ import adpService from './adpService';
 import rriService from './rriService';
 import projectEscalationService from './projectEscalationService';
 import villageMonitoringService from './villageMonitoringService';
+import engineerWorkspaceService from './engineerWorkspaceService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -135,6 +136,7 @@ const apiService = {
   rri: rriService,
   projectEscalations: projectEscalationService,
   villageMonitoring: villageMonitoringService,
+  engineerWorkspace: engineerWorkspaceService,
   projectPhotos,
 };
 

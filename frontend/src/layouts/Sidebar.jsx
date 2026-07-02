@@ -39,6 +39,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PaidIcon from '@mui/icons-material/Paid';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import BusinessIcon from '@mui/icons-material/Business';
 import PeopleIcon from '@mui/icons-material/People';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
@@ -72,6 +73,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import CelebrationIcon from '@mui/icons-material/Celebration';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ChecklistIcon from '@mui/icons-material/Checklist';
+import EngineeringIcon from '@mui/icons-material/Engineering';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import SpeedIcon from '@mui/icons-material/Speed';
@@ -549,6 +551,7 @@ const Sidebar = ({
   // Organized menu groups
   const dashboardItems = [
     { title: "Dashboard", to: ROUTES.DASHBOARD, icon: <DashboardIcon /> },
+    { title: "Engineer Workspace", to: ROUTES.ENGINEER_WORKSPACE, icon: <EngineeringIcon />, privilege: () => hasPrivilege('project.read') || hasPrivilege('project.read_all') || hasPrivilege('project.update') },
     { title: "Raw Data", to: ROUTES.RAW_DATA, icon: <TableChartIcon /> },
     { title: "Projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
     { title: "Personal Dashboard", to: ROUTES.CONTRACTOR_DASHBOARD, icon: <PaidIcon /> },
@@ -585,6 +588,7 @@ const Sidebar = ({
     { title: "Personal Dashboard", to: ROUTES.CONTRACTOR_DASHBOARD, icon: <FolderOpenIcon /> },
     { title: "Payment Requests", to: `${ROUTES.CONTRACTOR_DASHBOARD}/payments`, icon: <PaidIcon /> },
     { title: "Progress Photos", to: `${ROUTES.CONTRACTOR_DASHBOARD}/photos`, icon: <PhotoCameraIcon /> },
+    { title: "Project Files", to: `${ROUTES.CONTRACTOR_DASHBOARD}/project-files`, icon: <UploadFileIcon /> },
   ];
 
   // Get all items for search

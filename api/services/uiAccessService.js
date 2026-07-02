@@ -37,6 +37,7 @@ async function ensureUiAccessSchema() {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_user_ui_profiles_user_active ON user_ui_profiles (user_id) WHERE voided = false');
 
     await pool.query('ALTER TABLE roles ADD COLUMN IF NOT EXISTS ui_profile_id BIGINT NULL REFERENCES ui_profiles(id) ON DELETE SET NULL');
+    await pool.query('ALTER TABLE ui_profiles ADD COLUMN IF NOT EXISTS landing_path TEXT NULL');
 
     await pool.query(
         `INSERT INTO ui_profiles (name, description, is_default)
@@ -65,6 +66,23 @@ function normalizeStringArray(value) {
     return [];
 }
 
+function normalizeLandingPath(value) {
+    if (value == null) return null;
+    let path = String(value).trim();
+    if (!path) return null;
+    if (/^https?:\/\//i.test(path)) {
+        try {
+            path = new URL(path).pathname;
+        } catch (_) {
+            return null;
+        }
+    }
+    if (!path.startsWith('/')) path = `/${path}`;
+    const base = path.split('?')[0].split('#')[0];
+    if (!base || base === '/') return null;
+    return base;
+}
+
 function rowToProfile(row) {
     if (!row) return null;
     return {
@@ -73,6 +91,7 @@ function rowToProfile(row) {
         description: row.description || '',
         visibleMenuKeys: normalizeStringArray(row.visibleMenuKeys || row.visible_menu_keys || []),
         visibleTabKeys: normalizeStringArray(row.visibleTabKeys || row.visible_tab_keys || []),
+        landingPath: normalizeLandingPath(row.landingPath ?? row.landing_path) || null,
         isDefault: row.isDefault ?? row.is_default ?? false,
         createdAt: row.createdAt || row.created_at || null,
         updatedAt: row.updatedAt || row.updated_at || null,
@@ -88,6 +107,7 @@ async function fetchUiProfiles() {
             description,
             visible_menu_keys AS "visibleMenuKeys",
             visible_tab_keys AS "visibleTabKeys",
+            landing_path AS "landingPath",
             is_default AS "isDefault",
             created_at AS "createdAt",
             updated_at AS "updatedAt"
@@ -109,6 +129,7 @@ async function fetchUiProfileById(profileId) {
             description,
             visible_menu_keys AS "visibleMenuKeys",
             visible_tab_keys AS "visibleTabKeys",
+            landing_path AS "landingPath",
             is_default AS "isDefault",
             created_at AS "createdAt",
             updated_at AS "updatedAt"
@@ -128,20 +149,22 @@ async function createUiProfile(payload = {}) {
     const visibleMenuKeys = normalizeStringArray(payload.visibleMenuKeys || payload.visible_menu_keys || []);
     const visibleTabKeys = normalizeStringArray(payload.visibleTabKeys || payload.visible_tab_keys || []);
     const isDefault = payload.isDefault === true || payload.is_default === true;
+    const landingPath = normalizeLandingPath(payload.landingPath ?? payload.landing_path);
 
     const result = await pool.query(
-        `INSERT INTO ui_profiles (name, description, visible_menu_keys, visible_tab_keys, is_default)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5)
+        `INSERT INTO ui_profiles (name, description, visible_menu_keys, visible_tab_keys, landing_path, is_default)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6)
          RETURNING
             id,
             name,
             description,
             visible_menu_keys AS "visibleMenuKeys",
             visible_tab_keys AS "visibleTabKeys",
+            landing_path AS "landingPath",
             is_default AS "isDefault",
             created_at AS "createdAt",
             updated_at AS "updatedAt"`,
-        [name, description, JSON.stringify(visibleMenuKeys), JSON.stringify(visibleTabKeys), isDefault]
+        [name, description, JSON.stringify(visibleMenuKeys), JSON.stringify(visibleTabKeys), landingPath, isDefault]
     );
     if (isDefault) {
         await pool.query('UPDATE ui_profiles SET is_default = false WHERE id <> $1 AND COALESCE(voided, false) = false', [result.rows[0].id]);
@@ -159,6 +182,7 @@ async function updateUiProfile(profileId, payload = {}) {
     const visibleMenuKeys = normalizeStringArray(payload.visibleMenuKeys || payload.visible_menu_keys || []);
     const visibleTabKeys = normalizeStringArray(payload.visibleTabKeys || payload.visible_tab_keys || []);
     const isDefault = payload.isDefault === true || payload.is_default === true;
+    const landingPath = normalizeLandingPath(payload.landingPath ?? payload.landing_path);
 
     const result = await pool.query(
         `UPDATE ui_profiles
@@ -166,7 +190,8 @@ async function updateUiProfile(profileId, payload = {}) {
              description = $3,
              visible_menu_keys = $4::jsonb,
              visible_tab_keys = $5::jsonb,
-             is_default = $6,
+             landing_path = $6,
+             is_default = $7,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND COALESCE(voided, false) = false
          RETURNING
@@ -175,10 +200,11 @@ async function updateUiProfile(profileId, payload = {}) {
             description,
             visible_menu_keys AS "visibleMenuKeys",
             visible_tab_keys AS "visibleTabKeys",
+            landing_path AS "landingPath",
             is_default AS "isDefault",
             created_at AS "createdAt",
             updated_at AS "updatedAt"`,
-        [id, name, description, JSON.stringify(visibleMenuKeys), JSON.stringify(visibleTabKeys), isDefault]
+        [id, name, description, JSON.stringify(visibleMenuKeys), JSON.stringify(visibleTabKeys), landingPath, isDefault]
     );
     if (!result.rows?.[0]) throw new Error('UI profile not found.');
     if (isDefault) {
@@ -245,6 +271,7 @@ async function fetchUiProfileForRole(roleId) {
                 p.description,
                 p.visible_menu_keys AS "visibleMenuKeys",
                 p.visible_tab_keys AS "visibleTabKeys",
+                p.landing_path AS "landingPath",
                 p.is_default AS "isDefault",
                 p.created_at AS "createdAt",
                 p.updated_at AS "updatedAt"
@@ -271,6 +298,7 @@ async function fetchUiProfileForUser(userId, roleId = null) {
             p.description,
             p.visible_menu_keys AS "visibleMenuKeys",
             p.visible_tab_keys AS "visibleTabKeys",
+            p.landing_path AS "landingPath",
             p.is_default AS "isDefault",
             p.created_at AS "createdAt",
             p.updated_at AS "updatedAt"
@@ -293,6 +321,7 @@ async function fetchUiProfileForUser(userId, roleId = null) {
             description,
             visible_menu_keys AS "visibleMenuKeys",
             visible_tab_keys AS "visibleTabKeys",
+            landing_path AS "landingPath",
             is_default AS "isDefault",
             created_at AS "createdAt",
             updated_at AS "updatedAt"
@@ -340,6 +369,7 @@ async function fetchUiProfilesForUsers(userIds) {
             p.description,
             p.visible_menu_keys AS "visibleMenuKeys",
             p.visible_tab_keys AS "visibleTabKeys",
+            p.landing_path AS "landingPath",
             p.is_default AS "isDefault",
             p.created_at AS "createdAt",
             p.updated_at AS "updatedAt"
@@ -368,4 +398,5 @@ module.exports = {
     fetchUiProfileForRole,
     fetchUiProfilesForUsers,
     normalizeStringArray,
+    normalizeLandingPath,
 };

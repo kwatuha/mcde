@@ -56,9 +56,19 @@ async function ensureSchema() {
         path.join(__dirname, '../migrations/20260709_project_file_checklist_phase2.sql'),
     ];
     for (const migrationPath of migrations) {
-        if (fs.existsSync(migrationPath)) {
-            await pool.query(fs.readFileSync(migrationPath, 'utf8'));
+        if (!fs.existsSync(migrationPath)) continue;
+        const sql = fs.readFileSync(migrationPath, 'utf8');
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            console.error(`projectFileChecklist migration failed (${path.basename(migrationPath)}):`, err.message);
+            throw err;
         }
+    }
+    if (!(await tableExists('project_file_checklist_items'))) {
+        const err = new Error('project_file_checklist_items table was not created. Run scripts/run-july-2026-migrations.sh');
+        err.statusCode = 500;
+        throw err;
     }
     schemaReady = true;
 }
@@ -614,9 +624,57 @@ async function assertContractorItemAccess(contractorId, projectId, itemId) {
     }
 }
 
+async function getBulkChecklistSummaries(projectIds) {
+    if (!Array.isArray(projectIds) || projectIds.length === 0) return {};
+    await ensureSchema();
+    if (!(await tableExists('project_file_checklist_items'))) {
+        return {};
+    }
+    const ids = [...new Set(projectIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)))];
+    if (!ids.length) return {};
+
+    const result = await pool.query(
+        `SELECT
+            pci.project_id AS "projectId",
+            COUNT(*) FILTER (
+                WHERE ti.is_required = true
+                  AND pci.status NOT IN ('not_applicable', 'waived')
+            )::int AS "requiredItems",
+            COUNT(*) FILTER (
+                WHERE ti.is_required = true
+                  AND pci.status NOT IN ('not_applicable', 'waived')
+                  AND (
+                    pci.status = 'uploaded'
+                    OR EXISTS (
+                        SELECT 1 FROM project_file_checklist_links l
+                        WHERE l.checklist_item_id = pci.id
+                    )
+                  )
+            )::int AS "satisfiedRequired"
+         FROM project_file_checklist_items pci
+         INNER JOIN project_file_checklist_template_items ti ON ti.id = pci.template_item_id
+         WHERE pci.project_id = ANY($1::int[])
+         GROUP BY pci.project_id`,
+        [ids]
+    );
+
+    const map = {};
+    for (const row of result.rows || []) {
+        const required = Number(row.requiredItems || 0);
+        const satisfied = Number(row.satisfiedRequired || 0);
+        map[row.projectId] = {
+            requiredItems: required,
+            satisfiedRequired: satisfied,
+            completionPct: required > 0 ? Math.round((satisfied / required) * 100) : 100,
+        };
+    }
+    return map;
+}
+
 module.exports = {
     ensureSchema,
     getProjectChecklist,
+    getBulkChecklistSummaries,
     updateItemStatus,
     linkDocument,
     unlinkDocument,

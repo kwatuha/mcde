@@ -160,6 +160,8 @@ const routeTitles = {
   '/ai-usage': { title: 'AI Usage & Costs', subtitle: 'OpenAI token usage and estimated costs' },
   '/user-management': { title: 'User Management', subtitle: 'Users & Roles' },
   '/workflow-management': { title: 'Workflow Management', subtitle: 'Process Management' },
+  '/workflow-approvals': { title: 'Workflow Approvals', subtitle: 'Pending approval inbox' },
+  '/engineer-workspace': { title: 'Engineer Workspace', subtitle: 'Projects, compliance, scope & payments' },
   '/approval-levels-management': { title: 'Approvals & workflows', subtitle: 'Approval levels & workflow configuration' },
   '/project-escalation-rules': { title: 'Escalation rules', subtitle: 'Project signal detection & notification settings' },
   '/kenya-wards': { title: 'Wards', subtitle: 'Machakos County ward reference (IEBC)' },

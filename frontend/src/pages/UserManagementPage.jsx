@@ -26,6 +26,11 @@ import {
   isMdaIctAdminUser,
   canMdaIctAdminMutateUser,
 } from '../utils/roleUtils';
+import {
+  ROLE_PRIVILEGE_TEMPLATES,
+  applyRolePrivilegeTemplate,
+  getRolePrivilegeTemplate,
+} from '../utils/rolePrivilegeTemplates';
 
 /** Shown when MDA ICT Admin hits controls for users outside allowed roles (matches API copy). */
 const MDA_ICT_ADMIN_CANNOT_MUTATE_USER_MESSAGE =
@@ -494,6 +499,54 @@ function getUserAccessLevelGroups(user, options = {}) {
 }
 
 /** Filled icon button for data-grid row actions — white icon on tone background. */
+function adminManagementDataGridSx(colors, theme) {
+  const isDark = theme.palette.mode === 'dark';
+  return {
+    '& .MuiDataGrid-root': {
+      border: 'none',
+    },
+    '& .MuiDataGrid-cell': {
+      borderBottom: 'none',
+      color: colors.grey[100],
+    },
+    '& .username-column--cell': {
+      color: isDark ? colors.greenAccent[300] : colors.greenAccent[700],
+      fontWeight: 600,
+      WebkitFontSmoothing: 'antialiased',
+      MozOsxFontSmoothing: 'grayscale',
+    },
+    '& .MuiDataGrid-columnHeaders': {
+      backgroundColor: `${colors.blueAccent[700]} !important`,
+      borderBottom: 'none',
+      '& .MuiDataGrid-columnHeaderTitle': {
+        fontWeight: 700,
+        color: brand.onPrimary,
+      },
+    },
+    '& .MuiDataGrid-virtualScroller': {
+      backgroundColor: colors.primary[400],
+    },
+    '& .MuiDataGrid-footerContainer': {
+      borderTop: 'none',
+      backgroundColor: `${colors.blueAccent[700]} !important`,
+      '& .MuiTablePagination-root, & .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiTablePagination-select': {
+        color: `${brand.onPrimary} !important`,
+        fontWeight: 600,
+      },
+      '& .MuiIconButton-root': {
+        color: `${brand.onPrimary} !important`,
+      },
+    },
+    '& .MuiCheckbox-root': {
+      color: `${isDark ? colors.greenAccent[200] : colors.greenAccent[600]} !important`,
+    },
+    '& .MuiDataGrid-cellContent': {
+      fontSize: '0.875rem',
+      lineHeight: 1.4,
+    },
+  };
+}
+
 function TableActionIconButton({ title, onClick, disabled, tone = 'neutral', children }) {
   const colors = tokens(useTheme().palette.mode);
   const toneBg = {
@@ -905,6 +958,7 @@ function UserManagementPage() {
   const [uiProfileFormData, setUiProfileFormData] = useState({
     name: '',
     description: '',
+    landingPath: '',
     visibleMenuKeys: [],
     visibleTabKeys: [],
     isDefault: false,
@@ -969,8 +1023,8 @@ function UserManagementPage() {
     uiProfileId: '',
   });
   const [roleFormErrors, setRoleFormErrors] = useState({});
-  const roleNameInputRef = useRef(null);
-  const roleDescriptionInputRef = useRef(null);
+  const [roleTemplateId, setRoleTemplateId] = useState('');
+  const [roleTemplateNotes, setRoleTemplateNotes] = useState([]);
 
   const assignableRoles = useMemo(() => {
     if (isSuperAdmin) return roles;
@@ -2131,6 +2185,7 @@ function UserManagementPage() {
     setUiProfileFormData({
       name: '',
       description: '',
+      landingPath: '',
       visibleMenuKeys: [],
       visibleTabKeys: [],
       isDefault: false,
@@ -2156,6 +2211,7 @@ function UserManagementPage() {
     setUiProfileFormData({
       name: profile?.name || '',
       description: profile?.description || '',
+      landingPath: profile?.landingPath || profile?.landing_path || '',
       visibleMenuKeys: Array.isArray(profile?.visibleMenuKeys) ? profile.visibleMenuKeys : [],
       visibleTabKeys: Array.isArray(profile?.visibleTabKeys) ? profile.visibleTabKeys : [],
       isDefault: !!profile?.isDefault,
@@ -2911,6 +2967,8 @@ function UserManagementPage() {
     setCurrentRoleToEdit(null);
     setRoleFormData({ roleName: '', description: '', privilegeIds: [], uiProfileId: '' });
     setRoleFormErrors({});
+    setRoleTemplateId('');
+    setRoleTemplateNotes([]);
     fetchPrivileges();
     setOpenRoleDialog(true);
   };
@@ -2929,6 +2987,8 @@ function UserManagementPage() {
       uiProfileId: role.uiProfileId ? String(role.uiProfileId) : '',
     });
     setRoleFormErrors({});
+    setRoleTemplateId('');
+    setRoleTemplateNotes([]);
 
     try {
       const rolePrivileges = await apiService.getRolePrivileges(role.roleId);
@@ -2948,11 +3008,51 @@ function UserManagementPage() {
     setOpenRoleDialog(false);
     setCurrentRoleToEdit(null);
     setRoleFormErrors({});
+    setRoleTemplateId('');
+    setRoleTemplateNotes([]);
+  };
+
+  const handleApplyRoleTemplate = (templateId, { fillSuggestedFields = true } = {}) => {
+    const template = getRolePrivilegeTemplate(templateId);
+    if (!template) return;
+
+    const result = applyRolePrivilegeTemplate(template, privileges, uiProfiles, { fillSuggestedFields });
+    setRoleTemplateId(templateId);
+    setRoleTemplateNotes(result.setupNotes);
+
+    setRoleFormData((prev) => ({
+      ...prev,
+      privilegeIds: result.privilegeIds,
+      ...(fillSuggestedFields && !currentRoleToEdit
+        ? {
+            roleName: result.roleName || prev.roleName,
+            description: result.description || prev.description,
+            uiProfileId: result.uiProfileId || prev.uiProfileId,
+          }
+        : {}),
+      ...(fillSuggestedFields && currentRoleToEdit
+        ? { uiProfileId: result.uiProfileId || prev.uiProfileId }
+        : {}),
+    }));
+
+    if (result.missingPrivileges.length > 0) {
+      setSnackbar({
+        open: true,
+        severity: 'warning',
+        message: `Template applied, but these privileges are missing in the database: ${result.missingPrivileges.join(', ')}. Run migrations or create them manually.`,
+      });
+    } else if (result.suggestedLandingPath && !result.uiProfileId) {
+      setSnackbar({
+        open: true,
+        severity: 'info',
+        message: `Privileges applied. Create a UI profile with landing page ${result.suggestedLandingPath} and assign it to this role.`,
+      });
+    }
   };
 
   const validateRoleForm = () => {
     let errors = {};
-    const nextRoleName = String(roleNameInputRef.current?.value ?? roleFormData.roleName ?? '').trim();
+    const nextRoleName = String(roleFormData.roleName ?? '').trim();
     if (!nextRoleName) {
       errors.roleName = 'Role Name is required.';
     } else {
@@ -2978,8 +3078,8 @@ function UserManagementPage() {
     setLoading(true);
     const roleDataToSubmit = {
       ...roleFormData,
-      roleName: String(roleNameInputRef.current?.value ?? roleFormData.roleName ?? '').trim(),
-      description: String(roleDescriptionInputRef.current?.value ?? roleFormData.description ?? '').trim(),
+      roleName: String(roleFormData.roleName ?? '').trim(),
+      description: String(roleFormData.description ?? '').trim(),
       uiProfileId: roleFormData.uiProfileId || null,
     };
     const privilegeIdsToAssign = roleDataToSubmit.privilegeIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
@@ -4048,7 +4148,12 @@ function UserManagementPage() {
                   <Chip
                     label={`${g.users.length} user${g.users.length !== 1 ? 's' : ''}`}
                     size="small"
-                    sx={{ backgroundColor: colors.blueAccent[700], color: colors.grey[100], fontWeight: 700 }}
+                    sx={{
+                      backgroundColor: colors.blueAccent[700],
+                      color: brand.onPrimary,
+                      fontWeight: 700,
+                      '& .MuiChip-label': { color: brand.onPrimary },
+                    }}
                   />
                 </Stack>
               </AccordionSummary>
@@ -4181,8 +4286,10 @@ function UserManagementPage() {
               },
             },
             "& .username-column--cell": {
-              color: colors.greenAccent[300],
+              color: theme.palette.mode === 'dark' ? colors.greenAccent[300] : colors.greenAccent[700],
               fontWeight: 600,
+              WebkitFontSmoothing: 'antialiased',
+              MozOsxFontSmoothing: 'grayscale',
             },
             "& .role-column-cell": {
               overflow: 'hidden',
@@ -5885,6 +5992,7 @@ function UserManagementPage() {
                   <TableRow>
                     <TableCell>Name</TableCell>
                     <TableCell>Description</TableCell>
+                    <TableCell>Landing page</TableCell>
                     <TableCell>Menus</TableCell>
                     <TableCell>Tabs</TableCell>
                     <TableCell align="right">Actions</TableCell>
@@ -5900,6 +6008,11 @@ function UserManagementPage() {
                         </Stack>
                       </TableCell>
                       <TableCell>{profile.description || '—'}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                          {profile.landingPath || '—'}
+                        </Typography>
+                      </TableCell>
                       <TableCell>{profile.visibleMenuKeys?.length || 0}</TableCell>
                       <TableCell>{profile.visibleTabKeys?.length || 0}</TableCell>
                       <TableCell align="right">
@@ -5911,7 +6024,7 @@ function UserManagementPage() {
                   ))}
                   {uiProfiles.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={6}>
                         <Typography variant="body2" sx={{ color: colors.grey[400], py: 2, textAlign: 'center' }}>
                           No UI profiles found.
                         </Typography>
@@ -5954,6 +6067,16 @@ function UserManagementPage() {
             label="Description"
             defaultValue={uiProfileFormData.description}
             inputRef={uiProfileDescriptionInputRef}
+            sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
+          />
+          <TextField
+            fullWidth
+            margin="dense"
+            label="Landing page after login"
+            placeholder="/engineer-workspace"
+            value={uiProfileFormData.landingPath}
+            onChange={(e) => setUiProfileFormData((prev) => ({ ...prev, landingPath: e.target.value }))}
+            helperText="Optional. Relative path where users with this profile land after sign-in (e.g. /engineer-workspace, /projects). Leave blank for the default home dashboard."
             sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
           />
           <FormControlLabel
@@ -6231,31 +6354,7 @@ function UserManagementPage() {
           ) : (
             <Box
               height="400px"
-              sx={{
-                "& .MuiDataGrid-root": {
-                  border: "none",
-                },
-                "& .MuiDataGrid-cell": {
-                  borderBottom: "none",
-                },
-                "& .username-column--cell": {
-                  color: colors.greenAccent[300],
-                },
-                "& .MuiDataGrid-columnHeaders": {
-                  backgroundColor: `${colors.blueAccent[700]} !important`,
-                  borderBottom: "none",
-                },
-                "& .MuiDataGrid-virtualScroller": {
-                  backgroundColor: colors.primary[400],
-                },
-                "& .MuiDataGrid-footerContainer": {
-                  borderTop: "none",
-                  backgroundColor: `${colors.blueAccent[700]} !important`,
-                },
-                "& .MuiCheckbox-root": {
-                  color: `${colors.greenAccent[200]} !important`,
-                },
-              }}
+              sx={adminManagementDataGridSx(colors, theme)}
             >
               <DataGrid
                 rows={roles}
@@ -6277,10 +6376,62 @@ function UserManagementPage() {
         </DialogTitle>
         <DialogContent dividers sx={{ backgroundColor: colors.primary[400] }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Create the role name, choose privileges, then save once. Privileges are now saved together with the role.
+            Start from a <strong>role template</strong> below — privileges are pre-selected for common jobs (contractor, engineer, finance, etc.). You can still fine-tune individual privileges before saving.
           </Alert>
+          <FormControl fullWidth margin="dense" sx={{ mb: 1 }}>
+            <InputLabel>Role template (recommended)</InputLabel>
+            <Select
+              label="Role template (recommended)"
+              value={roleTemplateId}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                if (!nextId) {
+                  setRoleTemplateId('');
+                  setRoleTemplateNotes([]);
+                  return;
+                }
+                handleApplyRoleTemplate(nextId, { fillSuggestedFields: !currentRoleToEdit });
+              }}
+            >
+              <MenuItem value="">
+                <em>Custom — pick privileges manually</em>
+              </MenuItem>
+              {ROLE_PRIVILEGE_TEMPLATES.map((template) => (
+                <MenuItem key={template.id} value={template.id}>
+                  {template.label}
+                </MenuItem>
+              ))}
+            </Select>
+            {roleTemplateId ? (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                {getRolePrivilegeTemplate(roleTemplateId)?.description}
+              </Typography>
+            ) : null}
+          </FormControl>
+          {roleTemplateId && currentRoleToEdit ? (
+            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => handleApplyRoleTemplate(roleTemplateId, { fillSuggestedFields: false })}
+              >
+                Re-apply template privileges only
+              </Button>
+            </Stack>
+          ) : null}
+          {roleTemplateNotes.length > 0 ? (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>After saving this role</Typography>
+              <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                {roleTemplateNotes.map((note) => (
+                  <li key={note}>
+                    <Typography variant="body2">{note}</Typography>
+                  </li>
+                ))}
+              </Box>
+            </Alert>
+          ) : null}
           <TextField
-            key={`role-name-${currentRoleToEdit?.roleId || 'new'}`}
             autoFocus
             margin="dense"
             name="roleName"
@@ -6288,10 +6439,11 @@ function UserManagementPage() {
             type="text"
             fullWidth
             variant="outlined"
-            defaultValue={roleFormData.roleName}
-            inputRef={roleNameInputRef}
-            onBlur={() => {
-              if (roleFormErrors.roleName && String(roleNameInputRef.current?.value || '').trim()) {
+            value={roleFormData.roleName}
+            onChange={(e) => {
+              const next = e.target.value;
+              setRoleFormData((prev) => ({ ...prev, roleName: next }));
+              if (roleFormErrors.roleName && String(next).trim()) {
                 setRoleFormErrors((prev) => ({ ...prev, roleName: '' }));
               }
             }}
@@ -6300,15 +6452,14 @@ function UserManagementPage() {
             sx={{ mb: 2 }}
           />
           <TextField
-            key={`role-description-${currentRoleToEdit?.roleId || 'new'}`}
             margin="dense"
             name="description"
             label="Description"
             type="text"
             fullWidth
             variant="outlined"
-            defaultValue={roleFormData.description}
-            inputRef={roleDescriptionInputRef}
+            value={roleFormData.description}
+            onChange={(e) => setRoleFormData((prev) => ({ ...prev, description: e.target.value }))}
             sx={{ mb: 2 }}
           />
           <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
@@ -6404,9 +6555,9 @@ function UserManagementPage() {
               <TextField
                 {...params}
                 margin="dense"
-                label="Privileges"
+                label="Privileges (advanced)"
                 placeholder="Type to search, then pick from the list"
-                helperText="Search filters by name, prefix, or description"
+                helperText="Optional fine-tuning — templates above already select the right bundle"
               />
             )}
             ListboxProps={{ style: { maxHeight: 360 } }}
@@ -6455,31 +6606,7 @@ function UserManagementPage() {
           ) : (
             <Box
               height="400px"
-              sx={{
-                "& .MuiDataGrid-root": {
-                  border: "none",
-                },
-                "& .MuiDataGrid-cell": {
-                  borderBottom: "none",
-                },
-                "& .username-column--cell": {
-                  color: colors.greenAccent[300],
-                },
-                "& .MuiDataGrid-columnHeaders": {
-                  backgroundColor: `${colors.blueAccent[700]} !important`,
-                  borderBottom: "none",
-                },
-                "& .MuiDataGrid-virtualScroller": {
-                  backgroundColor: colors.primary[400],
-                },
-                "& .MuiDataGrid-footerContainer": {
-                  borderTop: "none",
-                  backgroundColor: `${colors.blueAccent[700]} !important`,
-                },
-                "& .MuiCheckbox-root": {
-                  color: `${colors.greenAccent[200]} !important`,
-                },
-              }}
+              sx={adminManagementDataGridSx(colors, theme)}
             >
               <DataGrid
                 rows={privileges}
