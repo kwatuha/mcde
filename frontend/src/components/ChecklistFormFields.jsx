@@ -23,6 +23,82 @@ import kenyaWardsService from '../api/kenyaWardsService';
 import { useAuth } from '../context/AuthContext';
 import { isItemVisible, stripHiddenAnswers } from '../utils/checklistVisibility';
 
+/** All options visible with checkboxes (procurement stage assessment style). */
+function CheckboxOptionList({
+  options = [],
+  selectedValues = [],
+  disabled = false,
+  onToggle,
+  getValue = (opt) => opt,
+  getLabel = (opt) => String(opt),
+  emptyMessage = 'No options available.',
+}) {
+  const selectedSet = new Set(
+    (Array.isArray(selectedValues) ? selectedValues : []).map((v) => String(v))
+  );
+
+  if (!options.length) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        {emptyMessage}
+      </Typography>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        p: 1,
+        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'action.hover' : 'grey.50'),
+        maxHeight: 320,
+        overflowY: 'auto',
+      }}
+    >
+      {selectedSet.size > 0 ? (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, px: 0.5 }}>
+          {selectedSet.size} selected
+        </Typography>
+      ) : null}
+      <Stack spacing={0}>
+        {options.map((opt) => {
+          const val = getValue(opt);
+          const valKey = String(val);
+          const label = getLabel(opt);
+          const checked = selectedSet.has(valKey);
+          return (
+            <Stack
+              key={valKey}
+              direction="row"
+              spacing={0.5}
+              alignItems="flex-start"
+              sx={{
+                px: 0.5,
+                py: 0.25,
+                borderRadius: 0.5,
+                '&:hover': disabled ? undefined : { bgcolor: 'action.hover' },
+              }}
+            >
+              <Checkbox
+                size="small"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => onToggle(val, !checked)}
+                sx={{ py: 0.25, mt: -0.25 }}
+              />
+              <Typography variant="body2" sx={{ pt: 0.35, flex: 1, lineHeight: 1.45 }}>
+                {label}
+              </Typography>
+            </Stack>
+          );
+        })}
+      </Stack>
+    </Box>
+  );
+}
+
 function photoList(raw) {
   if (!raw || typeof raw !== 'object') return [];
   if (Array.isArray(raw.photos)) return raw.photos;
@@ -378,38 +454,25 @@ function ProjectLinkedField({ item, value, onChange, disabled, projectId, subjec
 
   if (multi) {
     return (
-      <FormControl size="small" fullWidth disabled={disabled}>
-        <InputLabel id={`${item.id}-pl-lbl`}>Select one or more</InputLabel>
-        <Select
-          multiple
-          labelId={`${item.id}-pl-lbl`}
-          label="Select one or more"
-          value={selectedIds}
-          onChange={(e) => {
-            const ids = Array.isArray(e.target.value) ? e.target.value : [];
-            onChange(
-              ids.map((id) => {
-                const opt = options.find((o) => o.id === id);
-                return { id, label: opt?.label || `#${id}` };
-              })
-            );
-          }}
-          renderValue={(selected) =>
-            Array.isArray(selected) && selected.length
-              ? selected
-                  .map((id) => options.find((o) => o.id === id)?.label || `#${id}`)
-                  .join(', ')
-              : '—'
-          }
-        >
-          {options.map((opt) => (
-            <MenuItem key={opt.id} value={opt.id}>
-              <Checkbox size="small" checked={selectedIds.includes(opt.id)} />
-              {opt.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <CheckboxOptionList
+        options={options}
+        selectedValues={selectedIds}
+        disabled={disabled}
+        getValue={(opt) => opt.id}
+        getLabel={(opt) => opt.label || `#${opt.id}`}
+        emptyMessage={`No ${linkedFieldEmptyLabel(item.type)} found for this ${subjectType === 'rri_programme' ? 'programme' : 'project'}.`}
+        onToggle={(id, checked) => {
+          const nextIds = checked
+            ? [...new Set([...selectedIds, id])]
+            : selectedIds.filter((x) => String(x) !== String(id));
+          onChange(
+            nextIds.map((sid) => {
+              const opt = options.find((o) => String(o.id) === String(sid));
+              return { id: sid, label: opt?.label || `#${sid}` };
+            })
+          );
+        }}
+      />
     );
   }
 
@@ -744,24 +807,18 @@ export default function ChecklistFormFields({
                   </FormControl>
                 )}
                 {item.type === 'multi_select' && (
-                  <FormControl size="small" fullWidth disabled={disabled}>
-                    <InputLabel id={`${item.id}-lbl`}>Select one or more</InputLabel>
-                    <Select
-                      multiple
-                      labelId={`${item.id}-lbl`}
-                      label="Select one or more"
-                      value={Array.isArray(answers[item.id]) ? answers[item.id] : []}
-                      onChange={(e) => setField(item.id, Array.isArray(e.target.value) ? e.target.value : [])}
-                      renderValue={(selected) => (Array.isArray(selected) && selected.length ? selected.join(', ') : '—')}
-                    >
-                      {(item.options || []).map((opt) => (
-                        <MenuItem key={opt} value={opt}>
-                          <Checkbox size="small" checked={Array.isArray(answers[item.id]) && answers[item.id].includes(opt)} />
-                          {opt}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <CheckboxOptionList
+                    options={item.options || []}
+                    selectedValues={Array.isArray(answers[item.id]) ? answers[item.id] : []}
+                    disabled={disabled}
+                    onToggle={(val, checked) => {
+                      const current = Array.isArray(answers[item.id]) ? [...answers[item.id]] : [];
+                      const next = checked
+                        ? (current.includes(val) ? current : [...current, val])
+                        : current.filter((x) => x !== val);
+                      setField(item.id, next);
+                    }}
+                  />
                 )}
                 {item.type === 'photo' && (
                   <PhotoField

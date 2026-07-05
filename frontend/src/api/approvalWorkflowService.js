@@ -75,6 +75,16 @@ const approvalWorkflowService = {
     const { data } = await axiosInstance.post(`${base}/sla/process`);
     return data;
   },
+
+  getSlaSettings: async () => {
+    const { data } = await axiosInstance.get(`${base}/sla/settings`);
+    return data;
+  },
+
+  updateSlaSettings: async (body) => {
+    const { data } = await axiosInstance.put(`${base}/sla/settings`, body);
+    return data;
+  },
 };
 
 export default approvalWorkflowService;

@@ -1,4 +1,5 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
+import { lazyWithRetry as lazy } from './utils/lazyWithRetry';
 import { CssBaseline, ThemeProvider, CircularProgress, Box } from '@mui/material';
 import { createBrowserRouter, RouterProvider, Navigate, useLocation } from 'react-router-dom';
 
@@ -101,6 +102,11 @@ const CoFinanceWorkspaceProjectsPage = lazy(() => import('./pages/coFinanceWorks
 const CoFinanceWorkspacePaymentsPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspacePaymentsPage'));
 const CoFinanceWorkspaceCertificatesPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceCertificatesPage'));
 const CoFinanceWorkspaceFinancePage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceFinancePage'));
+const VillageWorkspacePage = lazy(() => import('./pages/VillageWorkspacePage'));
+const WardWorkspacePage = lazy(() => import('./pages/WardWorkspacePage'));
+const SubCountyWorkspacePage = lazy(() => import('./pages/SubCountyWorkspacePage'));
+const ChiefWorkspacePage = lazy(() => import('./pages/ChiefWorkspacePage'));
+const SectorMeWorkspacePage = lazy(() => import('./pages/SectorMeWorkspacePage'));
 import ContractorPaymentsPage from './pages/ContractorPaymentsPage';
 import ContractorPhotosPage from './pages/ContractorPhotosPage';
 import ContractorFileChecklistPage from './pages/ContractorFileChecklistPage';
@@ -377,6 +383,26 @@ const router = createBrowserRouter([
       {
         path: 'co-finance-workspace/finance',
         element: <LazyRoute><CoFinanceWorkspaceFinancePage /></LazyRoute>,
+      },
+      {
+        path: 'village-workspace',
+        element: <LazyRoute><VillageWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'ward-workspace',
+        element: <LazyRoute><WardWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'subcounty-workspace',
+        element: <LazyRoute><SubCountyWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'chief-workspace',
+        element: <LazyRoute><ChiefWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'sector-me-workspace',
+        element: <LazyRoute><SectorMeWorkspacePage /></LazyRoute>,
       },
       {
         path: 'contractor-management',

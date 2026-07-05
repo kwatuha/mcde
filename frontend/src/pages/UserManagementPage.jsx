@@ -19,6 +19,7 @@ import axiosInstance from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext.jsx';
 import { tokens } from "./dashboard/theme";
 import { brand } from '../theme/colorTokens';
+import { dedupeDepartmentNameList, stateDepartmentComparableKey } from '../utils/orgNameNormalize';
 import menuConfig from '../configs/menuConfig.json';
 import {
   isSuperAdminUser,
@@ -1674,14 +1675,14 @@ function UserManagementPage() {
   );
 
   const allCountyDepartmentNames = useMemo(() => {
-    const set = new Set();
+    const names = [];
     for (const mrow of ministriesHierarchy || []) {
       for (const d of mrow?.departments || []) {
         const n = String(d?.name || d?.departmentName || '').trim();
-        if (n) set.add(n);
+        if (n) names.push(n);
       }
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    return dedupeDepartmentNameList(names);
   }, [ministriesHierarchy]);
 
   /** Section (directorate) names from the catalog for all selected access departments (any ministry row that lists that department). */
@@ -1699,6 +1700,7 @@ function UserManagementPage() {
             p === dn ||
             (dal && p === dal) ||
             normalizeOrgText(p) === normalizeOrgText(dn) ||
+            stateDepartmentComparableKey(p) === stateDepartmentComparableKey(dn) ||
             (dal && normalizeOrgText(p) === normalizeOrgText(dal))
           );
         });
@@ -1728,12 +1730,10 @@ function UserManagementPage() {
   }, [sectionsForAccessDepartments, userFormData.homeDirectorates]);
 
   const accessDepartmentFieldOptions = useMemo(() => {
-    const base = [...allCountyDepartmentNames];
-    for (const d of userFormData.accessDepartments || []) {
-      const t = String(d || '').trim();
-      if (t && !base.some((x) => normalizeOrgText(x) === normalizeOrgText(t))) base.push(t);
-    }
-    return base.sort((a, b) => a.localeCompare(b));
+    return dedupeDepartmentNameList(
+      [...allCountyDepartmentNames, ...(userFormData.accessDepartments || [])],
+      { prefer: new Set(allCountyDepartmentNames) }
+    );
   }, [allCountyDepartmentNames, userFormData.accessDepartments]);
 
   const projectScopeValueOptions = useMemo(() => {
@@ -1746,10 +1746,13 @@ function UserManagementPage() {
       return unique((projectScopeOptions.sectors || []).map((s) => s.sectorName || s.name));
     }
     if (newProjectScopeType === 'DEPARTMENT') {
-      return unique([
-        ...((projectScopeOptions.departments || []).map((d) => d.departmentName || d.name)),
-        ...allCountyDepartmentNames,
-      ]);
+      return dedupeDepartmentNameList(
+        [
+          ...allCountyDepartmentNames,
+          ...((projectScopeOptions.departments || []).map((d) => d.departmentName || d.name)),
+        ],
+        { prefer: new Set(allCountyDepartmentNames) }
+      );
     }
     if (newProjectScopeType === 'SUBCOUNTY') {
       return unique((projectScopeOptions.subcounties || []).map((s) => s.subcountyName || s.name));
@@ -1779,10 +1782,13 @@ function UserManagementPage() {
       return unique((projectScopeOptions.sectors || []).map((s) => s.sectorName || s.name));
     }
     if (standaloneProjectScopeType === 'DEPARTMENT') {
-      return unique([
-        ...((projectScopeOptions.departments || []).map((d) => d.departmentName || d.name)),
-        ...allCountyDepartmentNames,
-      ]);
+      return dedupeDepartmentNameList(
+        [
+          ...allCountyDepartmentNames,
+          ...((projectScopeOptions.departments || []).map((d) => d.departmentName || d.name)),
+        ],
+        { prefer: new Set(allCountyDepartmentNames) }
+      );
     }
     if (standaloneProjectScopeType === 'SUBCOUNTY') {
       return unique((projectScopeOptions.subcounties || []).map((s) => s.subcountyName || s.name));
@@ -4401,16 +4407,41 @@ function UserManagementPage() {
               maxHeight: '48px !important',
               transition: 'background-color 0.2s ease',
               '&:hover': {
-                backgroundColor: `${colors.blueAccent[700]} !important`,
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? `${colors.blueAccent[700]} !important`
+                  : `${colors.blueAccent[50]} !important`,
                 cursor: 'pointer',
-                '& .MuiDataGrid-cell': {
-                  color: `${colors.grey[100]} !important`,
-                  borderBottomColor: `${colors.blueAccent[600]} !important`,
-                },
+                ...(theme.palette.mode === 'dark' && {
+                  '& .MuiDataGrid-cell': {
+                    color: `${colors.grey[100]} !important`,
+                    borderBottomColor: `${colors.blueAccent[600]} !important`,
+                  },
+                }),
               },
               '&.Mui-selected': {
-                backgroundColor: `${colors.blueAccent[600]} !important`,
-                '&:hover': { backgroundColor: `${colors.blueAccent[500]} !important` },
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? `${colors.blueAccent[600]} !important`
+                  : `${colors.blueAccent[100]} !important`,
+                boxShadow: theme.palette.mode === 'light'
+                  ? `inset 3px 0 0 ${colors.blueAccent[500]}`
+                  : 'none',
+                '&:hover': {
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? `${colors.blueAccent[500]} !important`
+                    : `${colors.blueAccent[50]} !important`,
+                },
+                ...(theme.palette.mode === 'dark' && {
+                  '& .MuiDataGrid-cell': {
+                    color: `${colors.grey[100]} !important`,
+                    borderBottomColor: `${colors.blueAccent[500]} !important`,
+                  },
+                  '& .username-column--cell': {
+                    color: `${colors.greenAccent[200]} !important`,
+                  },
+                  '& .MuiIconButton-root, & .MuiSvgIcon-root': {
+                    color: `${colors.grey[100]} !important`,
+                  },
+                }),
               },
             },
             "& .username-column--cell": {

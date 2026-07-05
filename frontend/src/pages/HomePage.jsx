@@ -72,7 +72,7 @@ import villageMonitoringService from '../api/villageMonitoringService';
 import useDashboardData from '../hooks/useDashboardData';
 import { normalizeProjectStatus } from '../utils/projectStatusNormalizer';
 import { tokens } from './dashboard/theme';
-import { isAdmin } from '../utils/privilegeUtils.js';
+import { isAdmin, isSectorMePortalUser } from '../utils/privilegeUtils.js';
 import { canAccessRouteKeyByUiProfile } from '../utils/uiProfileUtils.js';
 import { resolveWorkflowNavigationPath, workflowEntityTypeLabel } from '../utils/workflowNavigation';
 import { getAccessCheckForAppPath } from '../utils/routeAccessHints.js';
@@ -285,13 +285,16 @@ const HomePage = () => {
   const monitoringWorkflowQueueRoute = React.useMemo(() => {
     if (!user) return ROUTES.VILLAGE_MONITORING_WORKFLOW;
     if (isAdmin(user) || hasPrivilege('monitoring_report.chief_approve')) {
-      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=chief`;
+      return `${ROUTES.CHIEF_WORKSPACE}?tab=chief`;
+    }
+    if (isSectorMePortalUser(user)) {
+      return `${ROUTES.SECTOR_ME_WORKSPACE}?tab=all`;
     }
     if (hasPrivilege('monitoring_report.subcounty_review')) {
-      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=subcounty`;
+      return `${ROUTES.SUBCOUNTY_WORKSPACE}?tab=subcounty`;
     }
     if (hasPrivilege('monitoring_report.ward_review')) {
-      return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=ward`;
+      return `${ROUTES.WARD_WORKSPACE}?tab=ward`;
     }
     return `${ROUTES.VILLAGE_MONITORING_WORKFLOW}?queue=village`;
   }, [user, hasPrivilege]);

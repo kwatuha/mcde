@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const orgScope = require('../services/organizationScopeService');
+const { dedupeDepartmentOptions } = require('../utils/orgNameNormalize');
 const uiAccess = require('../services/uiAccessService');
 const { isSuperAdminRequester, isAdminLikeRequester, normalizeRoleForCompare } = require('../utils/roleUtils');
 const { canSendEmail, sendInitialCredentialsEmail } = require('../services/accountEmailService');
@@ -571,19 +572,14 @@ router.get('/users/project-scope-options', async (req, res) => {
             if (!sectorByName.has(key)) sectorByName.set(key, { id: row.id || null, sectorName: name });
         });
 
-        const departmentByName = new Map();
-        [...departmentRows, ...projectDepartmentRows].forEach((row) => {
-            const name = String(row.departmentName || '').trim();
-            if (!name) return;
-            const key = name.toLowerCase();
-            if (!departmentByName.has(key)) {
-                departmentByName.set(key, { id: row.id || null, departmentName: name, alias: row.alias || '' });
-            }
-        });
+        const departmentByName = dedupeDepartmentOptions([
+            ...departmentRows.map((row) => ({ ...row, _source: 'registry' })),
+            ...projectDepartmentRows.map((row) => ({ ...row, _source: 'project' })),
+        ]);
 
         res.status(200).json({
             sectors: [...sectorByName.values()],
-            departments: [...departmentByName.values()],
+            departments: departmentByName,
             subcounties: subcountyRows,
             wards: wardRows,
             sublocations: sublocationRows,

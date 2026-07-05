@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
   FormControlLabel,
   Grid,
@@ -29,6 +30,12 @@ import autoTable from 'jspdf-autotable';
 import apiService from '../api';
 import reportsService from '../api/reportsService';
 import { drawCountyOfficialHeader, getCountyLogoDataUrl } from '../utils/countyOfficialPdfHeader';
+import { formatStatus, getProjectStatusBackgroundColor, getProjectStatusTextColor } from '../utils/tableHelpers';
+import {
+  formatGeoDisplayName,
+  isGeoDimensionKey,
+  normalizeGeoCompareKey,
+} from '../utils/geoNameFormat';
 
 const currentYear = new Date().getFullYear();
 const DEFAULT_FILTERS = {
@@ -45,6 +52,7 @@ const DIMENSION_COLUMNS = [
   { key: 'ward', label: 'Ward', width: 22 },
   { key: 'sublocation', label: 'Sublocation', width: 24 },
   { key: 'village', label: 'Village', width: 26 },
+  { key: 'status', label: 'Status', width: 18 },
 ];
 
 const METRIC_COLUMNS = [
@@ -113,6 +121,55 @@ function formatMetricValue(value, metricKey) {
   return metricKey === 'count' ? formatNumber(value) : formatCurrency(value);
 }
 
+function ProjectStatusChip({ status }) {
+  if (!status || status === 'Unspecified') {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        —
+      </Typography>
+    );
+  }
+  const bgColor = getProjectStatusBackgroundColor(status);
+  const textColor = getProjectStatusTextColor(status);
+  return (
+    <Chip
+      label={formatStatus(status)}
+      size="small"
+      sx={{
+        backgroundColor: bgColor,
+        color: textColor,
+        fontWeight: 600,
+        fontSize: '0.75rem',
+        height: '26px',
+        minWidth: '96px',
+        maxWidth: '100%',
+        '& .MuiChip-label': {
+          px: 1,
+        },
+      }}
+    />
+  );
+}
+
+function displayDimensionValue(column, value) {
+  if (column?.key === 'status') return formatStatus(value || 'Other');
+  if (isGeoDimensionKey(column?.key)) return formatGeoDisplayName(value);
+  return value || 'Unspecified';
+}
+
+function dimensionGroupKey(dimension, row) {
+  if (dimension === '__all__') return 'All projects';
+  const raw = row[dimension] || 'Unspecified';
+  if (isGeoDimensionKey(dimension)) return normalizeGeoCompareKey(raw) || 'unspecified';
+  return raw;
+}
+
+function dimensionGroupLabel(dimension, row) {
+  const raw = row[dimension] || 'Unspecified';
+  if (isGeoDimensionKey(dimension)) return formatGeoDisplayName(raw);
+  return raw;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -151,7 +208,10 @@ function buildReportColumns(years, selectedDimensions, selectedMetrics) {
 }
 
 function getColumnValue(row, column) {
-  if (column.type === 'dimension') return row[column.key] || 'Unspecified';
+  if (column.type === 'dimension') {
+    if (column.key === 'status') return row.status || 'Other';
+    return row[column.key] || 'Unspecified';
+  }
   if (column.type === 'metric') return getMetricValue(row, column.metricKey, column.year);
   if (column.type === 'total') return getTotalMetricValue(row, column.metricKey);
   return '';
@@ -168,7 +228,7 @@ function aggregateRowsByDimensions(rows, selectedDimensions, years) {
 
   rows.forEach((row) => {
     const key = groupKeys
-      .map((dimension) => (dimension === '__all__' ? 'All projects' : row[dimension] || 'Unspecified'))
+      .map((dimension) => dimensionGroupKey(dimension, row))
       .join('\u0001');
 
     if (!rowMap.has(key)) {
@@ -181,7 +241,7 @@ function aggregateRowsByDimensions(rows, selectedDimensions, years) {
         totalPaid: 0,
       };
       selectedDimensions.forEach((dimension) => {
-        groupedRow[dimension] = row[dimension] || 'Unspecified';
+        groupedRow[dimension] = dimensionGroupLabel(dimension, row);
       });
       rowMap.set(key, groupedRow);
     }
@@ -416,7 +476,7 @@ export default function YearlyTrendsReportPage() {
       index + 1,
       ...reportColumns.map((column) => {
         const value = getColumnValue(row, column);
-        return column.type === 'dimension' ? value : Number(value || 0);
+        return column.type === 'dimension' ? displayDimensionValue(column, value) : Number(value || 0);
       }),
     ]);
     const totalRow = [
@@ -453,7 +513,9 @@ export default function YearlyTrendsReportPage() {
         <tr>
           ${reportColumns.map((column) => {
             const value = getColumnValue(row, column);
-            const display = column.type === 'dimension' ? value : formatMetricValue(value, column.metricKey);
+            const display = column.type === 'dimension'
+              ? displayDimensionValue(column, value)
+              : formatMetricValue(value, column.metricKey);
             const align = column.type === 'dimension' ? 'left' : 'right';
             return `<td style="text-align:${align};">${escapeHtml(display)}</td>`;
           }).join('')}
@@ -556,7 +618,9 @@ export default function YearlyTrendsReportPage() {
         head: [reportColumns.map((column) => column.label)],
         body: displayRows.map((row) => reportColumns.map((column) => {
           const value = getColumnValue(row, column);
-          return column.type === 'dimension' ? value : formatMetricValue(value, column.metricKey);
+          return column.type === 'dimension'
+            ? displayDimensionValue(column, value)
+            : formatMetricValue(value, column.metricKey);
         })),
         styles: { fontSize: reportColumns.length > 12 ? 6 : 7, cellPadding: 3, overflow: 'linebreak' },
         headStyles: { fillColor: [22, 96, 136] },
@@ -800,7 +864,13 @@ export default function YearlyTrendsReportPage() {
                       const value = getColumnValue(row, column);
                       return (
                         <TableCell key={column.key} align={column.type === 'dimension' ? 'left' : 'right'}>
-                          {column.type === 'dimension' ? value : formatMetricValue(value, column.metricKey)}
+                          {column.key === 'status' && column.type === 'dimension' ? (
+                            <ProjectStatusChip status={value} />
+                          ) : column.type === 'dimension' ? (
+                            displayDimensionValue(column, value)
+                          ) : (
+                            formatMetricValue(value, column.metricKey)
+                          )}
                         </TableCell>
                       );
                     })}

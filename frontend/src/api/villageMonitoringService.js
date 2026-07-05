@@ -1,6 +1,11 @@
 import axiosInstance from './axiosInstance';
 
 const villageMonitoringService = {
+  createReport: async (payload) => {
+    const response = await axiosInstance.post('/village-monitoring/reports', payload);
+    return response.data;
+  },
+
   listReports: async (filters = {}) => {
     const response = await axiosInstance.get('/village-monitoring/reports', { params: filters });
     return response.data;
@@ -56,6 +61,29 @@ const villageMonitoringService = {
   approve: async (id, comment) => {
     const response = await axiosInstance.post(`/village-monitoring/reports/${id}/approve`, { comment });
     return response.data;
+  },
+
+  exportWordReport: async (id) => {
+    const response = await axiosInstance.get(`/village-monitoring/reports/${id}/export-word`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
+
+  uploadFormattedReport: async (id, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/village-monitoring/reports/${id}/formatted-report`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  downloadFormattedReport: async (id) => {
+    const response = await axiosInstance.get(`/village-monitoring/reports/${id}/formatted-report`, {
+      responseType: 'blob',
+    });
+    return response;
   },
 };
 

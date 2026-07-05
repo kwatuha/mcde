@@ -23,8 +23,7 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
-import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser } from '../utils/privilegeUtils.js';
-import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
 import {
   getFirstVisibleMenuPath,
   hasRestrictiveMenuProfile,
@@ -32,9 +31,15 @@ import {
   isContractorPortalPath,
   isCoFinanceWorkflowPath,
   isEngineerWorkflowPath,
+  isVillageWorkflowPath,
+  isWardWorkflowPath,
+  isSubCountyWorkflowPath,
+  isChiefWorkflowPath,
+  isSectorMeWorkflowPath,
   isPathAllowedByVisibleMenu,
   isUiProfileBypassUser,
 } from '../utils/uiProfileUtils.js';
+import { getFilteredMenuCategories } from '../configs/menuConfigUtils.js';
 // ✨ Removed old theme system imports
 import Topbar from "./Topbar.jsx";
 import Sidebar from "./Sidebar.jsx";
@@ -110,6 +115,11 @@ function MainLayoutContent() {
       !(isContractor(user) && isContractorPortalPath(location.pathname)) &&
       !(isCoFinancePortalUser(user) && isCoFinanceWorkflowPath(location.pathname)) &&
       !(isEngineerPortalUser(user) && isEngineerWorkflowPath(location.pathname)) &&
+      !(isVillagePortalUser(user) && isVillageWorkflowPath(location.pathname)) &&
+      !(isWardPortalUser(user) && isWardWorkflowPath(location.pathname)) &&
+      !(isSubCountyPortalUser(user) && isSubCountyWorkflowPath(location.pathname)) &&
+      !(isChiefPortalUser(user) && isChiefWorkflowPath(location.pathname)) &&
+      !(isSectorMePortalUser(user) && isSectorMeWorkflowPath(location.pathname)) &&
       !isPathAllowedByVisibleMenu(location.pathname, menuCategories)
     ) {
       const fallback = getFirstVisibleMenuPath(menuCategories, user);

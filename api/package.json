@@ -8,6 +8,7 @@
     "dev": "nodemon app.js",
     "seed:analytics": "node seeds/seedAnalyticsData.js",
     "seed:data-collection-reference": "node scripts/seedSampleDataCollectionTemplate.js",
+    "seed:village-monitoring-template": "node scripts/seedVillageMonitoringTemplate.js",
     "import:sublocation-villages": "node scripts/importSublocationVillages.js",
     "backfill:project-sublocation-villages": "node scripts/backfillProjectSublocationVillages.js"
   },

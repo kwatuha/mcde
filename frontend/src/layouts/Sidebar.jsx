@@ -55,6 +55,7 @@ import ApprovalIcon from '@mui/icons-material/Approval';
 import StorageIcon from '@mui/icons-material/Storage';
 import WorkIcon from '@mui/icons-material/Work';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import LocationCityIcon from '@mui/icons-material/LocationCity';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import CategoryIcon from '@mui/icons-material/Category';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -73,6 +74,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import CelebrationIcon from '@mui/icons-material/Celebration';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ChecklistIcon from '@mui/icons-material/Checklist';
+import ListAltIcon from '@mui/icons-material/ListAlt';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import SpeedIcon from '@mui/icons-material/Speed';
@@ -93,7 +95,7 @@ import {
   TREE_NAV_BORDER as TREE_BORDER,
 } from '../configs/treeNavChrome.js';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
-import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
 import { isSuperAdminUser } from '../utils/roleUtils.js';
 import gprisLogo from '../assets/gpris.png';
 import logoFallback from '../assets/logo.png';
@@ -449,7 +451,13 @@ const Sidebar = ({
   const isAdminLike = isAdmin(user);
   const showContractorMenu = isContractor(user);
   const showCoFinanceMenu = isCoFinancePortalUser(user);
-  const showEngineerMenu = !showCoFinanceMenu && isEngineerPortalUser(user);
+  const showVillageMenu = !showCoFinanceMenu && isVillagePortalUser(user);
+  const showWardMenu = !showCoFinanceMenu && !showVillageMenu && isWardPortalUser(user);
+  const showSubCountyMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && isSubCountyPortalUser(user);
+  const showSectorMeMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && isSectorMePortalUser(user);
+  const showChiefMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && isChiefPortalUser(user);
+  const showEngineerMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && !showChiefMenu && isEngineerPortalUser(user);
+  const showPortalMenu = showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu || showSubCountyMenu || showSectorMeMenu || showChiefMenu || showEngineerMenu;
 
   // Memoize setSelected to prevent Item components from re-rendering unnecessarily
   const stableSetSelected = useCallback((value) => {
@@ -483,6 +491,10 @@ const Sidebar = ({
     return sortMenuCategoriesForNav(cats);
   }, [hasPrivilege, user, isAdminLike]);
 
+  /** UI profile visibleMenuKeys — show dashboards etc. alongside portal workspace nav. */
+  const portalExtendedMenus = menuCategories.length > 0 && showPortalMenu;
+  const showStandardMenuCategories = portalExtendedMenus || !showPortalMenu;
+
   const [openTreeGroups, setOpenTreeGroups] = useState(() => new Set());
   const [treeSidebarLogoFailed, setTreeSidebarLogoFailed] = useState(false);
   /** Accordion: opening one category collapses others (less sidebar scrolling). */
@@ -503,9 +515,22 @@ const Sidebar = ({
   );
 
   useEffect(() => {
-    if ((!isTreeLayout && !isMobile) || !activeCategoryIdForPath || showContractorMenu || showCoFinanceMenu || showEngineerMenu) return;
-    setOpenTreeGroups(new Set([activeCategoryIdForPath]));
-  }, [isTreeLayout, isMobile, activeCategoryIdForPath, showContractorMenu, showCoFinanceMenu, showEngineerMenu]);
+    if ((!isTreeLayout && !isMobile) || !activeCategoryIdForPath || !showStandardMenuCategories) return;
+    if (showPortalMenu && !portalExtendedMenus) return;
+    setOpenTreeGroups((prev) => {
+      const next = new Set(prev);
+      next.add(activeCategoryIdForPath);
+      if (showContractorMenu) next.add('contractor-root');
+      if (showCoFinanceMenu) next.add('co-finance-root');
+      if (showVillageMenu) next.add('village-root');
+      if (showWardMenu) next.add('ward-root');
+      if (showSubCountyMenu) next.add('subcounty-root');
+      if (showSectorMeMenu) next.add('sector-me-root');
+      if (showChiefMenu) next.add('chief-root');
+      if (showEngineerMenu) next.add('engineer-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, activeCategoryIdForPath, showPortalMenu, portalExtendedMenus, showStandardMenuCategories, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu]);
 
   useEffect(() => {
     if ((!isTreeLayout && !isMobile) || !showContractorMenu) return;
@@ -528,6 +553,56 @@ const Sidebar = ({
   }, [isTreeLayout, isMobile, showCoFinanceMenu]);
 
   useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showVillageMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('village-root')) return prev;
+      const next = new Set(prev);
+      next.add('village-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showVillageMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showWardMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('ward-root')) return prev;
+      const next = new Set(prev);
+      next.add('ward-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showWardMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showSubCountyMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('subcounty-root')) return prev;
+      const next = new Set(prev);
+      next.add('subcounty-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showSubCountyMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showSectorMeMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('sector-me-root')) return prev;
+      const next = new Set(prev);
+      next.add('sector-me-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showSectorMeMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showChiefMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('chief-root')) return prev;
+      const next = new Set(prev);
+      next.add('chief-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showChiefMenu]);
+
+  useEffect(() => {
     if ((!isTreeLayout && !isMobile) || !showEngineerMenu) return;
     setOpenTreeGroups((prev) => {
       if (prev.has('engineer-root')) return prev;
@@ -545,11 +620,45 @@ const Sidebar = ({
       return;
     }
     if (showCoFinanceMenu) {
-      setOpenTreeGroups(new Set(['co-finance-root']));
+      const groups = new Set(['co-finance-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showVillageMenu) {
+      const groups = new Set(['village-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showWardMenu) {
+      const groups = new Set(['ward-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showSubCountyMenu) {
+      const groups = new Set(['subcounty-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showSectorMeMenu) {
+      const groups = new Set(['sector-me-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showChiefMenu) {
+      const groups = new Set(['chief-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
       return;
     }
     if (showEngineerMenu) {
-      setOpenTreeGroups(new Set(['engineer-root']));
+      const groups = new Set(['engineer-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
       return;
     }
     if (activeCategoryIdForPath) {
@@ -557,7 +666,7 @@ const Sidebar = ({
     } else if (menuCategories.length > 0) {
       setOpenTreeGroups(new Set([menuCategories[0].id]));
     }
-  }, [isMobile, mobileOpen, activeCategoryIdForPath, showContractorMenu, showCoFinanceMenu, showEngineerMenu, menuCategories]);
+  }, [isMobile, mobileOpen, activeCategoryIdForPath, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu, portalExtendedMenus, menuCategories]);
 
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
@@ -630,6 +739,46 @@ const Sidebar = ({
     { title: "County Finance", to: `${ROUTES.CO_FINANCE_WORKSPACE}/finance`, icon: <AttachMoneyIcon /> },
   ];
 
+  const villageItems = [
+    { title: "Workspace", to: ROUTES.VILLAGE_WORKSPACE, icon: <LocationOnIcon /> },
+    { title: "Monitoring reports", to: ROUTES.VILLAGE_MONITORING_WORKFLOW, icon: <FactCheckIcon /> },
+    { title: "Monitoring visits", to: ROUTES.MONITORING_PROJECT_MONITORING, icon: <ChecklistIcon /> },
+    { title: "My projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
+    { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
+  ];
+
+  const wardItems = [
+    { title: "Workspace", to: ROUTES.WARD_WORKSPACE, icon: <LocationCityIcon /> },
+    { title: "Ward review queue", to: `${ROUTES.WARD_WORKSPACE}?tab=ward`, icon: <FactCheckIcon /> },
+    { title: "Village drafts", to: `${ROUTES.WARD_WORKSPACE}?tab=drafts`, icon: <ChecklistIcon /> },
+    { title: "Ward projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
+    { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
+  ];
+
+  const subCountyItems = [
+    { title: "Workspace", to: ROUTES.SUBCOUNTY_WORKSPACE, icon: <MapIcon /> },
+    { title: "Sub-county review queue", to: `${ROUTES.SUBCOUNTY_WORKSPACE}?tab=subcounty`, icon: <FactCheckIcon /> },
+    { title: "All reports", to: `${ROUTES.SUBCOUNTY_WORKSPACE}?tab=all`, icon: <ListAltIcon /> },
+    { title: "Sub-county projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
+    { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
+  ];
+
+  const chiefItems = [
+    { title: "Workspace", to: ROUTES.CHIEF_WORKSPACE, icon: <GavelIcon /> },
+    { title: "Chief approval queue", to: `${ROUTES.CHIEF_WORKSPACE}?tab=chief`, icon: <FactCheckIcon /> },
+    { title: "All reports", to: `${ROUTES.CHIEF_WORKSPACE}?tab=all`, icon: <ListAltIcon /> },
+    { title: "Department projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
+    { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
+  ];
+
+  const sectorMeItems = [
+    { title: "Workspace", to: ROUTES.SECTOR_ME_WORKSPACE, icon: <HubIcon /> },
+    { title: "All sector reports", to: `${ROUTES.SECTOR_ME_WORKSPACE}?tab=all`, icon: <ListAltIcon /> },
+    { title: "Pending chief approval", to: `${ROUTES.SECTOR_ME_WORKSPACE}?tab=chief`, icon: <FactCheckIcon /> },
+    { title: "Sector projects", to: ROUTES.PROJECTS, icon: <FolderOpenIcon /> },
+    { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
+  ];
+
   const engineerItems = [
     { title: "Workspace", to: ROUTES.ENGINEER_WORKSPACE, icon: <EngineeringIcon /> },
     { title: "Project Registry", to: `${ROUTES.ENGINEER_WORKSPACE}/projects`, icon: <FolderOpenIcon /> },
@@ -638,22 +787,42 @@ const Sidebar = ({
     { title: "Certificates", to: `${ROUTES.ENGINEER_WORKSPACE}/certificates`, icon: <FactCheckIcon /> },
   ];
 
+  const profileMenuNavItems = useMemo(
+    () => menuCategories.flatMap((cat) => filterCategorySubmenusToNavItems(cat, hasPrivilege, user, isAdminLike)),
+    [menuCategories, hasPrivilege, user, isAdminLike]
+  );
+
   // Get all items for search
   const allItems = useMemo(() => {
     if (showContractorMenu) {
-      return contractorItems;
+      return portalExtendedMenus ? [...contractorItems, ...profileMenuNavItems] : contractorItems;
     }
     if (showCoFinanceMenu) {
-      return coFinanceItems;
+      return portalExtendedMenus ? [...coFinanceItems, ...profileMenuNavItems] : coFinanceItems;
+    }
+    if (showVillageMenu) {
+      return portalExtendedMenus ? [...villageItems, ...profileMenuNavItems] : villageItems;
+    }
+    if (showWardMenu) {
+      return portalExtendedMenus ? [...wardItems, ...profileMenuNavItems] : wardItems;
+    }
+    if (showSubCountyMenu) {
+      return portalExtendedMenus ? [...subCountyItems, ...profileMenuNavItems] : subCountyItems;
+    }
+    if (showSectorMeMenu) {
+      return portalExtendedMenus ? [...sectorMeItems, ...profileMenuNavItems] : sectorMeItems;
+    }
+    if (showChiefMenu) {
+      return portalExtendedMenus ? [...chiefItems, ...profileMenuNavItems] : chiefItems;
     }
     if (showEngineerMenu) {
-      return engineerItems;
+      return portalExtendedMenus ? [...engineerItems, ...profileMenuNavItems] : engineerItems;
     }
     if (isAdminLike) {
       return [...dashboardItems, ...reportingItems, ...managementItems, ...adminItems];
     }
     return [...dashboardItems, ...reportingItems, ...managementItems];
-  }, [showContractorMenu, showCoFinanceMenu, showEngineerMenu, isAdminLike]);
+  }, [showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu, portalExtendedMenus, profileMenuNavItems, isAdminLike]);
 
   const collapsedWidth = 64; // Width with icons only
   const currentWidth = effectiveCollapsed ? collapsedWidth : expandedSidebarWidth;
@@ -839,7 +1008,8 @@ const Sidebar = ({
                     onAfterNavigate={closeMobileNav}
                   />
                 </MenuGroup>
-              ) : showCoFinanceMenu ? (
+              ) : null}
+              {showCoFinanceMenu ? (
                 <MenuGroup
                   title="Co-Finance"
                   icon={
@@ -869,7 +1039,163 @@ const Sidebar = ({
                     onAfterNavigate={closeMobileNav}
                   />
                 </MenuGroup>
-              ) : showEngineerMenu ? (
+              ) : null}
+              {showVillageMenu ? (
+                <MenuGroup
+                  title="Village M&E"
+                  icon={
+                    <LocationOnIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('village-root')}
+                  onToggle={() => toggleTreeGroup('village-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.VILLAGE_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={villageItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showWardMenu ? (
+                <MenuGroup
+                  title="Ward M&E"
+                  icon={
+                    <LocationCityIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('ward-root')}
+                  onToggle={() => toggleTreeGroup('ward-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.WARD_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={wardItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showSubCountyMenu ? (
+                <MenuGroup
+                  title="Sub-County M&E"
+                  icon={
+                    <MapIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('subcounty-root')}
+                  onToggle={() => toggleTreeGroup('subcounty-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.SUBCOUNTY_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={subCountyItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showSectorMeMenu ? (
+                <MenuGroup
+                  title="Sector M&E Champions"
+                  icon={
+                    <HubIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('sector-me-root')}
+                  onToggle={() => toggleTreeGroup('sector-me-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.SECTOR_ME_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={sectorMeItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showChiefMenu ? (
+                <MenuGroup
+                  title="Department Chief M&E"
+                  icon={
+                    <GavelIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('chief-root')}
+                  onToggle={() => toggleTreeGroup('chief-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.CHIEF_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={chiefItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showEngineerMenu ? (
                 <MenuGroup
                   title="Engineer"
                   icon={
@@ -899,8 +1225,9 @@ const Sidebar = ({
                     onAfterNavigate={closeMobileNav}
                   />
                 </MenuGroup>
-              ) : (
-                menuCategories.map((cat) => {
+              ) : null}
+              {showStandardMenuCategories
+                ? menuCategories.map((cat) => {
                   const items = filterCategorySubmenusToNavItems(cat, hasPrivilege, user, isAdminLike);
                   if (!items.length) return null;
                   const IconComp = ICON_MAP[cat.icon] || DashboardIcon;
@@ -937,192 +1264,414 @@ const Sidebar = ({
                     </MenuGroup>
                   );
                 })
-              )}
-            </>
-          ) : showContractorMenu ? (
-            <>
-              {!effectiveCollapsed && (
-                <Box sx={{
-                  px: 1.5,
-                  py: 1,
-                  mb: 1.5,
-                  mt: 4,
-                  backgroundColor: theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(255,255,255,0.5)',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(0,0,0,0.1)'}`,
-                }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: theme.palette.mode === 'dark'
-                        ? colors.blueAccent[400]
-                        : '#0284c7',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Contractor
-                  </Typography>
-                </Box>
-              )}
-              {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
-              <SearchableMenu
-                items={contractorItems}
-                selected={selected}
-                setSelected={stableSetSelected}
-                theme={theme}
-                isCollapsed={effectiveCollapsed}
-                onAfterNavigate={closeMobileNav}
-              />
-            </>
-          ) : showCoFinanceMenu ? (
-            <>
-              {!effectiveCollapsed && (
-                <Box sx={{
-                  px: 1.5,
-                  py: 1,
-                  mb: 1.5,
-                  mt: 4,
-                  backgroundColor: theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(255,255,255,0.5)',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(0,0,0,0.1)'}`,
-                }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: theme.palette.mode === 'dark'
-                        ? colors.blueAccent[400]
-                        : '#0284c7',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Co-Finance
-                  </Typography>
-                </Box>
-              )}
-              {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
-              <SearchableMenu
-                items={coFinanceItems}
-                selected={selected}
-                setSelected={stableSetSelected}
-                theme={theme}
-                isCollapsed={effectiveCollapsed}
-                onAfterNavigate={closeMobileNav}
-              />
-            </>
-          ) : showEngineerMenu ? (
-            <>
-              {!effectiveCollapsed && (
-                <Box sx={{
-                  px: 1.5,
-                  py: 1,
-                  mb: 1.5,
-                  mt: 4,
-                  backgroundColor: theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(255,255,255,0.5)',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(0,0,0,0.1)'}`,
-                }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: theme.palette.mode === 'dark'
-                        ? colors.blueAccent[400]
-                        : '#0284c7',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Engineer
-                  </Typography>
-                </Box>
-              )}
-              {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
-              <SearchableMenu
-                items={engineerItems}
-                selected={selected}
-                setSelected={stableSetSelected}
-                theme={theme}
-                isCollapsed={effectiveCollapsed}
-                onAfterNavigate={closeMobileNav}
-              />
+                : null}
             </>
           ) : (
             <>
-              {selectedCategory && !effectiveCollapsed && (
-                <Box sx={{
-                  px: 1.5,
-                  py: 1,
-                  mb: 1.5,
-                  mt: 4,
-                  backgroundColor: theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(255,255,255,0.5)',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(0,0,0,0.1)'}`,
-                }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: theme.palette.mode === 'dark'
-                        ? colors.blueAccent[400]
-                        : '#0284c7',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {selectedCategory.labelTree || selectedCategory.label}
-                  </Typography>
-                </Box>
-              )}
+              {showContractorMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#0284c7',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Contractor
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={contractorItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showCoFinanceMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: showContractorMenu ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#0284c7',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Co-Finance
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={coFinanceItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showVillageMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: (showContractorMenu || showCoFinanceMenu) ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#0284c7',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Village M&E
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={villageItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showWardMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: (showContractorMenu || showCoFinanceMenu || showVillageMenu) ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#ea580c',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Ward M&E
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={wardItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showSubCountyMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: (showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu) ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#7b1fa2',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Sub-County M&E
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={subCountyItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showSectorMeMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: (showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu || showSubCountyMenu) ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#00695c',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Sector M&E Champions
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={sectorMeItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showChiefMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: (showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu || showSubCountyMenu || showSectorMeMenu) ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#1565c0',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Department Chief M&E
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={chiefItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showEngineerMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#0284c7',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Engineer
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={engineerItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showStandardMenuCategories ? (
+                <>
+                  {selectedCategory && !effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: showPortalMenu ? 2 : 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#0284c7',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {selectedCategory.labelTree || selectedCategory.label}
+                      </Typography>
+                    </Box>
+                  )}
 
-              {selectedCategory && effectiveCollapsed && (
-                <Box sx={{ mt: 4, mb: 1 }} />
-              )}
+                  {selectedCategory && effectiveCollapsed && (
+                    <Box sx={{ mt: 4, mb: 1 }} />
+                  )}
 
-              {submenuItems.length > 0 ? (
-                <SearchableMenu
-                  items={submenuItems}
-                  selected={selected}
-                  setSelected={stableSetSelected}
-                  theme={theme}
-                  isCollapsed={effectiveCollapsed}
-                  onAfterNavigate={closeMobileNav}
-                />
-              ) : (
-                !effectiveCollapsed && (
-                  <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      No items available
-                    </Typography>
-                  </Box>
-                )
-              )}
+                  {submenuItems.length > 0 ? (
+                    <SearchableMenu
+                      items={submenuItems}
+                      selected={selected}
+                      setSelected={stableSetSelected}
+                      theme={theme}
+                      isCollapsed={effectiveCollapsed}
+                      onAfterNavigate={closeMobileNav}
+                    />
+                  ) : (
+                    !effectiveCollapsed && (
+                      <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          No items available
+                        </Typography>
+                      </Box>
+                    )
+                  )}
+                </>
+              ) : null}
             </>
           )}
     </>

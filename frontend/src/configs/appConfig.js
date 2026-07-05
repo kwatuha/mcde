@@ -200,6 +200,11 @@ export const ROUTES = {
     FINANCE_PAYMENT_LIST: '/finance/payment-list',
     ENGINEER_WORKSPACE: '/engineer-workspace',
     CO_FINANCE_WORKSPACE: '/co-finance-workspace',
+    VILLAGE_WORKSPACE: '/village-workspace',
+    WARD_WORKSPACE: '/ward-workspace',
+    SUBCOUNTY_WORKSPACE: '/subcounty-workspace',
+    CHIEF_WORKSPACE: '/chief-workspace',
+    SECTOR_ME_WORKSPACE: '/sector-me-workspace',
     FINANCE_FUNDING_SOURCES_REPORT: '/finance/funding-sources-report',
     PROJECT_BY_STATUS_DASHBOARD: '/project-by-status-dashboard', // ✨ NEW: Project By Status Dashboard route
     PROJECT_BY_SECTOR_DASHBOARD: '/project-by-sector-dashboard',

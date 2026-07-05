@@ -66,7 +66,7 @@ const ITEM_TYPES = [
   { value: 'textarea', label: 'Long text' },
   { value: 'number', label: 'Number' },
   { value: 'select', label: 'Dropdown' },
-  { value: 'multi_select', label: 'Multi-select dropdown' },
+  { value: 'multi_select', label: 'Multi-select (checkbox list)' },
   { value: 'photo', label: 'Photo (camera / upload)' },
   { value: 'location', label: 'GPS location' },
   { value: 'area_location', label: 'Admin area (sub-county → ward → sublocation → village)' },

@@ -110,6 +110,17 @@ const ApprovalLevelsManagementPage = () => {
   const [cloneSourceVersion, setCloneSourceVersion] = useState(null);
   const [deactivatePreviousOnCreate, setDeactivatePreviousOnCreate] = useState(false);
 
+  const [slaSettingsForm, setSlaSettingsForm] = useState({
+    warningHours: '4',
+    monitorIntervalSeconds: '60',
+  });
+  const [slaSettingsMeta, setSlaSettingsMeta] = useState({
+    savedInDatabase: false,
+    envWarningHours: null,
+    envMonitorIntervalMs: null,
+  });
+  const [slaSettingsSaving, setSlaSettingsSaving] = useState(false);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -159,6 +170,22 @@ const ApprovalLevelsManagementPage = () => {
         setWorkflowPending(Array.isArray(pending) ? pending : []);
       } catch {
         setWorkflowPending([]);
+      }
+      if (hasPrivilege('approval_levels.read')) {
+        try {
+          const sla = await apiService.approvalWorkflow.getSlaSettings();
+          setSlaSettingsForm({
+            warningHours: String(sla?.warningHours ?? 4),
+            monitorIntervalSeconds: String(sla?.monitorIntervalSeconds ?? 60),
+          });
+          setSlaSettingsMeta({
+            savedInDatabase: Boolean(sla?.savedInDatabase),
+            envWarningHours: sla?.envWarningHours ?? null,
+            envMonitorIntervalMs: sla?.envMonitorIntervalMs ?? null,
+          });
+        } catch (slaErr) {
+          console.warn('SLA settings load:', slaErr);
+        }
       }
     } catch (err) {
       console.error('Workflow UI load:', err);
@@ -434,6 +461,34 @@ const ApprovalLevelsManagementPage = () => {
       });
     } finally {
       setWorkflowLoading(false);
+    }
+  };
+
+  const handleSaveSlaSettings = async () => {
+    if (!hasPrivilege('approval_levels.update')) return;
+    const warningHours = parseInt(String(slaSettingsForm.warningHours), 10);
+    const monitorIntervalSeconds = parseInt(String(slaSettingsForm.monitorIntervalSeconds), 10);
+    if (!Number.isFinite(warningHours) || warningHours < 1 || warningHours > 168) {
+      setSnackbar({ open: true, message: 'Warning hours must be between 1 and 168.', severity: 'error' });
+      return;
+    }
+    if (!Number.isFinite(monitorIntervalSeconds) || monitorIntervalSeconds < 5 || monitorIntervalSeconds > 3600) {
+      setSnackbar({ open: true, message: 'Check interval must be between 5 and 3600 seconds.', severity: 'error' });
+      return;
+    }
+    setSlaSettingsSaving(true);
+    try {
+      const out = await apiService.approvalWorkflow.updateSlaSettings({ warningHours, monitorIntervalSeconds });
+      setSlaSettingsForm({
+        warningHours: String(out.warningHours ?? warningHours),
+        monitorIntervalSeconds: String(out.monitorIntervalSeconds ?? monitorIntervalSeconds),
+      });
+      setSlaSettingsMeta((prev) => ({ ...prev, savedInDatabase: true }));
+      setSnackbar({ open: true, message: 'SLA monitor settings saved.', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.message || err.message, severity: 'error' });
+    } finally {
+      setSlaSettingsSaving(false);
     }
   };
 
@@ -818,6 +873,70 @@ const ApprovalLevelsManagementPage = () => {
             Use this page to manage workflow definitions and step order by role. Detailed integration notes are in Help &amp; Support.
           </Typography>
         </Alert>
+
+        {hasPrivilege('approval_levels.read') && (
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: colors.primary?.[400] ? `${colors.primary[400]}22` : 'action.hover' }}>
+            <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+              SLA monitor settings
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Controls when pre-escalation warning emails are sent and how often the server checks for overdue steps.
+              Per-step SLA hours are configured on each workflow definition below.
+            </Typography>
+            <Grid container spacing={2} alignItems="flex-start">
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Warning before escalation (hours)"
+                  type="number"
+                  value={slaSettingsForm.warningHours}
+                  onChange={(e) => setSlaSettingsForm((prev) => ({ ...prev, warningHours: e.target.value }))}
+                  inputProps={{ min: 1, max: 168 }}
+                  helperText="Email the assigned role this many hours before a step is due (1–168)."
+                  disabled={!hasPrivilege('approval_levels.update') || slaSettingsSaving}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Monitor check interval (seconds)"
+                  type="number"
+                  value={slaSettingsForm.monitorIntervalSeconds}
+                  onChange={(e) => setSlaSettingsForm((prev) => ({ ...prev, monitorIntervalSeconds: e.target.value }))}
+                  inputProps={{ min: 5, max: 3600 }}
+                  helperText="How often the server scans for warnings and escalations (5–3600)."
+                  disabled={!hasPrivilege('approval_levels.update') || slaSettingsSaving}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Stack spacing={1}>
+                  {hasPrivilege('approval_levels.update') && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleSaveSlaSettings}
+                      disabled={slaSettingsSaving}
+                    >
+                      {slaSettingsSaving ? 'Saving…' : 'Save SLA settings'}
+                    </Button>
+                  )}
+                  {!slaSettingsMeta.savedInDatabase && (
+                    <Typography variant="caption" color="text.secondary">
+                      Using defaults
+                      {slaSettingsMeta.envWarningHours != null || slaSettingsMeta.envMonitorIntervalMs != null
+                        ? ' (server env overrides apply until you save)'
+                        : ''}
+                      .
+                    </Typography>
+                  )}
+                </Stack>
+              </Grid>
+            </Grid>
+          </Paper>
+        )}
+
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mb: 2 }}>
           <Button
             size="small"

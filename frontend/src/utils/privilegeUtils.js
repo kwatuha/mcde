@@ -87,6 +87,16 @@ function getCoFinanceWorkspaceLandingPath(user) {
   return base || null;
 }
 
+function getVillageWorkspaceLandingPath(user) {
+  const profile = user?.uiProfile || user?.ui_profile || null;
+  if (!profile) return null;
+  let path = String(profile.landingPath ?? profile.landing_path ?? '').trim();
+  if (!path) return null;
+  if (!path.startsWith('/')) path = `/${path}`;
+  const base = path.split('?')[0].split('#')[0];
+  return base || null;
+}
+
 /**
  * County co-finance officers use the co-finance workspace (final certificate sign-off after engineers).
  */
@@ -108,13 +118,238 @@ export const isCoFinancePortalUser = (user) => {
   return false;
 };
 
+function getWardWorkspaceLandingPath(user) {
+  const profile = user?.uiProfile || user?.ui_profile || null;
+  if (!profile) return null;
+  let path = String(profile.landingPath ?? profile.landing_path ?? '').trim();
+  if (!path) return null;
+  if (!path.startsWith('/')) path = `/${path}`;
+  const base = path.split('?')[0].split('#')[0];
+  return base || null;
+}
+
+function getSubCountyWorkspaceLandingPath(user) {
+  return getWardWorkspaceLandingPath(user);
+}
+
+function getChiefWorkspaceLandingPath(user) {
+  return getWardWorkspaceLandingPath(user);
+}
+
+function getSectorMeWorkspaceLandingPath(user) {
+  return getWardWorkspaceLandingPath(user);
+}
+
+/**
+ * Village administrators use the village M&E workspace (sublocation monitoring).
+ */
+export const isVillagePortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+
+  const wardLanding = getWardWorkspaceLandingPath(user);
+  if (wardLanding?.startsWith('/ward-workspace')) return false;
+
+  const subcountyLanding = getSubCountyWorkspaceLandingPath(user);
+  if (subcountyLanding?.startsWith('/subcounty-workspace')) return false;
+
+  const chiefLanding = getChiefWorkspaceLandingPath(user);
+  if (chiefLanding?.startsWith('/chief-workspace')) return false;
+
+  const sectorLanding = getSectorMeWorkspaceLandingPath(user);
+  if (sectorLanding?.startsWith('/sector-me-workspace')) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const landing = getVillageWorkspaceLandingPath(user);
+  if (landing?.startsWith('/village-workspace')) return true;
+  if (
+    normalizedRole.includes('village_administrator')
+    || normalizedRole.includes('village_admin')
+  ) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/**
+ * Ward administrators use the ward M&E workspace (monitoring report review).
+ */
+export const isWardPortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+
+  const wardLanding = getWardWorkspaceLandingPath(user);
+  if (wardLanding?.startsWith('/ward-workspace')) return true;
+
+  const subcountyLanding = getSubCountyWorkspaceLandingPath(user);
+  if (subcountyLanding?.startsWith('/subcounty-workspace')) return false;
+
+  const chiefLanding = getChiefWorkspaceLandingPath(user);
+  if (chiefLanding?.startsWith('/chief-workspace')) return false;
+
+  const sectorLanding = getSectorMeWorkspaceLandingPath(user);
+  if (sectorLanding?.startsWith('/sector-me-workspace')) return false;
+
+  const villageLanding = getVillageWorkspaceLandingPath(user);
+  if (villageLanding?.startsWith('/village-workspace')) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  if (
+    normalizedRole.includes('ward_administrator')
+    || normalizedRole.includes('ward_admin')
+  ) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/**
+ * Sub-county administrators use the sub-county M&E workspace (monitoring report review).
+ */
+export const isSubCountyPortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+
+  const subcountyLanding = getSubCountyWorkspaceLandingPath(user);
+  if (subcountyLanding?.startsWith('/subcounty-workspace')) return true;
+
+  const chiefLanding = getChiefWorkspaceLandingPath(user);
+  if (chiefLanding?.startsWith('/chief-workspace')) return false;
+
+  const sectorLanding = getSectorMeWorkspaceLandingPath(user);
+  if (sectorLanding?.startsWith('/sector-me-workspace')) return false;
+
+  const villageLanding = getVillageWorkspaceLandingPath(user);
+  if (villageLanding?.startsWith('/village-workspace')) return false;
+
+  const wardLanding = getWardWorkspaceLandingPath(user);
+  if (wardLanding?.startsWith('/ward-workspace')) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  if (
+    normalizedRole.includes('sub_county_administrator')
+    || normalizedRole.includes('subcounty_administrator')
+    || normalizedRole.includes('sub_county_admin')
+  ) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/**
+ * Department chief officers use the chief M&E workspace (final monitoring approval).
+ */
+export const isChiefPortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+
+  const sectorLanding = getSectorMeWorkspaceLandingPath(user);
+  if (sectorLanding?.startsWith('/sector-me-workspace')) return false;
+
+  const chiefLanding = getChiefWorkspaceLandingPath(user);
+  if (chiefLanding?.startsWith('/chief-workspace')) return true;
+
+  const villageLanding = getVillageWorkspaceLandingPath(user);
+  if (villageLanding?.startsWith('/village-workspace')) return false;
+
+  const wardLanding = getWardWorkspaceLandingPath(user);
+  if (wardLanding?.startsWith('/ward-workspace')) return false;
+
+  const subcountyLanding = getSubCountyWorkspaceLandingPath(user);
+  if (subcountyLanding?.startsWith('/subcounty-workspace')) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  if (normalizedRole.includes('department_chief_officer')) return true;
+  if (normalizedRole.includes('chief_officer') && !normalizedRole.includes('engineer')) return true;
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/**
+ * Sector M&E champions use the sector workspace (cross-department monitoring oversight).
+ */
+export const isSectorMePortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+
+  const sectorLanding = getSectorMeWorkspaceLandingPath(user);
+  if (sectorLanding?.startsWith('/sector-me-workspace')) return true;
+
+  const chiefLanding = getChiefWorkspaceLandingPath(user);
+  if (chiefLanding?.startsWith('/chief-workspace')) return false;
+
+  const villageLanding = getVillageWorkspaceLandingPath(user);
+  if (villageLanding?.startsWith('/village-workspace')) return false;
+
+  const wardLanding = getWardWorkspaceLandingPath(user);
+  if (wardLanding?.startsWith('/ward-workspace')) return false;
+
+  const subcountyLanding = getSubCountyWorkspaceLandingPath(user);
+  if (subcountyLanding?.startsWith('/subcounty-workspace')) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  if (
+    normalizedRole.includes('sector_m&e')
+    || normalizedRole.includes('sector_me')
+    || normalizedRole.includes('m&e_champion')
+    || normalizedRole.includes('sector_champion')
+  ) {
+    return true;
+  }
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/** Sector champions can read monitoring reports in sector scope (read-only oversight). */
+export const canSectorMeViewMonitoringReports = (user) => {
+  if (!user) return false;
+  if (checkUserPrivilege(user, 'monitoring_report.read')) return true;
+  return isSectorMePortalUser(user);
+};
+
+/** Ward can revise and forward village monitoring reports (mirrors backend isWardAdminLike). */
+export const canWardReviewMonitoringReports = (user) => {
+  if (!user) return false;
+  if (checkUserPrivilege(user, 'monitoring_report.ward_review')) return true;
+  return isWardPortalUser(user);
+};
+
+/** Village can create drafts and submit monitoring reports to ward (mirrors backend isVillageAdminLike). */
+export const canVillageSubmitMonitoringReports = (user) => {
+  if (!user) return false;
+  if (
+    checkUserPrivilege(user, 'monitoring_report.submit')
+    || checkUserPrivilege(user, 'monitoring_report.create')
+  ) {
+    return true;
+  }
+  return isVillagePortalUser(user);
+};
+
+/** Sub-county can return or forward monitoring reports (mirrors backend isSubCountyAdminLike). */
+export const canSubCountyReviewMonitoringReports = (user) => {
+  if (!user) return false;
+  if (checkUserPrivilege(user, 'monitoring_report.subcounty_review')) return true;
+  return isSubCountyPortalUser(user);
+};
+
+/** Chief can approve monitoring reports and publish projects (mirrors backend isChiefOfficerLike). */
+export const canChiefApproveMonitoringReports = (user) => {
+  if (!user) return false;
+  if (checkUserPrivilege(user, 'monitoring_report.chief_approve')) return true;
+  return isChiefPortalUser(user);
+};
+
 /**
  * Resident / site / chief engineers use the engineer workspace sidebar (mirrors contractor portal).
  * UI profile landing path takes precedence so roles with the same profile get the same sidebar
  * even when the role name does not contain "engineer" or the user has broader privileges.
  */
 export const isEngineerPortalUser = (user) => {
-  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+  if (!user || isContractor(user) || isCoFinancePortalUser(user) || isVillagePortalUser(user) || isWardPortalUser(user) || isSubCountyPortalUser(user) || isChiefPortalUser(user) || isSectorMePortalUser(user)) return false;
 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const landing = getEngineerWorkspaceLandingPath(user);

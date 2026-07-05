@@ -5,6 +5,7 @@ const express = require('express');
 const router = express.Router();
 const privilege = require('../middleware/privilegeMiddleware');
 const engine = require('../services/approvalWorkflowEngine');
+const escalationSettings = require('../services/approvalEscalationSettingsService');
 
 const canConfigure = privilege(['approval_levels.read']);
 const canMutateDefinitions = privilege(['approval_levels.create', 'approval_levels.update'], { anyOf: true });
@@ -178,6 +179,54 @@ router.post('/requests/:requestId/reject', async (req, res) => {
   } catch (e) {
     const code = e.statusCode || 500;
     res.status(code).json({ message: e.message });
+  }
+});
+
+router.get('/sla/settings', canConfigure, async (req, res) => {
+  try {
+    const settings = await escalationSettings.getSettings();
+    res.json(settings);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.put('/sla/settings', canProcessSla, async (req, res) => {
+  try {
+    const { warningHours, monitorIntervalSeconds, monitorIntervalMs } = req.body || {};
+    if (warningHours != null) {
+      const wh = Number(warningHours);
+      if (!Number.isFinite(wh) || wh <= 0 || wh > escalationSettings.MAX_WARNING_HOURS) {
+        return res.status(400).json({
+          message: `warningHours must be between 1 and ${escalationSettings.MAX_WARNING_HOURS}.`,
+        });
+      }
+    }
+    const intervalMs =
+      monitorIntervalMs != null
+        ? Number(monitorIntervalMs)
+        : monitorIntervalSeconds != null
+          ? Number(monitorIntervalSeconds) * 1000
+          : null;
+    if (intervalMs != null) {
+      if (
+        !Number.isFinite(intervalMs) ||
+        intervalMs < escalationSettings.MIN_MONITOR_INTERVAL_MS ||
+        intervalMs > escalationSettings.MAX_MONITOR_INTERVAL_MS
+      ) {
+        return res.status(400).json({
+          message: `Monitor interval must be between ${escalationSettings.MIN_MONITOR_INTERVAL_MS / 1000} and ${escalationSettings.MAX_MONITOR_INTERVAL_MS / 1000} seconds.`,
+        });
+      }
+    }
+    const settings = await escalationSettings.updateSettings(
+      { warningHours, monitorIntervalSeconds, monitorIntervalMs },
+      req.user?.id ?? null
+    );
+    const monitor = await engine.restartEscalationMonitor();
+    res.json({ ...settings, monitor });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 });
 

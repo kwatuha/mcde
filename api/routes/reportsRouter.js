@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db'); // Adjust the path as needed
 const { addStatusFilter } = require('../utils/statusFilterHelper');
+const { normalizeGeoCompareKey, formatGeoDisplayName } = require('../utils/geoNameFormat');
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
@@ -1174,6 +1175,7 @@ router.get('/yearly-location-trends', async (req, res) => {
         const wardExpr = `COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unspecified')`;
         const sublocationExpr = `COALESCE(NULLIF(TRIM(p.location->>'sublocation'), ''), 'Unspecified')`;
         const villageExpr = `COALESCE(NULLIF(TRIM(p.location->>'village'), ''), 'Unspecified')`;
+        const statusExpr = `COALESCE(NULLIF(TRIM(${getStatusField('p')}), ''), 'Other')`;
         const budgetExpr = getCostField('p');
         const paidExpr = getPaidField('p');
         const norm = (expr) => `regexp_replace(lower(trim(COALESCE(${expr}, ''))), '[^a-z0-9]+', '', 'g')`;
@@ -1224,18 +1226,19 @@ router.get('/yearly-location-trends', async (req, res) => {
         const result = await pool.query(
             `
             SELECT
-                ${subcountyExpr} AS subcounty,
-                ${wardExpr} AS ward,
-                ${sublocationExpr} AS sublocation,
-                ${villageExpr} AS village,
+                MIN(${subcountyExpr}) AS subcounty,
+                MIN(${wardExpr}) AS ward,
+                MIN(${sublocationExpr}) AS sublocation,
+                MIN(${villageExpr}) AS village,
+                MIN(${statusExpr}) AS status,
                 ${yearExpr} AS year,
                 COUNT(*)::int AS count,
                 COALESCE(SUM(${budgetExpr}), 0)::numeric AS budget,
                 COALESCE(SUM(${paidExpr}), 0)::numeric AS paid
             FROM projects p
             WHERE ${where.join(' AND ')}
-            GROUP BY ${subcountyExpr}, ${wardExpr}, ${sublocationExpr}, ${villageExpr}, ${yearExpr}
-            ORDER BY subcounty ASC, ward ASC, sublocation ASC, village ASC, year ASC
+            GROUP BY ${norm(subcountyExpr)}, ${norm(wardExpr)}, ${norm(sublocationExpr)}, ${norm(villageExpr)}, ${norm(statusExpr)}, ${yearExpr}
+            ORDER BY MIN(${subcountyExpr}) ASC, MIN(${wardExpr}) ASC, MIN(${sublocationExpr}) ASC, MIN(${villageExpr}) ASC, MIN(${statusExpr}) ASC, year ASC
             `,
             params
         );
@@ -1250,13 +1253,20 @@ router.get('/yearly-location-trends', async (req, res) => {
             totalPaid: 0,
         };
         (result.rows || []).forEach((row) => {
-            const key = [row.subcounty, row.ward, row.sublocation, row.village].join('\u0001');
+            const key = [
+                normalizeGeoCompareKey(row.subcounty),
+                normalizeGeoCompareKey(row.ward),
+                normalizeGeoCompareKey(row.sublocation),
+                normalizeGeoCompareKey(row.village),
+                normalizeGeoCompareKey(row.status),
+            ].join('\u0001');
             if (!rowMap.has(key)) {
                 rowMap.set(key, {
-                    subcounty: row.subcounty,
-                    ward: row.ward,
-                    sublocation: row.sublocation,
-                    village: row.village,
+                    subcounty: formatGeoDisplayName(row.subcounty),
+                    ward: formatGeoDisplayName(row.ward),
+                    sublocation: formatGeoDisplayName(row.sublocation),
+                    village: formatGeoDisplayName(row.village),
+                    status: row.status,
                     countsByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
                     budgetByYear: Object.fromEntries(years.map((year) => [String(year), 0])),
                     paidByYear: Object.fromEntries(years.map((year) => [String(year), 0])),

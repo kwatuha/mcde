@@ -4,6 +4,7 @@
  */
 const pool = require('../config/db');
 const { canSendEmail, sendWorkflowNotificationEmail } = require('./accountEmailService');
+const escalationSettings = require('./approvalEscalationSettingsService');
 
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -18,6 +19,7 @@ let tablesEnsured = false;
 let ensurePromise = null;
 let escalationMonitorTimer = null;
 let escalationMonitorBusy = false;
+let escalationMonitorActive = false;
 
 async function runSafe(sql) {
   try {
@@ -833,10 +835,8 @@ async function listPendingForUser(user) {
   return rowsFromResult(r);
 }
 
-function getEscalationWarningHours() {
-  const raw = Number(process.env.APPROVAL_ESCALATION_WARNING_HOURS || 4);
-  if (!Number.isFinite(raw) || raw <= 0) return 4;
-  return Math.min(raw, 168);
+async function getEscalationWarningHours() {
+  return escalationSettings.getWarningHours();
 }
 
 async function listActiveUsersByRoleId(roleId) {
@@ -888,7 +888,7 @@ function buildRequestReference(si) {
 
 async function processPreEscalationWarnings() {
   await ensureReady();
-  const warningHours = getEscalationWarningHours();
+  const warningHours = await getEscalationWarningHours();
   const windowEnd = new Date(Date.now() + warningHours * 3600000);
   const r = await pool.query(
     `
@@ -1033,23 +1033,45 @@ async function runEscalationMonitorCycle() {
   }
 }
 
-function startEscalationMonitor() {
-  if (escalationMonitorTimer) return;
-  const intervalMsRaw = Number(process.env.APPROVAL_ESCALATION_MONITOR_INTERVAL_MS || 60000);
-  const intervalMs = Number.isFinite(intervalMsRaw) && intervalMsRaw > 5000 ? intervalMsRaw : 60000;
+async function scheduleEscalationMonitorTick() {
+  const intervalMs = await escalationSettings.getMonitorIntervalMs();
+  const safeInterval =
+    Number.isFinite(intervalMs) && intervalMs >= escalationSettings.MIN_MONITOR_INTERVAL_MS
+      ? intervalMs
+      : escalationSettings.DEFAULT_MONITOR_INTERVAL_MS;
+  if (escalationMonitorTimer) {
+    clearInterval(escalationMonitorTimer);
+    escalationMonitorTimer = null;
+  }
   escalationMonitorTimer = setInterval(() => {
     runEscalationMonitorCycle().catch((e) => {
       console.error('approval escalation monitor loop failed:', e);
     });
-  }, intervalMs);
+  }, safeInterval);
+  return safeInterval;
+}
+
+function startEscalationMonitor() {
+  if (escalationMonitorActive) return;
+  escalationMonitorActive = true;
+  scheduleEscalationMonitorTick().catch((e) => {
+    console.error('approval escalation monitor schedule failed:', e);
+  });
   runEscalationMonitorCycle().catch((e) => {
     console.error('approval escalation monitor startup run failed:', e);
   });
 }
 
+async function restartEscalationMonitor() {
+  if (!escalationMonitorActive) return { restarted: false };
+  const monitorIntervalMs = await scheduleEscalationMonitorTick();
+  return { restarted: true, monitorIntervalMs };
+}
+
 function stopEscalationMonitor() {
   if (escalationMonitorTimer) clearInterval(escalationMonitorTimer);
   escalationMonitorTimer = null;
+  escalationMonitorActive = false;
 }
 
 async function seedAnnualWorkplanExample() {
@@ -1152,6 +1174,7 @@ module.exports = {
   processSlaEscalations,
   runEscalationMonitorCycle,
   startEscalationMonitor,
+  restartEscalationMonitor,
   stopEscalationMonitor,
   seedAnnualWorkplanExample,
   seedPaymentRequestExample,

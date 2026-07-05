@@ -5,12 +5,18 @@ const { getTenantBranding, resolveTenantLogoPath } = require('../config/countyCo
 let logoBufferCache = undefined;
 
 function getCountyOfficialName() {
-  const branding = getTenantBranding();
-  return process.env.CERT_COUNTY_NAME
-    || process.env.VITE_CERT_COUNTY_NAME
-    || branding.loginTitle
-    || branding.systemName
-    || 'County Government of Machakos';
+  try {
+    const branding = getTenantBranding();
+    return process.env.CERT_COUNTY_NAME
+      || process.env.VITE_CERT_COUNTY_NAME
+      || branding.loginTitle
+      || branding.systemName
+      || 'County Government of Machakos';
+  } catch {
+    return process.env.CERT_COUNTY_NAME
+      || process.env.VITE_CERT_COUNTY_NAME
+      || 'County Government of Machakos';
+  }
 }
 
 function countyLogoCandidates() {

@@ -1,0 +1,215 @@
+{
+  "templateKey": "village-admin-field-monitoring",
+  "name": "Village Field Monitoring Visit",
+  "description": "Practical site visit checklist for Village Administrators. Covers what was observed on site, community feedback, geotagged photos, and a short recommendation for ward review. Designed for routine sublocation monitoring — typically 10–15 minutes in the field.",
+  "templateCategory": "monitoring_checklist",
+  "isActive": true,
+  "allowedSubjectTypes": ["project"],
+  "structure": {
+    "sections": [
+      {
+        "id": "visit_info",
+        "title": "1. Visit information",
+        "items": [
+          {
+            "id": "visitor_name",
+            "label": "Village monitoring officer",
+            "type": "user",
+            "required": true
+          },
+          {
+            "id": "visit_purpose",
+            "label": "Purpose of this visit",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Routine progress check",
+              "Follow-up on delayed works",
+              "Community concern investigation",
+              "Pre-handover inspection",
+              "Other"
+            ]
+          },
+          {
+            "id": "site_gps",
+            "label": "GPS at project site",
+            "type": "location",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "site_activity",
+        "title": "2. What you observed on site",
+        "items": [
+          {
+            "id": "work_in_progress",
+            "label": "Construction or project work is visibly ongoing",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "contractor_present",
+            "label": "Contractor or implementing team was on site during the visit",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "estimated_progress_pct",
+            "label": "Estimated physical progress (% complete)",
+            "type": "number",
+            "required": true
+          },
+          {
+            "id": "work_stages_seen",
+            "label": "Work stages visible today (select all that apply)",
+            "type": "multi_select",
+            "required": true,
+            "options": [
+              "Site clearance / earthworks",
+              "Foundations / substructure",
+              "Walls / roofing / main structure",
+              "Finishes (plaster, paint, fittings)",
+              "Utilities (water, power, drainage)",
+              "Equipment or furniture installed",
+              "No visible works yet"
+            ]
+          },
+          {
+            "id": "implementation_status",
+            "label": "Overall implementation status observed",
+            "type": "select",
+            "required": true,
+            "options": [
+              "On track",
+              "Minor delay",
+              "Stalled",
+              "Completed"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "quality_safety",
+        "title": "3. Site condition & safety",
+        "items": [
+          {
+            "id": "site_orderly",
+            "label": "Site is orderly and materials are stored safely",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "basic_safety",
+            "label": "Basic safety observed (signage, barriers, or PPE where needed)",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "concern_observed",
+            "label": "Any quality, safety, or misuse concern observed",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "concern_details",
+            "label": "Describe the concern",
+            "type": "textarea",
+            "required": true,
+            "showIf": {
+              "itemId": "concern_observed",
+              "op": "eq",
+              "value": "yes"
+            }
+          }
+        ]
+      },
+      {
+        "id": "community",
+        "title": "4. Community & beneficiary feedback",
+        "items": [
+          {
+            "id": "community_informed",
+            "label": "Community or beneficiaries appear aware of the project",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "community_sentiment",
+            "label": "Community sentiment during visit",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Supportive",
+              "Neutral",
+              "Concerns raised",
+              "Not assessed"
+            ]
+          },
+          {
+            "id": "community_notes",
+            "label": "Summary of community or beneficiary comments",
+            "type": "textarea",
+            "required": false
+          }
+        ]
+      },
+      {
+        "id": "evidence",
+        "title": "5. Photo evidence",
+        "items": [
+          {
+            "id": "site_photos",
+            "label": "Progress photos (up to 3, GPS required on each)",
+            "type": "photo",
+            "required": true,
+            "maxPhotos": 3,
+            "requireGps": true
+          },
+          {
+            "id": "signage_photo",
+            "label": "Project signage or notice board (optional)",
+            "type": "photo",
+            "required": false,
+            "maxPhotos": 1,
+            "requireGps": false
+          }
+        ]
+      },
+      {
+        "id": "summary",
+        "title": "6. Village officer summary",
+        "items": [
+          {
+            "id": "village_recommendation",
+            "label": "Recommendation for ward administrator",
+            "type": "select",
+            "required": true,
+            "options": [
+              "Satisfactory — ready for ward review",
+              "Contractor follow-up needed before ward review",
+              "Urgent concern — ward should act immediately"
+            ]
+          },
+          {
+            "id": "follow_up_notes",
+            "label": "Follow-up actions or issues for ward attention",
+            "type": "textarea",
+            "required": true,
+            "showIf": {
+              "itemId": "village_recommendation",
+              "op": "neq",
+              "value": "Satisfactory — ready for ward review"
+            }
+          },
+          {
+            "id": "additional_remarks",
+            "label": "Any other remarks",
+            "type": "textarea",
+            "required": false
+          }
+        ]
+      }
+    ]
+  }
+}

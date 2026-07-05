@@ -1,0 +1,24 @@
+{
+  "county": {
+    "code": "DEFAULT",
+    "name": "Machakos",
+    "displayName": "County Government of Machakos"
+  },
+  "organization": {
+    "name": "County Government of Machakos"
+  },
+  "branding": {
+    "systemName": "Monitoring County Management and Evaluation",
+    "systemAcronym": "MCME",
+    "productName": "E-CIMES",
+    "productSubtitle": "County Integrated Monitoring and Evaluation System",
+    "publicPortalName": "Machakos Public Investment Portal",
+    "loginTitle": "County Government of Machakos",
+    "loginSubtitle": "Monitoring County Management and Evaluation",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/gpris.png",
+      "public": "assets/gpris.png"
+    }
+  }
+}

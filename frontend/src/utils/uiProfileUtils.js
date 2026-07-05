@@ -171,6 +171,185 @@ export function isCoFinancePortalPath(pathname) {
   return base === root || base.startsWith(`${root}/`);
 }
 
+export function isVillagePortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.VILLAGE_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+export function isWardPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.WARD_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+export function isSubCountyPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.SUBCOUNTY_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+export function isChiefPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.CHIEF_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+export function isSectorMePortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const root = normalizePath(ROUTES.SECTOR_ME_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+/** Village M&E workspace routes plus project detail and monitoring pages used during field work. */
+export function isVillageWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isVillagePortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const villageWorkflow = normalizePath(ROUTES.VILLAGE_MONITORING_WORKFLOW);
+  if (villageWorkflow && (base === villageWorkflow || base.startsWith(`${villageWorkflow}/`))) {
+    return true;
+  }
+  const monitoringVisits = normalizePath(ROUTES.MONITORING_PROJECT_MONITORING);
+  if (monitoringVisits && (base === monitoringVisits || base.startsWith(`${monitoringVisits}/`))) {
+    return true;
+  }
+  const projectDocs = normalizePath(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT);
+  if (projectDocs && (base === projectDocs || base.startsWith(`${projectDocs}/`))) {
+    return true;
+  }
+  const projects = normalizePath(ROUTES.PROJECTS);
+  if (projects && (base === projects || base.startsWith(`${projects}/`))) {
+    return true;
+  }
+  const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
+  if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  return false;
+}
+
+/** Ward M&E workspace routes plus monitoring workflow and ward-scoped project pages. */
+export function isWardWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isWardPortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const villageWorkflow = normalizePath(ROUTES.VILLAGE_MONITORING_WORKFLOW);
+  if (villageWorkflow && (base === villageWorkflow || base.startsWith(`${villageWorkflow}/`))) {
+    return true;
+  }
+  const monitoringVisits = normalizePath(ROUTES.MONITORING_PROJECT_MONITORING);
+  if (monitoringVisits && (base === monitoringVisits || base.startsWith(`${monitoringVisits}/`))) {
+    return true;
+  }
+  const projectDocs = normalizePath(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT);
+  if (projectDocs && (base === projectDocs || base.startsWith(`${projectDocs}/`))) {
+    return true;
+  }
+  const projects = normalizePath(ROUTES.PROJECTS);
+  if (projects && (base === projects || base.startsWith(`${projects}/`))) {
+    return true;
+  }
+  const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
+  if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  return false;
+}
+
+/** Sub-county M&E workspace routes plus monitoring workflow and sub-county-scoped project pages. */
+export function isSubCountyWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isSubCountyPortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const villageWorkflow = normalizePath(ROUTES.VILLAGE_MONITORING_WORKFLOW);
+  if (villageWorkflow && (base === villageWorkflow || base.startsWith(`${villageWorkflow}/`))) {
+    return true;
+  }
+  const monitoringVisits = normalizePath(ROUTES.MONITORING_PROJECT_MONITORING);
+  if (monitoringVisits && (base === monitoringVisits || base.startsWith(`${monitoringVisits}/`))) {
+    return true;
+  }
+  const projectDocs = normalizePath(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT);
+  if (projectDocs && (base === projectDocs || base.startsWith(`${projectDocs}/`))) {
+    return true;
+  }
+  const projects = normalizePath(ROUTES.PROJECTS);
+  if (projects && (base === projects || base.startsWith(`${projects}/`))) {
+    return true;
+  }
+  const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
+  if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  return false;
+}
+
+/** Department chief M&E workspace routes plus monitoring workflow and department-scoped project pages. */
+export function isChiefWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isChiefPortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const villageWorkflow = normalizePath(ROUTES.VILLAGE_MONITORING_WORKFLOW);
+  if (villageWorkflow && (base === villageWorkflow || base.startsWith(`${villageWorkflow}/`))) {
+    return true;
+  }
+  const monitoringVisits = normalizePath(ROUTES.MONITORING_PROJECT_MONITORING);
+  if (monitoringVisits && (base === monitoringVisits || base.startsWith(`${monitoringVisits}/`))) {
+    return true;
+  }
+  const projectDocs = normalizePath(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT);
+  if (projectDocs && (base === projectDocs || base.startsWith(`${projectDocs}/`))) {
+    return true;
+  }
+  const projects = normalizePath(ROUTES.PROJECTS);
+  if (projects && (base === projects || base.startsWith(`${projects}/`))) {
+    return true;
+  }
+  const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
+  if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  const publicApproval = normalizePath(ROUTES.PUBLIC_APPROVAL);
+  if (publicApproval && (base === publicApproval || base.startsWith(`${publicApproval}/`))) {
+    return true;
+  }
+  return false;
+}
+
+/** Sector M&E champion workspace routes plus monitoring workflow and sector-scoped project pages. */
+export function isSectorMeWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isSectorMePortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const villageWorkflow = normalizePath(ROUTES.VILLAGE_MONITORING_WORKFLOW);
+  if (villageWorkflow && (base === villageWorkflow || base.startsWith(`${villageWorkflow}/`))) {
+    return true;
+  }
+  const monitoringVisits = normalizePath(ROUTES.MONITORING_PROJECT_MONITORING);
+  if (monitoringVisits && (base === monitoringVisits || base.startsWith(`${monitoringVisits}/`))) {
+    return true;
+  }
+  const projectDocs = normalizePath(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT);
+  if (projectDocs && (base === projectDocs || base.startsWith(`${projectDocs}/`))) {
+    return true;
+  }
+  const projects = normalizePath(ROUTES.PROJECTS);
+  if (projects && (base === projects || base.startsWith(`${projects}/`))) {
+    return true;
+  }
+  const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
+  if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  return false;
+}
+
 /** Co-finance workspace routes plus finance and project detail pages used during review. */
 export function isCoFinanceWorkflowPath(pathname) {
   const base = normalizePath(pathname);
