@@ -319,6 +319,7 @@ const HomePage = () => {
   const [projectsPendingReview, setProjectsPendingReview] = useState([]);
   /** Generic approval workflow rows where the current user's role matches the pending step (see GET /approval-workflow/requests/pending-me). */
   const [workflowPendingRows, setWorkflowPendingRows] = useState([]);
+  const [myTasksSummary, setMyTasksSummary] = useState(null);
   const [pmcPendingReview, setPmcPendingReview] = useState([]);
   const [pmcReturnedReports, setPmcReturnedReports] = useState([]);
   const [monitoringSummary, setMonitoringSummary] = useState(null);
@@ -443,6 +444,7 @@ const HomePage = () => {
           setPendingProjects([]);
           setProjectsPendingReview([]);
           setWorkflowPendingRows([]);
+          setMyTasksSummary(null);
           setPmcPendingReview([]);
           setPmcReturnedReports([]);
           setEscalationSignals([]);
@@ -552,6 +554,14 @@ const HomePage = () => {
         }
         if (isMounted) setWorkflowPendingRows(wfRows);
 
+        try {
+          const mt = await apiService.myTasks.list();
+          if (isMounted) setMyTasksSummary(mt?.summary || null);
+        } catch (mtErr) {
+          console.warn('My tasks summary skipped:', mtErr?.response?.data?.message || mtErr.message);
+          if (isMounted) setMyTasksSummary(null);
+        }
+
         const pmcPromises = [];
         if (canReviewPmcReports) {
           pmcPromises.push(
@@ -605,6 +615,7 @@ const HomePage = () => {
           setPendingProjects([]);
           setProjectsPendingReview([]);
           setWorkflowPendingRows([]);
+          setMyTasksSummary(null);
           setPmcPendingReview([]);
           setPmcReturnedReports([]);
           setEscalationSignals([]);
@@ -703,6 +714,23 @@ const HomePage = () => {
       color: critical > 0 ? '#c62828' : '#ef6c00',
       route: ROUTES.OPERATIONS_DASHBOARD,
       description: `${escalationSignals.length} open signal${escalationSignals.length > 1 ? 's' : ''} (schedule, finance, quality, risk)${critical > 0 ? ` · ${critical} high priority` : ''}`,
+    });
+  }
+
+  if (user && (myTasksSummary?.total > 0)) {
+    const esc = myTasksSummary.projectEscalations ?? 0;
+    const wf = myTasksSummary.workflowApprovals ?? 0;
+    notificationItems.push({
+      type: 'my-assigned-tasks',
+      title: 'My assigned tasks',
+      count: myTasksSummary.total,
+      icon: <PendingActionsIcon />,
+      color: esc > 0 ? '#ef6c00' : '#5e35b1',
+      route: ROUTES.MY_TASKS,
+      description: [
+        esc > 0 ? `${esc} project escalation${esc > 1 ? 's' : ''} assigned to you` : null,
+        wf > 0 ? `${wf} workflow step${wf > 1 ? 's' : ''} pending` : null,
+      ].filter(Boolean).join(' · ') || 'Open your task inbox',
     });
   }
 

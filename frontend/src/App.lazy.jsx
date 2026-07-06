@@ -25,6 +25,7 @@ const ProjectFeedbackByProjectPage = lazy(() => import('./pages/ProjectFeedbackB
 const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage'));
 const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
 const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
+const ClientProjectImportReviewPage = lazy(() => import('./pages/ClientProjectImportReviewPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
 const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage'));
 const ReportsHubPage = lazy(() => import('./pages/ReportsHubPage'));
@@ -93,6 +94,8 @@ const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagementPage
 const WorkflowApprovalsPage = lazy(() => import('./pages/WorkflowApprovalsPage'));
 const ApprovalLevelsManagementPage = lazy(() => import('./pages/ApprovalLevelsManagementPage'));
 const ProjectEscalationRulesPage = lazy(() => import('./pages/ProjectEscalationRulesPage'));
+const ProjectEscalationsPage = lazy(() => import('./pages/ProjectEscalationsPage'));
+const MyTasksPage = lazy(() => import('./pages/MyTasksPage'));
 const FeedbackManagementPage = lazy(() => import('./pages/FeedbackManagementPage'));
 const FeedbackModerationPage = lazy(() => import('./pages/FeedbackModerationPage'));
 const HrModulePage = lazy(() => import('./pages/HrModulePage'));
@@ -318,6 +321,10 @@ const router = createBrowserRouter([
         element: <LazyRoute component={CentralImportPage} />,
       },
       {
+        path: 'data-import/client-projects/review',
+        element: <LazyRoute component={ClientProjectImportReviewPage} />,
+      },
+      {
         path: 'projects/:projectId',
         element: <LazyRoute component={ProjectDetailsPage} />,
       },
@@ -416,6 +423,14 @@ const router = createBrowserRouter([
       {
         path: 'project-escalation-rules',
         element: <LazyRoute component={ProjectEscalationRulesPage} />,
+      },
+      {
+        path: 'project-escalations',
+        element: <LazyRoute component={ProjectEscalationsPage} />,
+      },
+      {
+        path: 'my-tasks',
+        element: <LazyRoute component={MyTasksPage} />,
       },
       {
         path: 'feedback-management',

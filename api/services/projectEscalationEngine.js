@@ -31,7 +31,10 @@ function first(r) {
 }
 
 function getUserId(user) {
-  return user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+  const raw = user?.id ?? user?.userId ?? user?.actualUserId ?? null;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 async function ensureReady() {
@@ -685,8 +688,48 @@ function mapSignalRow(row) {
     section: row.section,
     ward: row.ward,
     financialYear: row.financial_year,
+    assignedToUserId: row.assigned_to_user_id ?? null,
+    assignedToName: row.assignedToName || null,
+    assignedAt: row.assigned_at ?? null,
+    assignedBy: row.assigned_by ?? null,
+    resolvedByName: row.resolvedByName || null,
+    resolutionComment: row.resolutionComment || null,
   };
 }
+
+function mapActionRow(row) {
+  return {
+    actionId: row.action_id,
+    action: row.action,
+    comment: row.comment,
+    actorId: row.actor_id,
+    actorName: row.actorName || null,
+    createdAt: row.created_at,
+  };
+}
+
+const SIGNAL_SELECT = `
+  ps.*,
+  p.name AS "projectName",
+  er.name AS "ruleName",
+  er.category,
+  NULLIF(TRIM(CONCAT(u_assign.firstname, ' ', u_assign.lastname)), '') AS "assignedToName",
+  NULLIF(TRIM(CONCAT(u_resolved.firstname, ' ', u_resolved.lastname)), '') AS "resolvedByName",
+  resolve_act.comment AS "resolutionComment"
+`;
+const SIGNAL_JOINS = `
+  INNER JOIN projects p ON p.project_id = ps.project_id
+  LEFT JOIN escalation_rules er ON er.code = ps.rule_code
+  LEFT JOIN users u_assign ON u_assign.userid = ps.assigned_to_user_id
+  LEFT JOIN users u_resolved ON u_resolved.userid = ps.resolved_by
+  LEFT JOIN LATERAL (
+    SELECT sa.comment
+    FROM signal_actions sa
+    WHERE sa.signal_id = ps.signal_id AND sa.action = 'resolved'
+    ORDER BY sa.created_at DESC
+    LIMIT 1
+  ) resolve_act ON true
+`;
 
 async function listSignals(user, opts = {}) {
   await ensureReady();
@@ -720,6 +763,20 @@ async function listSignals(user, opts = {}) {
     params.push(`%${opts.department}%`);
     where.push(`ps.department ILIKE $${params.length}`);
   }
+  if (opts.assignedToUserId != null && opts.assignedToUserId !== '') {
+    params.push(Number(opts.assignedToUserId));
+    where.push(`ps.assigned_to_user_id = $${params.length}`);
+  }
+  if (opts.assignedToMe === true || opts.assignedToMe === 'true') {
+    const userId = getUserId(user);
+    if (userId) {
+      params.push(userId);
+      where.push(`ps.assigned_to_user_id = $${params.length}`);
+    }
+  }
+  if (opts.unassigned === true || opts.unassigned === 'true') {
+    where.push('ps.assigned_to_user_id IS NULL');
+  }
 
   await addProjectScope(user, where, params, 'p');
 
@@ -728,10 +785,9 @@ async function listSignals(user, opts = {}) {
 
   const r = await pool.query(
     `
-    SELECT ps.*, p.name AS "projectName", er.name AS "ruleName", er.category
+    SELECT ${SIGNAL_SELECT}
     FROM project_signals ps
-    INNER JOIN projects p ON p.project_id = ps.project_id
-    LEFT JOIN escalation_rules er ON er.code = ps.rule_code
+    ${SIGNAL_JOINS}
     WHERE ${where.join(' AND ')}
     ORDER BY
       CASE ps.severity
@@ -778,10 +834,9 @@ async function getSignalById(signalId, user) {
   const row = first(
     await pool.query(
       `
-      SELECT ps.*, p.name AS "projectName", er.name AS "ruleName", er.category
+      SELECT ${SIGNAL_SELECT}
       FROM project_signals ps
-      INNER JOIN projects p ON p.project_id = ps.project_id
-      LEFT JOIN escalation_rules er ON er.code = ps.rule_code
+      ${SIGNAL_JOINS}
       WHERE ${where.join(' AND ')}
       `,
       params
@@ -791,10 +846,17 @@ async function getSignalById(signalId, user) {
 
   const actions = rows(
     await pool.query(
-      `SELECT * FROM signal_actions WHERE signal_id = $1 ORDER BY created_at ASC`,
+      `
+      SELECT sa.*,
+        NULLIF(TRIM(CONCAT(u.firstname, ' ', u.lastname)), '') AS "actorName"
+      FROM signal_actions sa
+      LEFT JOIN users u ON u.userid = sa.actor_id
+      WHERE sa.signal_id = $1
+      ORDER BY sa.created_at ASC
+      `,
       [signalId]
     )
-  );
+  ).map(mapActionRow);
   return { ...mapSignalRow(row), actions };
 }
 
@@ -840,6 +902,126 @@ async function resolveSignal(signalId, user, comment) {
     [signalId, comment || null, userId]
   );
   return getSignalById(signalId, user);
+}
+
+async function assignSignal(signalId, user, assignedToUserId, comment) {
+  const userId = getUserId(user);
+  const sig = await getSignalById(signalId, user);
+  if (!sig) {
+    const err = new Error('Signal not found or access denied.');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (sig.status === 'resolved') {
+    const err = new Error('Cannot assign a resolved signal.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const assigneeId = assignedToUserId == null || assignedToUserId === ''
+    ? null
+    : Number(assignedToUserId);
+  if (assigneeId != null && !Number.isFinite(assigneeId)) {
+    const err = new Error('Invalid assignee user id.');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (assigneeId != null) {
+    if (userId == null) {
+      const err = new Error('Your user session could not be verified for assignment.');
+      err.statusCode = 401;
+      throw err;
+    }
+    const assignee = first(
+      await pool.query(
+        `SELECT userid FROM users WHERE userid = $1 AND COALESCE(voided, false) = false LIMIT 1`,
+        [assigneeId]
+      )
+    );
+    if (!assignee) {
+      const err = new Error('Assignee user not found.');
+      err.statusCode = 404;
+      throw err;
+    }
+  }
+
+  await pool.query(
+    assigneeId == null
+      ? `
+        UPDATE project_signals SET
+          assigned_to_user_id = NULL,
+          assigned_at = NULL,
+          assigned_by = NULL,
+          updated_at = NOW()
+        WHERE signal_id = $1
+        `
+      : `
+        UPDATE project_signals SET
+          assigned_to_user_id = $1::bigint,
+          assigned_at = NOW(),
+          assigned_by = $2::bigint,
+          updated_at = NOW()
+        WHERE signal_id = $3
+        `,
+    assigneeId == null ? [signalId] : [assigneeId, userId, signalId]
+  );
+
+  const assigneeRow = assigneeId
+    ? first(
+      await pool.query(
+        `SELECT NULLIF(TRIM(CONCAT(firstname, ' ', lastname)), '') AS name FROM users WHERE userid = $1`,
+        [assigneeId]
+      )
+    )
+    : null;
+  const actionComment = comment
+    || (assigneeId
+      ? `Assigned to ${assigneeRow?.name || `user #${assigneeId}`}`
+      : 'Assignment cleared');
+
+  await pool.query(
+    `INSERT INTO signal_actions (signal_id, action, comment, actor_id) VALUES ($1, 'assigned', $2, $3)`,
+    [signalId, actionComment, userId]
+  );
+
+  if (assigneeId != null) {
+    const assignerRow = userId
+      ? first(
+        await pool.query(
+          `SELECT NULLIF(TRIM(CONCAT(firstname, ' ', lastname)), '') AS name FROM users WHERE userid = $1`,
+          [userId]
+        )
+      )
+      : null;
+    escalationNotify.notifyAssignee({
+      signalId,
+      projectName: sig.projectName,
+      title: sig.title,
+      assigneeUserId: assigneeId,
+      assignedByName: assignerRow?.name,
+    }).catch((e) => console.error('escalation notify (assign):', e.message));
+  }
+
+  return getSignalById(signalId, user);
+}
+
+function buildFilterSummary(opts = {}) {
+  const parts = [];
+  if (opts.assignedToMe === true || opts.assignedToMe === 'true') parts.push('assigned to me');
+  if (opts.unassigned === true || opts.unassigned === 'true') parts.push('unassigned');
+  if (opts.severity) parts.push(`severity=${opts.severity}`);
+  if (opts.status) parts.push(`status=${opts.status}`);
+  if (opts.department) parts.push(`department=${opts.department}`);
+  if (opts.includeResolved) parts.push('including resolved');
+  return parts.length ? parts.join(', ') : 'All open escalations in scope';
+}
+
+async function exportSignalsPdf(user, opts = {}) {
+  const signals = await listSignals(user, { ...opts, limit: opts.limit || 500 });
+  const { generateEscalationsReportPdf } = require('./projectEscalationExportService');
+  return generateEscalationsReportPdf(signals, {
+    filterSummary: buildFilterSummary(opts),
+  });
 }
 
 function mapRuleRow(row) {
@@ -959,6 +1141,8 @@ module.exports = {
   getSignalById,
   acknowledgeSignal,
   resolveSignal,
+  assignSignal,
+  exportSignalsPdf,
   listRules,
   updateRule,
   getNotificationSettings,

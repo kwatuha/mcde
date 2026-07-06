@@ -34,6 +34,9 @@ roles.xlsx
 scripts/apply-county-roles-matrix.sh
 scripts/apply-pmc-migrations.sh
 deploy/.env.deploy.mcmes.example
+data/migrate/
+deploy/diagnose-db-disk.sh
+deploy/run-db-diagnose-from-laptop.sh
 
 
 

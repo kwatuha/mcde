@@ -73,6 +73,7 @@ const routeTitles = {
   
   // Management routes
   '/data-import': { title: 'Central Data Import', subtitle: 'Data Import' },
+  '/data-import/client-projects/review': { title: 'Client Project Import Review', subtitle: 'Review staged county projects before apply' },
   '/maps': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
   '/gis-mapping': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
   '/gis-dashboard': { title: 'GIS Dashboard', subtitle: 'Ward heat map and county boundaries' },
@@ -161,6 +162,7 @@ const routeTitles = {
   '/user-management': { title: 'User Management', subtitle: 'Users & Roles' },
   '/workflow-management': { title: 'Workflow Management', subtitle: 'Process Management' },
   '/workflow-approvals': { title: 'Workflow Approvals', subtitle: 'Pending approval inbox' },
+  '/my-tasks': { title: 'My tasks', subtitle: 'Pending escalations and workflow steps assigned to you' },
   '/engineer-workspace': { title: 'Engineer Workspace', subtitle: 'Projects, compliance, scope & payments' },
   '/engineer-workspace/projects': { title: 'Project Registry', subtitle: 'Engineer workspace' },
   '/engineer-workspace/payments': { title: 'Payment Requests', subtitle: 'Engineer workspace' },
@@ -178,6 +180,7 @@ const routeTitles = {
   '/sector-me-workspace': { title: 'Sector M&E Champions Workspace', subtitle: 'Monitoring reports across departments in your assigned sector(s)' },
   '/approval-levels-management': { title: 'Approvals & workflows', subtitle: 'Approval levels & workflow configuration' },
   '/project-escalation-rules': { title: 'Escalation rules', subtitle: 'Project signal detection & notification settings' },
+  '/project-escalations': { title: 'Project escalations', subtitle: 'Assign, track, and print project escalation signals' },
   '/kenya-wards': { title: 'Wards', subtitle: 'Machakos County ward reference (IEBC)' },
   '/sublocation-villages': { title: 'Sublocations & Villages', subtitle: 'Machakos sublocation and village reference' },
   '/yearly-trends-report': { title: 'Projects by Location & Year', subtitle: 'Project counts, budget, and payments by start year and location' },

@@ -156,8 +156,10 @@ export const ROUTES = {
     HR_PUBLIC_HOLIDAYS: '/hr-module?view=publicHolidays',
     WORKFLOW_MANAGEMENT: '/workflow-management',
     WORKFLOW_APPROVALS: '/workflow-approvals',
+    MY_TASKS: '/my-tasks',
     APPROVAL_LEVELS_MANAGEMENT: '/approval-levels-management', // ✨ NEW: Add the approval levels management route
     PROJECT_ESCALATION_RULES: '/project-escalation-rules',
+    PROJECT_ESCALATIONS: '/project-escalations',
     AI_USAGE: '/ai-usage',
     FEEDBACK_MANAGEMENT: '/feedback-management', // ✨ NEW: Public feedback management route
     ABSORPTION_REPORT: '/absorption-report', // ✨ NEW: Absorption report route
@@ -189,6 +191,7 @@ export const ROUTES = {
     STRATEGIC_PLAN_DETAILS: '/strategic-planning/:planId',
     STRATEGIC_DATA_IMPORT: '/strategic-planning/import',
     CENTRAL_IMPORT: '/data-import', // ✨ NEW: Central Import route
+    CLIENT_PROJECT_IMPORT_REVIEW: '/data-import/client-projects/review',
     NEW_DASHBOARD: '/projects-dashboard/view',
     PROJECT_ANALYTICS: '/project-analytics', // ✨ NEW: Project Analytics route
     PROJECTS_BY_ORGANIZATION: '/projects-by-organization', // ✨ NEW: Projects by organization dashboard

@@ -35,6 +35,13 @@ export const AuthProvider = ({ children }) => {
                 if (refreshed?.user) {
                     sessionUser = { ...sessionUser, ...refreshed.user };
                 }
+                if (refreshed?.mustChangePassword === true) {
+                    localStorage.setItem('mustChangePassword', 'true');
+                    setMustChangePassword(true);
+                } else if (refreshed?.mustChangePassword === false) {
+                    localStorage.setItem('mustChangePassword', 'false');
+                    setMustChangePassword(false);
+                }
             } catch (refreshErr) {
                 console.warn('Could not refresh session user after login:', refreshErr?.message || refreshErr);
             }
@@ -89,6 +96,13 @@ export const AuthProvider = ({ children }) => {
                             const refreshed = await apiService.auth.getMe();
                             if (refreshed?.user) {
                                 sessionUser = { ...sessionUser, ...refreshed.user };
+                            }
+                            if (refreshed?.mustChangePassword === true) {
+                                localStorage.setItem('mustChangePassword', 'true');
+                                setMustChangePassword(true);
+                            } else if (refreshed?.mustChangePassword === false) {
+                                localStorage.setItem('mustChangePassword', 'false');
+                                setMustChangePassword(false);
                             }
                         } catch (refreshErr) {
                             console.warn('Could not refresh session user:', refreshErr?.message || refreshErr);

@@ -3,7 +3,10 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const pool = require('../config/db'); // Your database connection pool
+const { promisify } = require('util');
+const signJwt = promisify(jwt.sign);
+const pool = require('../config/db');
+const { resolveDbType } = require('../config/db');
 const orgScope = require('../services/organizationScopeService');
 const uiAccess = require('../services/uiAccessService');
 const contractorAuth = require('../services/contractorAuthService');
@@ -11,6 +14,7 @@ const authenticate = require('../middleware/authenticate');
 const { normalizeRoleForCompare, ADMIN_LIKE_ROLE_NAMES, isAdminLikeRequester } = require('../utils/roleUtils');
 const { canSendEmail, sendPasswordResetEmail } = require('../services/accountEmailService');
 const { setMustChangePassword, getMustChangePassword } = require('../services/passwordPolicyService');
+const { verifyPassword, hashPassword } = require('../utils/passwordVerification');
 const {
     ensureLoginOtpSchema,
     createLoginOtpChallenge,
@@ -37,6 +41,11 @@ function generateOneTimePassword(length = 12) {
         value += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return value;
+}
+
+/** Trim copy-paste noise (email clients often add trailing spaces/newlines). */
+function normalizePasswordInput(value) {
+    return String(value ?? '').trim();
 }
 
 /**
@@ -113,7 +122,7 @@ router.post('/test-reach', (req, res) => {
 async function getPrivilegesByRole(roleId) {
     try {
         // PostgreSQL uses role_permissions and permissions tables
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         let rows;
         
         if (DB_TYPE === 'postgresql') {
@@ -150,11 +159,13 @@ async function getPrivilegesByRole(roleId) {
 }
 
 /**
- * Issue JWT after password (and optional OTP) verified.
- * @param {boolean} [opts.isDefaultResetPassword] - true when password matched literal reset123 on primary login
+ * Build JWT login payload. Used by login, OTP verify, and change-password.
+ * @param {boolean} [opts.isDefaultResetPassword]
+ * @param {boolean} [opts.relaxScopeCheck] - true when re-issuing token for an already-authenticated user
+ * @returns {Promise<{ token: string, forcePasswordChange: boolean, message: string }>}
  */
-async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
-    const { isDefaultResetPassword = false } = opts;
+async function buildLoginAuthResult(user, DB_TYPE, opts = {}) {
+    const { isDefaultResetPassword = false, relaxScopeCheck = false } = opts;
     const roleId = user.roleId || user.roleid;
     const userId = user.userId || user.userid;
 
@@ -174,23 +185,49 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             console.warn('fetch access scopes (login):', scopeErr.message);
         }
     }
+
+    const contractorProfile = await contractorAuth.fetchContractorProfileForUser(userId);
     const normalizedRole = normalizeRoleForCompare(user.roleName || user.role || '');
-    const isContractorLogin = contractorAuth.isContractorRole(normalizedRole);
-    const hasScopeBypass = orgScope.userHasOrganizationBypass(userPrivileges)
-        || normalizedRole === 'super admin'
-        || normalizedRole === 'super_admin'
-        || normalizedRole === 'superadmin';
-    if (DB_TYPE === 'postgresql'
+    const isContractorLogin = contractorAuth.isContractorRole(normalizedRole) || !!contractorProfile;
+    const hasScopeBypass = isAdminLikeRequester({
+        roleName: user.role,
+        roleId,
+        privileges: userPrivileges,
+    });
+
+    if (
+        DB_TYPE === 'postgresql'
+        && !relaxScopeCheck
         && !hasScopeBypass
         && !isContractorLogin
         && organizationScopes.length === 0
-        && projectScopes.length === 0) {
-        return res.status(403).json({
-            error: 'Your account has no organization or project access scope. Contact an administrator to assign access before signing in.',
-        });
+        && projectScopes.length === 0
+    ) {
+        try {
+            await orgScope.syncOrganizationScopesFromUserProfile(userId, { onlyIfEmpty: true });
+            [organizationScopes, projectScopes] = await Promise.all([
+                orgScope.fetchOrganizationScopesForUser(userId),
+                orgScope.fetchProjectScopesForUser(userId),
+            ]);
+        } catch (syncErr) {
+            console.warn('syncOrganizationScopesFromUserProfile (login):', syncErr.message);
+        }
     }
 
-    const contractorProfile = await contractorAuth.fetchContractorProfileForUser(userId);
+    if (
+        DB_TYPE === 'postgresql'
+        && !relaxScopeCheck
+        && !hasScopeBypass
+        && !isContractorLogin
+        && organizationScopes.length === 0
+        && projectScopes.length === 0
+    ) {
+        const scopeError = new Error('NO_ACCESS_SCOPE');
+        scopeError.statusCode = 403;
+        scopeError.publicMessage = 'Your account has no organization or project access scope. Contact an administrator to assign access before signing in.';
+        throw scopeError;
+    }
+
     const contractorId = contractorProfile
         ? (contractorProfile.contractorId ?? contractorProfile.contractorid)
         : null;
@@ -226,7 +263,7 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
                 : null,
         },
     };
-    const isSuperAdmin = normalizedRole === 'super admin';
+
     let mustChangePassword = false;
     if (DB_TYPE === 'postgresql') {
         try {
@@ -235,20 +272,45 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
             console.warn('getMustChangePassword (login):', policyErr.message);
         }
     }
-    const forcePasswordChange = isSuperAdmin || isDefaultResetPassword || mustChangePassword;
+    const forcePasswordChange = isDefaultResetPassword || mustChangePassword;
 
-    jwt.sign(
-        payload,
-        JWT_SECRET,
-        { expiresIn: '24h' },
-        (err, token) => {
-            if (err) {
-                console.error('JWT signing error:', err);
-                return res.status(500).json({ error: 'Server error during token generation.' });
-            }
-            res.json({ token, message: 'Logged in successfully!', forcePasswordChange });
+    const token = await signJwt(payload, JWT_SECRET, { expiresIn: '24h' });
+    return {
+        token,
+        forcePasswordChange,
+        message: 'Logged in successfully!',
+    };
+}
+
+/**
+ * Issue JWT after password (and optional OTP) verified.
+ * @param {boolean} [opts.isDefaultResetPassword] - true when password matched literal reset123 on primary login
+ */
+async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
+    try {
+        const result = await buildLoginAuthResult(user, DB_TYPE, opts);
+        return res.json(result);
+    } catch (err) {
+        if (err?.statusCode === 403 && err.message === 'NO_ACCESS_SCOPE') {
+            return res.status(403).json({ error: err.publicMessage });
         }
+        console.error('JWT signing error:', err);
+        return res.status(500).json({ error: 'Server error during token generation.', details: err.message });
+    }
+}
+
+async function fetchUserRowForAuth(userId) {
+    const result = await pool.query(
+        `
+        SELECT u.*, r.name AS role
+        FROM users u
+        LEFT JOIN roles r ON u.roleid = r.roleid
+        WHERE u.userid = $1 AND COALESCE(u.voided, false) = false
+        LIMIT 1
+        `,
+        [userId]
     );
+    return result.rows?.[0] || null;
 }
 
 // @route   GET /auth/me
@@ -256,7 +318,7 @@ async function sendLoginTokenResponse(res, user, DB_TYPE, opts = {}) {
 // @access  Private
 router.get('/me', authenticate, async (req, res) => {
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'postgresql';
+        const DB_TYPE = resolveDbType();
         const userId = req.user?.userId || req.user?.id || req.user?.actualUserId;
         const roleId = req.user?.roleId || req.user?.roleid;
         if (!userId) return res.status(401).json({ error: 'Unauthorized.' });
@@ -284,6 +346,9 @@ router.get('/me', authenticate, async (req, res) => {
                 projectScopes,
                 uiProfile,
             }),
+            mustChangePassword: DB_TYPE === 'postgresql'
+                ? await getMustChangePassword(userId).catch(() => false)
+                : false,
         });
     } catch (error) {
         console.error('Error loading session user:', error);
@@ -352,7 +417,7 @@ router.post('/register', async (req, res) => {
     }
 
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         
         // Check for existing users (clear message; voided-only → ask admin to restore)
         const rowVoided = (r) => {
@@ -588,14 +653,15 @@ router.post('/register', async (req, res) => {
 // @desc    Authenticate user & get token
 // @access  Public
 router.post('/login', async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password: passwordRaw } = req.body;
+    const password = normalizePasswordInput(passwordRaw);
     const loginKey = String(username || '').trim().toLowerCase();
     if (!loginKey) {
         return res.status(400).json({ error: 'Username or email is required.' });
     }
 
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         let query, users;
         
         if (DB_TYPE === 'postgresql') {
@@ -635,6 +701,12 @@ router.post('/login', async (req, res) => {
             users = users ? [users] : [];
         }
 
+        if (users.length > 1) {
+            return res.status(400).json({
+                error: 'Multiple accounts match this login. Contact an administrator to resolve duplicate username or email.',
+            });
+        }
+
         if (users.length === 0) {
             return res.status(400).json({ error: 'Invalid credentials.' });
         }
@@ -656,13 +728,25 @@ router.post('/login', async (req, res) => {
             return res.status(500).json({ error: 'Server configuration error: User password not set.' });
         }
 
-        const isMatch = await bcrypt.compare(password, passwordHash);
+        const passwordCheck = await verifyPassword(password, passwordHash);
 
-        if (!isMatch) {
+        if (!passwordCheck.ok) {
             return res.status(400).json({ error: 'Invalid credentials.' });
         }
-        
+
         const userId = user.userId || user.userid;
+
+        if (passwordCheck.legacy && DB_TYPE === 'postgresql') {
+            try {
+                const upgradedHash = await hashPassword(password);
+                await pool.query(
+                    'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
+                    [upgradedHash, userId]
+                );
+            } catch (upgradeErr) {
+                console.warn('Legacy password hash upgrade failed for user', userId, upgradeErr.message);
+            }
+        }
         const firstName = user.firstName || user.firstname || '';
         const lastName = user.lastName || user.lastname || '';
 
@@ -767,7 +851,7 @@ router.post('/login', async (req, res) => {
 router.post('/login/verify-otp', async (req, res) => {
     const { challengeId, code } = req.body || {};
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         await ensureLoginOtpSchema(pool);
         const verified = await verifyLoginOtpChallenge(pool, challengeId, code);
         if (!verified.ok) {
@@ -829,7 +913,8 @@ router.post('/login/verify-otp', async (req, res) => {
 // @desc    Change password for authenticated user
 // @access  Private
 router.post('/change-password', authenticate, async (req, res) => {
-    const { currentPassword, newPassword } = req.body || {};
+    const currentPassword = normalizePasswordInput(req.body?.currentPassword);
+    const newPassword = normalizePasswordInput(req.body?.newPassword);
     const authUserId = req.user?.id ?? req.user?.userId ?? req.user?.actualUserId;
     const userId = parseInt(String(authUserId), 10);
 
@@ -847,7 +932,7 @@ router.post('/change-password', authenticate, async (req, res) => {
     }
 
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         let query;
         let params;
         if (DB_TYPE === 'postgresql') {
@@ -880,27 +965,61 @@ router.post('/change-password', authenticate, async (req, res) => {
             return res.status(500).json({ error: 'User password not set.' });
         }
 
-        const isMatch = await bcrypt.compare(String(currentPassword), existingHash);
-        if (!isMatch) {
+        const passwordCheck = await verifyPassword(currentPassword, existingHash);
+        if (!passwordCheck.ok) {
             return res.status(401).json({ error: 'Current password is incorrect.' });
         }
 
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(String(newPassword), salt);
+        const passwordHash = await hashPassword(newPassword);
         if (DB_TYPE === 'postgresql') {
-            await pool.query(
-                'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2',
+            const updateResult = await pool.query(
+                'UPDATE users SET passwordhash = $1, updatedat = CURRENT_TIMESTAMP WHERE userid = $2 AND COALESCE(voided, false) = false',
                 [passwordHash, userId]
             );
+            if (!updateResult.rowCount) {
+                return res.status(404).json({ error: 'User not found or password could not be updated.' });
+            }
             await setMustChangePassword(userId, false, 'password_changed');
         } else {
-            await pool.query(
-                'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ?',
+            const updateResult = await pool.query(
+                'UPDATE users SET passwordHash = ?, updatedAt = NOW() WHERE userId = ? AND voided = 0',
                 [passwordHash, userId]
             );
+            const affected = updateResult.rowCount ?? updateResult.affectedRows ?? 0;
+            if (!affected) {
+                return res.status(404).json({ error: 'User not found or password could not be updated.' });
+            }
         }
 
-        return res.status(200).json({ success: true, message: 'Password changed successfully.' });
+        const verifyRow = await pool.query(
+            DB_TYPE === 'postgresql'
+                ? 'SELECT passwordhash FROM users WHERE userid = $1 LIMIT 1'
+                : 'SELECT passwordHash FROM users WHERE userId = ? LIMIT 1',
+            [userId]
+        );
+        const savedHash = DB_TYPE === 'postgresql'
+            ? verifyRow.rows?.[0]?.passwordhash
+            : (Array.isArray(verifyRow) ? verifyRow[0]?.[0]?.passwordHash : verifyRow.rows?.[0]?.passwordHash);
+        const savedOk = savedHash && (await verifyPassword(newPassword, savedHash)).ok;
+        if (!savedOk) {
+            console.error('Password change verification failed for user', userId);
+            return res.status(500).json({ error: 'Password was not saved correctly. Please try again or contact support.' });
+        }
+
+        let authRefresh = null;
+        if (DB_TYPE === 'postgresql') {
+            const userRow = await fetchUserRowForAuth(userId);
+            if (userRow) {
+                authRefresh = await buildLoginAuthResult(userRow, DB_TYPE, { relaxScopeCheck: true });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password changed successfully.',
+            token: authRefresh?.token || null,
+            forcePasswordChange: false,
+        });
     } catch (err) {
         console.error('Error changing password:', err);
         return res.status(500).json({ error: 'Server error while changing password.', details: err.message });
@@ -917,7 +1036,7 @@ router.post('/forgot-password', async (req, res) => {
     }
 
     try {
-        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const DB_TYPE = resolveDbType();
         if (!canSendEmail()) {
             return res.status(503).json({ error: 'Password reset email is not configured. Please contact administrator.' });
         }

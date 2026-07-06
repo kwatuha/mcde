@@ -77,9 +77,37 @@ router.get('/signals', canRead, async (req, res) => {
       department: req.query.department,
       status: req.query.status,
       includeResolved: req.query.includeResolved === 'true',
+      assignedToUserId: req.query.assignedToUserId,
+      assignedToMe: req.query.assignedToMe,
+      unassigned: req.query.unassigned,
       limit: req.query.limit,
     });
     res.json(signals);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.get('/signals/export/pdf', canRead, async (req, res) => {
+  try {
+    const opts = {
+      projectId: req.query.projectId,
+      severity: req.query.severity,
+      minLevel: req.query.minLevel,
+      ruleCode: req.query.ruleCode,
+      department: req.query.department,
+      status: req.query.status,
+      includeResolved: req.query.includeResolved === 'true',
+      assignedToUserId: req.query.assignedToUserId,
+      assignedToMe: req.query.assignedToMe,
+      unassigned: req.query.unassigned,
+      limit: req.query.limit,
+    };
+    const pdf = await engine.exportSignalsPdf(req.user, opts);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="project-escalations-${stamp}.pdf"`);
+    res.send(pdf);
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
@@ -107,6 +135,20 @@ router.post('/signals/:id/acknowledge', canManage, async (req, res) => {
 router.post('/signals/:id/resolve', canManage, async (req, res) => {
   try {
     const sig = await engine.resolveSignal(Number(req.params.id), req.user, req.body?.comment);
+    res.json(sig);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ message: e.message });
+  }
+});
+
+router.post('/signals/:id/assign', canManage, async (req, res) => {
+  try {
+    const sig = await engine.assignSignal(
+      Number(req.params.id),
+      req.user,
+      req.body?.assignedToUserId,
+      req.body?.comment
+    );
     res.json(sig);
   } catch (e) {
     res.status(e.statusCode || 500).json({ message: e.message });

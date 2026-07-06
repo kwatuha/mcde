@@ -1,6 +1,6 @@
 // src/components/Login.jsx
-import React, { useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiService from '../api';
 import {
@@ -21,8 +21,12 @@ import {
     Stack,
     useTheme,
     alpha,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, LockResetOutlined, Close as CloseIcon, EmailOutlined } from '@mui/icons-material';
 import gprisLogo from '../assets/gpris.png';
 import { resolvePostLoginPath } from '../utils/uiProfileUtils.js';
 import { usePublicCountyConfig } from '../hooks/usePublicCountyConfig.js';
@@ -60,20 +64,50 @@ const Login = () => {
     const [otpChallengeId, setOtpChallengeId] = useState('');
     const [otpCode, setOtpCode] = useState('');
     const [otpChannel, setOtpChannel] = useState('email');
+    const [forgotOpen, setForgotOpen] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotError, setForgotError] = useState('');
+    const [forgotSuccess, setForgotSuccess] = useState('');
     const { login } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+
+    useEffect(() => {
+        const msg = location.state?.message;
+        if (location.state?.passwordChanged && msg) {
+            setInfoMessage(msg);
+            setError('');
+            navigate('/login', { replace: true, state: {} });
+        }
+    }, [location.state, navigate]);
 
     const completeWithToken = async (data) => {
         if (!data?.token) {
             setError('Sign-in incomplete: no session token received.');
             return;
         }
-        const sessionUser = await login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
-        if (data.forcePasswordChange === true) {
-            navigate('/force-password-change', { replace: true });
-        } else {
+        try {
+            const sessionUser = await login(data.token, { forcePasswordChange: data.forcePasswordChange === true });
+            if (!sessionUser && !data.forcePasswordChange) {
+                setError('Sign-in failed: could not start your session. Clear browser cache and try again, or contact support.');
+                return;
+            }
+            if (data.forcePasswordChange === true) {
+                navigate('/force-password-change', { replace: true });
+                return;
+            }
             const target = resolvePostLoginPath(sessionUser || data.user);
-            navigate(target, { replace: true });
+            // Full navigation so AuthContext reloads from localStorage. Client-side navigate('/')
+            // can race React state updates and MainLayout briefly sees no token → back to login.
+            window.location.assign(target);
+        } catch (err) {
+            const errorMessage =
+                err?.response?.data?.error ||
+                err?.response?.data?.msg ||
+                err?.message ||
+                'Sign-in failed. Please try again.';
+            setError(errorMessage);
         }
     };
 
@@ -95,7 +129,7 @@ const Login = () => {
             }
 
             if (data && data.token) {
-                completeWithToken(data);
+                await completeWithToken(data);
             } else {
                 setError('Login response was unexpected. Please try again.');
             }
@@ -122,7 +156,7 @@ const Login = () => {
                 setOtpStep(false);
                 setOtpChallengeId('');
                 setOtpCode('');
-                completeWithToken(data);
+                await completeWithToken(data);
             } else {
                 setError('Verification incomplete. Please try again.');
             }
@@ -147,23 +181,72 @@ const Login = () => {
         setInfoMessage('');
     };
 
-    const handleForgotPassword = async () => {
-        const email = window.prompt('Enter your account email to receive a reset password:');
-        if (!email || !String(email).trim()) return;
+    const openForgotDialog = () => {
+        const prefill = String(username || '').includes('@') ? String(username).trim() : '';
+        setForgotEmail(prefill);
+        setForgotError('');
+        setForgotSuccess('');
+        setForgotOpen(true);
+    };
 
-        setError('');
-        setInfoMessage('');
+    const closeForgotDialog = () => {
+        if (forgotLoading) return;
+        setForgotOpen(false);
+    };
+
+    const handleForgotPasswordSubmit = async (e) => {
+        e.preventDefault();
+        const email = String(forgotEmail || '').trim();
+        if (!email) {
+            setForgotError('Please enter your account email address.');
+            setForgotSuccess('');
+            return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            setForgotError('Enter a valid email address.');
+            setForgotSuccess('');
+            return;
+        }
+
+        setForgotError('');
+        setForgotSuccess('');
+        setForgotLoading(true);
         try {
-            const data = await apiService.auth.forgotPassword(String(email).trim());
-            setInfoMessage(data?.message || 'If the email exists, a password reset message has been sent.');
+            const data = await apiService.auth.forgotPassword(email);
+            const message = data?.message || 'If the email exists, password reset instructions have been sent.';
+            setForgotSuccess(message);
+            setInfoMessage(message);
+            setError('');
         } catch (err) {
-            const errorMessage = err?.error || err?.message || 'Could not process password reset request.';
-            setError(errorMessage);
+            const errorMessage =
+                err?.response?.data?.error ||
+                err?.error ||
+                err?.message ||
+                'Could not process password reset request.';
+            setForgotError(errorMessage);
+        } finally {
+            setForgotLoading(false);
         }
     };
 
     const fontStack = '"Helvetica Neue", Helvetica, Arial, "Segoe UI", sans-serif';
     const primary = theme.palette.primary.main;
+    const loginFieldSx = {
+        '& .MuiOutlinedInput-root': {
+            borderRadius: 1,
+            backgroundColor: micde.inputBg,
+            fontFamily: fontStack,
+            '&:hover': {
+                backgroundColor: micde.inputBgHover,
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: micde.brandMuted },
+            },
+            '&.Mui-focused': {
+                backgroundColor: '#fff',
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: micde.brand, borderWidth: '2px' },
+            },
+        },
+        '& .MuiInputLabel-root.Mui-focused': { color: micde.brand },
+    };
     const shortScreen = {
         '@media (max-height: 720px)': {
             py: { xs: 0.75, sm: 1 },
@@ -535,7 +618,7 @@ const Login = () => {
                             <Link
                                 component="button"
                                 type="button"
-                                onClick={handleForgotPassword}
+                                onClick={openForgotDialog}
                                 disabled={loading}
                                 sx={{
                                     fontSize: '0.82rem',
@@ -615,6 +698,165 @@ const Login = () => {
                 </CardContent>
             </Card>
             </Container>
+
+            <Dialog
+                open={forgotOpen}
+                onClose={closeForgotDialog}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        fontFamily: fontStack,
+                    },
+                }}
+            >
+                <Box
+                    sx={{
+                        px: 2.5,
+                        pt: 2.5,
+                        pb: 2,
+                        background: `linear-gradient(135deg, ${micde.brand} 0%, ${micde.brandLight} 100%)`,
+                        color: '#fff',
+                        position: 'relative',
+                    }}
+                >
+                    <IconButton
+                        aria-label="Close"
+                        onClick={closeForgotDialog}
+                        disabled={forgotLoading}
+                        sx={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            color: 'rgba(255,255,255,0.85)',
+                            '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.12)' },
+                        }}
+                    >
+                        <CloseIcon fontSize="small" />
+                    </IconButton>
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Box
+                            sx={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 1.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: 'rgba(255,255,255,0.18)',
+                            }}
+                        >
+                            <LockResetOutlined sx={{ fontSize: 26 }} />
+                        </Box>
+                        <Box>
+                            <DialogTitle
+                                sx={{
+                                    p: 0,
+                                    fontSize: '1.15rem',
+                                    fontWeight: 700,
+                                    fontFamily: fontStack,
+                                    color: 'inherit',
+                                    lineHeight: 1.25,
+                                }}
+                            >
+                                Reset your password
+                            </DialogTitle>
+                            <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.92, fontFamily: fontStack, fontSize: '0.8125rem' }}>
+                                We will email you a temporary password
+                            </Typography>
+                        </Box>
+                    </Stack>
+                </Box>
+
+                <Box component="form" onSubmit={handleForgotPasswordSubmit}>
+                    <DialogContent sx={{ px: 2.5, pt: 2.5, pb: 1 }}>
+                        <Typography variant="body2" sx={{ mb: 2, color: micde.textSecondary, fontFamily: fontStack, lineHeight: 1.55 }}>
+                            Enter the email address linked to your account. If it is registered, you will receive
+                            a temporary password and be asked to set a new one when you sign in.
+                        </Typography>
+
+                        <TextField
+                            autoFocus
+                            fullWidth
+                            label="Email address"
+                            type="email"
+                            value={forgotEmail}
+                            onChange={(e) => {
+                                setForgotEmail(e.target.value);
+                                if (forgotError) setForgotError('');
+                            }}
+                            disabled={forgotLoading || Boolean(forgotSuccess)}
+                            placeholder="you@example.com"
+                            variant="outlined"
+                            sx={loginFieldSx}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <EmailOutlined sx={{ color: micde.brandMuted, fontSize: 20 }} />
+                                    </InputAdornment>
+                                ),
+                            }}
+                        />
+
+                        {forgotError && (
+                            <Alert severity="error" sx={{ mt: 2, fontSize: '0.8125rem', fontFamily: fontStack }}>
+                                {forgotError}
+                            </Alert>
+                        )}
+
+                        {forgotSuccess && (
+                            <Alert severity="success" sx={{ mt: 2, fontSize: '0.8125rem', fontFamily: fontStack }}>
+                                {forgotSuccess}
+                            </Alert>
+                        )}
+                    </DialogContent>
+
+                    <DialogActions sx={{ px: 2.5, pb: 2.5, pt: 1, gap: 1 }}>
+                        <Button
+                            onClick={closeForgotDialog}
+                            disabled={forgotLoading}
+                            sx={{
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                fontFamily: fontStack,
+                                color: micde.textSecondary,
+                            }}
+                        >
+                            {forgotSuccess ? 'Close' : 'Cancel'}
+                        </Button>
+                        {!forgotSuccess && (
+                            <Button
+                                type="submit"
+                                variant="contained"
+                                disabled={forgotLoading || !String(forgotEmail).trim()}
+                                sx={{
+                                    textTransform: 'none',
+                                    fontWeight: 700,
+                                    fontFamily: fontStack,
+                                    px: 2.5,
+                                    bgcolor: micde.brand,
+                                    boxShadow: 'none',
+                                    '&:hover': {
+                                        bgcolor: micde.brandHover,
+                                        boxShadow: '0 4px 14px rgba(0, 90, 154, 0.35)',
+                                    },
+                                }}
+                            >
+                                {forgotLoading ? (
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <CircularProgress size={16} color="inherit" />
+                                        Sending…
+                                    </Box>
+                                ) : (
+                                    'Send reset email'
+                                )}
+                            </Button>
+                        )}
+                    </DialogActions>
+                </Box>
+            </Dialog>
         </Box>
     );
 };

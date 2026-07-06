@@ -33,6 +33,7 @@ import rriService from '../api/rriService';
 import { ROUTES } from '../configs/appConfig';
 import RriProgrammeSitesSection, { emptyRriSite, RRI_AUTOCOMPLETE_PROPS } from '../components/RriProgrammeSitesSection';
 import Header from './dashboard/Header';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const DELIVERY_MODES = [
   { value: 'internal', label: 'Internal (no contractor)' },
@@ -56,6 +57,8 @@ function formatNumber(value) {
 
 export default function RriProgrammesPage() {
   const navigate = useNavigate();
+  const { hasPrivilege } = useAuth();
+  const canManageRri = hasPrivilege('rri.create') || hasPrivilege('rri.update') || hasPrivilege('project.update');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [rows, setRows] = useState([]);
@@ -292,16 +295,18 @@ export default function RriProgrammesPage() {
       sortable: false,
       renderCell: (params) => (
         <Stack direction="row" spacing={1}>
-          <Button size="small" onClick={() => setLinkDialog({ open: true, programme: params.row, project: null })}>
-            Link
-          </Button>
+          {canManageRri && (
+            <Button size="small" onClick={() => setLinkDialog({ open: true, programme: params.row, project: null })}>
+              Link
+            </Button>
+          )}
           <Button size="small" onClick={() => navigate(programmeDetailPath(params.row.programmeId))}>
             View
           </Button>
         </Stack>
       ),
     },
-  ], [navigate, programmeDetailPath]);
+  ], [navigate, programmeDetailPath, canManageRri]);
 
   const hasValidSites = useMemo(
     () => (form.sites || []).some((site) => String(site.subcounty || '').trim() || String(site.ward || '').trim()),
@@ -378,9 +383,11 @@ export default function RriProgrammesPage() {
       )}
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm(emptyForm); setDialogOpen(true); }}>
-          New RRI Programme
-        </Button>
+        {canManageRri && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm(emptyForm); setDialogOpen(true); }}>
+            New RRI Programme
+          </Button>
+        )}
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
           Refresh
         </Button>
@@ -430,7 +437,7 @@ export default function RriProgrammesPage() {
             <ListItemText>Open programme</ListItemText>
           </MenuItem>
         )}
-        {selectedProgrammeForContextMenu && (
+        {selectedProgrammeForContextMenu && canManageRri && (
           <MenuItem onClick={() => {
             setLinkDialog({ open: true, programme: selectedProgrammeForContextMenu, project: null });
             handleContextMenuClose();

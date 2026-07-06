@@ -30,9 +30,11 @@ import aiAssistantService from './aiAssistantService';
 import adpService from './adpService';
 import rriService from './rriService';
 import projectEscalationService from './projectEscalationService';
+import myTasksService from './myTasksService';
 import villageMonitoringService from './villageMonitoringService';
 import engineerWorkspaceService from './engineerWorkspaceService';
 import coFinanceWorkspaceService from './coFinanceWorkspaceService';
+import clientProjectImportService from './clientProjectImportService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -136,9 +138,11 @@ const apiService = {
   adp: adpService,
   rri: rriService,
   projectEscalations: projectEscalationService,
+  myTasks: myTasksService,
   villageMonitoring: villageMonitoringService,
   engineerWorkspace: engineerWorkspaceService,
   coFinanceWorkspace: coFinanceWorkspaceService,
+  clientProjectImport: clientProjectImportService,
   projectPhotos,
 };
 

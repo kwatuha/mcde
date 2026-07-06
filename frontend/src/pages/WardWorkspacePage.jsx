@@ -20,6 +20,7 @@ import EditNoteIcon from '@mui/icons-material/EditNote';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import DescriptionIcon from '@mui/icons-material/Description';
+import GroupsIcon from '@mui/icons-material/Groups';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
 import villageMonitoringService from '../api/villageMonitoringService';
@@ -245,6 +246,13 @@ export default function WardWorkspacePage() {
           icon={DescriptionIcon}
           color="#607d8b"
           onClick={() => navigate(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT)}
+        />
+        <QuickActionCard
+          title="RRI programmes"
+          description="View rapid response programmes covering your ward or linked local projects."
+          icon={GroupsIcon}
+          color="#5e35b1"
+          onClick={() => navigate(ROUTES.RRI_PROGRAMMES)}
         />
       </Box>
 

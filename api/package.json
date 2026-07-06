@@ -9,8 +9,11 @@
     "seed:analytics": "node seeds/seedAnalyticsData.js",
     "seed:data-collection-reference": "node scripts/seedSampleDataCollectionTemplate.js",
     "seed:village-monitoring-template": "node scripts/seedVillageMonitoringTemplate.js",
+    "seed:project-escalation-demo": "node scripts/seedProjectEscalationDemo.js",
     "import:sublocation-villages": "node scripts/importSublocationVillages.js",
-    "backfill:project-sublocation-villages": "node scripts/backfillProjectSublocationVillages.js"
+    "backfill:project-sublocation-villages": "node scripts/backfillProjectSublocationVillages.js",
+    "stage:machakos-client-projects": "node scripts/stageMachakosClientProjects.js",
+    "repair:user-login": "node scripts/repairUserLogin.js"
   },
   "keywords": [],
   "author": "",

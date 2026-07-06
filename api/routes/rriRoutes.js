@@ -9,7 +9,7 @@ const { isSuperAdminRequester } = require('../utils/roleUtils');
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
 
-const canRead = privilege(['rri.read', 'project.read_all', 'strategic_plan.read_all'], { anyOf: true });
+const canRead = privilege(['rri.read', 'project.read_all', 'strategic_plan.read_all', 'project.read'], { anyOf: true });
 const canWrite = privilege(['rri.create', 'rri.update', 'project.update'], { anyOf: true });
 const canDelete = privilege(['rri.delete', 'project.update'], { anyOf: true });
 
@@ -294,6 +294,131 @@ async function addProjectScopeWhere(user, where, params, alias = 'p') {
     : orgScope.projectScopeParamTriple(authUserId)));
 }
 
+function hasUnscopedRriAccess(user) {
+  if (isSuperAdminRequester(user)) return true;
+  if (orgScope.userHasOrganizationBypass(user?.privileges || [])) return true;
+  const privs = new Set(Array.isArray(user?.privileges) ? user.privileges : []);
+  return privs.has('rri.read') || privs.has('strategic_plan.read_all');
+}
+
+function buildProgrammeGeoScopeFragment(rpAlias = 'rp') {
+  const rp = rpAlias;
+  const norm = (expr) => `regexp_replace(LOWER(TRIM(COALESCE(${expr}, ''))), '[^a-z0-9]+', '', 'g')`;
+  const wardMatch = (wardExpr) => `${norm(wardExpr)} = ${norm('ps.scope_value')}`;
+  const wardFromPath = (wardExpr) => `${norm(wardExpr)} = ${norm("split_part(ps.scope_value, ' > ', 2)")}`;
+
+  return `EXISTS (
+    SELECT 1
+    FROM user_project_scopes ps
+    WHERE ps.user_id = ?
+      AND COALESCE(ps.voided, false) = false
+      AND ps.scope_type IN ('SUBCOUNTY', 'WARD', 'SUBLOCATION', 'VILLAGE')
+      AND (
+        (
+          ps.scope_type = 'SUBCOUNTY'
+          AND (
+            ${norm(`${rp}.subcounty`)} = ${norm('ps.scope_value')}
+            OR EXISTS (
+              SELECT 1 FROM rri_programme_sites rps
+              WHERE rps.rri_programme_id = ${rp}.programme_id
+                AND COALESCE(rps.voided, false) = false
+                AND ${norm('rps.subcounty')} = ${norm('ps.scope_value')}
+            )
+          )
+        )
+        OR (
+          ps.scope_type = 'WARD'
+          AND (
+            ${wardMatch(`${rp}.ward`)}
+            OR EXISTS (
+              SELECT 1 FROM rri_programme_sites rps
+              WHERE rps.rri_programme_id = ${rp}.programme_id
+                AND COALESCE(rps.voided, false) = false
+                AND ${wardMatch('rps.ward')}
+            )
+          )
+        )
+        OR (
+          ps.scope_type IN ('SUBLOCATION', 'VILLAGE')
+          AND position(' > ' in COALESCE(ps.scope_value, '')) > 0
+          AND (
+            ${wardFromPath(`${rp}.ward`)}
+            OR EXISTS (
+              SELECT 1 FROM rri_programme_sites rps
+              WHERE rps.rri_programme_id = ${rp}.programme_id
+                AND COALESCE(rps.voided, false) = false
+                AND ${wardFromPath('rps.ward')}
+            )
+          )
+        )
+      )
+  )`;
+}
+
+async function addProgrammeScopeWhere(user, where, params, rpAlias = 'rp') {
+  if (hasUnscopedRriAccess(user)) return;
+
+  const authUserId = getUserId(user);
+  if (!authUserId) {
+    where.push('FALSE');
+    return;
+  }
+  if (!(await orgScope.organizationScopeTableExists())) {
+    where.push('FALSE');
+    return;
+  }
+
+  const hasProjectScopes = await orgScope.userHasProjectAccessScopeContext(authUserId);
+  const scopeRows = await orgScope.fetchOrganizationScopesForUser(authUserId);
+  if (!hasProjectScopes && !(scopeRows || []).length) {
+    where.push('FALSE');
+    return;
+  }
+
+  let nextIndex = params.length + 1;
+  const replacePlaceholders = (fragment) => fragment.replace(/\?/g, () => `$${nextIndex++}`);
+
+  const projectScopeSql = replacePlaceholders(
+    hasProjectScopes
+      ? orgScope.buildExplicitProjectScopeFragment('p')
+      : orgScope.buildProjectListScopeFragment('p')
+  );
+  const projectScopeParams = hasProjectScopes
+    ? orgScope.explicitProjectScopeParams(authUserId)
+    : orgScope.projectScopeParamTriple(authUserId);
+
+  const geoScopeSql = replacePlaceholders(buildProgrammeGeoScopeFragment(rpAlias));
+  const geoScopeParams = [authUserId];
+
+  where.push(`(
+    EXISTS (
+      SELECT 1
+      FROM rri_programme_projects rpp
+      INNER JOIN projects p ON p.project_id = rpp.project_id AND COALESCE(p.voided, false) = false
+      WHERE rpp.rri_programme_id = ${rpAlias}.programme_id
+        AND COALESCE(rpp.voided, false) = false
+        AND ${projectScopeSql}
+    )
+    OR ${geoScopeSql}
+  )`);
+  params.push(...projectScopeParams, ...geoScopeParams);
+}
+
+async function assertProgrammeAccessible(user, programmeId) {
+  const params = [programmeId];
+  const where = ['rp.programme_id = $1', 'COALESCE(rp.voided, false) = false'];
+  await addProgrammeScopeWhere(user, where, params, 'rp');
+  const result = await pool.query(
+    `SELECT 1 FROM rri_programmes rp WHERE ${where.join(' AND ')} LIMIT 1`,
+    params
+  );
+  if (!result.rows?.[0]) {
+    const err = new Error('RRI programme not found or access denied.');
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 async function beneficiariesTableExists() {
   return beneficiaryRegistry.tableExists();
 }
@@ -412,14 +537,21 @@ router.use(requirePostgres);
 router.get('/dashboard', canRead, async (req, res) => {
   try {
     await ensureSchema();
-    const result = await pool.query(`
+    const params = [];
+    const where = ['COALESCE(rp.voided, false) = false'];
+    await addProgrammeScopeWhere(req.user, where, params, 'rp');
+    const result = await pool.query(
+      `
       SELECT
-        COUNT(*) FILTER (WHERE COALESCE(voided, false) = false)::int AS "totalProgrammes",
-        COUNT(*) FILTER (WHERE status = 'active' AND COALESCE(voided, false) = false)::int AS "activeProgrammes",
-        COUNT(*) FILTER (WHERE delivery_mode = 'internal' AND COALESCE(voided, false) = false)::int AS "internalDelivery",
-        COALESCE(SUM(target_beneficiaries) FILTER (WHERE COALESCE(voided, false) = false), 0)::int AS "targetBeneficiaries"
-      FROM rri_programmes
-    `);
+        COUNT(*)::int AS "totalProgrammes",
+        COUNT(*) FILTER (WHERE rp.status = 'active')::int AS "activeProgrammes",
+        COUNT(*) FILTER (WHERE rp.delivery_mode = 'internal')::int AS "internalDelivery",
+        COALESCE(SUM(rp.target_beneficiaries), 0)::int AS "targetBeneficiaries"
+      FROM rri_programmes rp
+      WHERE ${where.join(' AND ')}
+      `,
+      params
+    );
     res.json(result.rows?.[0] || {});
   } catch (error) {
     res.status(500).json({ message: 'Failed to load RRI dashboard.', error: error.message });
@@ -453,6 +585,7 @@ router.get('/', canRead, async (req, res) => {
       params.push(`%${textOrNull(req.query.search)}%`);
       where.push(`(rp.name ILIKE $${params.length} OR COALESCE(rp.description, '') ILIKE $${params.length})`);
     }
+    await addProgrammeScopeWhere(req.user, where, params, 'rp');
     const result = await pool.query(
       `${programmeSelect}
        WHERE ${where.join(' AND ')}
@@ -471,9 +604,12 @@ router.get('/:programmeId', canRead, async (req, res) => {
     await ensureSchema();
     const programmeId = Number(req.params.programmeId);
     const programmeSelect = await buildProgrammeSelect();
+    const progWhere = ['rp.programme_id = $1', 'COALESCE(rp.voided, false) = false'];
+    const progParams = [programmeId];
+    await addProgrammeScopeWhere(req.user, progWhere, progParams, 'rp');
     const prog = await pool.query(
-      `${programmeSelect} WHERE rp.programme_id = $1 AND COALESCE(rp.voided, false) = false LIMIT 1`,
-      [programmeId]
+      `${programmeSelect} WHERE ${progWhere.join(' AND ')} LIMIT 1`,
+      progParams
     );
     if (!prog.rows?.[0]) return res.status(404).json({ message: 'RRI programme not found.' });
 
@@ -531,6 +667,7 @@ router.patch('/:programmeId/sites/:siteId', canWrite, async (req, res) => {
   try {
     await ensureSchema();
     const programmeId = Number(req.params.programmeId);
+    await assertProgrammeAccessible(req.user, programmeId);
     const siteId = Number(req.params.siteId);
     const result = await pool.query(
       `
@@ -564,6 +701,7 @@ router.get('/:programmeId/beneficiary-import-template', canRead, async (req, res
   try {
     await ensureSchema();
     const programmeId = Number(req.params.programmeId);
+    await assertProgrammeAccessible(req.user, programmeId);
     const { buildBeneficiaryImportWorkbook } = require('../services/beneficiaryTemplateService');
     const workbook = await buildBeneficiaryImportWorkbook({ rriProgrammeId: programmeId });
     const safeName = String(workbook.getWorksheet('Instructions')?.getCell(1, 1).value || `programme-${programmeId}`)
@@ -585,6 +723,7 @@ router.get('/:programmeId/beneficiaries', canRead, async (req, res) => {
   try {
     await ensureSchema();
     const programmeId = Number(req.params.programmeId);
+    await assertProgrammeAccessible(req.user, programmeId);
     const limit = Math.min(Number(req.query.limit) || 50, 500);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const result = await beneficiaryRegistry.listForProgramme(programmeId, limit, offset);

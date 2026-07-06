@@ -171,6 +171,41 @@ async function notifyNewSignal({ signalId, projectName, ruleName, severity, titl
   return sendToRoles(settings.roleIds, { subject, text });
 }
 
+async function notifyAssignee({ signalId, projectName, title, assigneeUserId, assignedByName }) {
+  if (!assigneeUserId || !canSendEmail() || !emailGloballyEnabled()) {
+    return { skipped: true };
+  }
+  const user = first(
+    await pool.query(
+      `SELECT userid AS "userId", email, firstname AS "firstName", lastname AS "lastName"
+       FROM users WHERE userid = $1 AND COALESCE(voided, false) = false LIMIT 1`,
+      [Number(assigneeUserId)]
+    )
+  );
+  if (!user?.email) return { skipped: true, reason: 'no_email' };
+
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || 'Colleague';
+  const subject = `[Assigned to you] Project escalation: ${title || projectName || 'Review required'}`;
+  const text = [
+    `Hello ${name},`,
+    '',
+    'You have been assigned a project escalation task in E-CIMES.',
+    `Project: ${projectName || 'Unknown'}`,
+    `Signal: ${title || '—'}`,
+    assignedByName ? `Assigned by: ${assignedByName}` : null,
+    signalId ? `Signal ID: ${signalId}` : null,
+    '',
+    'Open My Tasks in E-CIMES to review and action this assignment.',
+  ].filter(Boolean).join('\n');
+
+  try {
+    await sendWorkflowNotificationEmail({ to: user.email, subject, text });
+    return { sent: true, email: user.email };
+  } catch (e) {
+    return { sent: false, error: e.message };
+  }
+}
+
 async function notifyEscalation({ signalId, projectName, ruleName, severity, escalationLevel, title }) {
   const settings = await shouldNotify({ onEscalate: true, severity });
   if (!settings) return { skipped: true };
@@ -197,5 +232,6 @@ module.exports = {
   updateNotificationSettings,
   notifyNewSignal,
   notifyEscalation,
+  notifyAssignee,
   emailGloballyEnabled,
 };

@@ -37,6 +37,7 @@ import apiService from '../api';
 import rriService from '../api/rriService';
 import { ROUTES } from '../configs/appConfig';
 import Header from './dashboard/Header';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const SITE_STATUSES = ['Not Started', 'Ongoing', 'Completed', 'Stalled', 'Suspended'];
 
@@ -72,6 +73,8 @@ function SummaryCard({ label, value, helper }) {
 export default function RriProgrammeDetailPage() {
   const { programmeId } = useParams();
   const navigate = useNavigate();
+  const { hasPrivilege } = useAuth();
+  const canManageRri = hasPrivilege('rri.create') || hasPrivilege('rri.update') || hasPrivilege('project.update');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0);
@@ -220,17 +223,21 @@ export default function RriProgrammeDetailPage() {
       width: 150,
       sortable: false,
       renderCell: (params) => (
-        <TextField
-          select
-          size="small"
-          value={siteDrafts[params.row.siteId]?.statusNorm || 'Not Started'}
-          onChange={(e) => handleSiteDraftChange(params.row.siteId, 'statusNorm', e.target.value)}
-          sx={{ minWidth: 130 }}
-        >
-          {SITE_STATUSES.map((status) => (
-            <MenuItem key={status} value={status}>{status}</MenuItem>
-          ))}
-        </TextField>
+        canManageRri ? (
+          <TextField
+            select
+            size="small"
+            value={siteDrafts[params.row.siteId]?.statusNorm || 'Not Started'}
+            onChange={(e) => handleSiteDraftChange(params.row.siteId, 'statusNorm', e.target.value)}
+            sx={{ minWidth: 130 }}
+          >
+            {SITE_STATUSES.map((status) => (
+              <MenuItem key={status} value={status}>{status}</MenuItem>
+            ))}
+          </TextField>
+        ) : (
+          <Typography variant="body2">{params.row.statusNorm || 'Not Started'}</Typography>
+        )
       ),
     },
     {
@@ -239,14 +246,18 @@ export default function RriProgrammeDetailPage() {
       width: 110,
       sortable: false,
       renderCell: (params) => (
-        <TextField
-          size="small"
-          type="number"
-          inputProps={{ min: 0, max: 100, step: 1 }}
-          value={siteDrafts[params.row.siteId]?.percentComplete ?? 0}
-          onChange={(e) => handleSiteDraftChange(params.row.siteId, 'percentComplete', e.target.value)}
-          sx={{ width: 88 }}
-        />
+        canManageRri ? (
+          <TextField
+            size="small"
+            type="number"
+            inputProps={{ min: 0, max: 100, step: 1 }}
+            value={siteDrafts[params.row.siteId]?.percentComplete ?? 0}
+            onChange={(e) => handleSiteDraftChange(params.row.siteId, 'percentComplete', e.target.value)}
+            sx={{ width: 88 }}
+          />
+        ) : (
+          <Typography variant="body2">{Number(params.row.percentComplete || 0).toFixed(0)}%</Typography>
+        )
       ),
     },
     {
@@ -261,21 +272,23 @@ export default function RriProgrammeDetailPage() {
       width: 70,
       sortable: false,
       renderCell: (params) => (
-        <Tooltip title="Save progress">
-          <span>
-            <IconButton
-              size="small"
-              color="primary"
-              disabled={savingSiteId === params.row.siteId}
-              onClick={() => handleSaveSite(params.row.siteId)}
-            >
-              {savingSiteId === params.row.siteId ? <CircularProgress size={18} /> : <SaveIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
+        canManageRri ? (
+          <Tooltip title="Save progress">
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                disabled={savingSiteId === params.row.siteId}
+                onClick={() => handleSaveSite(params.row.siteId)}
+              >
+                {savingSiteId === params.row.siteId ? <CircularProgress size={18} /> : <SaveIcon fontSize="small" />}
+              </IconButton>
+            </span>
+          </Tooltip>
+        ) : null
       ),
     },
-  ], [siteDrafts, savingSiteId]);
+  ], [siteDrafts, savingSiteId, canManageRri]);
 
   const projectColumns = useMemo(() => [
     { field: 'projectName', headerName: 'Project', flex: 1.4, minWidth: 200 },
@@ -318,13 +331,15 @@ export default function RriProgrammeDetailPage() {
           >
             Monitor
           </Button>
-          <IconButton size="small" color="error" onClick={() => handleUnlinkProject(params.row.projectId)}>
-            <LinkOffIcon fontSize="small" />
-          </IconButton>
+          {canManageRri && (
+            <IconButton size="small" color="error" onClick={() => handleUnlinkProject(params.row.projectId)}>
+              <LinkOffIcon fontSize="small" />
+            </IconButton>
+          )}
         </Stack>
       ),
     },
-  ], [handleUnlinkProject]);
+  ], [handleUnlinkProject, canManageRri]);
 
   const beneficiaryColumns = useMemo(() => [
     { field: 'registryCode', headerName: 'Code', width: 110 },
@@ -479,7 +494,9 @@ export default function RriProgrammeDetailPage() {
               <Typography variant="body2" color="text.secondary">
                 Link registry projects to roll up site progress, monitoring visits, and beneficiaries.
               </Typography>
-              <Button variant="contained" onClick={() => setLinkDialogOpen(true)}>Link project</Button>
+              {canManageRri && (
+                <Button variant="contained" onClick={() => setLinkDialogOpen(true)}>Link project</Button>
+              )}
             </Stack>
             <DataGrid
               rows={linkedProjects}

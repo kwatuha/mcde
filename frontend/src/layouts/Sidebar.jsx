@@ -80,6 +80,8 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import SpeedIcon from '@mui/icons-material/Speed';
 import ArticleIcon from '@mui/icons-material/Article';
 import UpdateIcon from '@mui/icons-material/Update';
+import WarningIcon from '@mui/icons-material/Warning';
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import EngineeringIcon from '@mui/icons-material/Engineering';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 
@@ -145,6 +147,8 @@ const ICON_MAP = {
   SpeedIcon,
   ArticleIcon,
   UpdateIcon,
+  WarningIcon,
+  AssignmentIndIcon,
   HubIcon,
 };
 

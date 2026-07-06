@@ -121,6 +121,8 @@ import WorkflowApprovalsPage from './pages/WorkflowApprovalsPage';
 // ✨ NEW: Import the ApprovalLevelsManagementPage component
 import ApprovalLevelsManagementPage from './pages/ApprovalLevelsManagementPage';
 import ProjectEscalationRulesPage from './pages/ProjectEscalationRulesPage';
+import ProjectEscalationsPage from './pages/ProjectEscalationsPage';
+import MyTasksPage from './pages/MyTasksPage';
 // ✨ NEW: Import the AdminPage component
 import AdminPage from './pages/AdminPage';
 import AuditTrailPage from './pages/AuditTrailPage';
@@ -183,6 +185,7 @@ import DashboardConfigManager from './components/DashboardConfigManager';
 import { modernTheme } from './theme/modernTheme';
 // Add CentralImportPage for unified import hub
 import CentralImportPage from './pages/CentralImportPage';
+import ClientProjectImportReviewPage from './pages/ClientProjectImportReviewPage';
 import RawDataPage from './pages/RawDataPage';
 import { ROUTES } from './configs/appConfig';
 import { canAccessProjectBySectorDashboard, isMdaIctAdminOrSuperAdmin } from './utils/privilegeUtils';
@@ -597,6 +600,10 @@ const router = createBrowserRouter([
         element: <CentralImportPage />,
       },
       {
+        path: 'data-import/client-projects/review',
+        element: <ClientProjectImportReviewPage />,
+      },
+      {
         path: 'beneficiary-registry',
         element: <RawDataPage />,
       },
@@ -619,6 +626,14 @@ const router = createBrowserRouter([
       {
         path: 'project-escalation-rules',
         element: <ProjectEscalationRulesPage />,
+      },
+      {
+        path: 'project-escalations',
+        element: <ProjectEscalationsPage />,
+      },
+      {
+        path: 'my-tasks',
+        element: <MyTasksPage />,
       },
       {
         path: 'feedback-management',

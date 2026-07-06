@@ -22,6 +22,7 @@ import ChecklistIcon from '@mui/icons-material/Checklist';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import GroupsIcon from '@mui/icons-material/Groups';
 import { ROUTES } from '../configs/appConfig';
 import villageMonitoringService from '../api/villageMonitoringService';
 import VillageMonitoringWorkflowPage from './VillageMonitoringWorkflowPage';
@@ -231,6 +232,13 @@ export default function VillageWorkspacePage() {
           icon={PhotoCameraIcon}
           color="#2e7d32"
           onClick={() => navigate(`${ROUTES.PROJECTS}?hint=photos`)}
+        />
+        <QuickActionCard
+          title="RRI programmes"
+          description="View rapid response programmes covering your village or linked local projects."
+          icon={GroupsIcon}
+          color="#5e35b1"
+          onClick={() => navigate(ROUTES.RRI_PROGRAMMES)}
         />
       </Box>
 

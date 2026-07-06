@@ -83,6 +83,14 @@ async function testConnection() {
 // Start connection test
 testConnection();
 
+/** PostgreSQL-only pool; treat unset DB_TYPE as postgresql (not mysql). */
+function resolveDbType() {
+    const t = String(process.env.DB_TYPE || '').trim().toLowerCase();
+    if (t === 'mysql' || t === 'mariadb') return 'mysql';
+    if (t === 'postgresql' || t === 'postgres') return 'postgresql';
+    return 'postgresql';
+}
+
 // Helper to convert MySQL-style ? placeholders to PostgreSQL $1, $2, etc.
 const convertPlaceholders = (sql, params) => {
     if (params && params.length > 0) {
@@ -252,3 +260,4 @@ pool.convertQuery = convertPlaceholders;
 
 // Export the pool
 module.exports = pool;
+module.exports.resolveDbType = resolveDbType;

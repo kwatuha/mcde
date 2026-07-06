@@ -183,6 +183,18 @@ async function ensureProjectEscalationTables() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_signals_detected ON project_signals(detected_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_signal_actions_signal ON signal_actions(signal_id)`);
 
+  await pool.query(`
+    ALTER TABLE project_signals
+      ADD COLUMN IF NOT EXISTS assigned_to_user_id BIGINT NULL,
+      ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS assigned_by BIGINT NULL
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_project_signals_assigned_to
+    ON project_signals (assigned_to_user_id)
+    WHERE assigned_to_user_id IS NOT NULL AND status IN ('open', 'acknowledged')
+  `);
+
   for (const rule of DEFAULT_RULES) {
     await pool.query(
       `

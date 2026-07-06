@@ -64,13 +64,25 @@ axiosInstance.interceptors.response.use(
         }
         
         // Handle 401 Unauthorized errors (token expired or invalid)
-        if (error.response && error.response.status === 401) {
+        // Do not clear session on auth endpoints — e.g. wrong "current password" on change-password
+        // must not wipe the temp-login token and send the user to login confused.
+        const onLoginPage =
+            window.location.pathname === '/login' ||
+            window.location.pathname.endsWith('/login');
+        const skipSessionClear =
+            onLoginPage ||
+            requestUrl.includes('/auth/login') ||
+            requestUrl.includes('/auth/change-password') ||
+            requestUrl.includes('/auth/login/verify-otp');
+
+        if (error.response && error.response.status === 401 && !skipSessionClear) {
             console.warn('Token expired or invalid. Clearing local storage...');
             localStorage.removeItem('jwtToken');
-            
-            // If we're not already on the login page, redirect to login
+            localStorage.removeItem('mustChangePassword');
+
+            // Hard redirect only when leaving an authenticated page — not during login setup.
             const loginPath = '/login';
-            if (window.location.pathname !== loginPath && !window.location.pathname.endsWith('/login')) {
+            if (!onLoginPage) {
                 window.location.href = loginPath;
             }
         }

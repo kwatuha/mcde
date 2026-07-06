@@ -50,6 +50,22 @@ const projectEscalationService = {
     const response = await axiosInstance.post('/project-escalations/evaluate');
     return response.data;
   },
+
+  assign: async (id, assignedToUserId, comment) => {
+    const response = await axiosInstance.post(`/project-escalations/signals/${id}/assign`, {
+      assignedToUserId,
+      comment,
+    });
+    return response.data;
+  },
+
+  exportPdf: async (opts = {}) => {
+    const response = await axiosInstance.get('/project-escalations/signals/export/pdf', {
+      params: opts,
+      responseType: 'blob',
+    });
+    return response;
+  },
 };
 
 export default projectEscalationService;

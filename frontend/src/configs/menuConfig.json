@@ -61,6 +61,11 @@
           "route": "DASHBOARD"
         },
         {
+          "title": "My Tasks",
+          "icon": "AssignmentIndIcon",
+          "route": "MY_TASKS"
+        },
+        {
           "title": "Mobile app (Android)",
           "icon": "PhoneAndroidIcon",
           "route": "MOBILE_APP_DOWNLOAD"
@@ -162,6 +167,12 @@
           "icon": "UpdateIcon",
           "route": "PROJECT_STATUS",
           "permissionsAny": ["project.read_all", "project.update"]
+        },
+        {
+          "title": "Project Escalations",
+          "icon": "WarningIcon",
+          "route": "PROJECT_ESCALATIONS",
+          "permissionsAny": ["project.read", "project.read_all", "project.update"]
         },
         {
           "title": "Project Teams",
@@ -274,7 +285,7 @@
           "title": "RRI Programmes",
           "icon": "GroupsIcon",
           "route": "RRI_PROGRAMMES",
-          "permissionsAny": ["rri.read", "project.read_all", "strategic_plan.read_all"]
+          "permissionsAny": ["rri.read", "strategic_plan.read_all"]
         },
         {
           "title": "CIDP Programme Progress",
@@ -394,6 +405,12 @@
           "permission": "project.create"
         },
         {
+          "title": "Client project staging",
+          "icon": "FactCheckIcon",
+          "route": "CLIENT_PROJECT_IMPORT_REVIEW",
+          "permissionsAny": ["project.update", "project.read_all"]
+        },
+        {
           "title": "Data Import Logs",
           "icon": "AssessmentIcon",
           "route": "PROJECTS_UPLOAD_LOG",
@@ -454,6 +471,12 @@
           "icon": "ChecklistIcon",
           "route": "MONITORING_PROJECT_MONITORING",
           "permissionsAny": ["project_monitoring.read", "project_monitoring.create", "project_monitoring.update"]
+        },
+        {
+          "title": "RRI Programmes",
+          "icon": "GroupsIcon",
+          "route": "RRI_PROGRAMMES",
+          "permissionsAny": ["project.read", "project.read_all"]
         },
         {
           "title": "PMC Ward Reports",

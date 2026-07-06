@@ -231,6 +231,10 @@ export function isVillageWorkflowPath(pathname) {
   if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
     return true;
   }
+  const rriProgrammes = normalizePath(ROUTES.RRI_PROGRAMMES);
+  if (rriProgrammes && (base === rriProgrammes || base.startsWith(`${rriProgrammes}/`))) {
+    return true;
+  }
   return false;
 }
 
@@ -259,6 +263,10 @@ export function isWardWorkflowPath(pathname) {
   if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
     return true;
   }
+  const rriProgrammes = normalizePath(ROUTES.RRI_PROGRAMMES);
+  if (rriProgrammes && (base === rriProgrammes || base.startsWith(`${rriProgrammes}/`))) {
+    return true;
+  }
   return false;
 }
 
@@ -285,6 +293,10 @@ export function isSubCountyWorkflowPath(pathname) {
   }
   const projectUpdates = normalizePath(ROUTES.PROJECT_UPDATES);
   if (projectUpdates && (base === projectUpdates || base.startsWith(`${projectUpdates}/`))) {
+    return true;
+  }
+  const rriProgrammes = normalizePath(ROUTES.RRI_PROGRAMMES);
+  if (rriProgrammes && (base === rriProgrammes || base.startsWith(`${rriProgrammes}/`))) {
     return true;
   }
   return false;

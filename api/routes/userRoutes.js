@@ -1305,6 +1305,7 @@ router.put('/users/:id', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         otherFieldsToUpdate.passwordHash = await bcrypt.hash(password, salt);
     }
+    const passwordWasUpdated = !!(password && password.trim() !== '');
     delete otherFieldsToUpdate.userId;
 
     await ensureLoginOtpSchema(pool).catch(() => {});
@@ -1546,6 +1547,10 @@ router.put('/users/:id', async (req, res) => {
                 } catch (scopeErr) {
                     console.warn('syncOrganizationScopesFromUserProfile (user activation):', scopeErr.message);
                 }
+            }
+
+            if (passwordWasUpdated && DB_TYPE === 'postgresql') {
+                await setMustChangePassword(id, true, 'admin_reset');
             }
 
             let organizationScopes = [];

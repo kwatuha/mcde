@@ -244,8 +244,11 @@ const ProjectAlertsCard = ({ currentUser }) => {
         )}
 
         <Box mt={2} pt={2} borderTop="1px solid rgba(0,0,0,0.08)">
-          <Button size="small" onClick={() => navigate(ROUTES.OPERATIONS_DASHBOARD)}>
-            View operations dashboard
+          <Button size="small" onClick={() => navigate(ROUTES.PROJECT_ESCALATIONS)}>
+            View all escalations
+          </Button>
+          <Button size="small" sx={{ ml: 1 }} onClick={() => navigate(ROUTES.OPERATIONS_DASHBOARD)}>
+            Operations dashboard
           </Button>
         </Box>
       </CardContent>

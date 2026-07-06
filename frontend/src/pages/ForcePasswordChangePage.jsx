@@ -19,7 +19,7 @@ import authService from '../api/authService';
 
 const ForcePasswordChangePage = () => {
   const navigate = useNavigate();
-  const { token, user, mustChangePassword, completeForcedPasswordChange, logout } = useAuth();
+  const { token, mustChangePassword, logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -61,14 +61,18 @@ const ForcePasswordChangePage = () => {
 
     setLoading(true);
     try {
-      await authService.changePassword({
-        userId: user?.id || user?.userId || user?.actualUserId,
-        username: user?.username || user?.email,
+      const data = await authService.changePassword({
         currentPassword,
         newPassword,
       });
-      completeForcedPasswordChange();
-      navigate('/', { replace: true });
+      logout();
+      navigate('/login', {
+        replace: true,
+        state: {
+          passwordChanged: true,
+          message: 'Password updated. Sign in with your new password (not the temporary one).',
+        },
+      });
     } catch (err) {
       const payload = err?.response?.data ?? err;
       setError((payload && (payload.message || payload.error)) || err?.message || 'Failed to change password.');
@@ -85,7 +89,8 @@ const ForcePasswordChangePage = () => {
             Password Change Required
           </Typography>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Super Admin accounts must change password on every login before accessing the application.
+            You must set a new password before you can use the application. Use the temporary password
+            you were given (or reset123 if an administrator reset your account) as the current password.
           </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Box component="form" onSubmit={handleSubmit}>

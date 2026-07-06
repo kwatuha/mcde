@@ -88,6 +88,7 @@ export const ROLE_PRIVILEGE_TEMPLATES = [
       'Village admins submit monitoring reports to Ward Administrators for review and upward approval.',
       'Use checklist template "Village Field Monitoring Visit" (seed migration 20260711) — a short field form, not the full county reference checklist.',
       'Upload progress photos and documents from Project Registry → project Sites tab, or Project Documents.',
+      'RRI Programmes (Monitoring menu or workspace quick action) lists programmes covering their ward or linked local projects — read-only.',
     ],
   },
   {
@@ -110,6 +111,7 @@ export const ROLE_PRIVILEGE_TEMPLATES = [
       'Set organization scope to the ward so village submissions in that ward appear in the ward review queue.',
       'Use Monitoring reports → Ward review queue to revise checklists and forward to sub-county.',
       'Apply migration 20260712_ward_administrator_profile.sql if the Ward M&E profile is not yet seeded.',
+      'RRI Programmes (Monitoring menu or workspace quick action) lists programmes in your ward — read-only.',
     ],
   },
   {
@@ -132,6 +134,7 @@ export const ROLE_PRIVILEGE_TEMPLATES = [
       'Set organization scope to the sub-county so ward-forwarded reports in that sub-county appear in the review queue.',
       'Sub-county admins do not edit checklist answers — return to ward with comments or forward to chief when satisfied.',
       'Apply migration 20260714_subcounty_administrator_profile.sql if the Sub-County M&E profile is not yet seeded.',
+      'RRI Programmes (Monitoring menu or workspace quick action) lists programmes in your sub-county — read-only.',
     ],
   },
   {
