@@ -26,6 +26,7 @@ const VerifyCertificatePage = lazy(() => import('./pages/VerifyCertificatePage')
 const ProjectImportPage = lazy(() => import('./pages/ProjectImportPage'));
 const CentralImportPage = lazy(() => import('./pages/CentralImportPage'));
 const ClientProjectImportReviewPage = lazy(() => import('./pages/ClientProjectImportReviewPage'));
+const CompendiumProjectImportReviewPage = lazy(() => import('./pages/CompendiumProjectImportReviewPage'));
 const ProjectDetailsPage = lazy(() => import('./pages/ProjectDetailsPage'));
 const ProjectGanttChartPage = lazy(() => import('./pages/ProjectGanttChartPage'));
 const ReportsHubPage = lazy(() => import('./pages/ReportsHubPage'));
@@ -323,6 +324,10 @@ const router = createBrowserRouter([
       {
         path: 'data-import/client-projects/review',
         element: <LazyRoute component={ClientProjectImportReviewPage} />,
+      },
+      {
+        path: 'data-import/compendium-projects/review',
+        element: <LazyRoute component={CompendiumProjectImportReviewPage} />,
       },
       {
         path: 'projects/:projectId',

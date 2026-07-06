@@ -161,6 +161,14 @@ function MainLayoutContent() {
   }
 
   if (!token) {
+    const storedToken = typeof window !== 'undefined' ? localStorage.getItem('jwtToken') : null;
+    if (storedToken) {
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <CircularProgress />
+        </Box>
+      );
+    }
     if (location.pathname === ROUTES.VERIFY_CERTIFICATE) {
       return (
         <>

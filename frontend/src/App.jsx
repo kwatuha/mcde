@@ -186,6 +186,7 @@ import { modernTheme } from './theme/modernTheme';
 // Add CentralImportPage for unified import hub
 import CentralImportPage from './pages/CentralImportPage';
 import ClientProjectImportReviewPage from './pages/ClientProjectImportReviewPage';
+import CompendiumProjectImportReviewPage from './pages/CompendiumProjectImportReviewPage';
 import RawDataPage from './pages/RawDataPage';
 import { ROUTES } from './configs/appConfig';
 import { canAccessProjectBySectorDashboard, isMdaIctAdminOrSuperAdmin } from './utils/privilegeUtils';
@@ -602,6 +603,10 @@ const router = createBrowserRouter([
       {
         path: 'data-import/client-projects/review',
         element: <ClientProjectImportReviewPage />,
+      },
+      {
+        path: 'data-import/compendium-projects/review',
+        element: <CompendiumProjectImportReviewPage />,
       },
       {
         path: 'beneficiary-registry',

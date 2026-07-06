@@ -6,9 +6,15 @@ import React, {
     useCallback,
     useMemo,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { jwtDecode } from 'jwt-decode';
 import { Alert, Snackbar } from '@mui/material';
 import apiService from '../api';
+import { resolvePostLoginPath } from '../utils/uiProfileUtils.js';
+import {
+    goToPostLoginLanding,
+    takePersistedPostLoginLanding,
+} from '../utils/postLoginNavigation.js';
 
 const AuthContext = createContext(null);
 
@@ -23,13 +29,20 @@ export const AuthProvider = ({ children }) => {
 
     const login = useCallback(async (newToken, options = {}) => {
         localStorage.setItem('jwtToken', newToken);
-        setToken(newToken);
         const force = options?.forcePasswordChange === true;
         localStorage.setItem('mustChangePassword', force ? 'true' : 'false');
-        setMustChangePassword(force);
+
         try {
             const decodedUser = jwtDecode(newToken);
             let sessionUser = decodedUser.user;
+
+            // Commit token + user before post-login redirect (Login.jsx uses full page navigation).
+            flushSync(() => {
+                setToken(newToken);
+                setMustChangePassword(force);
+                setUser(sessionUser);
+            });
+
             try {
                 const refreshed = await apiService.auth.getMe();
                 if (refreshed?.user) {
@@ -37,21 +50,31 @@ export const AuthProvider = ({ children }) => {
                 }
                 if (refreshed?.mustChangePassword === true) {
                     localStorage.setItem('mustChangePassword', 'true');
-                    setMustChangePassword(true);
+                    flushSync(() => {
+                        setMustChangePassword(true);
+                        setUser(sessionUser);
+                    });
                 } else if (refreshed?.mustChangePassword === false) {
                     localStorage.setItem('mustChangePassword', 'false');
-                    setMustChangePassword(false);
+                    flushSync(() => {
+                        setMustChangePassword(false);
+                        setUser(sessionUser);
+                    });
+                } else {
+                    flushSync(() => setUser(sessionUser));
                 }
             } catch (refreshErr) {
                 console.warn('Could not refresh session user after login:', refreshErr?.message || refreshErr);
             }
-            setUser(sessionUser);
+
             return sessionUser;
         } catch (error) {
             console.error("Failed to decode token on login:", error);
             localStorage.removeItem('jwtToken');
-            setToken(null);
-            setUser(null);
+            flushSync(() => {
+                setToken(null);
+                setUser(null);
+            });
             return null;
         }
     }, []);
@@ -108,6 +131,18 @@ export const AuthProvider = ({ children }) => {
                             console.warn('Could not refresh session user:', refreshErr?.message || refreshErr);
                         }
                         setUser(sessionUser);
+
+                        if (typeof window !== 'undefined') {
+                            const mustChange = localStorage.getItem('mustChangePassword') === 'true';
+                            const onLoginPage =
+                                window.location.pathname === '/login'
+                                || window.location.pathname.endsWith('/login');
+                            if (onLoginPage && !mustChange) {
+                                const pending = takePersistedPostLoginLanding();
+                                goToPostLoginLanding(pending || resolvePostLoginPath(sessionUser));
+                                return;
+                            }
+                        }
                     }
                 } catch (error) {
                     console.error("AuthContext: Error decoding or verifying token:", error);

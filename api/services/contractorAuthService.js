@@ -86,13 +86,21 @@ async function fetchContractorIdForUser(userId) {
  */
 async function enrichUserWithContractor(user) {
     if (!user) return user;
+    const roleName = user.roleName || user.role || '';
+    if (!isContractorRole(roleName)) {
+        return {
+            ...user,
+            contractorId: null,
+            contractorProfile: null,
+        };
+    }
     const userId = user.id || user.userId || user.actualUserId;
     const profile = await fetchContractorProfileForUser(userId);
     if (!profile) {
         return {
             ...user,
-            contractorId: user.contractorId || null,
-            contractorProfile: user.contractorProfile || null,
+            contractorId: null,
+            contractorProfile: null,
         };
     }
     const contractorId = profile.contractorId ?? profile.contractorid;
@@ -115,9 +123,10 @@ function isContractorLikeUser(user) {
     if (!user) return false;
     const roleName = user.roleName || user.role || '';
     const privileges = user.privileges || [];
-    return isContractorRole(roleName)
-        || privileges.includes('contractor.portal')
-        || user.contractorId != null;
+    if (privileges.includes('admin.access') || privileges.includes('organization.scope_bypass')) {
+        return false;
+    }
+    return isContractorRole(roleName) || privileges.includes('contractor.portal');
 }
 
 /**

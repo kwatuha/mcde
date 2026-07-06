@@ -74,6 +74,7 @@ const routeTitles = {
   // Management routes
   '/data-import': { title: 'Central Data Import', subtitle: 'Data Import' },
   '/data-import/client-projects/review': { title: 'Client Project Import Review', subtitle: 'Review staged county projects before apply' },
+  '/data-import/compendium-projects/review': { title: 'Compendium Project Import Review', subtitle: 'Review staged compendium projects before apply' },
   '/maps': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
   '/gis-mapping': { title: 'GIS Mapping', subtitle: 'Geographic Information' },
   '/gis-dashboard': { title: 'GIS Dashboard', subtitle: 'Ward heat map and county boundaries' },

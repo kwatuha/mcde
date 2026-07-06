@@ -23,6 +23,37 @@ const clientProjectImportService = {
     });
     return response;
   },
+
+  getInsertReadyCount: async (batch) => {
+    const response = await axiosInstance.get(`/client-project-import/batches/${encodeURIComponent(batch)}/insert-ready-count`);
+    return response.data?.count ?? 0;
+  },
+
+  applyInsert: async (batch, payload = {}) => {
+    const response = await axiosInstance.post(
+      `/client-project-import/batches/${encodeURIComponent(batch)}/apply-insert`,
+      payload,
+      { timeout: 600000 },
+    );
+    return response.data;
+  },
+
+  listDemoProjects: async (params = {}) => {
+    const response = await axiosInstance.get('/client-project-import/demo-projects', { params });
+    return response.data;
+  },
+
+  getDemoSummary: async () => {
+    const response = await axiosInstance.get('/client-project-import/demo-projects/summary');
+    return response.data;
+  },
+
+  voidDemoProjects: async (payload = {}) => {
+    const response = await axiosInstance.post('/client-project-import/demo-projects/void', payload, {
+      timeout: 600000,
+    });
+    return response.data;
+  },
 };
 
 export default clientProjectImportService;

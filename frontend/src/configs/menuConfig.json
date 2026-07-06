@@ -411,6 +411,12 @@
           "permissionsAny": ["project.update", "project.read_all"]
         },
         {
+          "title": "Compendium project staging",
+          "icon": "LibraryBooksIcon",
+          "route": "COMPENDIUM_PROJECT_IMPORT_REVIEW",
+          "permissionsAny": ["project.update", "project.read_all"]
+        },
+        {
           "title": "Data Import Logs",
           "icon": "AssessmentIcon",
           "route": "PROJECTS_UPLOAD_LOG",

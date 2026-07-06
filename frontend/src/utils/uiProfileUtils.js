@@ -1,6 +1,17 @@
 import menuConfig from '../configs/menuConfig.json';
 import { ROUTES } from '../configs/appConfig.js';
 import { isSuperAdminUser } from './roleUtils.js';
+import {
+    isChiefPortalUser,
+    isCoFinancePortalUser,
+    isContractor,
+    isEngineerPortalUser,
+    isSectorMePortalUser,
+    isSubCountyPortalUser,
+    isVillagePortalUser,
+    isWardPortalUser,
+} from './privilegeUtils.js';
+import { DEFAULT_POST_LOGIN_LANDING, normalizePostLoginPath } from './postLoginNavigation.js';
 
 export function asVisibilitySet(values) {
   if (!Array.isArray(values) || values.length === 0) return null;
@@ -35,9 +46,18 @@ export function getProfileLandingPath(user) {
 }
 
 export function resolvePostLoginPath(user) {
+  if (isUiProfileBypassUser(user)) return DEFAULT_POST_LOGIN_LANDING;
   const fromProfile = getProfileLandingPath(user);
-  if (fromProfile) return fromProfile;
-  return ROUTES.HOME;
+  if (fromProfile) return normalizePostLoginPath(fromProfile);
+  if (isContractor(user)) return normalizePostLoginPath(ROUTES.CONTRACTOR_DASHBOARD);
+  if (isEngineerPortalUser(user)) return normalizePostLoginPath(ROUTES.ENGINEER_WORKSPACE);
+  if (isCoFinancePortalUser(user)) return normalizePostLoginPath(ROUTES.CO_FINANCE_WORKSPACE);
+  if (isVillagePortalUser(user)) return normalizePostLoginPath(ROUTES.VILLAGE_WORKSPACE);
+  if (isWardPortalUser(user)) return normalizePostLoginPath(ROUTES.WARD_WORKSPACE);
+  if (isSubCountyPortalUser(user)) return normalizePostLoginPath(ROUTES.SUBCOUNTY_WORKSPACE);
+  if (isChiefPortalUser(user)) return normalizePostLoginPath(ROUTES.CHIEF_WORKSPACE);
+  if (isSectorMePortalUser(user)) return normalizePostLoginPath(ROUTES.SECTOR_ME_WORKSPACE);
+  return DEFAULT_POST_LOGIN_LANDING;
 }
 
 export function getProfileMenuVisibilitySet(user) {
@@ -138,6 +158,15 @@ const ALWAYS_ALLOWED_PATH_PREFIXES = [
   ROUTES.HOME,
   ROUTES.MOBILE_APP_DOWNLOAD,
   ROUTES.HELP_SUPPORT,
+  ROUTES.CONTRACTOR_DASHBOARD,
+  ROUTES.ENGINEER_WORKSPACE,
+  ROUTES.CO_FINANCE_WORKSPACE,
+  ROUTES.VILLAGE_WORKSPACE,
+  ROUTES.WARD_WORKSPACE,
+  ROUTES.SUBCOUNTY_WORKSPACE,
+  ROUTES.CHIEF_WORKSPACE,
+  ROUTES.SECTOR_ME_WORKSPACE,
+  ROUTES.VILLAGE_MONITORING_WORKFLOW,
   '/help',
   '/profile',
 ].map(normalizePath).filter(Boolean);

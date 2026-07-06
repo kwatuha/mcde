@@ -29,6 +29,7 @@ import {
 import { Visibility, VisibilityOff, LockResetOutlined, Close as CloseIcon, EmailOutlined } from '@mui/icons-material';
 import gprisLogo from '../assets/gpris.png';
 import { resolvePostLoginPath } from '../utils/uiProfileUtils.js';
+import { goToPostLoginLanding } from '../utils/postLoginNavigation.js';
 import { usePublicCountyConfig } from '../hooks/usePublicCountyConfig.js';
 
 /** Login page palette — ICT.go.ke top bar blue (#005a9a) and shades */
@@ -98,9 +99,7 @@ const Login = () => {
                 return;
             }
             const target = resolvePostLoginPath(sessionUser || data.user);
-            // Full navigation so AuthContext reloads from localStorage. Client-side navigate('/')
-            // can race React state updates and MainLayout briefly sees no token → back to login.
-            window.location.assign(target);
+            goToPostLoginLanding(target);
         } catch (err) {
             const errorMessage =
                 err?.response?.data?.error ||

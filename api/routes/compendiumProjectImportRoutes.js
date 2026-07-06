@@ -2,20 +2,18 @@ const express = require('express');
 const XLSX = require('xlsx');
 const router = express.Router();
 const privilege = require('../middleware/privilegeMiddleware');
-const staging = require('../services/clientProjectImportStagingService');
-const applyService = require('../services/clientProjectImportApplyService');
-const demoDataService = require('../services/clientProjectDemoDataService');
+const staging = require('../services/compendiumProjectImportStagingService');
+const applyService = require('../services/compendiumProjectImportApplyService');
 
 const canRead = privilege(['project.update', 'project.read_all'], { anyOf: true });
 const canApply = privilege(['project.update', 'project.create'], { anyOf: true });
-const canVoidDemo = privilege(['project.update'], { anyOf: true });
 
 router.get('/batches', canRead, async (req, res) => {
   try {
     const batches = await staging.listBatches();
     res.json({ batches });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to list import batches.', error: error.message });
+    res.status(500).json({ message: 'Failed to list compendium import batches.', error: error.message });
   }
 });
 
@@ -38,6 +36,7 @@ router.get('/batches/:batch/rows', canRead, async (req, res) => {
     if (!batch) return res.status(400).json({ message: 'Batch id is required.' });
     const result = await staging.listStagingRows(batch, {
       proposedAction: req.query.proposedAction || req.query.action || '',
+      fundingClass: req.query.fundingClass || '',
       search: req.query.search || '',
       matchedOnly: req.query.matchedOnly === 'true' || req.query.matchedOnly === '1',
       notAppliedOnly: req.query.notAppliedOnly === 'true' || req.query.notAppliedOnly === '1',
@@ -56,6 +55,7 @@ router.get('/batches/:batch/export', canRead, async (req, res) => {
     if (!batch) return res.status(400).json({ message: 'Batch id is required.' });
     const rows = await staging.listAllStagingRowsForExport(batch, {
       proposedAction: req.query.proposedAction || req.query.action || '',
+      fundingClass: req.query.fundingClass || '',
       search: req.query.search || '',
       matchedOnly: req.query.matchedOnly === 'true' || req.query.matchedOnly === '1',
       notAppliedOnly: req.query.notAppliedOnly === 'true' || req.query.notAppliedOnly === '1',
@@ -64,34 +64,31 @@ router.get('/batches/:batch/export', canRead, async (req, res) => {
 
     const sheetRows = rows.map((row) => ({
       'Source row': row.sourceRowNo,
+      Sheet: row.sourceSheet,
       'Project name': row.projectName,
       'Sub-county': row.subCountyNorm || row.subCountyRaw || '',
       Ward: row.wardNorm || row.wardRaw || '',
       'Sub-location': row.subLocationNorm || row.subLocationRaw || '',
       Department: row.departmentNorm || row.departmentRaw || '',
-      Impact: row.impactRaw || '',
-      'Payment status (raw)': row.paymentStatusRaw || '',
-      'Payment status (norm)': row.paymentStatusNorm || '',
-      'Location scope': row.locationScope,
-      'Remarks amount': row.remarksAmount ?? '',
-      'Remarks status text': row.remarksStatusText || '',
-      'Duplicate count in file': row.duplicateCountInFile,
+      'Financial year': row.financialYearNorm || row.financialYearRaw || '',
+      'Approved cost': row.approvedCostNorm ?? row.approvedCostRaw ?? '',
+      'Funding class': row.fundingClass,
+      'Project status': row.projectStatusNorm || row.projectStatusRaw || '',
       'Match project ID': row.matchProjectId ?? '',
       'Match project name': row.matchProjectName || '',
       'Match score': row.matchScore ?? '',
-      'Match method': row.matchMethod || '',
-      'Match is test project': row.matchIsTestProject ? 'Yes' : 'No',
       'Proposed action': row.proposedAction,
+      Applied: row.appliedProjectId ?? '',
       'Review notes': row.reviewNotes || '',
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Staging review');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Compendium review');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     const safeBatch = batch.replace(/[^\w.-]+/g, '_').slice(0, 60);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="client-project-staging-${safeBatch}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="compendium-staging-${safeBatch}.xlsx"`);
     res.send(buffer);
   } catch (error) {
     res.status(500).json({ message: 'Failed to export staging rows.', error: error.message });
@@ -132,6 +129,7 @@ router.post('/batches/:batch/apply-insert', canApply, async (req, res) => {
         stagingIds,
         selectAllInsert,
         search: req.body?.search || '',
+        fundingClass: req.body?.fundingClass || '',
       },
       Number(userId),
     );
@@ -144,59 +142,7 @@ router.post('/batches/:batch/apply-insert', canApply, async (req, res) => {
       errorCount: result.errors.length,
     });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to create projects from staging.', error: error.message });
-  }
-});
-
-router.get('/demo-projects/summary', canRead, async (req, res) => {
-  try {
-    const summary = await demoDataService.summarizeDemoProjects();
-    res.json(summary);
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to summarize demo projects.', error: error.message });
-  }
-});
-
-router.get('/demo-projects', canRead, async (req, res) => {
-  try {
-    const result = await demoDataService.listDemoProjects({
-      search: req.query.search || '',
-      reason: req.query.reason || '',
-      limit: req.query.limit,
-      offset: req.query.offset,
-    });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to list demo projects.', error: error.message });
-  }
-});
-
-router.post('/demo-projects/void', canVoidDemo, async (req, res) => {
-  try {
-    const projectIds = Array.isArray(req.body?.projectIds)
-      ? req.body.projectIds.map((id) => Number(id)).filter(Number.isFinite)
-      : [];
-    const voidAllDemo = req.body?.voidAllDemo === true;
-
-    if (!voidAllDemo && !projectIds.length) {
-      return res.status(400).json({ message: 'Select at least one demo project or use voidAllDemo.' });
-    }
-
-    const result = await demoDataService.voidDemoProjects({
-      projectIds,
-      voidAllDemo,
-      search: req.body?.search || '',
-      reason: req.body?.reason || '',
-    });
-
-    res.json({
-      ...result,
-      voidedCount: result.voided.length,
-      skippedCount: result.skipped.length,
-      errorCount: result.errors.length,
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to void demo projects.', error: error.message });
+    res.status(500).json({ message: 'Failed to create projects from compendium staging.', error: error.message });
   }
 });
 

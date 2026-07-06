@@ -257,6 +257,11 @@ async function ensureStagingSchema() {
       UNIQUE (import_batch, source_row_no)
     )
   `);
+  await pool.query(`
+    ALTER TABLE client_project_import_staging
+      ADD COLUMN IF NOT EXISTS applied_project_id BIGINT NULL,
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ NULL
+  `);
 }
 
 function normalizeStagingRow(row, sourceFile, importBatch) {
@@ -546,6 +551,8 @@ function mapStagingRow(row) {
     matchIsTestProject: row.match_is_test_project === true,
     proposedAction: row.proposed_action,
     reviewNotes: row.review_notes,
+    appliedProjectId: row.applied_project_id != null ? Number(row.applied_project_id) : null,
+    appliedAt: row.applied_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -565,7 +572,12 @@ async function listBatches() {
       COUNT(*) FILTER (WHERE proposed_action = 'update_test_slot')::int AS "updateTestCount",
       COUNT(*) FILTER (WHERE proposed_action = 'insert')::int AS "insertCount",
       COUNT(*) FILTER (WHERE proposed_action = 'review')::int AS "reviewCount",
-      COUNT(*) FILTER (WHERE match_project_id IS NOT NULL)::int AS "matchedCount"
+      COUNT(*) FILTER (WHERE match_project_id IS NOT NULL)::int AS "matchedCount",
+      COUNT(*) FILTER (WHERE applied_project_id IS NOT NULL)::int AS "appliedCount",
+      COUNT(*) FILTER (WHERE applied_project_id IS NULL)::int AS "notAppliedCount",
+      COUNT(*) FILTER (
+        WHERE proposed_action = 'insert' AND applied_project_id IS NULL
+      )::int AS "insertReadyCount"
     FROM client_project_import_staging
     GROUP BY import_batch
     ORDER BY MAX(updated_at) DESC
@@ -585,6 +597,9 @@ async function listStagingRows(importBatch, opts = {}) {
   }
   if (opts.matchedOnly === true) {
     where.push('match_project_id IS NOT NULL');
+  }
+  if (opts.notAppliedOnly === true) {
+    where.push('applied_project_id IS NULL');
   }
   if (opts.search) {
     params.push(`%${cleanText(opts.search)}%`);
@@ -634,6 +649,9 @@ async function listAllStagingRowsForExport(importBatch, opts = {}) {
   }
   if (opts.matchedOnly === true) {
     where.push('match_project_id IS NOT NULL');
+  }
+  if (opts.notAppliedOnly === true) {
+    where.push('applied_project_id IS NULL');
   }
   if (opts.search) {
     params.push(`%${cleanText(opts.search)}%`);

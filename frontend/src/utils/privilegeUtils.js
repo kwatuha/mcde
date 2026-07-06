@@ -74,7 +74,8 @@ export const isAdmin = (user) => {
  * @returns {boolean} True if the user is a contractor, false otherwise.
  */
 export const isContractor = (user) => {
-  return normalizeRoleName(user?.roleName || user?.role) === 'contractor' || user?.contractorId;
+  if (!user || isAdmin(user)) return false;
+  return normalizeRoleName(user?.roleName || user?.role) === 'contractor';
 };
 
 function getCoFinanceWorkspaceLandingPath(user) {

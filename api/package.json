@@ -13,6 +13,7 @@
     "import:sublocation-villages": "node scripts/importSublocationVillages.js",
     "backfill:project-sublocation-villages": "node scripts/backfillProjectSublocationVillages.js",
     "stage:machakos-client-projects": "node scripts/stageMachakosClientProjects.js",
+    "stage:machakos-compendium-projects": "node scripts/stageMachakosCompendiumProjects.js",
     "repair:user-login": "node scripts/repairUserLogin.js"
   },
   "keywords": [],

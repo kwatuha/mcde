@@ -35,6 +35,7 @@ import villageMonitoringService from './villageMonitoringService';
 import engineerWorkspaceService from './engineerWorkspaceService';
 import coFinanceWorkspaceService from './coFinanceWorkspaceService';
 import clientProjectImportService from './clientProjectImportService';
+import compendiumProjectImportService from './compendiumProjectImportService';
 
 const projectPhotos = {
   getPhotosByProject: async (projectId) => {
@@ -143,6 +144,7 @@ const apiService = {
   engineerWorkspace: engineerWorkspaceService,
   coFinanceWorkspace: coFinanceWorkspaceService,
   clientProjectImport: clientProjectImportService,
+  compendiumProjectImport: compendiumProjectImportService,
   projectPhotos,
 };
 

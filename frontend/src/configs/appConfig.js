@@ -192,6 +192,7 @@ export const ROUTES = {
     STRATEGIC_DATA_IMPORT: '/strategic-planning/import',
     CENTRAL_IMPORT: '/data-import', // ✨ NEW: Central Import route
     CLIENT_PROJECT_IMPORT_REVIEW: '/data-import/client-projects/review',
+    COMPENDIUM_PROJECT_IMPORT_REVIEW: '/data-import/compendium-projects/review',
     NEW_DASHBOARD: '/projects-dashboard/view',
     PROJECT_ANALYTICS: '/project-analytics', // ✨ NEW: Project Analytics route
     PROJECTS_BY_ORGANIZATION: '/projects-by-organization', // ✨ NEW: Projects by organization dashboard

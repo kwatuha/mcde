@@ -186,9 +186,12 @@ async function buildLoginAuthResult(user, DB_TYPE, opts = {}) {
         }
     }
 
-    const contractorProfile = await contractorAuth.fetchContractorProfileForUser(userId);
     const normalizedRole = normalizeRoleForCompare(user.roleName || user.role || '');
-    const isContractorLogin = contractorAuth.isContractorRole(normalizedRole) || !!contractorProfile;
+    const isContractorRoleUser = contractorAuth.isContractorRole(user.roleName || user.role || '');
+    const contractorProfile = isContractorRoleUser
+        ? await contractorAuth.fetchContractorProfileForUser(userId)
+        : null;
+    const isContractorLogin = isContractorRoleUser;
     const hasScopeBypass = isAdminLikeRequester({
         roleName: user.role,
         roleId,
