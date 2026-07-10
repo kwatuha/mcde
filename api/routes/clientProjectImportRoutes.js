@@ -5,6 +5,7 @@ const privilege = require('../middleware/privilegeMiddleware');
 const staging = require('../services/clientProjectImportStagingService');
 const applyService = require('../services/clientProjectImportApplyService');
 const demoDataService = require('../services/clientProjectDemoDataService');
+const metadataResolution = require('../services/clientMetadataResolutionService');
 
 const canRead = privilege(['project.update', 'project.read_all'], { anyOf: true });
 const canApply = privilege(['project.update', 'project.create'], { anyOf: true });
@@ -41,6 +42,10 @@ router.get('/batches/:batch/rows', canRead, async (req, res) => {
       search: req.query.search || '',
       matchedOnly: req.query.matchedOnly === 'true' || req.query.matchedOnly === '1',
       notAppliedOnly: req.query.notAppliedOnly === 'true' || req.query.notAppliedOnly === '1',
+      appliedOnly: req.query.appliedOnly === 'true' || req.query.appliedOnly === '1',
+      appliedWithMetadataIssuesOnly:
+        req.query.appliedWithMetadataIssuesOnly === 'true' || req.query.appliedWithMetadataIssuesOnly === '1',
+      metadataIssuesOnly: req.query.metadataIssuesOnly === 'true' || req.query.metadataIssuesOnly === '1',
       limit: req.query.limit,
       offset: req.query.offset,
     });
@@ -59,6 +64,10 @@ router.get('/batches/:batch/export', canRead, async (req, res) => {
       search: req.query.search || '',
       matchedOnly: req.query.matchedOnly === 'true' || req.query.matchedOnly === '1',
       notAppliedOnly: req.query.notAppliedOnly === 'true' || req.query.notAppliedOnly === '1',
+      appliedOnly: req.query.appliedOnly === 'true' || req.query.appliedOnly === '1',
+      appliedWithMetadataIssuesOnly:
+        req.query.appliedWithMetadataIssuesOnly === 'true' || req.query.appliedWithMetadataIssuesOnly === '1',
+      metadataIssuesOnly: req.query.metadataIssuesOnly === 'true' || req.query.metadataIssuesOnly === '1',
     });
     if (!rows.length) return res.status(404).json({ message: 'No staging rows match the current filters.' });
 
@@ -83,6 +92,9 @@ router.get('/batches/:batch/export', canRead, async (req, res) => {
       'Match is test project': row.matchIsTestProject ? 'Yes' : 'No',
       'Proposed action': row.proposedAction,
       'Review notes': row.reviewNotes || '',
+      'Applied project ID': row.appliedProjectId ?? '',
+      'Applied at': row.appliedAt || '',
+      'Metadata remarks': row.metadataRemarksLabel || row.metadataRemarks || '',
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
@@ -145,6 +157,52 @@ router.post('/batches/:batch/apply-insert', canApply, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to create projects from staging.', error: error.message });
+  }
+});
+
+router.post('/batches/:batch/refresh-metadata', canApply, async (req, res) => {
+  try {
+    const batch = String(req.params.batch || '').trim();
+    if (!batch) return res.status(400).json({ message: 'Batch id is required.' });
+    const result = await staging.refreshMetadataRemarksForBatch(batch);
+    res.json({ batch, ...result });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to refresh metadata remarks.', error: error.message });
+  }
+});
+
+router.get('/batches/:batch/metadata-suggestions', canRead, async (req, res) => {
+  try {
+    const batch = String(req.params.batch || '').trim();
+    if (!batch) return res.status(400).json({ message: 'Batch id is required.' });
+    const result = await metadataResolution.listMetadataSuggestions(batch);
+    res.json(result);
+  } catch (error) {
+    console.error('Failed to load metadata suggestions:', error);
+    res.status(500).json({
+      message: error.message || 'Failed to load metadata suggestions.',
+      error: error.message,
+    });
+  }
+});
+
+router.post('/batches/:batch/metadata-resolutions', canApply, async (req, res) => {
+  try {
+    const batch = String(req.params.batch || '').trim();
+    if (!batch) return res.status(400).json({ message: 'Batch id is required.' });
+
+    const resolutions = Array.isArray(req.body?.resolutions) ? req.body.resolutions : [];
+    if (!resolutions.length) {
+      return res.status(400).json({ message: 'At least one resolution is required.' });
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.actualUserId;
+    if (!userId) return res.status(401).json({ message: 'Authentication required.' });
+
+    const result = await metadataResolution.saveResolutions(batch, resolutions, Number(userId));
+    res.json({ batch, ...result });
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Failed to save metadata resolutions.' });
   }
 });
 

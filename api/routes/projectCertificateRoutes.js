@@ -10,6 +10,12 @@ const crypto = require('crypto');
 const approvalWorkflowEngine = require('../services/approvalWorkflowEngine');
 const { recordAudit, AUDIT_ACTIONS } = require('../services/auditTrailService');
 
+/** Co-finance / engineer certificate review uses payment_request.*; finance register uses document.read_all. */
+const canReadFinanceCertificates = privilege(
+    ['document.read_all', 'payment_request.read_all', 'payment_request.update'],
+    { anyOf: true },
+);
+
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads', 'projects');
 if (!fs.existsSync(baseUploadDir)) {
     fs.mkdirSync(baseUploadDir, { recursive: true });
@@ -372,9 +378,9 @@ router.get('/finance-list', auth, privilege(['document.read_all']), async (req, 
 /**
  * @route GET /api/projects/project_certificates/:id/download
  * @description Download a certificate attachment (must be registered before `/:id` so Express does not treat "download" as an id).
- * @access Same as finance list — document.read_all (Bearer token required; not for anonymous hotlinking).
+ * @access Same as finance list (Bearer token required; not for anonymous hotlinking).
  */
-router.get('/:id/download', privilege(['document.read_all']), async (req, res) => {
+router.get('/:id/download', canReadFinanceCertificates, async (req, res) => {
     const { id } = req.params;
     try {
         if (isPostgres) await ensurePostgresTable();

@@ -2,10 +2,11 @@ import menuConfig from '../configs/menuConfig.json';
 import { ROUTES } from '../configs/appConfig.js';
 import { isSuperAdminUser } from './roleUtils.js';
 import {
+    isChiefEngineerPortalUser,
     isChiefPortalUser,
     isCoFinancePortalUser,
     isContractor,
-    isEngineerPortalUser,
+    isResidentEngineerPortalUser,
     isSectorMePortalUser,
     isSubCountyPortalUser,
     isVillagePortalUser,
@@ -47,16 +48,22 @@ export function getProfileLandingPath(user) {
 
 export function resolvePostLoginPath(user) {
   if (isUiProfileBypassUser(user)) return DEFAULT_POST_LOGIN_LANDING;
-  const fromProfile = getProfileLandingPath(user);
-  if (fromProfile) return normalizePostLoginPath(fromProfile);
+
+  // Portal roles take precedence over UI profile landing paths so a stale profile
+  // (e.g. /resident-engineer-workspace on a Chief Engineer role) cannot override.
   if (isContractor(user)) return normalizePostLoginPath(ROUTES.CONTRACTOR_DASHBOARD);
-  if (isEngineerPortalUser(user)) return normalizePostLoginPath(ROUTES.ENGINEER_WORKSPACE);
+  if (isChiefEngineerPortalUser(user)) return normalizePostLoginPath(ROUTES.CHIEF_ENGINEER_WORKSPACE);
+  if (isResidentEngineerPortalUser(user)) return normalizePostLoginPath(ROUTES.RESIDENT_ENGINEER_WORKSPACE);
   if (isCoFinancePortalUser(user)) return normalizePostLoginPath(ROUTES.CO_FINANCE_WORKSPACE);
   if (isVillagePortalUser(user)) return normalizePostLoginPath(ROUTES.VILLAGE_WORKSPACE);
   if (isWardPortalUser(user)) return normalizePostLoginPath(ROUTES.WARD_WORKSPACE);
   if (isSubCountyPortalUser(user)) return normalizePostLoginPath(ROUTES.SUBCOUNTY_WORKSPACE);
   if (isChiefPortalUser(user)) return normalizePostLoginPath(ROUTES.CHIEF_WORKSPACE);
   if (isSectorMePortalUser(user)) return normalizePostLoginPath(ROUTES.SECTOR_ME_WORKSPACE);
+
+  const fromProfile = getProfileLandingPath(user);
+  if (fromProfile) return normalizePostLoginPath(fromProfile);
+
   return DEFAULT_POST_LOGIN_LANDING;
 }
 
@@ -159,6 +166,8 @@ const ALWAYS_ALLOWED_PATH_PREFIXES = [
   ROUTES.MOBILE_APP_DOWNLOAD,
   ROUTES.HELP_SUPPORT,
   ROUTES.CONTRACTOR_DASHBOARD,
+  ROUTES.RESIDENT_ENGINEER_WORKSPACE,
+  ROUTES.CHIEF_ENGINEER_WORKSPACE,
   ROUTES.ENGINEER_WORKSPACE,
   ROUTES.CO_FINANCE_WORKSPACE,
   ROUTES.VILLAGE_WORKSPACE,
@@ -415,21 +424,37 @@ export function isCoFinanceWorkflowPath(pathname) {
   return false;
 }
 
-/** Engineer workspace root and nested pages (projects, payments, certificates). */
-export function isEngineerPortalPath(pathname) {
+/** Resident engineer workspace root and nested pages. */
+export function isResidentEngineerPortalPath(pathname) {
   const base = normalizePath(pathname);
-  const root = normalizePath(ROUTES.ENGINEER_WORKSPACE);
+  const root = normalizePath(ROUTES.RESIDENT_ENGINEER_WORKSPACE);
   if (!root) return false;
   return base === root || base.startsWith(`${root}/`);
 }
 
-/**
- * Routes engineers open from the workspace (project detail tabs, finance certificates).
- * Without this, restrictive UI profiles redirect back to /engineer-workspace.
- */
-export function isEngineerWorkflowPath(pathname) {
+/** Chief engineer workspace root and nested pages. */
+export function isChiefEngineerPortalPath(pathname) {
   const base = normalizePath(pathname);
-  if (isEngineerPortalPath(pathname)) return true;
+  const root = normalizePath(ROUTES.CHIEF_ENGINEER_WORKSPACE);
+  if (!root) return false;
+  return base === root || base.startsWith(`${root}/`);
+}
+
+/** @deprecated use isResidentEngineerPortalPath — legacy /engineer-workspace redirects to resident */
+export function isEngineerPortalPath(pathname) {
+  const base = normalizePath(pathname);
+  const legacy = normalizePath('/engineer-workspace');
+  if (legacy && (base === legacy || base.startsWith(`${legacy}/`))) return true;
+  return isResidentEngineerPortalPath(pathname) || isChiefEngineerPortalPath(pathname);
+}
+
+/**
+ * Routes engineers open from their workspace (project detail tabs, finance certificates).
+ * Without this, restrictive UI profiles redirect back to the workspace home.
+ */
+export function isResidentEngineerWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isResidentEngineerPortalPath(pathname)) return true;
   if (/^\/projects\/\d+/.test(base)) return true;
   const financeCerts = normalizePath(ROUTES.FINANCE_PAYMENT_CERTIFICATES);
   if (financeCerts && (base === financeCerts || base.startsWith(`${financeCerts}/`))) {
@@ -438,7 +463,35 @@ export function isEngineerWorkflowPath(pathname) {
   return false;
 }
 
+export function isChiefEngineerWorkflowPath(pathname) {
+  const base = normalizePath(pathname);
+  if (isChiefEngineerPortalPath(pathname)) return true;
+  if (/^\/projects\/\d+/.test(base)) return true;
+  const financeCerts = normalizePath(ROUTES.FINANCE_PAYMENT_CERTIFICATES);
+  if (financeCerts && (base === financeCerts || base.startsWith(`${financeCerts}/`))) {
+    return true;
+  }
+  return false;
+}
+
+/** @deprecated */
+export function isEngineerWorkflowPath(pathname) {
+  return isResidentEngineerWorkflowPath(pathname) || isChiefEngineerWorkflowPath(pathname);
+}
+
 export function getFirstVisibleMenuPath(visibleCategories, user = null) {
+  if (user && isChiefEngineerPortalUser(user)) {
+    const chiefPath = normalizePath(ROUTES.CHIEF_ENGINEER_WORKSPACE);
+    if (chiefPath && isPathAllowedByVisibleMenu(chiefPath, visibleCategories)) {
+      return chiefPath;
+    }
+  }
+  if (user && isResidentEngineerPortalUser(user)) {
+    const residentPath = normalizePath(ROUTES.RESIDENT_ENGINEER_WORKSPACE);
+    if (residentPath && isPathAllowedByVisibleMenu(residentPath, visibleCategories)) {
+      return residentPath;
+    }
+  }
   for (const category of visibleCategories || []) {
     for (const submenu of category.submenus || []) {
       const path = submenuPath(submenu);

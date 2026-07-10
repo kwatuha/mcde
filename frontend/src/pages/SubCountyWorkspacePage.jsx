@@ -22,6 +22,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import GroupsIcon from '@mui/icons-material/Groups';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
+import MobileAppWorkspaceQuickAction from '../components/MobileAppWorkspaceQuickAction';
 import villageMonitoringService from '../api/villageMonitoringService';
 import { useAuth } from '../context/AuthContext';
 import { canSubCountyReviewMonitoringReports } from '../utils/privilegeUtils';
@@ -243,6 +244,7 @@ export default function SubCountyWorkspacePage() {
           color="#5e35b1"
           onClick={() => navigate(ROUTES.RRI_PROGRAMMES)}
         />
+        <MobileAppWorkspaceQuickAction />
       </Box>
 
       {subcountyQueue > 0 && reportTab !== 'subcounty' ? (

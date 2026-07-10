@@ -193,3 +193,23 @@ async function getCurrentLocationInternal(): Promise<ChecklistLocationAnswer> {
 
   throw new Error(formatGeoError(lastErr || new Error('Could not get GPS location.')));
 }
+
+export async function requestCameraPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+
+  const alreadyGranted = await PermissionsAndroid.check(
+    PermissionsAndroid.PERMISSIONS.CAMERA
+  );
+  if (alreadyGranted) return true;
+
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.CAMERA,
+    {
+      title: 'Camera permission',
+      message: 'Machakos Collector needs the camera to capture site photos.',
+      buttonPositive: 'Allow',
+      buttonNegative: 'Deny',
+    }
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}

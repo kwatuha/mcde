@@ -33,6 +33,7 @@ import apiService from '../api';
 import { useAuth } from '../context/AuthContext.jsx';
 import ApprovalWorkflowPanel from '../components/approval/ApprovalWorkflowPanel.jsx';
 import { workflowChipProps, workflowDetailLine } from '../utils/certificateWorkflowDisplay.js';
+import { canViewPaymentCertificates } from '../utils/privilegeUtils.js';
 
 const CERTIFICATE_APPROVAL_ENTITY = 'project_certificate';
 
@@ -67,7 +68,7 @@ function rowMatchesApprovalFilter(row, approvalStatus) {
 export default function PaymentCertificatesPage() {
   const { user, hasPrivilege } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canView = hasPrivilege && hasPrivilege('document.read_all');
+  const canView = canViewPaymentCertificates(hasPrivilege);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

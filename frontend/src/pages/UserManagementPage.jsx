@@ -62,6 +62,21 @@ function formatOtpChannelLabel(channel) {
   return 'Email only';
 }
 
+const UI_PROFILE_LANDING_SUGGESTIONS = [
+  { path: '/resident-engineer-workspace', label: 'Resident Engineer Workspace' },
+  { path: '/chief-engineer-workspace', label: 'Chief Engineer Workspace' },
+  { path: '/co-finance-workspace', label: 'Co-Finance Workspace' },
+  { path: '/contractor-dashboard', label: 'Contractor Dashboard' },
+  { path: '/village-workspace', label: 'Village Workspace' },
+  { path: '/ward-workspace', label: 'Ward Workspace' },
+  { path: '/subcounty-workspace', label: 'Sub-County Workspace' },
+  { path: '/chief-workspace', label: 'Department Chief Workspace' },
+  { path: '/sector-me-workspace', label: 'Sector M&E Workspace' },
+  { path: '/workflow-approvals', label: 'Workflow Approvals' },
+  { path: '/projects', label: 'Projects Registry' },
+  { path: '/', label: 'Home dashboard' },
+];
+
 const PROJECT_DETAIL_UI_TAB_OPTIONS = [
   { key: 'projectDetails:overview', label: 'Overview', group: 'Core details', description: 'Project summary, location, ownership and status.' },
   { key: 'projectDetails:financials', label: 'Financials', group: 'Finance and planning', description: 'Budget, disbursement and financial fields.' },
@@ -6169,7 +6184,7 @@ function UserManagementPage() {
                       <TableCell>{profile.description || '—'}</TableCell>
                       <TableCell>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                          {profile.landingPath || '—'}
+                          {profile.landingPath || profile.landing_path || '—'}
                         </Typography>
                       </TableCell>
                       <TableCell>{profile.visibleMenuKeys?.length || 0}</TableCell>
@@ -6228,15 +6243,40 @@ function UserManagementPage() {
             inputRef={uiProfileDescriptionInputRef}
             sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
           />
-          <TextField
-            fullWidth
-            margin="dense"
-            label="Landing page after login"
-            placeholder="/engineer-workspace"
-            value={uiProfileFormData.landingPath}
-            onChange={(e) => setUiProfileFormData((prev) => ({ ...prev, landingPath: e.target.value }))}
-            helperText="Optional. Relative path where users with this profile land after sign-in (e.g. /engineer-workspace, /projects). Leave blank for the default home dashboard."
-            sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
+          <Autocomplete
+            freeSolo
+            options={UI_PROFILE_LANDING_SUGGESTIONS}
+            getOptionLabel={(option) => (typeof option === 'string' ? option : option.path)}
+            value={uiProfileFormData.landingPath || ''}
+            onChange={(_event, value) => {
+              const nextPath = typeof value === 'string' ? value : (value?.path || '');
+              setUiProfileFormData((prev) => ({ ...prev, landingPath: nextPath }));
+            }}
+            onInputChange={(_event, value, reason) => {
+              if (reason === 'input') {
+                setUiProfileFormData((prev) => ({ ...prev, landingPath: value }));
+              }
+            }}
+            renderOption={(props, option) => (
+              <li {...props} key={option.path}>
+                <Stack spacing={0.25}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.path}</Typography>
+                  <Typography variant="caption" color="text.secondary">{option.label}</Typography>
+                </Stack>
+              </li>
+            )}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                margin="dense"
+                label="Landing page after login"
+                placeholder="/chief-engineer-workspace"
+                helperText="Optional. Pick or type a path — e.g. /resident-engineer-workspace or /chief-engineer-workspace. Leave blank for the default home dashboard."
+                sx={{ mb: 2, '& .MuiOutlinedInput-root': { backgroundColor: '#ffffff', borderRadius: 1.5 } }}
+              />
+            )}
+            sx={{ mb: 2 }}
           />
           <FormControlLabel
             control={

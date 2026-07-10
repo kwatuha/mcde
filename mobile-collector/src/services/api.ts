@@ -3,6 +3,13 @@ import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, STORAGE_KEYS, APP_VERSION } from '../config/api';
 import { isNewerVersion } from '../utils/versionUtils';
+import { mapJwtUserToAuthUser, parseJwtUser } from '../utils/jwtUtils';
+import {
+  normalizeUploadUri,
+  parseJsonResponse,
+  toNetworkError,
+  toUploadHttpError,
+} from '../utils/uploadUtils';
 import {
   DataCollectionSubmission,
   DataCollectionTemplate,
@@ -22,7 +29,7 @@ export interface AuthUser {
 }
 
 type LoginResult =
-  | { kind: 'token'; token: string; forcePasswordChange?: boolean }
+  | { kind: 'token'; token: string; forcePasswordChange?: boolean; user?: AuthUser }
   | { kind: 'otp'; challenge: LoginOtpChallenge };
 
 class ApiService {
@@ -65,11 +72,99 @@ class ApiService {
     );
   }
 
-  private async persistSession(token: string): Promise<AuthUser> {
+  private async setMustChangePassword(required: boolean): Promise<void> {
+    if (required) {
+      await AsyncStorage.setItem(STORAGE_KEYS.MUST_CHANGE_PASSWORD, 'true');
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEYS.MUST_CHANGE_PASSWORD);
+    }
+  }
+
+  async getMustChangePassword(): Promise<boolean> {
+    const value = await AsyncStorage.getItem(STORAGE_KEYS.MUST_CHANGE_PASSWORD);
+    return value === 'true';
+  }
+
+  private mapMeUser(user: Record<string, unknown> | null | undefined): AuthUser {
+    const id = Number(user?.id ?? user?.userId ?? user?.actualUserId);
+    return {
+      id: Number.isFinite(id) && id > 0 ? id : 0,
+      username: typeof user?.username === 'string' ? user.username : undefined,
+      email: typeof user?.email === 'string' ? user.email : undefined,
+      firstName: typeof user?.firstName === 'string'
+        ? user.firstName
+        : typeof user?.firstname === 'string'
+          ? user.firstname
+          : undefined,
+      lastName: typeof user?.lastName === 'string'
+        ? user.lastName
+        : typeof user?.lastname === 'string'
+          ? user.lastname
+          : undefined,
+      roleName: typeof user?.roleName === 'string'
+        ? user.roleName
+        : typeof user?.role === 'string'
+          ? user.role
+          : undefined,
+    };
+  }
+
+  private async persistSession(
+    token: string,
+    options: { forcePasswordChange?: boolean } = {}
+  ): Promise<AuthUser> {
     await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
-    const me = await this.fetchMe();
-    await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(me));
-    return me;
+
+    let meUser: AuthUser | null = null;
+    let mustChangePassword = options.forcePasswordChange === true;
+
+    try {
+      const response = await this.client.get('/api/auth/me');
+      const user = response.data?.user || response.data;
+      meUser = this.mapMeUser(user);
+      if (response.data?.mustChangePassword === true) {
+        mustChangePassword = true;
+      } else if (response.data?.mustChangePassword === false) {
+        mustChangePassword = false;
+      }
+    } catch (refreshErr) {
+      const jwtUser = mapJwtUserToAuthUser(parseJwtUser(token));
+      if (jwtUser) {
+        meUser = jwtUser;
+      } else {
+        const sessionMsg =
+          (refreshErr as AxiosError)?.response?.data &&
+          typeof (refreshErr as AxiosError).response?.data === 'object'
+            ? ((refreshErr as AxiosError).response?.data as { error?: string; message?: string }).error
+              || ((refreshErr as AxiosError).response?.data as { message?: string }).message
+            : null;
+        throw new Error(sessionMsg || 'Signed in but could not load your profile. Try again.');
+      }
+    }
+
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(meUser));
+    await this.setMustChangePassword(mustChangePassword);
+    return meUser;
+  }
+
+  /** Validate stored token on app launch (mirrors web session refresh). */
+  async resumeSession(): Promise<{ authenticated: boolean; mustChangePassword: boolean }> {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (!token) {
+      await this.logout();
+      return { authenticated: false, mustChangePassword: false };
+    }
+
+    try {
+      await this.persistSession(token);
+      return {
+        authenticated: true,
+        mustChangePassword: await this.getMustChangePassword(),
+      };
+    } catch {
+      await this.logout();
+      return { authenticated: false, mustChangePassword: false };
+    }
   }
 
   async login(username: string, password: string): Promise<LoginResult> {
@@ -97,20 +192,19 @@ class ApiService {
       throw new Error(data.error || data.message || 'Login did not return a token.');
     }
 
-    try {
-      await this.persistSession(data.token);
-      await this.reportAppUsage('app_login');
-    } catch (sessionErr: any) {
-      const sessionMsg =
-        sessionErr?.response?.data?.error ||
-        sessionErr?.response?.data?.message ||
-        sessionErr?.message;
-      throw new Error(sessionMsg || 'Signed in but could not load your profile. Try again.');
-    }
-    return { kind: 'token', token: data.token, forcePasswordChange: data.forcePasswordChange };
+    const me = await this.persistSession(data.token, {
+      forcePasswordChange: data.forcePasswordChange === true,
+    });
+    await this.reportAppUsage('app_login');
+    return {
+      kind: 'token',
+      token: data.token,
+      forcePasswordChange: await this.getMustChangePassword(),
+      user: me,
+    };
   }
 
-  async verifyOtp(challengeId: string, code: string): Promise<{ token: string }> {
+  async verifyOtp(challengeId: string, code: string): Promise<{ token: string; forcePasswordChange: boolean }> {
     const response = await this.client.post('/api/auth/login/verify-otp', {
       challengeId,
       code: String(code).trim(),
@@ -119,22 +213,43 @@ class ApiService {
     if (!data.token) {
       throw new Error(data.error || 'Verification did not return a token.');
     }
-    await this.persistSession(data.token);
+    if (!data.token) {
+      throw new Error(data.error || 'Verification did not return a token.');
+    }
+    await this.persistSession(data.token, {
+      forcePasswordChange: data.forcePasswordChange === true,
+    });
     await this.reportAppUsage('app_login');
-    return { token: data.token };
+    return {
+      token: data.token,
+      forcePasswordChange: await this.getMustChangePassword(),
+    };
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const response = await this.client.post('/api/auth/change-password', {
+      currentPassword: currentPassword.trim(),
+      newPassword: newPassword.trim(),
+    });
+    const data = response.data || {};
+    if (data.token) {
+      await this.persistSession(data.token, { forcePasswordChange: false });
+    } else {
+      await this.setMustChangePassword(false);
+    }
   }
 
   async fetchMe(): Promise<AuthUser> {
     const response = await this.client.get('/api/auth/me');
     const user = response.data?.user || response.data;
-    return {
-      id: user?.id ?? user?.userId ?? user?.actualUserId,
-      username: user?.username,
-      email: user?.email,
-      firstName: user?.firstName ?? user?.firstname,
-      lastName: user?.lastName ?? user?.lastname,
-      roleName: user?.roleName ?? user?.role,
-    };
+    const me = this.mapMeUser(user);
+    if (response.data?.mustChangePassword === true) {
+      await this.setMustChangePassword(true);
+    } else if (response.data?.mustChangePassword === false) {
+      await this.setMustChangePassword(false);
+    }
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(me));
+    return me;
   }
 
   private async geographyNames(path: string, params: Record<string, string> = {}): Promise<string[]> {
@@ -167,6 +282,7 @@ class ApiService {
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.AUTH_TOKEN,
       STORAGE_KEYS.USER_DATA,
+      STORAGE_KEYS.MUST_CHANGE_PASSWORD,
     ]);
   }
 
@@ -270,7 +386,9 @@ class ApiService {
     progressStatus?: string;
     inspectionId?: number;
   }): Promise<DataCollectionSubmission> {
-    const response = await this.client.post('/api/data-collection/submissions', body);
+    const response = await this.client.post('/api/data-collection/submissions', body, {
+      timeout: 120000,
+    });
     return response.data;
   }
 
@@ -310,9 +428,15 @@ class ApiService {
     accuracy?: number | null;
     capturedAt?: string;
   }> {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (!token) {
+      throw toUploadHttpError(401, { message: 'Session expired. Sign in again.' }, 'Unauthorized');
+    }
+
     const form = new FormData();
+    const uploadUri = normalizeUploadUri(localUri);
     form.append('file', {
-      uri: localUri,
+      uri: uploadUri,
       type: meta.mimeType || 'image/jpeg',
       name: meta.fileName || 'photo.jpg',
     } as unknown as Blob);
@@ -322,18 +446,45 @@ class ApiService {
     if (meta.accuracy != null) form.append('accuracy', String(meta.accuracy));
     if (meta.capturedAt) form.append('capturedAt', meta.capturedAt);
 
-    // Do not set Content-Type manually — RN/axios must add the multipart boundary.
-    const response = await this.client.post('/api/data-collection/attachments', form, {
-      timeout: 120000,
-      headers: { Accept: 'application/json' },
-      transformRequest: (data, headers) => {
-        if (headers) {
-          delete (headers as Record<string, unknown>)['Content-Type'];
-        }
-        return data;
-      },
-    });
-    return response.data;
+    // fetch handles multipart boundaries reliably on Android (axios often fails with Network Error).
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/data-collection/attachments`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          'X-Client-App': 'machakos-collector',
+        },
+        body: form,
+      });
+    } catch {
+      throw toNetworkError();
+    }
+
+    const data = await parseJsonResponse(response);
+    if (response.status === 401) {
+      await AsyncStorage.multiRemove([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.USER_DATA]);
+      this.onUnauthorized?.();
+      throw toUploadHttpError(401, data, 'Session expired. Sign in again.');
+    }
+    if (!response.ok) {
+      const message =
+        (typeof data.message === 'string' && data.message) ||
+        (typeof data.error === 'string' && data.error) ||
+        `Photo upload failed (${response.status}).`;
+      throw toUploadHttpError(response.status, data, message);
+    }
+
+    return data as {
+      fileId: number;
+      url: string;
+      fileName: string;
+      lat?: number | null;
+      lng?: number | null;
+      accuracy?: number | null;
+      capturedAt?: string;
+    };
   }
 
   async reportAppUsage(eventType: 'app_login' | 'app_sync' = 'app_login'): Promise<void> {

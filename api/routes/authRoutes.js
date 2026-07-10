@@ -48,6 +48,43 @@ function normalizePasswordInput(value) {
     return String(value ?? '').trim();
 }
 
+const FIELD_COLLECTOR_MONITORING_PRIVILEGES = new Set([
+    'monitoring_report.read',
+    'monitoring_report.create',
+    'monitoring_report.submit',
+]);
+
+const FIELD_COLLECTOR_WORKSPACE_ROLES = new Set([
+    'village administrator',
+    'ward administrator',
+    'sub county administrator',
+    'subcounty administrator',
+    'chief officer',
+]);
+
+function isMachakosCollectorClient(clientApp) {
+    return String(clientApp || '').trim().toLowerCase() === 'machakos-collector';
+}
+
+function canLoginWithoutAccessScopeForFieldCollector({
+    clientApp,
+    uiProfile,
+    userPrivileges,
+    roleName,
+}) {
+    if (!isMachakosCollectorClient(clientApp)) return false;
+
+    const landing = String(uiProfile?.landingPath || uiProfile?.landing_path || '').trim();
+    if (landing && landing !== '/') return true;
+
+    const role = normalizeRoleForCompare(roleName || '');
+    if (FIELD_COLLECTOR_WORKSPACE_ROLES.has(role)) return true;
+
+    return (userPrivileges || []).some((privilege) => (
+        FIELD_COLLECTOR_MONITORING_PRIVILEGES.has(String(privilege || '').trim().toLowerCase())
+    ));
+}
+
 /**
  * Read/write idle timeout in system_settings only when using PostgreSQL.
  * Historically we checked DB_TYPE === 'postgresql' only; production often omits DB_TYPE
@@ -165,7 +202,7 @@ async function getPrivilegesByRole(roleId) {
  * @returns {Promise<{ token: string, forcePasswordChange: boolean, message: string }>}
  */
 async function buildLoginAuthResult(user, DB_TYPE, opts = {}) {
-    const { isDefaultResetPassword = false, relaxScopeCheck = false } = opts;
+    const { isDefaultResetPassword = false, relaxScopeCheck = false, clientApp = '' } = opts;
     const roleId = user.roleId || user.roleid;
     const userId = user.userId || user.userid;
 
@@ -198,11 +235,19 @@ async function buildLoginAuthResult(user, DB_TYPE, opts = {}) {
         privileges: userPrivileges,
     });
 
+    const hasFieldCollectorScopeBypass = canLoginWithoutAccessScopeForFieldCollector({
+        clientApp,
+        uiProfile,
+        userPrivileges,
+        roleName: user.roleName || user.role || '',
+    });
+
     if (
         DB_TYPE === 'postgresql'
         && !relaxScopeCheck
         && !hasScopeBypass
         && !isContractorLogin
+        && !hasFieldCollectorScopeBypass
         && organizationScopes.length === 0
         && projectScopes.length === 0
     ) {
@@ -222,6 +267,7 @@ async function buildLoginAuthResult(user, DB_TYPE, opts = {}) {
         && !relaxScopeCheck
         && !hasScopeBypass
         && !isContractorLogin
+        && !hasFieldCollectorScopeBypass
         && organizationScopes.length === 0
         && projectScopes.length === 0
     ) {
@@ -840,7 +886,7 @@ router.post('/login', async (req, res) => {
         }
 
         const isDefaultResetPassword = String(password || '').trim() === 'reset123';
-        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword });
+        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword, clientApp });
 
     } catch (err) {
         console.error('Error during login:', err);
@@ -905,7 +951,11 @@ router.post('/login/verify-otp', async (req, res) => {
             details: { username: user.username || user.email },
         });
 
-        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword: false });
+        const clientApp = String(
+            req.body?.clientApp || req.headers['x-client-app'] || ''
+        ).trim();
+
+        await sendLoginTokenResponse(res, user, DB_TYPE, { isDefaultResetPassword: false, clientApp });
     } catch (err) {
         console.error('Error during OTP verification:', err);
         res.status(500).json({ error: 'Server error during verification.', details: err.message });

@@ -83,7 +83,7 @@ router.get('/reports', canRead, async (req, res) => {
 router.get('/reports/:id', canRead, async (req, res) => {
   try {
     const detail = req.query.detail === 'true'
-      ? await workflow.getSubmissionDetail(req.params.id, req.user)
+      ? await workflow.getSubmissionDetailWithFormattedReport(req.params.id, req.user)
       : await workflow.getSubmissionById(req.params.id, req.user);
     if (!detail) return res.status(404).json({ message: 'Monitoring report not found.' });
     res.json(detail);

@@ -22,6 +22,12 @@ import apiService from '../api';
 import kenyaWardsService from '../api/kenyaWardsService';
 import { useAuth } from '../context/AuthContext';
 import { isItemVisible, stripHiddenAnswers } from '../utils/checklistVisibility';
+import { buildUserFieldAnswer, isUserFieldEmpty } from '../utils/userFieldUtils';
+import {
+  checklistOptionLabel,
+  checklistOptionValue,
+  multiSelectValues,
+} from '../utils/checklistAnswerUtils';
 
 /** All options visible with checkboxes (procurement stage assessment style). */
 function CheckboxOptionList({
@@ -109,8 +115,9 @@ function photoList(raw) {
 function formatAnswerDisplay(item, raw) {
   if (raw === undefined || raw === null || raw === '') return '—';
   if (item.type === 'multi_select') {
-    if (!Array.isArray(raw) || !raw.length) return '—';
-    return raw.join(', ');
+    const values = multiSelectValues(raw);
+    if (!values.length) return '—';
+    return values.join(', ');
   }
   if (item.type === 'yes_no') return raw === 'yes' || raw === true ? 'Yes' : raw === 'no' || raw === false ? 'No' : String(raw);
   if (item.type === 'progress_status') {
@@ -638,24 +645,16 @@ function UserField({ item, value, onChange, disabled }) {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (disabled || (value != null && value !== '')) return;
-    if (!user) return;
-    const first = String(user.firstName || '').trim();
-    const last = String(user.lastName || '').trim();
-    const displayName = `${first} ${last}`.trim() || user.username || user.email || `User #${user.id}`;
-    onChange({
-      userId: user.id || user.userId,
-      displayName,
-      email: user.email,
-      roleName: user.roleName || user.role,
-      username: user.username,
-    });
+    if (disabled || !isUserFieldEmpty(value) || !user) return;
+    const auto = buildUserFieldAnswer(user);
+    if (auto) onChange(auto);
     // Auto-fill once when empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, item.id, disabled]);
+  }, [user?.id, user?.userId, item.id, disabled, value]);
 
-  const display =
-    value && typeof value === 'object'
+  const display = isUserFieldEmpty(value) && !user
+    ? 'Loading your profile…'
+    : value && typeof value === 'object'
       ? value.displayName || value.username || value.email
       : value || '—';
 
@@ -686,7 +685,28 @@ export default function ChecklistFormFields({
   subjectType = 'project',
   rriProgrammeId = null,
 }) {
+  const { user } = useAuth();
   const answers = value && typeof value === 'object' ? value : {};
+
+  useEffect(() => {
+    if (disabled || !user || typeof onChange !== 'function') return;
+    const auto = buildUserFieldAnswer(user);
+    if (!auto) return;
+    let changed = false;
+    const next = { ...answers };
+    for (const sec of structure.sections || []) {
+      for (const item of sec.items || []) {
+        if (item.type !== 'user') continue;
+        if (!isUserFieldEmpty(next[item.id])) continue;
+        next[item.id] = auto;
+        changed = true;
+      }
+    }
+    if (changed) {
+      onChange(stripHiddenAnswers(structure, next));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.userId, structure, disabled]);
 
   const setField = (id, v) => {
     if (disabled || typeof onChange !== 'function') return;
@@ -809,10 +829,12 @@ export default function ChecklistFormFields({
                 {item.type === 'multi_select' && (
                   <CheckboxOptionList
                     options={item.options || []}
-                    selectedValues={Array.isArray(answers[item.id]) ? answers[item.id] : []}
+                    selectedValues={multiSelectValues(answers[item.id])}
                     disabled={disabled}
+                    getValue={checklistOptionValue}
+                    getLabel={checklistOptionLabel}
                     onToggle={(val, checked) => {
-                      const current = Array.isArray(answers[item.id]) ? [...answers[item.id]] : [];
+                      const current = multiSelectValues(answers[item.id]);
                       const next = checked
                         ? (current.includes(val) ? current : [...current, val])
                         : current.filter((x) => x !== val);

@@ -27,9 +27,9 @@ import engineerWorkspaceService from '../../api/engineerWorkspaceService';
 import { brand } from '../../theme/colorTokens';
 import { getProjectDocumentFileUrl } from '../../utils/projectDocumentFileUtils';
 import {
-  ENGINEER_WORKSPACE_ROUTES,
+  WORKSPACE_ROUTES,
   projectTabLink,
-} from './engineerWorkspaceShared';
+} from './chiefEngineerWorkspaceShared';
 import { groupProgressPhotos, isPendingReviewPhoto } from './progressPhotoUtils';
 
 function PhotoCard({ photo }) {
@@ -77,7 +77,7 @@ function PhotoCard({ photo }) {
   );
 }
 
-export default function EngineerWorkspaceProgressPhotosPage() {
+export default function ChiefEngineerProgressPhotosPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const preselectedProjectId = searchParams.get('projectId') || '';
@@ -134,7 +134,7 @@ export default function EngineerWorkspaceProgressPhotosPage() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(ENGINEER_WORKSPACE_ROUTES.overview)}
+          onClick={() => navigate(WORKSPACE_ROUTES.overview)}
           size="small"
         >
           Workspace

@@ -22,6 +22,7 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import DescriptionIcon from '@mui/icons-material/Description';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
+import MobileAppWorkspaceQuickAction from '../components/MobileAppWorkspaceQuickAction';
 import villageMonitoringService from '../api/villageMonitoringService';
 import { useAuth } from '../context/AuthContext';
 import { canSectorMeViewMonitoringReports } from '../utils/privilegeUtils';
@@ -274,6 +275,7 @@ export default function SectorMeWorkspacePage() {
           color="#607d8b"
           onClick={() => navigate(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT)}
         />
+        <MobileAppWorkspaceQuickAction />
       </Box>
 
       <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 2 }}>

@@ -1,7 +1,58 @@
 import { TemplateStructure } from '../types/dataCollection';
 import { ChecklistPhotoEntry } from '../types/dataCollection';
-import { isItemVisible } from './checklistVisibility';
+import { isItemVisible, stripHiddenAnswers } from './checklistVisibility';
 import { hasLocationCoords } from './locationAnswerUtils';
+import { isUserFieldEmpty } from './userFieldUtils';
+
+export function multiSelectValues(value: unknown): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => {
+        if (typeof v === 'object' && v != null) {
+          const o = v as { label?: string; value?: string; id?: unknown };
+          return o.label ?? o.value ?? o.id;
+        }
+        return v;
+      })
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        return multiSelectValues(JSON.parse(trimmed));
+      } catch {
+        // fall through
+      }
+    }
+    return trimmed.split(',').map((part) => part.trim()).filter(Boolean);
+  }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+export function normalizeAnswersForSubmit(
+  structure: TemplateStructure,
+  answers: Record<string, unknown> | undefined | null
+): Record<string, unknown> {
+  if (!answers || typeof answers !== 'object') return {};
+  const next = { ...answers };
+  for (const sec of structure.sections || []) {
+    for (const item of sec.items || []) {
+      if (item.type === 'multi_select') {
+        next[item.id] = multiSelectValues(next[item.id]);
+      }
+    }
+  }
+  return stripHiddenAnswers(structure, next);
+}
 
 export function photoList(value: unknown): ChecklistPhotoEntry[] {
   if (!value || typeof value !== 'object') return [];
@@ -24,7 +75,7 @@ export function isEmptyAnswer(
     return value === '' || value == null;
   }
   if (item.type === 'multi_select') {
-    return !Array.isArray(value) || value.length === 0;
+    return multiSelectValues(value).length === 0;
   }
   if (item.type === 'yes_no') {
     return value !== 'yes' && value !== 'no';
@@ -50,12 +101,7 @@ export function isEmptyAnswer(
     );
   }
   if (item.type === 'user') {
-    if (value == null || value === '') return true;
-    if (typeof value === 'object') {
-      const v = value as { displayName?: string; userId?: number };
-      return !String(v.displayName || '').trim() && v.userId == null;
-    }
-    return String(value).trim() === '';
+    return isUserFieldEmpty(value);
   }
   if (typeof value === 'string') return value.trim() === '';
   return false;

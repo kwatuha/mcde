@@ -1,13 +1,15 @@
 /**
  * Village monitoring workflow: Village → Ward (edit+track) → Subcounty (return/forward) → Chief → public.
  */
+const fs = require('fs');
+const path = require('path');
 const pool = require('../config/db');
 const orgScope = require('./organizationScopeService');
 const { isSuperAdminRequester } = require('../utils/roleUtils');
 const notify = require('./monitoringWorkflowNotifyService');
 const { ensureDataCollectionSubmissionsTable } = require('./dataCollectionSchema');
 const { canUserAccessTemplate } = require('./dataCollectionAccessService');
-const { extractProgressStatus } = require('./checklistAnswerUtils');
+const { extractProgressStatus, normalizeAnswersForDisplay } = require('./checklistAnswerUtils');
 const {
   snapshotContent,
   diffSubmissionContent,
@@ -563,6 +565,7 @@ async function getSubmissionDetail(submissionId, user) {
 
   return {
     ...submission,
+    answers: normalizeAnswersForDisplay(structure, submission.answers),
     structure,
     villageBaseline: submission.villageBaseline || null,
     wardChangesFromVillage: computeWardChangesFromBaseline(
@@ -582,6 +585,21 @@ async function getSubmissionDetail(submissionId, user) {
       capturedAt: a.captured_at,
     })),
   };
+}
+
+async function getSubmissionDetailWithFormattedReport(submissionId, user) {
+  let detail = await getSubmissionDetail(submissionId, user);
+  if (!detail) return null;
+  if (EXPORTABLE_STATUSES.has(detail.workflowStatus) && !detail.hasFormattedReport) {
+    try {
+      await generateAndStoreFormattedReport(submissionId, user, { skipIfExists: true });
+      const refreshed = await getSubmissionById(submissionId, user);
+      if (refreshed) detail = { ...detail, ...refreshed };
+    } catch (e) {
+      console.warn('[monitoring_workflow] formatted report backfill:', e.message);
+    }
+  }
+  return detail;
 }
 
 async function listActions(submissionId, user) {
@@ -706,8 +724,96 @@ async function updateSubmission(submissionId, user, payload = {}) {
   return getSubmissionDetail(submissionId, user);
 }
 
-async function submitFromVillage(submissionId, user) {
+async function syncProgressStatusFromAnswers(submissionId, submission = null) {
+  const row = submission || await getSubmissionById(submissionId, { id: 0, privileges: ['organization.scope_bypass'] });
+  if (!row) return null;
+  if (VALID_PROGRESS_STATUSES.has(String(row.progressStatus || '').trim())) return row;
+
+  const tplRow = first(
+    await pool.query(
+      `SELECT structure FROM data_collection_templates WHERE template_id = $1 AND COALESCE(voided, false) = false`,
+      [row.templateId]
+    )
+  );
+  const structure = tplRow?.structure || { sections: [] };
+  const extracted = extractProgressStatus(structure, row.answers);
+  if (!extracted) return row;
+
+  await pool.query(
+    `
+    UPDATE data_collection_submissions SET
+      progress_status = $2,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE submission_id = $1
+    `,
+    [Number(submissionId), extracted]
+  );
+  return { ...row, progressStatus: extracted };
+}
+
+const FORMATTED_REPORTS_ROOT = path.join(__dirname, '..', '..', 'uploads', 'monitoring-reports');
+
+async function storeGeneratedFormattedReport(submissionId, user, buffer, filename) {
   const submission = await getSubmissionById(submissionId, user);
+  const dir = path.join(FORMATTED_REPORTS_ROOT, String(submissionId));
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const storedName = `${Date.now()}-${filename}`;
+  const filePath = path.join(dir, storedName);
+  fs.writeFileSync(filePath, buffer);
+
+  await pool.query(
+    `
+    UPDATE data_collection_submissions SET
+      formatted_report_file_name = $2,
+      formatted_report_file_path = $3,
+      formatted_report_mime_type = $4,
+      formatted_report_file_size = $5,
+      formatted_report_uploaded_by = $6,
+      formatted_report_uploaded_at = NOW(),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE submission_id = $1
+    `,
+    [
+      Number(submissionId),
+      filename,
+      filePath,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer.length,
+      getUserId(user),
+    ]
+  );
+
+  await logAction(submissionId, {
+    actionType: 'formatted_report_generated',
+    fromStatus: submission?.workflowStatus || null,
+    toStatus: submission?.workflowStatus || null,
+    actorUserId: getUserId(user),
+    comment: 'Formatted Word report generated from checklist.',
+  });
+
+  return filePath;
+}
+
+async function generateAndStoreFormattedReport(submissionId, user, { skipIfExists = false } = {}) {
+  const submission = await getSubmissionById(submissionId, user);
+  if (!submission) {
+    const err = new Error('Monitoring report not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (skipIfExists && submission.hasFormattedReport) return submission;
+  await assertExportableReport(submission);
+
+  const detail = await getSubmissionDetail(submissionId, user);
+  const { buildMonitoringReportDocx, buildExportFilename } = require('./monitoringReportExportService');
+  const buffer = await buildMonitoringReportDocx(detail);
+  const filename = buildExportFilename(detail);
+  await storeGeneratedFormattedReport(submissionId, user, buffer, filename);
+  return getSubmissionById(submissionId, user);
+}
+
+async function submitFromVillage(submissionId, user) {
+  let submission = await getSubmissionById(submissionId, user);
   if (!submission) {
     const err = new Error('Monitoring report not found.');
     err.statusCode = 404;
@@ -723,6 +829,7 @@ async function submitFromVillage(submissionId, user) {
     err.statusCode = 400;
     throw err;
   }
+  submission = await syncProgressStatusFromAnswers(submissionId, submission);
   assertProgressStatusForSubmit(submission);
 
   const userId = getUserId(user);
@@ -751,7 +858,12 @@ async function submitFromVillage(submissionId, user) {
   notify.notifySubmittedToWard(updated).catch((e) => {
     console.warn('[monitoring_workflow] submit notify:', e.message);
   });
-  return updated;
+  try {
+    await generateAndStoreFormattedReport(submissionId, user, { skipIfExists: true });
+  } catch (e) {
+    console.warn('[monitoring_workflow] formatted report generation:', e.message);
+  }
+  return getSubmissionById(submissionId, user);
 }
 
 async function forwardToSubcounty(submissionId, user, comment = '') {
@@ -1131,7 +1243,8 @@ async function submitAllDrafts(user) {
   const failed = [];
   for (const draft of drafts) {
     try {
-      assertProgressStatusForSubmit(draft);
+      const synced = await syncProgressStatusFromAnswers(draft.submissionId, draft);
+      assertProgressStatusForSubmit(synced);
       const updated = await submitFromVillage(draft.submissionId, user);
       submitted.push(updated);
     } catch (e) {
@@ -1172,9 +1285,17 @@ async function exportReportWord(submissionId, user) {
   const detail = await getSubmissionDetail(submissionId, user);
   const { buildMonitoringReportDocx, buildExportFilename } = require('./monitoringReportExportService');
   const buffer = await buildMonitoringReportDocx(detail);
+  const filename = buildExportFilename(detail);
+  if (!submission.hasFormattedReport) {
+    try {
+      await storeGeneratedFormattedReport(submissionId, user, buffer, filename);
+    } catch (e) {
+      console.warn('[monitoring_workflow] formatted report store on export:', e.message);
+    }
+  }
   return {
     buffer,
-    filename: buildExportFilename(detail),
+    filename,
   };
 }
 
@@ -1272,6 +1393,7 @@ module.exports = {
   listSubmissions,
   getSubmissionById,
   getSubmissionDetail,
+  getSubmissionDetailWithFormattedReport,
   getWorkflowSummary,
   listActions,
   updateSubmission,

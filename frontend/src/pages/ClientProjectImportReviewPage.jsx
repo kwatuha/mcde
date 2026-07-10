@@ -25,13 +25,30 @@ import {
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ManageSearchIcon from '@mui/icons-material/ManageSearch';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { DataGrid } from '@mui/x-data-grid';
 import apiService from '../api';
 import { ROUTES } from '../configs/appConfig';
 import Header from './dashboard/Header';
+import ImportMetadataResolutionsPanel from '../components/import/ImportMetadataResolutionsPanel';
+
+const METADATA_ISSUE_LABELS = {
+  meta_missing_subcounty: 'Sub-county missing',
+  meta_unresolved_subcounty: 'Sub-county not in catalog',
+  meta_missing_ward: 'Ward missing',
+  meta_unresolved_ward: 'Ward not in catalog',
+  meta_missing_department: 'Department missing',
+  meta_unresolved_department: 'Department not in catalog',
+};
+
+const clientMetadataApi = {
+  listMetadataSuggestions: (batch) => apiService.clientProjectImport.listMetadataSuggestions(batch),
+  refreshMetadata: (batch) => apiService.clientProjectImport.refreshMetadata(batch),
+  saveMetadataResolutions: (batch, resolutions) => apiService.clientProjectImport.saveMetadataResolutions(batch, resolutions),
+};
 
 const ACTION_COLORS = {
   update: 'success',
@@ -100,6 +117,14 @@ function selectedRowCount(model) {
   return model?.ids?.size ?? 0;
 }
 
+function hasMetadataIssues(metadataRemarks) {
+  return Boolean(metadataRemarks && String(metadataRemarks).trim());
+}
+
+function metadataIssueCodes(metadataRemarks) {
+  return String(metadataRemarks || '').split(';').filter(Boolean);
+}
+
 export default function ClientProjectImportReviewPage() {
   const [activeTab, setActiveTab] = useState('staging');
 
@@ -117,6 +142,10 @@ export default function ClientProjectImportReviewPage() {
   const [actionFilter, setActionFilter] = useState('');
   const [matchedOnly, setMatchedOnly] = useState(false);
   const [notAppliedOnly, setNotAppliedOnly] = useState(false);
+  const [appliedOnly, setAppliedOnly] = useState(false);
+  const [appliedWithMetadataIssuesOnly, setAppliedWithMetadataIssuesOnly] = useState(false);
+  const [metadataIssuesOnly, setMetadataIssuesOnly] = useState(false);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 50 });
   const [rowSelectionModel, setRowSelectionModel] = useState(emptyRowSelection);
   const [confirmApply, setConfirmApply] = useState(null);
@@ -161,6 +190,9 @@ export default function ClientProjectImportReviewPage() {
           search: search.trim() || undefined,
           matchedOnly: matchedOnly || undefined,
           notAppliedOnly: notAppliedOnly || undefined,
+          appliedOnly: appliedOnly || undefined,
+          appliedWithMetadataIssuesOnly: appliedWithMetadataIssuesOnly || undefined,
+          metadataIssuesOnly: metadataIssuesOnly || undefined,
           limit: paginationModel.pageSize,
           offset: paginationModel.page * paginationModel.pageSize,
         }),
@@ -175,7 +207,7 @@ export default function ClientProjectImportReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [batch, actionFilter, search, matchedOnly, notAppliedOnly, paginationModel.page, paginationModel.pageSize]);
+  }, [batch, actionFilter, search, matchedOnly, notAppliedOnly, appliedOnly, appliedWithMetadataIssuesOnly, metadataIssuesOnly, paginationModel.page, paginationModel.pageSize]);
 
   const loadDemoData = useCallback(async () => {
     setDemoLoading(true);
@@ -219,7 +251,7 @@ export default function ClientProjectImportReviewPage() {
 
   useEffect(() => {
     setRowSelectionModel(emptyRowSelection());
-  }, [batch, actionFilter, search, matchedOnly, notAppliedOnly, paginationModel.page, paginationModel.pageSize]);
+  }, [batch, actionFilter, search, matchedOnly, notAppliedOnly, appliedOnly, appliedWithMetadataIssuesOnly, metadataIssuesOnly, paginationModel.page, paginationModel.pageSize]);
 
   useEffect(() => {
     setDemoSelectionModel(emptyRowSelection());
@@ -232,6 +264,12 @@ export default function ClientProjectImportReviewPage() {
 
   const insertReadyCount = selectedBatchMeta?.insertReadyCount ?? 0;
   const notAppliedCount = selectedBatchMeta?.notAppliedCount ?? 0;
+  const appliedCount = selectedBatchMeta?.appliedCount ?? 0;
+  const appliedWithMetadataIssuesCount = selectedBatchMeta?.appliedWithMetadataIssuesCount ?? 0;
+  const metadataIssuesCount = selectedBatchMeta?.metadataIssuesCount ?? 0;
+  const metadataScannedCount = selectedBatchMeta?.metadataScannedCount ?? 0;
+  const needsMetadataScan = Boolean(selectedBatchMeta?.rowCount) && metadataScannedCount === 0;
+  const metadataTabCount = metadataIssuesCount;
   const selectedInsertCount = useMemo(() => {
     const selectedIds = new Set(selectedRowIds(rowSelectionModel));
     return rows.filter((row) => selectedIds.has(row.id) && isInsertSelectable(row)).length;
@@ -248,12 +286,31 @@ export default function ClientProjectImportReviewPage() {
         search: search.trim() || undefined,
         matchedOnly: matchedOnly || undefined,
         notAppliedOnly: notAppliedOnly || undefined,
+        appliedOnly: appliedOnly || undefined,
+        appliedWithMetadataIssuesOnly: appliedWithMetadataIssuesOnly || undefined,
+        metadataIssuesOnly: metadataIssuesOnly || undefined,
       });
       triggerBlobDownload(response, `client-project-staging-${batch}.xlsx`);
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Excel export failed.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleRefreshMetadata = async () => {
+    if (!batch) return;
+    setRefreshingMetadata(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const result = await apiService.clientProjectImport.refreshMetadata(batch);
+      setSuccessMessage(`Metadata check updated: ${result.withIssues?.toLocaleString() ?? 0} of ${result.total?.toLocaleString() ?? 0} rows have unresolved catalog fields.`);
+      await Promise.all([loadBatches(), activeTab === 'staging' ? loadData() : Promise.resolve()]);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to refresh metadata remarks.');
+    } finally {
+      setRefreshingMetadata(false);
     }
   };
 
@@ -352,6 +409,67 @@ export default function ClientProjectImportReviewPage() {
     { field: 'wardNorm', headerName: 'Ward', width: 110 },
     { field: 'departmentNorm', headerName: 'Department', width: 150 },
     {
+      field: 'appliedProjectId',
+      headerName: 'Applied project',
+      width: 150,
+      renderCell: (params) => {
+        if (!params.value) {
+          return <Typography variant="body2" color="text.secondary">—</Typography>;
+        }
+        const invalidMetadata = hasMetadataIssues(params.row.metadataRemarks);
+        return (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Button
+              size="small"
+              component={RouterLink}
+              to={ROUTES.PROJECT_DETAILS.replace(':projectId', String(params.value))}
+              endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+              color={invalidMetadata ? 'warning' : 'primary'}
+            >
+              #{params.value}
+            </Button>
+            {invalidMetadata ? (
+              <Tooltip title="Project was created with unresolved metadata — see Metadata remarks column">
+                <WarningAmberIcon color="warning" sx={{ fontSize: 18 }} />
+              </Tooltip>
+            ) : null}
+          </Stack>
+        );
+      },
+    },
+    {
+      field: 'metadataRemarks',
+      headerName: 'Metadata remarks',
+      flex: 1.2,
+      minWidth: 260,
+      renderCell: (params) => {
+        const codes = metadataIssueCodes(params.value);
+        if (!codes.length) {
+          return (
+            <Typography variant="body2" color={params.row.appliedProjectId ? 'success.main' : 'text.secondary'}>
+              {params.row.appliedProjectId ? 'OK' : '—'}
+            </Typography>
+          );
+        }
+        const label = params.row.metadataRemarksLabel || codes.map((code) => METADATA_ISSUE_LABELS[code] || code).join('; ');
+        return (
+          <Tooltip title={label}>
+            <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', py: 0.5 }}>
+              {codes.map((code) => (
+                <Chip
+                  key={code}
+                  size="small"
+                  color={params.row.appliedProjectId ? 'error' : 'warning'}
+                  variant="outlined"
+                  label={METADATA_ISSUE_LABELS[code] || code}
+                />
+              ))}
+            </Stack>
+          </Tooltip>
+        );
+      },
+    },
+    {
       field: 'proposedAction',
       headerName: 'Proposed action',
       width: 150,
@@ -363,26 +481,6 @@ export default function ClientProjectImportReviewPage() {
           variant={params.value === 'review' ? 'outlined' : 'filled'}
         />
       ),
-    },
-    {
-      field: 'appliedProjectId',
-      headerName: 'Applied',
-      width: 120,
-      renderCell: (params) => {
-        if (!params.value) {
-          return <Typography variant="body2" color="text.secondary">—</Typography>;
-        }
-        return (
-          <Button
-            size="small"
-            component={RouterLink}
-            to={ROUTES.PROJECT_DETAILS.replace(':projectId', String(params.value))}
-            endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
-          >
-            #{params.value}
-          </Button>
-        );
-      },
     },
     {
       field: 'matchProjectName',
@@ -510,9 +608,70 @@ export default function ClientProjectImportReviewPage() {
       <Paper sx={{ mb: 2 }}>
         <Tabs value={activeTab} onChange={handleTabChange} sx={{ px: 2 }}>
           <Tab value="staging" label="Client staging" />
+          <Tab
+            value="metadata"
+            label={`Metadata resolutions${metadataTabCount ? ` (${metadataTabCount})` : ''}`}
+          />
           <Tab value="demo" label={`Demo / test data${demoSummary?.total ? ` (${demoSummary.total})` : ''}`} />
         </Tabs>
       </Paper>
+
+      {activeTab === 'staging' && batch && selectedBatchMeta?.rowCount > 0 && (
+        <Alert
+          severity={needsMetadataScan ? 'info' : metadataIssuesCount > 0 ? 'warning' : 'success'}
+          sx={{ mb: 2 }}
+          action={(
+            <Button
+              color="inherit"
+              size="small"
+              variant="outlined"
+              startIcon={refreshingMetadata ? <CircularProgress size={16} color="inherit" /> : <ManageSearchIcon />}
+              onClick={handleRefreshMetadata}
+              disabled={refreshingMetadata}
+            >
+              {refreshingMetadata ? 'Scanning…' : 'Scan metadata'}
+            </Button>
+          )}
+        >
+          {needsMetadataScan ? (
+            <>
+              <strong>Metadata scan not run yet.</strong>
+              {' '}
+              Scan sub-county, ward, and department values against system catalogs to flag rows that may need review.
+              {' '}
+              Use the <strong>Metadata resolutions</strong> tab to map mismatches before creating projects.
+            </>
+          ) : metadataIssuesCount > 0 ? (
+            <>
+              <strong>{metadataIssuesCount.toLocaleString()} rows</strong>
+              {' '}
+              have unresolved metadata.
+              {appliedWithMetadataIssuesCount > 0 ? (
+                <>
+                  {' '}
+                  <strong>{appliedWithMetadataIssuesCount.toLocaleString()} already-created project(s)</strong>
+                  {' '}
+                  were created with invalid metadata — filter with
+                  {' '}
+                  <strong>Applied + metadata issues</strong> below.
+                </>
+              ) : null}
+              {' '}
+              Review on the <strong>Metadata resolutions</strong> tab or filter with
+              {' '}
+              <strong>Metadata issues</strong> below.
+            </>
+          ) : (
+            <>
+              Metadata scan complete — catalog fields matched for all
+              {' '}
+              {metadataScannedCount.toLocaleString()}
+              {' '}
+              scanned rows.
+            </>
+          )}
+        </Alert>
+      )}
 
       {activeTab === 'staging' && (
         <>
@@ -582,14 +741,67 @@ export default function ClientProjectImportReviewPage() {
                 color={notAppliedOnly ? 'primary' : 'default'}
                 onClick={() => {
                   setNotAppliedOnly((v) => !v);
+                  if (!notAppliedOnly) {
+                    setAppliedOnly(false);
+                    setAppliedWithMetadataIssuesOnly(false);
+                  }
                   setPaginationModel((p) => ({ ...p, page: 0 }));
                 }}
                 clickable
                 variant={notAppliedOnly ? 'filled' : 'outlined'}
               />
 
+              <Chip
+                label={`Applied (${appliedCount.toLocaleString()})`}
+                color={appliedOnly ? 'primary' : 'default'}
+                onClick={() => {
+                  setAppliedOnly((v) => !v);
+                  if (!appliedOnly) {
+                    setNotAppliedOnly(false);
+                    setAppliedWithMetadataIssuesOnly(false);
+                  }
+                  setPaginationModel((p) => ({ ...p, page: 0 }));
+                }}
+                clickable
+                variant={appliedOnly ? 'filled' : 'outlined'}
+              />
+
+              <Chip
+                label={`Applied + metadata issues (${appliedWithMetadataIssuesCount.toLocaleString()})`}
+                color={appliedWithMetadataIssuesOnly ? 'error' : 'default'}
+                onClick={() => {
+                  setAppliedWithMetadataIssuesOnly((v) => !v);
+                  if (!appliedWithMetadataIssuesOnly) {
+                    setNotAppliedOnly(false);
+                    setAppliedOnly(false);
+                  }
+                  setPaginationModel((p) => ({ ...p, page: 0 }));
+                }}
+                clickable
+                variant={appliedWithMetadataIssuesOnly ? 'filled' : 'outlined'}
+              />
+
+              <Chip
+                label={`Metadata issues (${metadataIssuesCount.toLocaleString()})`}
+                color={metadataIssuesOnly ? 'warning' : 'default'}
+                onClick={() => {
+                  setMetadataIssuesOnly((v) => !v);
+                  setPaginationModel((p) => ({ ...p, page: 0 }));
+                }}
+                clickable
+                variant={metadataIssuesOnly ? 'filled' : 'outlined'}
+              />
+
               <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadData} disabled={loading}>
                 Refresh
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={refreshingMetadata ? <CircularProgress size={18} /> : <ManageSearchIcon />}
+                onClick={handleRefreshMetadata}
+                disabled={!batch || refreshingMetadata}
+              >
+                {refreshingMetadata ? 'Scanning…' : 'Scan metadata'}
               </Button>
               <Button
                 variant="contained"
@@ -629,8 +841,10 @@ export default function ClientProjectImportReviewPage() {
                 Source: {selectedBatchMeta.sourceFile || '—'} · Staged {selectedBatchMeta.rowCount?.toLocaleString()} rows
                 · Matched {selectedBatchMeta.matchedCount?.toLocaleString() ?? 0}
                 · Applied {selectedBatchMeta.appliedCount?.toLocaleString() ?? 0}
+                · Applied with metadata issues {appliedWithMetadataIssuesCount.toLocaleString()}
                 · Not applied {notAppliedCount.toLocaleString()}
                 · Insert-ready {insertReadyCount.toLocaleString()}
+                · Metadata issues {metadataIssuesCount.toLocaleString()}
               </Typography>
             )}
           </Paper>
@@ -673,9 +887,39 @@ export default function ClientProjectImportReviewPage() {
               isRowSelectable={(params) => isInsertSelectable(params.row)}
               keepNonExistentRowsSelected
               density="compact"
+              getRowClassName={(params) => (
+                params.row.appliedProjectId && hasMetadataIssues(params.row.metadataRemarks)
+                  ? 'staging-applied-metadata-issue'
+                  : ''
+              )}
+              sx={{
+                '& .staging-applied-metadata-issue': {
+                  bgcolor: 'error.light',
+                  '&:hover': { bgcolor: 'error.light' },
+                  '&.Mui-selected': { bgcolor: 'error.light' },
+                },
+              }}
             />
           </Paper>
         </>
+      )}
+
+      {activeTab === 'metadata' && (
+        <ImportMetadataResolutionsPanel
+          batch={batch}
+          batches={batches}
+          onBatchChange={setBatch}
+          needsMetadataScan={needsMetadataScan}
+          metadataIssuesCount={metadataIssuesCount}
+          columnStorageKey="client-import-metadata-resolution-columns"
+          api={clientMetadataApi}
+          onError={setError}
+          onSuccess={setSuccessMessage}
+          onStatsRefresh={async () => {
+            await loadBatches();
+            if (activeTab === 'staging') await loadData();
+          }}
+        />
       )}
 
       {activeTab === 'demo' && (

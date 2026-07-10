@@ -17,18 +17,24 @@ import {
   Paper,
   Select,
   Stack,
+  Tab,
+  Tabs,
+  Autocomplete,
   TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ManageSearchIcon from '@mui/icons-material/ManageSearch';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import { DataGrid } from '@mui/x-data-grid';
 import apiService from '../api';
 import { ROUTES } from '../configs/appConfig';
 import Header from './dashboard/Header';
+import { usePersistedDataGridColumnWidths } from '../hooks/usePersistedDataGridColumnWidths';
+import { formatMetadataResolutionSaveMessage } from '../components/import/ImportMetadataResolutionsPanel';
 
 const ACTION_COLORS = {
   update: 'success',
@@ -46,6 +52,15 @@ function actionLabel(action) {
     default: return action || '—';
   }
 }
+
+const METADATA_ISSUE_LABELS = {
+  meta_missing_subcounty: 'Sub-county missing',
+  meta_unresolved_subcounty: 'Sub-county not in catalog',
+  meta_missing_ward: 'Ward missing',
+  meta_unresolved_ward: 'Ward not in catalog',
+  meta_missing_department: 'Department missing',
+  meta_unresolved_department: 'Department not in catalog',
+};
 
 function fundingLabel(value) {
   if (value === 'rri') return 'RRI';
@@ -88,6 +103,15 @@ function selectedRowIds(model) {
   return [...model.ids];
 }
 
+function resolutionKey(item) {
+  return `${item.fieldType}:${item.sourceKey}`;
+}
+
+function formatScore(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
 export default function CompendiumProjectImportReviewPage() {
   const [batches, setBatches] = useState([]);
   const [batch, setBatch] = useState('');
@@ -104,10 +128,20 @@ export default function CompendiumProjectImportReviewPage() {
   const [fundingFilter, setFundingFilter] = useState('');
   const [matchedOnly, setMatchedOnly] = useState(false);
   const [notAppliedOnly, setNotAppliedOnly] = useState(false);
+  const [metadataIssuesOnly, setMetadataIssuesOnly] = useState(false);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 50 });
   const [rowSelectionModel, setRowSelectionModel] = useState(emptyRowSelection);
   const [confirmApply, setConfirmApply] = useState(null);
   const [applyResult, setApplyResult] = useState(null);
+  const [activeTab, setActiveTab] = useState('staging');
+  const [metadataSuggestions, setMetadataSuggestions] = useState([]);
+  const [metadataCatalogs, setMetadataCatalogs] = useState({ subcounty: [], ward: [], department: [] });
+  const [metadataSummary, setMetadataSummary] = useState(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [savingResolutions, setSavingResolutions] = useState(false);
+  const [resolutionDrafts, setResolutionDrafts] = useState({});
+  const { onColumnWidthChange: onMetadataColumnWidthChange, getWidth: getMetadataColumnWidth } = usePersistedDataGridColumnWidths('compendium-import-metadata-resolution-columns');
 
   const loadBatches = useCallback(async () => {
     const list = await apiService.compendiumProjectImport.listBatches();
@@ -135,6 +169,7 @@ export default function CompendiumProjectImportReviewPage() {
           search: search.trim() || undefined,
           matchedOnly: matchedOnly || undefined,
           notAppliedOnly: notAppliedOnly || undefined,
+          metadataIssuesOnly: metadataIssuesOnly || undefined,
           limit: paginationModel.pageSize,
           offset: paginationModel.page * paginationModel.pageSize,
         }),
@@ -149,7 +184,32 @@ export default function CompendiumProjectImportReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [batch, actionFilter, fundingFilter, search, matchedOnly, notAppliedOnly, paginationModel.page, paginationModel.pageSize]);
+  }, [batch, actionFilter, fundingFilter, search, matchedOnly, notAppliedOnly, metadataIssuesOnly, paginationModel.page, paginationModel.pageSize]);
+
+  const loadMetadataSuggestions = useCallback(async () => {
+    if (!batch) {
+      setMetadataSuggestions([]);
+      setMetadataSummary(null);
+      setMetadataCatalogs({ subcounty: [], ward: [], department: [] });
+      setMetadataLoading(false);
+      return;
+    }
+    setMetadataLoading(true);
+    setError('');
+    try {
+      const data = await apiService.compendiumProjectImport.listMetadataSuggestions(batch);
+      setMetadataSuggestions(data.suggestions || []);
+      setMetadataSummary(data);
+      setMetadataCatalogs(data.catalogs || { subcounty: [], ward: [], department: [] });
+      setResolutionDrafts({});
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to load metadata suggestions.');
+      setMetadataSuggestions([]);
+      setMetadataSummary(null);
+    } finally {
+      setMetadataLoading(false);
+    }
+  }, [batch]);
 
   useEffect(() => {
     loadBatches().catch((e) => {
@@ -159,12 +219,16 @@ export default function CompendiumProjectImportReviewPage() {
   }, [loadBatches]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (activeTab === 'staging') loadData();
+  }, [activeTab, loadData]);
+
+  useEffect(() => {
+    if (activeTab === 'metadata') loadMetadataSuggestions();
+  }, [activeTab, loadMetadataSuggestions]);
 
   useEffect(() => {
     setRowSelectionModel(emptyRowSelection());
-  }, [batch, actionFilter, fundingFilter, search, matchedOnly, notAppliedOnly, paginationModel.page, paginationModel.pageSize]);
+  }, [batch, actionFilter, fundingFilter, search, matchedOnly, notAppliedOnly, metadataIssuesOnly, paginationModel.page, paginationModel.pageSize]);
 
   const selectedBatchMeta = useMemo(
     () => batches.find((b) => b.importBatch === batch) || null,
@@ -173,6 +237,10 @@ export default function CompendiumProjectImportReviewPage() {
 
   const insertReadyCount = selectedBatchMeta?.insertReadyCount ?? 0;
   const notAppliedCount = selectedBatchMeta?.notAppliedCount ?? 0;
+  const metadataIssuesCount = selectedBatchMeta?.metadataIssuesCount ?? 0;
+  const metadataScannedCount = selectedBatchMeta?.metadataScannedCount ?? 0;
+  const needsMetadataScan = Boolean(selectedBatchMeta?.rowCount) && metadataScannedCount === 0;
+  const metadataTabCount = metadataSummary?.unresolvedCount ?? metadataIssuesCount;
   const selectedInsertCount = useMemo(() => {
     const selectedIds = new Set(selectedRowIds(rowSelectionModel));
     return rows.filter((row) => selectedIds.has(row.id) && isInsertSelectable(row)).length;
@@ -189,6 +257,7 @@ export default function CompendiumProjectImportReviewPage() {
         search: search.trim() || undefined,
         matchedOnly: matchedOnly || undefined,
         notAppliedOnly: notAppliedOnly || undefined,
+        metadataIssuesOnly: metadataIssuesOnly || undefined,
       });
       triggerBlobDownload(response, `compendium-staging-${batch}.xlsx`);
     } catch (e) {
@@ -234,6 +303,77 @@ export default function CompendiumProjectImportReviewPage() {
     setConfirmApply({ mode: 'selected', count: stagingIds.length, stagingIds });
   };
 
+  const handleRefreshMetadata = async () => {
+    if (!batch) return;
+    setRefreshingMetadata(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const result = await apiService.compendiumProjectImport.refreshMetadata(batch);
+      setSuccessMessage(`Metadata check updated: ${result.withIssues?.toLocaleString() ?? 0} of ${result.total?.toLocaleString() ?? 0} rows have unresolved catalog fields.`);
+      await Promise.all([loadBatches(), activeTab === 'staging' ? loadData() : Promise.resolve(), activeTab === 'metadata' ? loadMetadataSuggestions() : Promise.resolve()]);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to refresh metadata remarks.');
+    } finally {
+      setRefreshingMetadata(false);
+    }
+  };
+
+  const pendingResolutionCount = useMemo(() => (
+    metadataSuggestions.filter((item) => {
+      const key = resolutionKey(item);
+      const draft = resolutionDrafts[key];
+      const nextValue = draft !== undefined ? draft : item.resolvedValue;
+      return nextValue && nextValue !== item.resolvedValue;
+    }).length
+  ), [metadataSuggestions, resolutionDrafts]);
+
+  const handleAcceptAllSuggestions = () => {
+    const next = {};
+    metadataSuggestions.forEach((item) => {
+      if (!item.isResolved && item.suggestedValue) {
+        next[resolutionKey(item)] = item.suggestedValue;
+      }
+    });
+    setResolutionDrafts((current) => ({ ...current, ...next }));
+  };
+
+  const handleSaveResolutions = async () => {
+    if (!batch) return;
+    const resolutions = metadataSuggestions
+      .map((item) => {
+        const key = resolutionKey(item);
+        const draft = resolutionDrafts[key];
+        const resolvedValue = draft !== undefined ? draft : '';
+        if (!resolvedValue || resolvedValue === item.resolvedValue) return null;
+        return {
+          fieldType: item.fieldType,
+          sourceKey: item.sourceKey,
+          foundValue: item.foundValue,
+          resolvedValue,
+        };
+      })
+      .filter(Boolean);
+
+    if (!resolutions.length) {
+      setError('Choose at least one catalog match to save.');
+      return;
+    }
+
+    setSavingResolutions(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const result = await apiService.compendiumProjectImport.saveMetadataResolutions(batch, resolutions);
+      setSuccessMessage(formatMetadataResolutionSaveMessage(result));
+      await Promise.all([loadBatches(), loadMetadataSuggestions(), activeTab === 'staging' ? loadData() : Promise.resolve()]);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to save metadata resolutions.');
+    } finally {
+      setSavingResolutions(false);
+    }
+  };
+
   const handleApplyAllReady = () => {
     if (!insertReadyCount) {
       setError('No insert-ready rows remain in this batch.');
@@ -270,6 +410,31 @@ export default function CompendiumProjectImportReviewPage() {
     { field: 'subCountyNorm', headerName: 'Sub-county', width: 110 },
     { field: 'wardNorm', headerName: 'Ward', width: 110 },
     { field: 'departmentNorm', headerName: 'Department', width: 150 },
+    {
+      field: 'metadataRemarks',
+      headerName: 'Metadata remarks',
+      flex: 1.2,
+      minWidth: 240,
+      renderCell: (params) => {
+        const codes = String(params.value || '').split(';').filter(Boolean);
+        if (!codes.length) {
+          return <Typography variant="body2" color="text.secondary">—</Typography>;
+        }
+        return (
+          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', py: 0.5 }}>
+            {codes.map((code) => (
+              <Chip
+                key={code}
+                size="small"
+                color="warning"
+                variant="outlined"
+                label={METADATA_ISSUE_LABELS[code] || code}
+              />
+            ))}
+          </Stack>
+        );
+      },
+    },
     {
       field: 'projectStatusNorm',
       headerName: 'Status',
@@ -338,6 +503,126 @@ export default function CompendiumProjectImportReviewPage() {
     },
   ], []);
 
+  const metadataRows = useMemo(
+    () => metadataSuggestions.map((item) => {
+      const key = resolutionKey(item);
+      const draft = resolutionDrafts[key];
+      const draftValue = draft !== undefined ? draft : (item.resolvedValue || '');
+      return {
+        id: key,
+        ...item,
+        draftValue,
+        catalogOptions: metadataCatalogs[item.fieldType] || [],
+        hasPendingChange: Boolean(draftValue && draftValue !== item.resolvedValue),
+      };
+    }),
+    [metadataSuggestions, resolutionDrafts, metadataCatalogs],
+  );
+
+  const metadataColumns = useMemo(() => [
+    {
+      field: 'fieldLabel',
+      headerName: 'Field',
+      width: getMetadataColumnWidth('fieldLabel'),
+      minWidth: 72,
+    },
+    {
+      field: 'foundValue',
+      headerName: 'Found in import',
+      width: getMetadataColumnWidth('foundValue'),
+      minWidth: 100,
+      renderCell: (params) => (
+        params.value
+          ? <Typography variant="body2" noWrap>{params.value}</Typography>
+          : <Typography variant="body2" color="text.secondary">(missing)</Typography>
+      ),
+    },
+    {
+      field: 'suggestedValue',
+      headerName: 'Suggested match',
+      width: getMetadataColumnWidth('suggestedValue'),
+      minWidth: 120,
+      sortable: false,
+      renderCell: (params) => {
+        const item = params.row;
+        if (!item.suggestedValue) return '—';
+        return (
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
+            <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>{item.suggestedValue}</Typography>
+            <Chip size="small" label={formatScore(item.suggestedScore)} variant="outlined" />
+            {!item.isResolved && (
+              <Button
+                size="small"
+                onClick={() => setResolutionDrafts((current) => ({
+                  ...current,
+                  [resolutionKey(item)]: item.suggestedValue,
+                }))}
+              >
+                Use
+              </Button>
+            )}
+          </Stack>
+        );
+      },
+    },
+    {
+      field: 'rowCount',
+      headerName: 'Rows',
+      width: getMetadataColumnWidth('rowCount'),
+      minWidth: 56,
+      type: 'number',
+      align: 'right',
+      headerAlign: 'right',
+      valueFormatter: (value) => (value != null ? Number(value).toLocaleString() : '0'),
+    },
+    {
+      field: 'resolveTo',
+      headerName: 'Resolve to',
+      width: getMetadataColumnWidth('resolveTo'),
+      minWidth: 160,
+      sortable: false,
+      renderCell: (params) => {
+        const item = params.row;
+        const key = resolutionKey(item);
+        return (
+          <Autocomplete
+            size="small"
+            fullWidth
+            options={item.catalogOptions || []}
+            value={item.draftValue || null}
+            onChange={(_event, value) => {
+              setResolutionDrafts((current) => ({
+                ...current,
+                [key]: value || '',
+              }));
+            }}
+            renderInput={(autocompleteParams) => (
+              <TextField {...autocompleteParams} placeholder="Choose catalog value" />
+            )}
+            sx={{ minWidth: 0 }}
+          />
+        );
+      },
+    },
+    {
+      field: 'status',
+      headerName: 'Status',
+      width: getMetadataColumnWidth('status'),
+      minWidth: 88,
+      sortable: false,
+      renderCell: (params) => {
+        const item = params.row;
+        if (item.hasPendingChange) {
+          return <Chip size="small" color="info" label="Pending save" />;
+        }
+        if (item.isResolved) {
+          return <Chip size="small" color="success" label="Resolved" />;
+        }
+        return <Chip size="small" color="warning" variant="outlined" label="Unresolved" />;
+      },
+    },
+  ], [getMetadataColumnWidth]);
+
   return (
     <Box>
       <Header
@@ -364,6 +649,67 @@ export default function CompendiumProjectImportReviewPage() {
         </Alert>
       )}
 
+      {batch && selectedBatchMeta?.rowCount > 0 && activeTab === 'staging' && (
+        <Alert
+          severity={needsMetadataScan ? 'info' : metadataIssuesCount > 0 ? 'warning' : 'success'}
+          sx={{ mb: 2 }}
+          action={(
+            <Button
+              color="inherit"
+              size="small"
+              variant="outlined"
+              startIcon={refreshingMetadata ? <CircularProgress size={16} color="inherit" /> : <ManageSearchIcon />}
+              onClick={handleRefreshMetadata}
+              disabled={refreshingMetadata}
+            >
+              {refreshingMetadata ? 'Scanning…' : 'Scan metadata'}
+            </Button>
+          )}
+        >
+          {needsMetadataScan ? (
+            <>
+              <strong>Metadata scan not run yet.</strong>
+              {' '}
+              Scan sub-county, ward, and department values against system catalogs to flag rows that may need review before import.
+            </>
+          ) : metadataIssuesCount > 0 ? (
+            <>
+              <strong>{metadataIssuesCount.toLocaleString()} rows</strong>
+              {' '}
+              have unresolved sub-county, ward, or department metadata. Use the
+              {' '}
+              <strong>Metadata issues</strong>
+              {' '}
+              filter below to review them.
+            </>
+          ) : (
+            <>
+              Metadata scan complete — all
+              {' '}
+              {metadataScannedCount.toLocaleString()}
+              {' '}
+              rows matched system catalogs for sub-county, ward, and department.
+            </>
+          )}
+        </Alert>
+      )}
+
+      <Paper sx={{ mb: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_event, value) => setActiveTab(value)}
+          sx={{ px: 2 }}
+        >
+          <Tab value="staging" label="Compendium staging" />
+          <Tab
+            value="metadata"
+            label={`Metadata resolutions${metadataTabCount ? ` (${metadataTabCount})` : ''}`}
+          />
+        </Tabs>
+      </Paper>
+
+      {activeTab === 'staging' && (
+        <>
       <Paper sx={{ p: 2, mb: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
           <FormControl size="small" sx={{ minWidth: 280 }}>
@@ -451,8 +797,27 @@ export default function CompendiumProjectImportReviewPage() {
             variant={notAppliedOnly ? 'filled' : 'outlined'}
           />
 
+          <Chip
+            label={`Metadata issues (${metadataIssuesCount.toLocaleString()})`}
+            color={metadataIssuesOnly ? 'warning' : 'default'}
+            onClick={() => {
+              setMetadataIssuesOnly((v) => !v);
+              setPaginationModel((p) => ({ ...p, page: 0 }));
+            }}
+            clickable
+            variant={metadataIssuesOnly ? 'filled' : 'outlined'}
+          />
+
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadData} disabled={loading}>
             Refresh
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={refreshingMetadata ? <CircularProgress size={18} /> : <ManageSearchIcon />}
+            onClick={handleRefreshMetadata}
+            disabled={!batch || refreshingMetadata}
+          >
+            {refreshingMetadata ? 'Scanning…' : 'Scan metadata'}
           </Button>
           <Button
             variant="contained"
@@ -491,6 +856,7 @@ export default function CompendiumProjectImportReviewPage() {
             · Applied {selectedBatchMeta.appliedCount?.toLocaleString() ?? 0}
             · Not applied {notAppliedCount.toLocaleString()}
             · Insert-ready {insertReadyCount.toLocaleString()}
+            · Metadata issues {metadataIssuesCount.toLocaleString()}
           </Typography>
         )}
       </Paper>
@@ -535,6 +901,106 @@ export default function CompendiumProjectImportReviewPage() {
           density="compact"
         />
       </Paper>
+        </>
+      )}
+
+      {activeTab === 'metadata' && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 280 }}>
+                <InputLabel>Import batch</InputLabel>
+                <Select
+                  label="Import batch"
+                  value={batch}
+                  onChange={(e) => setBatch(e.target.value)}
+                >
+                  {batches.map((b) => (
+                    <MenuItem key={b.importBatch} value={b.importBatch}>
+                      {b.importBatch} ({b.rowCount} rows)
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <Button
+                variant="outlined"
+                startIcon={metadataLoading ? <CircularProgress size={18} /> : <RefreshIcon />}
+                onClick={loadMetadataSuggestions}
+                disabled={!batch || metadataLoading}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={refreshingMetadata ? <CircularProgress size={18} /> : <ManageSearchIcon />}
+                onClick={handleRefreshMetadata}
+                disabled={!batch || refreshingMetadata}
+              >
+                {refreshingMetadata ? 'Scanning…' : 'Scan metadata'}
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleAcceptAllSuggestions}
+                disabled={!metadataSuggestions.some((item) => !item.isResolved && item.suggestedValue)}
+              >
+                Accept all suggestions
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSaveResolutions}
+                disabled={!batch || savingResolutions || pendingResolutionCount === 0}
+              >
+                {savingResolutions ? 'Saving…' : `Save resolutions (${pendingResolutionCount})`}
+              </Button>
+            </Stack>
+
+            {needsMetadataScan ? (
+              <Alert severity="info">
+                Run <strong>Scan metadata</strong> first so unresolved sub-county, ward, and department values appear here for review.
+              </Alert>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Map imported values to system catalog entries. Saved resolutions update staging rows, sync linked projects that were already created from this batch, and clear matching metadata issues.
+                {' '}
+                {metadataSummary
+                  ? `${metadataSummary.unresolvedCount?.toLocaleString() ?? 0} unresolved, ${metadataSummary.resolvedCount?.toLocaleString() ?? 0} resolved.`
+                  : ''}
+              </Typography>
+            )}
+
+            <Paper sx={{ height: 520 }}>
+              <DataGrid
+                rows={metadataRows}
+                columns={metadataColumns}
+                loading={metadataLoading}
+                disableRowSelectionOnClick
+                density="compact"
+                pageSizeOptions={[25, 50, 100]}
+                initialState={{ pagination: { paginationModel: { pageSize: 50, page: 0 } } }}
+                onColumnWidthChange={onMetadataColumnWidthChange}
+                getRowClassName={(params) => (
+                  params.row.hasPendingChange ? 'metadata-resolution-pending' : ''
+                )}
+                localeText={{
+                  noRowsLabel: needsMetadataScan
+                    ? 'Scan metadata to list values that need catalog mapping.'
+                    : 'No unresolved metadata values found for this batch.',
+                }}
+                sx={{
+                  border: 0,
+                  '& .MuiDataGrid-columnSeparator': {
+                    opacity: 1,
+                  },
+                  '& .metadata-resolution-pending': {
+                    backgroundColor: 'action.hover',
+                  },
+                }}
+              />
+            </Paper>
+          </Stack>
+        </Paper>
+      )}
 
       <Dialog open={Boolean(confirmApply)} onClose={() => !applying && setConfirmApply(null)}>
         <DialogTitle>

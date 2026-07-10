@@ -134,9 +134,15 @@
       "icon": "AssessmentIcon",
       "submenus": [
         {
-          "title": "Engineer Workspace",
+          "title": "Resident Engineer Workspace",
           "icon": "AssignmentIcon",
-          "route": "ENGINEER_WORKSPACE",
+          "route": "RESIDENT_ENGINEER_WORKSPACE",
+          "permissionsAny": ["project.read", "project.read_all", "project.update"]
+        },
+        {
+          "title": "Chief Engineer Workspace",
+          "icon": "VerifiedUserIcon",
+          "route": "CHIEF_ENGINEER_WORKSPACE",
           "permissionsAny": ["project.read", "project.read_all", "project.update"]
         },
         {

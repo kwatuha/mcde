@@ -16,6 +16,7 @@ import ChecklistFormRenderer from '../components/ChecklistFormRenderer';
 import ScreenHeader from '../components/ScreenHeader';
 import { THEME } from '../config/api';
 import apiService from '../services/api';
+import type { AuthUser } from '../services/api';
 import {
   getCachedProjects,
   getCachedTemplates,
@@ -25,7 +26,7 @@ import {
   setVisitDraft,
 } from '../services/offlineStore';
 import { makeLocalId } from '../services/syncService';
-import { validateChecklistAnswers } from '../utils/checklistValidation';
+import { validateChecklistAnswers, normalizeAnswersForSubmit } from '../utils/checklistValidation';
 import { extractProgressStatusFromAnswers } from '../utils/progressStatus';
 import { uploadPendingPhotosInAnswers } from '../utils/attachmentUpload';
 import { extractApiError, shouldQueueOffline } from '../utils/apiErrorUtils';
@@ -59,6 +60,7 @@ const NewVisitScreen: React.FC = () => {
   const [visitDate, setVisitDate] = useState(todayIso());
   const [title, setTitle] = useState('');
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [sessionUser, setSessionUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -71,11 +73,22 @@ const NewVisitScreen: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [cachedTemplates, cachedProjects, draft] = await Promise.all([
+      const [cachedTemplates, cachedProjects, draft, cachedUser] = await Promise.all([
         getCachedTemplates(),
         getCachedProjects(),
         getVisitDraft(),
+        apiService.getUserData(),
       ]);
+      if (cachedUser?.id) {
+        setSessionUser(cachedUser);
+      } else {
+        try {
+          const me = await apiService.fetchMe();
+          setSessionUser(me);
+        } catch {
+          setSessionUser(null);
+        }
+      }
       let tpl =
         cachedTemplates.find((t) => t.templateId === templateId) || null;
       if (!tpl) {
@@ -197,7 +210,8 @@ const NewVisitScreen: React.FC = () => {
       Alert.alert('Programme required', 'Select the RRI programme for this visit.');
       return;
     }
-    const missing = validateChecklistAnswers(template.structure, answers);
+    const normalizedAnswers = normalizeAnswersForSubmit(template.structure, answers);
+    const missing = validateChecklistAnswers(template.structure, normalizedAnswers);
     if (missing.length) {
       Alert.alert(
         'Incomplete checklist',
@@ -207,7 +221,7 @@ const NewVisitScreen: React.FC = () => {
     }
 
     setSubmitting(true);
-    const progressStatus = extractProgressStatusFromAnswers(template.structure, answers);
+    const progressStatus = extractProgressStatusFromAnswers(template.structure, normalizedAnswers);
     const payload = {
       templateId: template.templateId,
       subjectType,
@@ -215,12 +229,24 @@ const NewVisitScreen: React.FC = () => {
       rriProgrammeId: subjectType === 'rri_programme' ? rriProgramme!.programmeId : undefined,
       visitDate,
       title: title.trim() || `${template.name} visit`,
-      answers,
+      answers: normalizedAnswers,
       ...(progressStatus ? { progressStatus } : {}),
     };
 
     try {
-      const readyAnswers = await uploadPendingPhotosInAnswers(answers);
+      let readyAnswers = normalizedAnswers;
+      try {
+        readyAnswers = await uploadPendingPhotosInAnswers(normalizedAnswers);
+      } catch (uploadError: unknown) {
+        const uploadMessage = extractApiError(uploadError);
+        if (!shouldQueueOffline(uploadError)) {
+          Alert.alert('Photo upload failed', uploadMessage, [{ text: 'OK' }]);
+          return;
+        }
+        await queueVisitOffline(payload, normalizedAnswers, uploadMessage);
+        return;
+      }
+
       const saved = await apiService.createSubmission({ ...payload, answers: readyAnswers });
       await setVisitDraft(null);
 
@@ -259,32 +285,44 @@ const NewVisitScreen: React.FC = () => {
         Alert.alert('Submit failed', message, [{ text: 'OK' }]);
         return;
       }
-      const localId = makeLocalId();
-      await savePendingSubmission({
-        localId,
-        templateId: template.templateId,
-        templateName: template.name,
-        subjectType,
-        projectId: subjectType === 'project' ? project!.id : undefined,
-        projectName: subjectType === 'project' ? project!.projectName : undefined,
-        rriProgrammeId: subjectType === 'rri_programme' ? rriProgramme!.programmeId : undefined,
-        rriProgrammeName: subjectType === 'rri_programme' ? rriProgramme!.name : undefined,
-        visitDate,
-        title: payload.title,
-        answers,
-        createdAt: new Date().toISOString(),
-        status: 'pending',
-        lastError: message,
-      });
-      await setVisitDraft(null);
-      Alert.alert(
-        'Saved offline',
-        `${message}\n\nYour responses were queued and will upload when you sync from the Checklists or Visits tab.`,
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
+      await queueVisitOffline(payload, normalizedAnswers, message);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const queueVisitOffline = async (
+    payload: {
+      templateId: number;
+      subjectType: VisitSubjectType;
+      title: string;
+    },
+    queuedAnswers: Record<string, unknown>,
+    reason: string
+  ) => {
+    const localId = makeLocalId();
+    await savePendingSubmission({
+      localId,
+      templateId: payload.templateId,
+      templateName: template!.name,
+      subjectType,
+      projectId: subjectType === 'project' ? project!.id : undefined,
+      projectName: subjectType === 'project' ? project!.projectName : undefined,
+      rriProgrammeId: subjectType === 'rri_programme' ? rriProgramme!.programmeId : undefined,
+      rriProgrammeName: subjectType === 'rri_programme' ? rriProgramme!.name : undefined,
+      visitDate,
+      title: payload.title,
+      answers: queuedAnswers,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      lastError: reason,
+    });
+    await setVisitDraft(null);
+    Alert.alert(
+      'Saved on this device',
+      `${reason}\n\nYour visit is stored on this phone. When you have a stable connection, open Checklists or Visits and tap Sync to upload it.`,
+      [{ text: 'OK', onPress: () => navigation.goBack() }]
+    );
   };
 
   if (loading || !template) {
@@ -385,6 +423,7 @@ const NewVisitScreen: React.FC = () => {
           projectId={project?.id ?? null}
           subjectType={subjectType}
           rriProgrammeId={rriProgramme?.programmeId ?? null}
+          sessionUser={sessionUser}
         />
 
         <TouchableOpacity

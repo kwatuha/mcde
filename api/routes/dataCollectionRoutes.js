@@ -14,6 +14,7 @@ const {
   validateAnswers,
   photoList,
   extractProgressStatus,
+  normalizeAnswersForSubmit,
 } = require('../services/checklistAnswerUtils');
 const {
   ensureTemplateAccessTables,
@@ -614,7 +615,8 @@ router.post('/submissions', async (req, res) => {
     if (!allowed) return res.status(403).json({ message: 'You do not have access to this template.' });
 
     const ans = answers && typeof answers === 'object' ? answers : {};
-    const missing = validateAnswers(structure, ans);
+    const normalizedAns = normalizeAnswersForSubmit(structure, ans);
+    const missing = validateAnswers(structure, normalizedAns);
     if (missing.length) {
       return res.status(400).json({ message: 'Required checklist items are missing.', missing });
     }
@@ -636,14 +638,14 @@ router.post('/submissions', async (req, res) => {
         Number.isFinite(iid) ? iid : null,
         visitDate ? String(visitDate).slice(0, 10) : null,
         title != null ? String(title).trim() || null : null,
-        JSON.stringify(ans),
+        JSON.stringify(normalizedAns),
         createdBy,
       ]
     );
     const row = r.rows[0];
-    await linkAttachmentsToSubmission(row.submission_id, ans);
+    await linkAttachmentsToSubmission(row.submission_id, normalizedAns);
     const progressStatus = req.body?.progressStatus || req.body?.progress_status
-      || extractProgressStatus(structure, ans)
+      || extractProgressStatus(structure, normalizedAns)
       || null;
     if (subjectType === 'project' && Number.isFinite(pid)) {
       try {
@@ -735,10 +737,15 @@ router.put('/submissions/:id', async (req, res) => {
     const structure = tr.rows?.[0]?.structure;
     if (!structure) return res.status(404).json({ message: 'Template not found or inactive.' });
 
-    const missing = validateAnswers(structure, nextAnswers);
+    const normalizedAns = normalizeAnswersForSubmit(structure, nextAnswers);
+    const missing = validateAnswers(structure, normalizedAns);
     if (missing.length) {
       return res.status(400).json({ message: 'Required checklist items are missing.', missing });
     }
+
+    const progressStatus = req.body?.progressStatus || req.body?.progress_status
+      || extractProgressStatus(structure, normalizedAns)
+      || null;
 
     const r = await pool.query(
       `
@@ -751,6 +758,7 @@ router.put('/submissions/:id', async (req, res) => {
           visit_date = $6,
           title = $7,
           answers = $8::jsonb,
+          progress_status = COALESCE($10, progress_status),
           updated_at = CURRENT_TIMESTAMP
       WHERE submission_id = $9 AND COALESCE(voided, false) = false
       RETURNING submission_id, template_id, subject_type, project_id, rri_programme_id, inspection_id, visit_date, title, answers,
@@ -764,13 +772,14 @@ router.put('/submissions/:id', async (req, res) => {
         nextInspectionId,
         nextVisitDate,
         nextTitle,
-        JSON.stringify(nextAnswers),
+        JSON.stringify(normalizedAns),
         id,
+        progressStatus,
       ]
     );
     const row = r.rows?.[0];
     if (!row) return res.status(404).json({ message: 'Submission not found.' });
-    await linkAttachmentsToSubmission(row.submission_id, nextAnswers);
+    await linkAttachmentsToSubmission(row.submission_id, normalizedAns);
     const nameR = await pool.query(`SELECT name FROM data_collection_templates WHERE template_id = $1`, [nextTemplateId]);
     return res.json(
       rowToSubmission({

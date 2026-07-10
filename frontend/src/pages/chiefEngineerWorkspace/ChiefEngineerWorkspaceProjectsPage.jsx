@@ -31,16 +31,16 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import ProjectScopeSetupDialog from '../../components/budget/ProjectScopeSetupDialog';
 import {
   ComplianceBar,
-  ENGINEER_WORKSPACE_ROUTES,
+  WORKSPACE_ROUTES,
   projectTabLink,
   scopeChip,
-} from './engineerWorkspaceShared';
-import { useEngineerWorkspaceData } from './useEngineerWorkspaceData';
+} from './chiefEngineerWorkspaceShared';
+import { useChiefEngineerWorkspaceData } from './useChiefEngineerWorkspaceData';
 
-export default function EngineerWorkspaceProjectsPage() {
+export default function ChiefEngineerProjectsPage() {
   const { hasPrivilege } = useAuth();
   const navigate = useNavigate();
-  const { loading, error, load, search, setSearch, projects } = useEngineerWorkspaceData({
+  const { loading, error, load, search, setSearch, projects } = useChiefEngineerWorkspaceData({
     include: 'projects',
   });
   const [scopeItem, setScopeItem] = useState(null);
@@ -51,7 +51,7 @@ export default function EngineerWorkspaceProjectsPage() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(ENGINEER_WORKSPACE_ROUTES.overview)}
+          onClick={() => navigate(WORKSPACE_ROUTES.overview)}
           size="small"
         >
           Workspace
@@ -148,7 +148,7 @@ export default function EngineerWorkspaceProjectsPage() {
                         <Button size="small" onClick={() => navigate(projectTabLink(row.projectId, 'file-checklist'))} startIcon={<UploadFileIcon />} sx={{ textTransform: 'none' }}>
                           Files
                         </Button>
-                        <Button size="small" onClick={() => navigate(`${ENGINEER_WORKSPACE_ROUTES.progressPhotos}?projectId=${row.projectId}`)} startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
+                        <Button size="small" onClick={() => navigate(`${WORKSPACE_ROUTES.progressPhotos}?projectId=${row.projectId}`)} startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
                           Photos
                         </Button>
                         {canSetupScope ? (

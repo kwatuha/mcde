@@ -13,6 +13,7 @@ const {
   WidthType,
 } = require('docx');
 const { buildDocxOfficialHeaderParagraphs, getCountyOfficialName } = require('../utils/countyLogo');
+const { multiSelectValues } = require('./checklistAnswerUtils');
 
 function text(value, fallback = '—') {
   if (value === undefined || value === null || value === '') return fallback;
@@ -45,8 +46,9 @@ function formatAnswerDisplay(item, raw) {
   const type = item?.type || 'text';
 
   if (type === 'multi_select') {
-    if (!Array.isArray(raw) || !raw.length) return '—';
-    return raw.join(', ');
+    const values = multiSelectValues(raw);
+    if (!values.length) return '—';
+    return values.join(', ');
   }
   if (type === 'yes_no') {
     return raw === 'yes' || raw === true ? 'Yes' : raw === 'no' || raw === false ? 'No' : text(raw);

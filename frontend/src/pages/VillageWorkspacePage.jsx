@@ -24,6 +24,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import GroupsIcon from '@mui/icons-material/Groups';
 import { ROUTES } from '../configs/appConfig';
+import MobileAppWorkspaceQuickAction from '../components/MobileAppWorkspaceQuickAction';
 import villageMonitoringService from '../api/villageMonitoringService';
 import VillageMonitoringWorkflowPage from './VillageMonitoringWorkflowPage';
 
@@ -240,6 +241,7 @@ export default function VillageWorkspacePage() {
           color="#5e35b1"
           onClick={() => navigate(ROUTES.RRI_PROGRAMMES)}
         />
+        <MobileAppWorkspaceQuickAction />
       </Box>
 
       {draftCount > 0 && reportTab !== 'drafts' ? (

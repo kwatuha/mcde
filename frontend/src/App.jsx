@@ -92,11 +92,16 @@ import ProjectCategoryPage from './pages/ProjectCategoryPage';
 import ProjectPhotoManager from './pages/ProjectPhotoManager';
 // NEW: Import the PersonalDashboard component (formerly ContractorDashboard)
 import PersonalDashboard from './pages/ContractorDashboard';
-const EngineerWorkspacePage = lazy(() => import('./pages/EngineerWorkspacePage'));
-const EngineerWorkspaceProjectsPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceProjectsPage'));
-const EngineerWorkspacePaymentsPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspacePaymentsPage'));
-const EngineerWorkspaceCertificatesPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceCertificatesPage'));
-const EngineerWorkspaceProgressPhotosPage = lazy(() => import('./pages/engineerWorkspace/EngineerWorkspaceProgressPhotosPage'));
+const ResidentEngineerWorkspacePage = lazy(() => import('./pages/ResidentEngineerWorkspacePage'));
+const ResidentEngineerWorkspaceProjectsPage = lazy(() => import('./pages/engineerWorkspace/ResidentEngineerWorkspaceProjectsPage'));
+const ResidentEngineerWorkspacePaymentsPage = lazy(() => import('./pages/engineerWorkspace/ResidentEngineerWorkspacePaymentsPage'));
+const ResidentEngineerWorkspaceCertificatesPage = lazy(() => import('./pages/engineerWorkspace/ResidentEngineerWorkspaceCertificatesPage'));
+const ResidentEngineerWorkspaceProgressPhotosPage = lazy(() => import('./pages/engineerWorkspace/ResidentEngineerWorkspaceProgressPhotosPage'));
+const ChiefEngineerWorkspacePage = lazy(() => import('./pages/ChiefEngineerWorkspacePage'));
+const ChiefEngineerWorkspaceProjectsPage = lazy(() => import('./pages/chiefEngineerWorkspace/ChiefEngineerWorkspaceProjectsPage'));
+const ChiefEngineerWorkspacePaymentsPage = lazy(() => import('./pages/chiefEngineerWorkspace/ChiefEngineerWorkspacePaymentsPage'));
+const ChiefEngineerWorkspaceCertificatesPage = lazy(() => import('./pages/chiefEngineerWorkspace/ChiefEngineerWorkspaceCertificatesPage'));
+const ChiefEngineerWorkspaceProgressPhotosPage = lazy(() => import('./pages/chiefEngineerWorkspace/ChiefEngineerWorkspaceProgressPhotosPage'));
 const CoFinanceWorkspacePage = lazy(() => import('./pages/CoFinanceWorkspacePage'));
 const CoFinanceWorkspaceProjectsPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspaceProjectsPage'));
 const CoFinanceWorkspacePaymentsPage = lazy(() => import('./pages/coFinanceWorkspace/CoFinanceWorkspacePaymentsPage'));
@@ -349,24 +354,64 @@ const router = createBrowserRouter([
         element: <ContractorFileChecklistPage />,
       },
       {
+        path: 'resident-engineer-workspace',
+        element: <LazyRoute><ResidentEngineerWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'resident-engineer-workspace/projects',
+        element: <LazyRoute><ResidentEngineerWorkspaceProjectsPage /></LazyRoute>,
+      },
+      {
+        path: 'resident-engineer-workspace/payments',
+        element: <LazyRoute><ResidentEngineerWorkspacePaymentsPage /></LazyRoute>,
+      },
+      {
+        path: 'resident-engineer-workspace/certificates',
+        element: <LazyRoute><ResidentEngineerWorkspaceCertificatesPage /></LazyRoute>,
+      },
+      {
+        path: 'resident-engineer-workspace/progress-photos',
+        element: <LazyRoute><ResidentEngineerWorkspaceProgressPhotosPage /></LazyRoute>,
+      },
+      {
+        path: 'chief-engineer-workspace',
+        element: <LazyRoute><ChiefEngineerWorkspacePage /></LazyRoute>,
+      },
+      {
+        path: 'chief-engineer-workspace/projects',
+        element: <LazyRoute><ChiefEngineerWorkspaceProjectsPage /></LazyRoute>,
+      },
+      {
+        path: 'chief-engineer-workspace/payments',
+        element: <LazyRoute><ChiefEngineerWorkspacePaymentsPage /></LazyRoute>,
+      },
+      {
+        path: 'chief-engineer-workspace/certificates',
+        element: <LazyRoute><ChiefEngineerWorkspaceCertificatesPage /></LazyRoute>,
+      },
+      {
+        path: 'chief-engineer-workspace/progress-photos',
+        element: <LazyRoute><ChiefEngineerWorkspaceProgressPhotosPage /></LazyRoute>,
+      },
+      {
         path: 'engineer-workspace',
-        element: <LazyRoute><EngineerWorkspacePage /></LazyRoute>,
+        element: <Navigate to="/resident-engineer-workspace" replace />,
       },
       {
         path: 'engineer-workspace/projects',
-        element: <LazyRoute><EngineerWorkspaceProjectsPage /></LazyRoute>,
+        element: <Navigate to="/resident-engineer-workspace/projects" replace />,
       },
       {
         path: 'engineer-workspace/payments',
-        element: <LazyRoute><EngineerWorkspacePaymentsPage /></LazyRoute>,
+        element: <Navigate to="/resident-engineer-workspace/payments" replace />,
       },
       {
         path: 'engineer-workspace/certificates',
-        element: <LazyRoute><EngineerWorkspaceCertificatesPage /></LazyRoute>,
+        element: <Navigate to="/resident-engineer-workspace/certificates" replace />,
       },
       {
         path: 'engineer-workspace/progress-photos',
-        element: <LazyRoute><EngineerWorkspaceProgressPhotosPage /></LazyRoute>,
+        element: <Navigate to="/resident-engineer-workspace/progress-photos" replace />,
       },
       {
         path: 'co-finance-workspace',

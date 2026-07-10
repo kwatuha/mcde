@@ -54,6 +54,28 @@ const clientProjectImportService = {
     });
     return response.data;
   },
+
+  refreshMetadata: async (batch) => {
+    const response = await axiosInstance.post(
+      `/client-project-import/batches/${encodeURIComponent(batch)}/refresh-metadata`,
+    );
+    return response.data;
+  },
+
+  listMetadataSuggestions: async (batch) => {
+    const response = await axiosInstance.get(
+      `/client-project-import/batches/${encodeURIComponent(batch)}/metadata-suggestions`,
+    );
+    return response.data;
+  },
+
+  saveMetadataResolutions: async (batch, resolutions) => {
+    const response = await axiosInstance.post(
+      `/client-project-import/batches/${encodeURIComponent(batch)}/metadata-resolutions`,
+      { resolutions },
+    );
+    return response.data;
+  },
 };
 
 export default clientProjectImportService;

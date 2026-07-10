@@ -19,7 +19,7 @@ export const normalizeRoleName = (roleName) =>
   String(roleName || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
 /** Inline landing path read — avoid importing uiProfileUtils (pulls menuConfig on every page). */
-function getEngineerWorkspaceLandingPath(user) {
+function getProfileLandingBase(user) {
   const profile = user?.uiProfile || user?.ui_profile || null;
   if (!profile) return null;
   let path = String(profile.landingPath ?? profile.landing_path ?? '').trim();
@@ -27,6 +27,24 @@ function getEngineerWorkspaceLandingPath(user) {
   if (!path.startsWith('/')) path = `/${path}`;
   const base = path.split('?')[0].split('#')[0];
   return base || null;
+}
+
+function getEngineerWorkspaceLandingPath(user) {
+  return getProfileLandingBase(user);
+}
+
+function isChiefEngineerRole(normalizedRole) {
+  return (
+    (normalizedRole.includes('chief') && normalizedRole.includes('engineer'))
+    || normalizedRole.includes('chief_engineer')
+  );
+}
+
+function isResidentEngineerRole(normalizedRole) {
+  if (isChiefEngineerRole(normalizedRole)) return false;
+  return normalizedRole.includes('resident_engineer')
+    || normalizedRole.includes('site_engineer')
+    || (normalizedRole.includes('engineer') && !normalizedRole.includes('chief_officer'));
 }
 
 /**
@@ -118,6 +136,25 @@ export const isCoFinancePortalUser = (user) => {
   if (isAdmin(user)) return false;
   return false;
 };
+
+/** Finance payment certificates register (county-wide list + workflow actions). */
+export function canViewPaymentCertificates(hasPrivilege) {
+  if (typeof hasPrivilege !== 'function') return false;
+  return (
+    hasPrivilege('document.read_all')
+    || hasPrivilege('payment_request.read_all')
+    || hasPrivilege('payment_request.update')
+  );
+}
+
+/** Approve/reject a payment certificate workflow step. */
+export function canApprovePaymentCertificates(hasPrivilege) {
+  if (typeof hasPrivilege !== 'function') return false;
+  return (
+    hasPrivilege('payment_request.update')
+    || hasPrivilege('approval_levels.update')
+  );
+}
 
 function getWardWorkspaceLandingPath(user) {
   const profile = user?.uiProfile || user?.ui_profile || null;
@@ -345,21 +382,44 @@ export const canChiefApproveMonitoringReports = (user) => {
 };
 
 /**
- * Resident / site / chief engineers use the engineer workspace sidebar (mirrors contractor portal).
- * UI profile landing path takes precedence so roles with the same profile get the same sidebar
- * even when the role name does not contain "engineer" or the user has broader privileges.
+ * Chief engineers use the chief engineer workspace (second certificate approval step).
  */
-export const isEngineerPortalUser = (user) => {
-  if (!user || isContractor(user) || isCoFinancePortalUser(user) || isVillagePortalUser(user) || isWardPortalUser(user) || isSubCountyPortalUser(user) || isChiefPortalUser(user) || isSectorMePortalUser(user)) return false;
+export const isChiefEngineerPortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+  if (isChiefPortalUser(user)) return false;
 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const landing = getEngineerWorkspaceLandingPath(user);
-  if (landing?.startsWith('/engineer-workspace') || normalizedRole.includes('engineer')) {
-    return true;
-  }
+  if (landing?.startsWith('/chief-engineer-workspace')) return true;
+  if (isChiefEngineerRole(normalizedRole)) return true;
 
   if (isAdmin(user)) return false;
   return false;
+};
+
+/**
+ * Resident / site engineers use the resident engineer workspace (first certificate step).
+ */
+export const isResidentEngineerPortalUser = (user) => {
+  if (!user || isContractor(user) || isCoFinancePortalUser(user)) return false;
+  if (isChiefEngineerPortalUser(user)) return false;
+  if (isChiefPortalUser(user)) return false;
+
+  const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
+  const landing = getEngineerWorkspaceLandingPath(user);
+  if (landing?.startsWith('/resident-engineer-workspace')) return true;
+  if (landing?.startsWith('/engineer-workspace')) return true;
+  if (isResidentEngineerRole(normalizedRole)) return true;
+
+  if (isAdmin(user)) return false;
+  return false;
+};
+
+/**
+ * Either resident or chief engineer portal (legacy helper).
+ */
+export const isEngineerPortalUser = (user) => {
+  return isChiefEngineerPortalUser(user) || isResidentEngineerPortalUser(user);
 };
 
 export const isMdaIctAdminOrSuperAdmin = (user) => {

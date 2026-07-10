@@ -1,6 +1,13 @@
 import { ChecklistPhotoEntry } from '../types/dataCollection';
 import apiService from '../services/api';
 import { photoList } from './checklistValidation';
+import { shouldQueueOffline } from './apiErrorUtils';
+
+const UPLOAD_ATTEMPTS = 3;
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Upload any photos that still have localUri; returns answers ready for API submit. */
 export async function uploadPendingPhotosInAnswers(
@@ -22,15 +29,32 @@ export async function uploadPendingPhotosInAnswers(
         uploaded.push(p);
         continue;
       }
-      const meta = await apiService.uploadAttachment(p.localUri, {
-        itemId,
-        fileName: p.fileName || 'photo.jpg',
-        mimeType: 'image/jpeg',
-        lat: p.lat,
-        lng: p.lng,
-        accuracy: p.accuracy,
-        capturedAt: p.capturedAt,
-      });
+      let lastError: unknown = null;
+      let meta: Awaited<ReturnType<typeof apiService.uploadAttachment>> | null = null;
+      for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+        try {
+          meta = await apiService.uploadAttachment(p.localUri, {
+            itemId,
+            fileName: p.fileName || 'photo.jpg',
+            mimeType: 'image/jpeg',
+            lat: p.lat,
+            lng: p.lng,
+            accuracy: p.accuracy,
+            capturedAt: p.capturedAt,
+          });
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt >= UPLOAD_ATTEMPTS || !shouldQueueOffline(err)) {
+            throw err;
+          }
+          await sleep(700 * attempt);
+        }
+      }
+      if (!meta) {
+        throw lastError || new Error('Photo upload failed.');
+      }
       uploaded.push({
         fileId: meta.fileId,
         url: meta.url,

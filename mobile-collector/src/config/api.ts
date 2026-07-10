@@ -1,15 +1,16 @@
 /**
  * Machakos County data collection API.
  *
- * Production (nginx): http://84.247.128.58:8084
+ * Production (county staff): https://monitoring.icskenya.co.ke
+ * MCmes legacy host: http://84.247.128.58:8084
  * Android emulator + local API: http://10.0.2.2:3002
- * Physical device on same LAN: http://YOUR_PC_IP:3002 or :8084
  */
-export const API_BASE_URL = 'http://84.247.128.58:8084';
+export const API_BASE_URL = 'https://monitoring.icskenya.co.ke';
 
 export const STORAGE_KEYS = {
   AUTH_TOKEN: '@machakos_collector_auth_token',
   USER_DATA: '@machakos_collector_user_data',
+  MUST_CHANGE_PASSWORD: '@machakos_collector_must_change_password',
   TEMPLATES_CACHE: '@machakos_collector_templates',
   PROJECTS_CACHE: '@machakos_collector_projects',
   PENDING_SUBMISSIONS: '@machakos_collector_pending_submissions',
@@ -17,7 +18,7 @@ export const STORAGE_KEYS = {
   CACHE_TIMESTAMP: '@machakos_collector_cache_ts',
 };
 
-export const APP_VERSION = '1.0.12';
+export const APP_VERSION = '1.0.18';
 
 export const THEME = {
   primary: '#005A9A',

@@ -19,10 +19,10 @@ export function getAccessCheckForAppPath(fullPath, hasPrivilege) {
   const rules = [
     {
       test: (p) => p.startsWith('/finance/payment-certificates'),
-      required: ['document.read_all'],
+      requiredAny: ['document.read_all', 'payment_request.read_all', 'payment_request.update'],
       title: 'Payment certificates',
       detail:
-        'The finance payment certificates list and its API require document.read_all. Add this privilege to your role (role_privileges), then refresh or log in again.',
+        'The payment certificates register requires document.read_all or payment_request.read_all / payment_request.update on your role. Co-finance and engineer roles should have at least one of these — add via role privileges, then log in again.',
     },
     {
       test: (p) => p === '/strategic-planning' || p.startsWith('/strategic-planning/'),

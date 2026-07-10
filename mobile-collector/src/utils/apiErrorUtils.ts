@@ -30,8 +30,11 @@ export function extractApiError(error: unknown): string {
   if (data?.details) return data.details;
 
   if (status === 401) return 'Session expired. Sign in again.';
-  if (err?.message?.includes('Network Error')) {
-    return 'Cannot reach the server. Check mobile data or Wi‑Fi.';
+  if (
+    err?.message?.includes('Network Error') ||
+    err?.message?.includes('Network request failed')
+  ) {
+    return 'Cannot reach the server. Check mobile data or Wi‑Fi, then try again or sync from the Checklists tab.';
   }
   if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
     return 'Request timed out. Try again on a stronger connection.';

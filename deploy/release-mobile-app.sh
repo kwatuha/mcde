@@ -132,6 +132,7 @@ if [[ ! -f "$APK_PATH" ]]; then
 fi
 
 echo "==> APK: $APK_PATH ($(du -h "$APK_PATH" | awk '{print $1}'))"
+LOCAL_APK_BYTES=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH")
 echo "==> Version: $VERSION"
 
 publish_local() {
@@ -170,8 +171,51 @@ REMOTE_PATH="${remote_path}"
 REMOTE_STAGING="${remote_staging}"
 STAGING_BASENAME="${staging_name}"
 VERSION="${VERSION}"
+LOCAL_APK_BYTES="${LOCAL_APK_BYTES}"
 NOTES=$(printf '%q' "$NOTES")
 cd "\$REMOTE_PATH"
+
+wait_for_complete_apk() {
+  local apk_path="\$1"
+  local expected_bytes="\$2"
+  local stable_reads=0
+  local last_size=-1
+  for _ in \$(seq 1 60); do
+    if [[ ! -f "\$apk_path" ]]; then
+      sleep 1
+      continue
+    fi
+    local size
+    size=\$(stat -c%s "\$apk_path" 2>/dev/null || stat -f%z "\$apk_path")
+    if [[ "\$size" == "\$last_size" && "\$size" -gt 0 ]]; then
+      stable_reads=\$((stable_reads + 1))
+    else
+      stable_reads=0
+      last_size="\$size"
+    fi
+    if [[ "\$stable_reads" -ge 2 ]]; then
+      if [[ "\$expected_bytes" -gt 0 && "\$size" -ne "\$expected_bytes" ]]; then
+        echo "ERROR: APK upload incomplete on \$(hostname -f 2>/dev/null || hostname): got \${size} bytes, expected \${expected_bytes}." >&2
+        echo "       File: \$apk_path" >&2
+        echo "       Retry: ./deploy/release-mobile-app-monitoring.sh --version \$VERSION --skip-build" >&2
+        return 1
+      fi
+      if [[ "\$size" -lt 1000000 ]]; then
+        echo "ERROR: APK at \$apk_path is too small (\${size} bytes)." >&2
+        return 1
+      fi
+      echo "    Verified APK upload: \${size} bytes"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "ERROR: Timed out waiting for APK upload to finish at \$apk_path" >&2
+  return 1
+}
+
+if ! wait_for_complete_apk "\$REMOTE_STAGING" "\$LOCAL_APK_BYTES"; then
+  exit 1
+fi
 
 extra_args=()
 if [[ -n "\$NOTES" ]]; then

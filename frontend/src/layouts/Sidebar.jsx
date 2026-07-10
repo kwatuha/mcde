@@ -97,7 +97,7 @@ import {
   TREE_NAV_BORDER as TREE_BORDER,
 } from '../configs/treeNavChrome.js';
 import { findCategoryIdForPath, getFilteredMenuCategories, hasConfiguredRole } from '../configs/menuConfigUtils.js';
-import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isChiefEngineerPortalUser, isResidentEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
 import { isSuperAdminUser } from '../utils/roleUtils.js';
 import gprisLogo from '../assets/gpris.png';
 import logoFallback from '../assets/logo.png';
@@ -460,8 +460,9 @@ const Sidebar = ({
   const showSubCountyMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && isSubCountyPortalUser(user);
   const showSectorMeMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && isSectorMePortalUser(user);
   const showChiefMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && isChiefPortalUser(user);
-  const showEngineerMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && !showChiefMenu && isEngineerPortalUser(user);
-  const showPortalMenu = showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu || showSubCountyMenu || showSectorMeMenu || showChiefMenu || showEngineerMenu;
+  const showChiefEngineerMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && !showChiefMenu && isChiefEngineerPortalUser(user);
+  const showResidentEngineerMenu = !showCoFinanceMenu && !showVillageMenu && !showWardMenu && !showSubCountyMenu && !showSectorMeMenu && !showChiefMenu && !showChiefEngineerMenu && isResidentEngineerPortalUser(user);
+  const showPortalMenu = showContractorMenu || showCoFinanceMenu || showVillageMenu || showWardMenu || showSubCountyMenu || showSectorMeMenu || showChiefMenu || showChiefEngineerMenu || showResidentEngineerMenu;
 
   // Memoize setSelected to prevent Item components from re-rendering unnecessarily
   const stableSetSelected = useCallback((value) => {
@@ -531,10 +532,11 @@ const Sidebar = ({
       if (showSubCountyMenu) next.add('subcounty-root');
       if (showSectorMeMenu) next.add('sector-me-root');
       if (showChiefMenu) next.add('chief-root');
-      if (showEngineerMenu) next.add('engineer-root');
+      if (showChiefEngineerMenu) next.add('chief-engineer-root');
+      if (showResidentEngineerMenu) next.add('resident-engineer-root');
       return next;
     });
-  }, [isTreeLayout, isMobile, activeCategoryIdForPath, showPortalMenu, portalExtendedMenus, showStandardMenuCategories, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu]);
+  }, [isTreeLayout, isMobile, activeCategoryIdForPath, showPortalMenu, portalExtendedMenus, showStandardMenuCategories, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showChiefEngineerMenu, showResidentEngineerMenu]);
 
   useEffect(() => {
     if ((!isTreeLayout && !isMobile) || !showContractorMenu) return;
@@ -607,14 +609,24 @@ const Sidebar = ({
   }, [isTreeLayout, isMobile, showChiefMenu]);
 
   useEffect(() => {
-    if ((!isTreeLayout && !isMobile) || !showEngineerMenu) return;
+    if ((!isTreeLayout && !isMobile) || !showChiefEngineerMenu) return;
     setOpenTreeGroups((prev) => {
-      if (prev.has('engineer-root')) return prev;
+      if (prev.has('chief-engineer-root')) return prev;
       const next = new Set(prev);
-      next.add('engineer-root');
+      next.add('chief-engineer-root');
       return next;
     });
-  }, [isTreeLayout, isMobile, showEngineerMenu]);
+  }, [isTreeLayout, isMobile, showChiefEngineerMenu]);
+
+  useEffect(() => {
+    if ((!isTreeLayout && !isMobile) || !showResidentEngineerMenu) return;
+    setOpenTreeGroups((prev) => {
+      if (prev.has('resident-engineer-root')) return prev;
+      const next = new Set(prev);
+      next.add('resident-engineer-root');
+      return next;
+    });
+  }, [isTreeLayout, isMobile, showResidentEngineerMenu]);
 
   /** When the mobile drawer opens, expand the current section so items are visible immediately. */
   useEffect(() => {
@@ -659,8 +671,14 @@ const Sidebar = ({
       setOpenTreeGroups(groups);
       return;
     }
-    if (showEngineerMenu) {
-      const groups = new Set(['engineer-root']);
+    if (showChiefEngineerMenu) {
+      const groups = new Set(['chief-engineer-root']);
+      if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
+      setOpenTreeGroups(groups);
+      return;
+    }
+    if (showResidentEngineerMenu) {
+      const groups = new Set(['resident-engineer-root']);
       if (portalExtendedMenus && activeCategoryIdForPath) groups.add(activeCategoryIdForPath);
       setOpenTreeGroups(groups);
       return;
@@ -670,7 +688,7 @@ const Sidebar = ({
     } else if (menuCategories.length > 0) {
       setOpenTreeGroups(new Set([menuCategories[0].id]));
     }
-  }, [isMobile, mobileOpen, activeCategoryIdForPath, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu, portalExtendedMenus, menuCategories]);
+  }, [isMobile, mobileOpen, activeCategoryIdForPath, showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showChiefEngineerMenu, showResidentEngineerMenu, portalExtendedMenus, menuCategories]);
 
   // Get the selected category and its submenus
   const selectedCategory = useMemo(() => {
@@ -783,12 +801,20 @@ const Sidebar = ({
     { title: "Project documents", to: ROUTES.PROJECT_DOCUMENTS_BY_PROJECT, icon: <DescriptionIcon /> },
   ];
 
-  const engineerItems = [
-    { title: "Workspace", to: ROUTES.ENGINEER_WORKSPACE, icon: <EngineeringIcon /> },
-    { title: "Project Registry", to: `${ROUTES.ENGINEER_WORKSPACE}/projects`, icon: <FolderOpenIcon /> },
-    { title: "Progress Photos", to: `${ROUTES.ENGINEER_WORKSPACE}/progress-photos`, icon: <PhotoCameraIcon /> },
-    { title: "Payment Requests", to: `${ROUTES.ENGINEER_WORKSPACE}/payments`, icon: <PaidIcon /> },
-    { title: "Certificates", to: `${ROUTES.ENGINEER_WORKSPACE}/certificates`, icon: <FactCheckIcon /> },
+  const residentEngineerItems = [
+    { title: "Workspace", to: ROUTES.RESIDENT_ENGINEER_WORKSPACE, icon: <EngineeringIcon /> },
+    { title: "Project Registry", to: `${ROUTES.RESIDENT_ENGINEER_WORKSPACE}/projects`, icon: <FolderOpenIcon /> },
+    { title: "Progress Photos", to: `${ROUTES.RESIDENT_ENGINEER_WORKSPACE}/progress-photos`, icon: <PhotoCameraIcon /> },
+    { title: "Payment Requests", to: `${ROUTES.RESIDENT_ENGINEER_WORKSPACE}/payments`, icon: <PaidIcon /> },
+    { title: "Certificates", to: `${ROUTES.RESIDENT_ENGINEER_WORKSPACE}/certificates`, icon: <FactCheckIcon /> },
+  ];
+
+  const chiefEngineerItems = [
+    { title: "Workspace", to: ROUTES.CHIEF_ENGINEER_WORKSPACE, icon: <VerifiedUserIcon /> },
+    { title: "Payment Certificates", to: `${ROUTES.CHIEF_ENGINEER_WORKSPACE}/certificates`, icon: <FactCheckIcon /> },
+    { title: "Project Registry", to: `${ROUTES.CHIEF_ENGINEER_WORKSPACE}/projects`, icon: <FolderOpenIcon /> },
+    { title: "Payment Requests", to: `${ROUTES.CHIEF_ENGINEER_WORKSPACE}/payments`, icon: <PaidIcon /> },
+    { title: "Progress Photos", to: `${ROUTES.CHIEF_ENGINEER_WORKSPACE}/progress-photos`, icon: <PhotoCameraIcon /> },
   ];
 
   const profileMenuNavItems = useMemo(
@@ -819,14 +845,17 @@ const Sidebar = ({
     if (showChiefMenu) {
       return portalExtendedMenus ? [...chiefItems, ...profileMenuNavItems] : chiefItems;
     }
-    if (showEngineerMenu) {
-      return portalExtendedMenus ? [...engineerItems, ...profileMenuNavItems] : engineerItems;
+    if (showChiefEngineerMenu) {
+      return portalExtendedMenus ? [...chiefEngineerItems, ...profileMenuNavItems] : chiefEngineerItems;
+    }
+    if (showResidentEngineerMenu) {
+      return portalExtendedMenus ? [...residentEngineerItems, ...profileMenuNavItems] : residentEngineerItems;
     }
     if (isAdminLike) {
       return [...dashboardItems, ...reportingItems, ...managementItems, ...adminItems];
     }
     return [...dashboardItems, ...reportingItems, ...managementItems];
-  }, [showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showEngineerMenu, portalExtendedMenus, profileMenuNavItems, isAdminLike]);
+  }, [showContractorMenu, showCoFinanceMenu, showVillageMenu, showWardMenu, showSubCountyMenu, showSectorMeMenu, showChiefMenu, showChiefEngineerMenu, showResidentEngineerMenu, portalExtendedMenus, profileMenuNavItems, isAdminLike]);
 
   const collapsedWidth = 64; // Width with icons only
   const currentWidth = effectiveCollapsed ? collapsedWidth : expandedSidebarWidth;
@@ -1199,9 +1228,40 @@ const Sidebar = ({
                   />
                 </MenuGroup>
               ) : null}
-              {showEngineerMenu ? (
+              {showChiefEngineerMenu ? (
                 <MenuGroup
-                  title="Engineer"
+                  title="Chief Engineer"
+                  icon={
+                    <VerifiedUserIcon
+                      sx={{
+                        color: menuTreeChrome ? TREE_ICON : undefined,
+                        fontSize: menuTreeChrome ? 19 : undefined,
+                      }}
+                    />
+                  }
+                  isOpen={openTreeGroups.has('chief-engineer-root')}
+                  onToggle={() => toggleTreeGroup('chief-engineer-root')}
+                  theme={theme}
+                  colors={colors}
+                  isCollapsed={effectiveCollapsed}
+                  treeChrome={menuTreeChrome}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.CHIEF_ENGINEER_WORKSPACE)}
+                >
+                  <SearchableMenu
+                    items={chiefEngineerItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    nested
+                    treeChrome={menuTreeChrome}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </MenuGroup>
+              ) : null}
+              {showResidentEngineerMenu ? (
+                <MenuGroup
+                  title="Resident Engineer"
                   icon={
                     <EngineeringIcon
                       sx={{
@@ -1210,16 +1270,16 @@ const Sidebar = ({
                       }}
                     />
                   }
-                  isOpen={openTreeGroups.has('engineer-root')}
-                  onToggle={() => toggleTreeGroup('engineer-root')}
+                  isOpen={openTreeGroups.has('resident-engineer-root')}
+                  onToggle={() => toggleTreeGroup('resident-engineer-root')}
                   theme={theme}
                   colors={colors}
                   isCollapsed={effectiveCollapsed}
                   treeChrome={menuTreeChrome}
-                  isActiveGroup={location.pathname.startsWith(ROUTES.ENGINEER_WORKSPACE)}
+                  isActiveGroup={location.pathname.startsWith(ROUTES.RESIDENT_ENGINEER_WORKSPACE)}
                 >
                   <SearchableMenu
-                    items={engineerItems}
+                    items={residentEngineerItems}
                     selected={selected}
                     setSelected={stableSetSelected}
                     theme={theme}
@@ -1573,7 +1633,50 @@ const Sidebar = ({
                   />
                 </>
               ) : null}
-              {showEngineerMenu ? (
+              {showChiefEngineerMenu ? (
+                <>
+                  {!effectiveCollapsed && (
+                    <Box sx={{
+                      px: 1.5,
+                      py: 1,
+                      mb: 1.5,
+                      mt: 4,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(255,255,255,0.5)',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.1)'
+                        : 'rgba(0,0,0,0.1)'}`,
+                    }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: theme.palette.mode === 'dark'
+                            ? colors.blueAccent[400]
+                            : '#c62828',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        Chief Engineer
+                      </Typography>
+                    </Box>
+                  )}
+                  {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
+                  <SearchableMenu
+                    items={chiefEngineerItems}
+                    selected={selected}
+                    setSelected={stableSetSelected}
+                    theme={theme}
+                    isCollapsed={effectiveCollapsed}
+                    onAfterNavigate={closeMobileNav}
+                  />
+                </>
+              ) : null}
+              {showResidentEngineerMenu ? (
                 <>
                   {!effectiveCollapsed && (
                     <Box sx={{
@@ -1601,13 +1704,13 @@ const Sidebar = ({
                           letterSpacing: '0.5px',
                         }}
                       >
-                        Engineer
+                        Resident Engineer
                       </Typography>
                     </Box>
                   )}
                   {effectiveCollapsed && <Box sx={{ mt: 4, mb: 1 }} />}
                   <SearchableMenu
-                    items={engineerItems}
+                    items={residentEngineerItems}
                     selected={selected}
                     setSelected={stableSetSelected}
                     theme={theme}

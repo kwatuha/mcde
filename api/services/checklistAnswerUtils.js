@@ -128,13 +128,68 @@ function projectLinkedAnswerList(value) {
   return [];
 }
 
+function multiSelectValues(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => {
+        if (typeof v === 'object' && v != null) {
+          return v.label ?? v.value ?? v.id;
+        }
+        return v;
+      })
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        return multiSelectValues(JSON.parse(trimmed));
+      } catch {
+        // fall through
+      }
+    }
+    return trimmed.split(',').map((part) => part.trim()).filter(Boolean);
+  }
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeAnswersForDisplay(structure, answers) {
+  if (!answers || typeof answers !== 'object') return {};
+  const next = { ...answers };
+  for (const item of flattenItems(structure)) {
+    if (item.type === 'multi_select') {
+      next[item.id] = multiSelectValues(next[item.id]);
+    }
+  }
+  return next;
+}
+
+function normalizeAnswersForSubmit(structure, answers) {
+  if (!answers || typeof answers !== 'object') return {};
+  const next = { ...answers };
+  for (const item of flattenItems(structure)) {
+    if (item.type === 'multi_select') {
+      next[item.id] = multiSelectValues(next[item.id]);
+    }
+  }
+  return stripHiddenAnswers(structure, next);
+}
+
 function isEmptyAnswer(item, value) {
   if (value === undefined || value === null) return true;
   if (PROJECT_LINKED_TYPES.has(item.type)) {
     const entries = projectLinkedAnswerList(value);
     return entries.length === 0;
   }
-  if (item.type === 'multi_select') return !Array.isArray(value) || value.length === 0;
+  if (item.type === 'multi_select') return multiSelectValues(value).length === 0;
   if (item.type === 'yes_no') return value !== 'yes' && value !== 'no';
   if (item.type === 'progress_status') {
     return !PROGRESS_STATUS_VALUES.includes(String(value || '').trim());
@@ -250,12 +305,13 @@ function stripHiddenAnswers(structure, answers) {
 
 function validateAnswers(structure, answers) {
   if (!answers || typeof answers !== 'object') return ['Answers must be an object.'];
+  const normalized = normalizeAnswersForSubmit(structure, answers);
   const missing = [];
   for (const sec of structure?.sections || []) {
     for (const it of sec.items || []) {
       if (!it.required) continue;
-      if (!isItemVisible(it, answers)) continue;
-      if (isEmptyAnswer(it, answers[it.id])) missing.push(it.label || it.id);
+      if (!isItemVisible(it, normalized)) continue;
+      if (isEmptyAnswer(it, normalized[it.id])) missing.push(it.label || it.id);
     }
   }
   return missing;
@@ -264,8 +320,9 @@ function validateAnswers(structure, answers) {
 function formatAnswerDisplay(item, raw) {
   if (raw === undefined || raw === null || raw === '') return '—';
   if (item?.type === 'multi_select') {
-    if (!Array.isArray(raw) || !raw.length) return '—';
-    return raw.join(', ');
+    const values = multiSelectValues(raw);
+    if (!values.length) return '—';
+    return values.join(', ');
   }
   if (item?.type === 'yes_no') {
     if (raw === 'yes' || raw === true) return 'Yes';
@@ -321,6 +378,22 @@ function formatAnswerDisplay(item, raw) {
   return String(raw);
 }
 
+const IMPLEMENTATION_STATUS_TO_PROGRESS = {
+  'on track': 'on_track',
+  'minor delay': 'delayed',
+  delayed: 'delayed',
+  delay: 'delayed',
+  stalled: 'stalled',
+  completed: 'completed',
+  on_track: 'on_track',
+};
+
+function mapImplementationStatusToProgress(raw) {
+  const key = String(raw || '').trim().toLowerCase();
+  if (!key) return null;
+  return IMPLEMENTATION_STATUS_TO_PROGRESS[key] || null;
+}
+
 function extractProgressStatus(structure, answers) {
   const ans = answers && typeof answers === 'object' ? answers : {};
   for (const sec of structure?.sections || []) {
@@ -331,8 +404,18 @@ function extractProgressStatus(structure, answers) {
       }
     }
   }
+  for (const sec of structure?.sections || []) {
+    for (const item of sec.items || []) {
+      const isImplementationField = item.id === 'implementation_status'
+        || (item.type === 'select' && /implementation status/i.test(String(item.label || '')));
+      if (!isImplementationField) continue;
+      const mapped = mapImplementationStatusToProgress(ans[item.id]);
+      if (mapped) return mapped;
+    }
+  }
   const direct = String(ans.progress_status || ans.progressStatus || '').trim();
-  return PROGRESS_STATUS_VALUES.includes(direct) ? direct : null;
+  if (PROGRESS_STATUS_VALUES.includes(direct)) return direct;
+  return mapImplementationStatusToProgress(ans.implementation_status);
 }
 
 module.exports = {
@@ -348,8 +431,12 @@ module.exports = {
   evaluateShowIfCondition,
   stripHiddenAnswers,
   flattenItems,
+  multiSelectValues,
+  normalizeAnswersForSubmit,
+  normalizeAnswersForDisplay,
   validateAnswers,
   formatAnswerDisplay,
   extractProgressStatus,
+  mapImplementationStatusToProgress,
   photoList,
 };

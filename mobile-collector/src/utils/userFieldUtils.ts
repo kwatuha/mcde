@@ -20,15 +20,30 @@ export function buildUserDisplayName(user: AuthUser | null | undefined): string 
 }
 
 export function buildUserFieldAnswer(user: AuthUser | null | undefined): UserFieldAnswer | null {
-  if (!user?.id) return null;
+  const rawId = (user as { id?: number; userId?: number } | null | undefined)?.id
+    ?? (user as { userId?: number } | null | undefined)?.userId;
+  const userId = Number(rawId);
+  if (!user || !Number.isFinite(userId) || userId <= 0) return null;
   const displayName = buildUserDisplayName(user);
   return {
-    userId: user.id,
-    displayName: displayName || `User #${user.id}`,
+    userId,
+    displayName: displayName || `User #${userId}`,
     email: user.email,
     roleName: user.roleName,
     username: user.username,
   };
+}
+
+export function isUserFieldEmpty(value: unknown): boolean {
+  if (value == null || value === '') return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (typeof value === 'object') {
+    const v = value as UserFieldAnswer & { id?: number };
+    const userId = v.userId ?? v.id;
+    const name = String(v.displayName || v.username || v.email || '').trim();
+    return !name && (userId == null || !Number.isFinite(Number(userId)) || Number(userId) <= 0);
+  }
+  return false;
 }
 
 export function formatUserFieldDisplay(value: unknown): string {

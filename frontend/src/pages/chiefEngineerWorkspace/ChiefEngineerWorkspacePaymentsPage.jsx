@@ -28,16 +28,16 @@ import ApprovalWorkflowPanel from '../../components/approval/ApprovalWorkflowPan
 import { formatCurrency } from '../../utils/helpers';
 import {
   complianceColor,
-  ENGINEER_WORKSPACE_ROUTES,
+  WORKSPACE_ROUTES,
   projectTabLink,
   workflowChip,
-} from './engineerWorkspaceShared';
-import { useEngineerWorkspaceData } from './useEngineerWorkspaceData';
+} from './chiefEngineerWorkspaceShared';
+import { useChiefEngineerWorkspaceData } from './useChiefEngineerWorkspaceData';
 
-export default function EngineerWorkspacePaymentsPage() {
+export default function ChiefEngineerPaymentsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { loading, error, load, paymentRequests } = useEngineerWorkspaceData({
+  const { loading, error, load, paymentRequests } = useChiefEngineerWorkspaceData({
     include: 'payments',
   });
   const [expandedRequestId, setExpandedRequestId] = useState(null);
@@ -47,7 +47,7 @@ export default function EngineerWorkspacePaymentsPage() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(ENGINEER_WORKSPACE_ROUTES.overview)}
+          onClick={() => navigate(WORKSPACE_ROUTES.overview)}
           size="small"
         >
           Workspace

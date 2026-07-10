@@ -705,7 +705,8 @@ function userCanActOnStep(user, step, allowAdminPriv) {
     Array.isArray(user.privileges) &&
     user.privileges.includes('approval_levels.update');
   if (adminBypass) return true;
-  const rid = user.roleId != null ? Number(user.roleId) : null;
+  const ridRaw = user.roleId ?? user.roleid;
+  const rid = ridRaw != null ? Number(ridRaw) : null;
   if (step.role_id == null) return false;
   return rid === Number(step.role_id);
 }
@@ -830,7 +831,8 @@ async function listPendingForUser(user) {
     return rowsFromResult(r);
   }
 
-  const roleId = user.roleId != null ? Number(user.roleId) : -1;
+  const roleIdRaw = user?.roleId ?? user?.roleid;
+  const roleId = roleIdRaw != null ? Number(roleIdRaw) : -1;
   const r = await pool.query(`${baseSelect} AND si.role_id = ? ORDER BY r.created_at ASC`, [roleId]);
   return rowsFromResult(r);
 }

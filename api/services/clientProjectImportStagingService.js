@@ -1,4 +1,13 @@
 const pool = require('../config/db');
+const { cleanText, normKey } = require('./importStagingTextUtils');
+
+let metadataCatalogModule;
+function getMetadataCatalog() {
+  if (!metadataCatalogModule) {
+    metadataCatalogModule = require('./compendiumMetadataCatalogService');
+  }
+  return metadataCatalogModule;
+}
 
 const DEFAULT_BATCH = 'machakos-county-projectz-v1';
 const DEFAULT_SOURCE = 'Machakos_County_projectz.xlsx';
@@ -84,21 +93,6 @@ const DEPARTMENT_ALIASES = {
   'sme': 'SME',
   'health': 'Health',
 };
-
-function cleanText(value) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/\n+/g, ' ')
-    .trim();
-}
-
-function normKey(value) {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
 
 function titleCaseWords(value) {
   return cleanText(value)
@@ -260,7 +254,8 @@ async function ensureStagingSchema() {
   await pool.query(`
     ALTER TABLE client_project_import_staging
       ADD COLUMN IF NOT EXISTS applied_project_id BIGINT NULL,
-      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ NULL
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS metadata_remarks TEXT NULL
   `);
 }
 
@@ -476,9 +471,9 @@ async function replaceStagingBatch(importBatch, rows) {
           location_scope, remarks_amount, remarks_status_text,
           match_key, duplicate_group_key, duplicate_count_in_file,
           match_project_id, match_project_name, match_score, match_method, match_is_test_project,
-          proposed_action, review_notes
+          proposed_action, review_notes, metadata_remarks
         ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
         )
         `,
         [
@@ -489,7 +484,7 @@ async function replaceStagingBatch(importBatch, rows) {
           row.locationScope, row.remarksAmount, row.remarksStatusText,
           row.matchKey, row.duplicateGroupKey, row.duplicateCountInFile,
           row.matchProjectId, row.matchProjectName, row.matchScore, row.matchMethod, row.matchIsTestProject,
-          row.proposedAction, row.reviewNotes,
+          row.proposedAction, row.reviewNotes, row.metadataRemarks ?? '',
         ]
       );
     }
@@ -551,6 +546,10 @@ function mapStagingRow(row) {
     matchIsTestProject: row.match_is_test_project === true,
     proposedAction: row.proposed_action,
     reviewNotes: row.review_notes,
+    metadataRemarks: row.metadata_remarks && String(row.metadata_remarks).trim()
+      ? row.metadata_remarks
+      : null,
+    metadataRemarksLabel: getMetadataCatalog().formatMetadataRemarksForDisplay(row.metadata_remarks),
     appliedProjectId: row.applied_project_id != null ? Number(row.applied_project_id) : null,
     appliedAt: row.applied_at || null,
     createdAt: row.created_at,
@@ -577,7 +576,16 @@ async function listBatches() {
       COUNT(*) FILTER (WHERE applied_project_id IS NULL)::int AS "notAppliedCount",
       COUNT(*) FILTER (
         WHERE proposed_action = 'insert' AND applied_project_id IS NULL
-      )::int AS "insertReadyCount"
+      )::int AS "insertReadyCount",
+      COUNT(*) FILTER (
+        WHERE metadata_remarks IS NOT NULL AND BTRIM(metadata_remarks) <> ''
+      )::int AS "metadataIssuesCount",
+      COUNT(*) FILTER (WHERE metadata_remarks IS NOT NULL)::int AS "metadataScannedCount",
+      COUNT(*) FILTER (
+        WHERE applied_project_id IS NOT NULL
+          AND metadata_remarks IS NOT NULL
+          AND BTRIM(metadata_remarks) <> ''
+      )::int AS "appliedWithMetadataIssuesCount"
     FROM client_project_import_staging
     GROUP BY import_batch
     ORDER BY MAX(updated_at) DESC
@@ -600,6 +608,15 @@ async function listStagingRows(importBatch, opts = {}) {
   }
   if (opts.notAppliedOnly === true) {
     where.push('applied_project_id IS NULL');
+  }
+  if (opts.appliedWithMetadataIssuesOnly === true) {
+    where.push('applied_project_id IS NOT NULL');
+    where.push(`metadata_remarks IS NOT NULL AND BTRIM(metadata_remarks) <> ''`);
+  } else if (opts.appliedOnly === true) {
+    where.push('applied_project_id IS NOT NULL');
+  }
+  if (opts.metadataIssuesOnly === true) {
+    where.push(`metadata_remarks IS NOT NULL AND BTRIM(metadata_remarks) <> ''`);
   }
   if (opts.search) {
     params.push(`%${cleanText(opts.search)}%`);
@@ -652,6 +669,15 @@ async function listAllStagingRowsForExport(importBatch, opts = {}) {
   }
   if (opts.notAppliedOnly === true) {
     where.push('applied_project_id IS NULL');
+  }
+  if (opts.appliedWithMetadataIssuesOnly === true) {
+    where.push('applied_project_id IS NOT NULL');
+    where.push(`metadata_remarks IS NOT NULL AND BTRIM(metadata_remarks) <> ''`);
+  } else if (opts.appliedOnly === true) {
+    where.push('applied_project_id IS NOT NULL');
+  }
+  if (opts.metadataIssuesOnly === true) {
+    where.push(`metadata_remarks IS NOT NULL AND BTRIM(metadata_remarks) <> ''`);
   }
   if (opts.search) {
     params.push(`%${cleanText(opts.search)}%`);
@@ -776,6 +802,41 @@ async function loadStagingFromReviewCsv(filePath, opts = {}) {
   return stagingRows;
 }
 
+async function enrichStagingRowsWithMetadata(stagingRows) {
+  const catalogs = await getMetadataCatalog().loadMetadataCatalogs();
+  for (const row of stagingRows) {
+    const meta = getMetadataCatalog().buildMetadataRemarks(row, catalogs, {});
+    row.metadataRemarks = meta.codes || '';
+  }
+  return stagingRows;
+}
+
+async function refreshMetadataRemarksForBatch(importBatch) {
+  await ensureStagingSchema();
+  const { loadResolutionMap } = require('./clientMetadataResolutionService');
+  const catalogs = await getMetadataCatalog().loadMetadataCatalogs();
+  const resolutionMap = await loadResolutionMap(importBatch);
+  const result = await pool.query(
+    `SELECT * FROM client_project_import_staging WHERE import_batch = $1 ORDER BY source_row_no ASC`,
+    [importBatch]
+  );
+  let updated = 0;
+  for (const dbRow of result.rows || []) {
+    const row = mapStagingRow(dbRow);
+    const meta = getMetadataCatalog().buildMetadataRemarks(row, catalogs, resolutionMap);
+    await pool.query(
+      `
+      UPDATE client_project_import_staging
+      SET metadata_remarks = $1, updated_at = NOW()
+      WHERE id = $2
+      `,
+      [meta.codes || '', dbRow.id]
+    );
+    if (meta.codes) updated += 1;
+  }
+  return { total: result.rows?.length ?? 0, withIssues: updated };
+}
+
 module.exports = {
   DEFAULT_BATCH,
   DEFAULT_SOURCE,
@@ -793,4 +854,6 @@ module.exports = {
   ensureStagingSchema,
   isTestProjectName,
   loadStagingFromReviewCsv,
+  enrichStagingRowsWithMetadata,
+  refreshMetadataRemarksForBatch,
 };

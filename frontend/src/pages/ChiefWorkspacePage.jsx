@@ -21,6 +21,7 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import DescriptionIcon from '@mui/icons-material/Description';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '../configs/appConfig';
+import MobileAppWorkspaceQuickAction from '../components/MobileAppWorkspaceQuickAction';
 import villageMonitoringService from '../api/villageMonitoringService';
 import { useAuth } from '../context/AuthContext';
 import { canChiefApproveMonitoringReports } from '../utils/privilegeUtils';
@@ -235,6 +236,7 @@ export default function ChiefWorkspacePage() {
           color="#607d8b"
           onClick={() => navigate(ROUTES.PROJECT_DOCUMENTS_BY_PROJECT)}
         />
+        <MobileAppWorkspaceQuickAction />
       </Box>
 
       {chiefQueue > 0 && reportTab !== 'chief' ? (

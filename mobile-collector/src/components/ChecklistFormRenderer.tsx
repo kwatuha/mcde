@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -26,11 +26,13 @@ import {
 } from '../utils/locationCapture';
 import { launchCameraDeferred, launchLibraryDeferred } from '../utils/cameraLaunch';
 import { normalizeLocationAnswer } from '../utils/locationAnswerUtils';
-import { photoList } from '../utils/checklistValidation';
+import { photoList, multiSelectValues } from '../utils/checklistValidation';
+import { checklistOptionLabel, checklistOptionValue } from '../utils/checklistOptions';
 import { isItemVisible, stripHiddenAnswers } from '../utils/checklistVisibility';
 import {
   buildUserFieldAnswer,
   formatUserFieldDisplay,
+  isUserFieldEmpty,
   UserFieldAnswer,
 } from '../utils/userFieldUtils';
 import AreaLocationField from './AreaLocationField';
@@ -65,26 +67,6 @@ function PhotoItemField({
   const maxPhotos = item.maxPhotos ?? 1;
   const atMax = photos.length >= maxPhotos;
 
-  const resolveGpsForPhoto = async (): Promise<ChecklistLocationAnswer | null> => {
-    if (!item.requireGps) return null;
-    if (gpsFallback?.lat != null && gpsFallback?.lng != null) {
-      return gpsFallback;
-    }
-    try {
-      return await getCurrentLocation();
-    } catch (e: any) {
-      Alert.alert(
-        'GPS required',
-        e?.message ||
-          'Could not capture GPS. Capture site GPS above first, or enable location and try again.'
-      );
-      if (e?.code === 1 || e?.code === 2) {
-        promptOpenLocationSettings();
-      }
-      return null;
-    }
-  };
-
   const addPhoto = async (source: 'camera' | 'library') => {
     if (disabled || atMax) return;
     if (source === 'camera') {
@@ -101,7 +83,7 @@ function PhotoItemField({
         mediaType: 'photo' as const,
         quality: 0.8 as const,
         saveToPhotos: false,
-        includeExtra: true,
+        includeExtra: false,
       };
       const result: ImagePickerResponse =
         source === 'camera'
@@ -124,39 +106,13 @@ function PhotoItemField({
         return;
       }
 
-      const exifLat =
-        asset.latitude != null && Number.isFinite(Number(asset.latitude))
-          ? Number(asset.latitude)
-          : null;
-      const exifLng =
-        asset.longitude != null && Number.isFinite(Number(asset.longitude))
-          ? Number(asset.longitude)
-          : null;
-
-      let gps: ChecklistLocationAnswer | null = null;
-      if (item.requireGps) {
-        if (exifLat != null && exifLng != null) {
-          gps = {
-            lat: exifLat,
-            lng: exifLng,
-            accuracy: null,
-            capturedAt: new Date().toISOString(),
-          };
-        } else if (gpsFallback?.lat != null && gpsFallback?.lng != null) {
-          gps = gpsFallback;
-        } else {
-          gps = await resolveGpsForPhoto();
-          if (!gps) return;
-        }
-      }
-
       const entry: ChecklistPhotoEntry = {
         localUri: asset.uri,
         fileName: asset.fileName || `photo-${Date.now()}.jpg`,
-        lat: gps?.lat ?? exifLat,
-        lng: gps?.lng ?? exifLng,
-        accuracy: gps?.accuracy ?? null,
-        capturedAt: gps?.capturedAt ?? new Date().toISOString(),
+        lat: gpsFallback?.lat ?? null,
+        lng: gpsFallback?.lng ?? null,
+        accuracy: gpsFallback?.accuracy ?? null,
+        capturedAt: new Date().toISOString(),
       };
       onChange({ photos: [...photos, entry] });
     } finally {
@@ -218,13 +174,11 @@ function PhotoItemField({
       {!disabled && atMax && (
         <Text style={styles.hint}>Maximum {maxPhotos} photo{maxPhotos !== 1 ? 's' : ''} reached.</Text>
       )}
-      {item.requireGps && (
+      {gpsFallback?.lat != null && gpsFallback?.lng != null ? (
         <Text style={styles.hint}>
-          {gpsFallback
-            ? 'Uses site GPS above for geotags when the image has no embedded location.'
-            : 'GPS coordinates captured with each photo. Capture site GPS first for faster uploads.'}
+          Photos use the site GPS captured above — no separate GPS is needed per photo.
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -411,13 +365,15 @@ function UserItemField({
   sessionUser: AuthUser | null;
 }) {
   useEffect(() => {
-    if (disabled || value != null && value !== '') return;
+    if (disabled || !isUserFieldEmpty(value)) return;
     const auto = buildUserFieldAnswer(sessionUser);
     if (auto) onChange(auto);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionUser?.id, item.id, disabled]);
+  }, [sessionUser?.id, item.id, disabled, value]);
 
-  const display = formatUserFieldDisplay(value);
+  const display = isUserFieldEmpty(value) && !sessionUser
+    ? 'Loading your profile…'
+    : formatUserFieldDisplay(value);
   const profile =
     value && typeof value === 'object' ? (value as UserFieldAnswer) : null;
 
@@ -471,11 +427,35 @@ export default function ChecklistFormRenderer({
     };
   }, [sessionUser]);
   const answers = value && typeof value === 'object' ? value : {};
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
   const siteGps = normalizeLocationAnswer(answers.site_gps);
+
+  useEffect(() => {
+    if (disabled || !resolvedUser) return;
+    const auto = buildUserFieldAnswer(resolvedUser);
+    if (!auto) return;
+    const current = answersRef.current;
+    let changed = false;
+    const next = { ...current };
+    for (const sec of structure.sections || []) {
+      for (const item of sec.items || []) {
+        if (item.type !== 'user') continue;
+        if (!isUserFieldEmpty(next[item.id])) continue;
+        next[item.id] = auto;
+        changed = true;
+      }
+    }
+    if (changed) {
+      onChange(stripHiddenAnswers(structure, next));
+    }
+    // Fill user fields once profile is available (avoids submit with empty visitor_name).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedUser?.id, structure, disabled]);
 
   const setField = (id: string, v: unknown) => {
     if (disabled) return;
-    onChange(stripHiddenAnswers(structure, { ...answers, [id]: v }));
+    onChange(stripHiddenAnswers(structure, { ...answersRef.current, [id]: v }));
   };
 
   if (!structure?.sections?.length) {
@@ -612,19 +592,19 @@ export default function ChecklistFormRenderer({
               {item.type === 'multi_select' && (
                 <View style={styles.optionList}>
                   {(item.options || []).map((opt) => {
-                    const current = Array.isArray(answers[item.id])
-                      ? (answers[item.id] as string[])
-                      : [];
-                    const checked = current.includes(opt);
+                    const optionValue = checklistOptionValue(opt);
+                    const optionLabel = checklistOptionLabel(opt);
+                    const current = multiSelectValues(answers[item.id]);
+                    const checked = current.includes(optionValue);
                     return (
                       <TouchableOpacity
-                        key={opt}
+                        key={optionValue}
                         style={[styles.optionRow, checked && styles.optionRowSelected]}
                         disabled={disabled}
                         onPress={() => {
                           const next = checked
-                            ? current.filter((x) => x !== opt)
-                            : [...current, opt];
+                            ? current.filter((x) => x !== optionValue)
+                            : [...current, optionValue];
                           setField(item.id, next);
                         }}
                       >
@@ -635,7 +615,7 @@ export default function ChecklistFormRenderer({
                           ]}
                         >
                           {checked ? '☑ ' : '☐ '}
-                          {opt}
+                          {optionLabel}
                         </Text>
                       </TouchableOpacity>
                     );

@@ -202,7 +202,10 @@ export const ROUTES = {
     FINANCE_DASHBOARD: '/finance-dashboard', // ✨ NEW: Finance Dashboard route
     FINANCE_PAYMENT_CERTIFICATES: '/finance/payment-certificates',
     FINANCE_PAYMENT_LIST: '/finance/payment-list',
-    ENGINEER_WORKSPACE: '/engineer-workspace',
+    /** @deprecated use RESIDENT_ENGINEER_WORKSPACE — kept for legacy links */
+    ENGINEER_WORKSPACE: '/resident-engineer-workspace',
+    RESIDENT_ENGINEER_WORKSPACE: '/resident-engineer-workspace',
+    CHIEF_ENGINEER_WORKSPACE: '/chief-engineer-workspace',
     CO_FINANCE_WORKSPACE: '/co-finance-workspace',
     VILLAGE_WORKSPACE: '/village-workspace',
     WARD_WORKSPACE: '/ward-workspace',

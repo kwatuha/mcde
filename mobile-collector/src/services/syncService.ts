@@ -11,6 +11,7 @@ import { PendingSubmission } from '../types/dataCollection';
 import { uploadPendingPhotosInAnswers } from '../utils/attachmentUpload';
 import { extractApiError, shouldQueueOffline } from '../utils/apiErrorUtils';
 import { extractProgressStatusFromAnswers } from '../utils/progressStatus';
+import { normalizeAnswersForSubmit } from '../utils/checklistValidation';
 
 export type CatalogRefreshResult = {
   templates: number;
@@ -53,8 +54,12 @@ export async function syncPendingSubmissions(): Promise<{
   for (const item of pending) {
     if (item.status !== 'pending' && item.status !== 'failed') continue;
     try {
-      const answers = await uploadPendingPhotosInAnswers(item.answers);
       const tpl = templates.find((t) => t.templateId === item.templateId);
+      const normalized = normalizeAnswersForSubmit(
+        tpl?.structure || { sections: [] },
+        item.answers
+      );
+      const answers = await uploadPendingPhotosInAnswers(normalized);
       const progressStatus = extractProgressStatusFromAnswers(tpl?.structure, answers);
       await apiService.createSubmission({
         templateId: item.templateId,

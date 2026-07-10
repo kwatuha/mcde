@@ -401,6 +401,55 @@ export default function DataCollectionToolsPage() {
     []
   );
 
+  const buildVisitDraftPayload = useCallback(
+    () => ({
+      subjectType: visitSubjectType,
+      projectId: visitProject?.id ?? null,
+      projectName: visitProject?.projectName || visitProject?.name || null,
+      rriProgrammeId: getProgrammeId(visitRriProgramme),
+      rriProgrammeName: getProgrammeLabel(visitRriProgramme) || null,
+      templateId: visitTemplateId ? Number(visitTemplateId) : null,
+      visitDate: visitDate || null,
+      visitTitle: visitTitle || '',
+      visitAnswers: visitAnswers && typeof visitAnswers === 'object' ? visitAnswers : {},
+      savedAt: new Date().toISOString(),
+    }),
+    [
+      visitSubjectType,
+      visitProject,
+      visitRriProgramme,
+      visitTemplateId,
+      visitDate,
+      visitTitle,
+      visitAnswers,
+    ]
+  );
+
+  const visitHasDraftContent = useCallback(() => (
+    !!visitProject?.id ||
+    !!getProgrammeId(visitRriProgramme) ||
+    !!visitTemplateId ||
+    !!visitTitle.trim() ||
+    !!visitDate ||
+    (visitAnswers && Object.keys(visitAnswers).length > 0)
+  ), [visitProject, visitRriProgramme, visitTemplateId, visitTitle, visitDate, visitAnswers]);
+
+  const flushVisitDraft = useCallback(() => {
+    if (visitEditingId || visitReadOnly) return;
+    if (!visitHasDraftContent()) {
+      clearVisitDraft();
+      return;
+    }
+    saveVisitDraft(buildVisitDraftPayload());
+  }, [
+    visitEditingId,
+    visitReadOnly,
+    visitHasDraftContent,
+    clearVisitDraft,
+    saveVisitDraft,
+    buildVisitDraftPayload,
+  ]);
+
   const resetVisitForm = useCallback(() => {
     setVisitEditingId(null);
     setVisitReadOnly(false);
@@ -415,6 +464,24 @@ export default function DataCollectionToolsPage() {
     setVisitAnswers({});
     setVisitStructure(null);
   }, []);
+
+  const closeVisitDialog = useCallback(
+    ({ discardDraft = false } = {}) => {
+      if (visitSaving) return;
+      if (visitEditingId && !visitReadOnly) {
+        if (!window.confirm('Close without saving changes to this visit?')) return;
+      } else if (!visitEditingId) {
+        if (discardDraft) {
+          clearVisitDraft();
+        } else {
+          flushVisitDraft();
+        }
+      }
+      setVisitOpen(false);
+      resetVisitForm();
+    },
+    [visitSaving, visitEditingId, visitReadOnly, flushVisitDraft, clearVisitDraft, resetVisitForm]
+  );
 
   const restoreDraftToForm = useCallback(
     (draft) => {
@@ -681,24 +748,57 @@ export default function DataCollectionToolsPage() {
     }
   };
 
-  useEffect(() => {
+  const flushTemplateDraft = useCallback(() => {
     if (!editorOpen) return;
     const key = editingId ? templateEditDraftKey(editingId) : TEMPLATE_CREATE_DRAFT_STORAGE_KEY;
-    const timer = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          key,
-          JSON.stringify({
-            form,
-            savedAt: new Date().toISOString(),
-          })
-        );
-      } catch {
-        // Ignore local storage errors.
-      }
-    }, 500);
-    return () => clearTimeout(timer);
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          form,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Ignore local storage errors.
+    }
   }, [editorOpen, editingId, form]);
+
+  const closeTemplateEditor = useCallback(
+    ({ discardDraft = false } = {}) => {
+      if (saving) return;
+      const key = editingId ? templateEditDraftKey(editingId) : TEMPLATE_CREATE_DRAFT_STORAGE_KEY;
+      if (discardDraft) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // Ignore local storage errors.
+        }
+        setTemplateDraftRestoredAt(null);
+      } else {
+        flushTemplateDraft();
+      }
+      setEditorOpen(false);
+    },
+    [saving, editingId, flushTemplateDraft]
+  );
+
+  useEffect(() => {
+    if (!editorOpen) return;
+    const timer = setTimeout(() => {
+      flushTemplateDraft();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [editorOpen, editingId, form, flushTemplateDraft]);
+
+  useEffect(() => {
+    if (!editorOpen) return;
+    const onBeforeUnload = () => {
+      flushTemplateDraft();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [editorOpen, flushTemplateDraft]);
 
   const removeTemplate = async (row) => {
     const label = row.name || `Template #${row.templateId}`;
@@ -784,46 +884,32 @@ export default function DataCollectionToolsPage() {
 
   useEffect(() => {
     if (!visitOpen || visitReadOnly || visitEditingId) return;
-    const hasValues =
-      !!visitProject?.id ||
-      !!getProgrammeId(visitRriProgramme) ||
-      !!visitTemplateId ||
-      !!visitTitle.trim() ||
-      !!visitDate ||
-      (visitAnswers && Object.keys(visitAnswers).length > 0);
-    if (!hasValues) {
+    if (!visitHasDraftContent()) {
       clearVisitDraft();
       return;
     }
     const timer = setTimeout(() => {
-      saveVisitDraft({
-        subjectType: visitSubjectType,
-        projectId: visitProject?.id ?? null,
-        projectName: visitProject?.projectName || visitProject?.name || null,
-        rriProgrammeId: getProgrammeId(visitRriProgramme),
-        rriProgrammeName: getProgrammeLabel(visitRriProgramme) || null,
-        templateId: visitTemplateId ? Number(visitTemplateId) : null,
-        visitDate: visitDate || null,
-        visitTitle: visitTitle || '',
-        visitAnswers: visitAnswers && typeof visitAnswers === 'object' ? visitAnswers : {},
-        savedAt: new Date().toISOString(),
-      });
-    }, 500);
+      saveVisitDraft(buildVisitDraftPayload());
+    }, 400);
     return () => clearTimeout(timer);
   }, [
     visitOpen,
     visitReadOnly,
     visitEditingId,
-    visitSubjectType,
-    visitProject,
-    visitRriProgramme,
-    visitTemplateId,
-    visitDate,
-    visitTitle,
-    visitAnswers,
+    visitHasDraftContent,
+    buildVisitDraftPayload,
     saveVisitDraft,
     clearVisitDraft,
   ]);
+
+  useEffect(() => {
+    if (!visitOpen || visitEditingId) return;
+    const onBeforeUnload = () => {
+      flushVisitDraft();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [visitOpen, visitEditingId, flushVisitDraft]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1100, mx: 'auto' }}>
@@ -1117,7 +1203,19 @@ export default function DataCollectionToolsPage() {
         </Box>
       </Paper>
 
-      <Dialog open={editorOpen} onClose={() => !saving && setEditorOpen(false)} fullWidth maxWidth="lg">
+      <Dialog
+        open={editorOpen}
+        onClose={(_event, reason) => {
+          if (saving) return;
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+            closeTemplateEditor();
+            return;
+          }
+          closeTemplateEditor();
+        }}
+        fullWidth
+        maxWidth="lg"
+      >
         <DialogTitle sx={{ pb: 1 }}>
           <Stack spacing={1.5}>
             <Typography variant="h6" component="span" fontWeight={700}>
@@ -1235,6 +1333,10 @@ export default function DataCollectionToolsPage() {
                 Draft restored automatically from {new Date(templateDraftRestoredAt).toLocaleString()}.
               </Alert>
             )}
+            <Alert severity="info">
+              Your template design is saved automatically as a draft. Closing this dialog (including clicking outside)
+              keeps your work — reopen the template editor to continue.
+            </Alert>
             <TextField
               label="Template name"
               required
@@ -1553,9 +1655,21 @@ export default function DataCollectionToolsPage() {
             Preview form
           </Button>
           <Stack direction="row" spacing={1}>
-            <Button onClick={() => setEditorOpen(false)} disabled={saving}>
-              Cancel
+            <Button onClick={() => closeTemplateEditor()} disabled={saving}>
+              Close
             </Button>
+            {!editingId && (
+              <Button
+                color="warning"
+                onClick={() => {
+                  if (!window.confirm('Discard this template draft? This cannot be undone.')) return;
+                  closeTemplateEditor({ discardDraft: true });
+                }}
+                disabled={saving}
+              >
+                Discard draft
+              </Button>
+            )}
             {editorTab === 'preview' && (
               <Button variant="outlined" onClick={() => setEditorTab('design')} disabled={saving}>
                 Back to design
@@ -1570,11 +1684,13 @@ export default function DataCollectionToolsPage() {
 
       <Dialog
         open={visitOpen}
-        onClose={() => {
-          if (!visitSaving) {
-            setVisitOpen(false);
-            resetVisitForm();
+        onClose={(_event, reason) => {
+          if (visitSaving) return;
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+            closeVisitDialog();
+            return;
           }
+          closeVisitDialog();
         }}
         fullWidth
         maxWidth="md"
@@ -1587,6 +1703,12 @@ export default function DataCollectionToolsPage() {
             {!visitEditingId && draftRestoredAt && (
               <Alert severity="success">
                 Draft restored automatically from {new Date(draftRestoredAt).toLocaleString()}.
+              </Alert>
+            )}
+            {!visitEditingId && (
+              <Alert severity="info">
+                Checklist answers save automatically as a draft. Closing this dialog (including clicking outside)
+                keeps your progress — start a new visit to resume.
               </Alert>
             )}
             {loadingVisit && (
@@ -1719,15 +1841,21 @@ export default function DataCollectionToolsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => {
-              setVisitOpen(false);
-              resetVisitForm();
-            }}
-            disabled={visitSaving}
-          >
-            Cancel
+          <Button onClick={() => closeVisitDialog()} disabled={visitSaving}>
+            Close
           </Button>
+          {!visitEditingId && (
+            <Button
+              color="warning"
+              onClick={() => {
+                if (!window.confirm('Discard this visit draft? This cannot be undone.')) return;
+                closeVisitDialog({ discardDraft: true });
+              }}
+              disabled={visitSaving}
+            >
+              Discard draft
+            </Button>
+          )}
           {visitEditingId ? (
             <Button
               variant="outlined"

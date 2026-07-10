@@ -24,6 +24,7 @@ DEPLOY_PATH="${DEPLOY_PATH:-/home/kunye/dev/machakos}"
 SSH_IDENTITY="${SSH_IDENTITY:-$HOME/.ssh/id_asusme}"
 
 TARGET="${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}"
+PUBLIC_URL="${MACHAKOS_PUBLIC_URL:-https://monitoring.icskenya.co.ke}"
 
 echo "==> Monitoring server mobile app release"
 echo "    Server: ${TARGET}"

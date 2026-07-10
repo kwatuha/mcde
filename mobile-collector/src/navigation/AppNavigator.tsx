@@ -2,16 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, View } from 'react-native';
 
 import apiService from '../services/api';
 import LoginScreen from '../screens/LoginScreen';
+import ForcePasswordChangeScreen from '../screens/ForcePasswordChangeScreen';
 import TemplatesScreen from '../screens/TemplatesScreen';
 import SubmissionsScreen from '../screens/SubmissionsScreen';
 import NewVisitScreen from '../screens/NewVisitScreen';
 import MainTabBar from '../components/MainTabBar';
-import { STORAGE_KEYS, THEME } from '../config/api';
+import { THEME } from '../config/api';
 import { refreshCatalog } from '../services/syncService';
 
 export const AuthContext = React.createContext<{ logout: () => Promise<void> } | null>(
@@ -49,15 +49,27 @@ const MainTabs = () => (
 
 const AppNavigator: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   const checkAuth = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-      setIsAuthenticated(!!token);
+      const session = await apiService.resumeSession();
+      setIsAuthenticated(session.authenticated);
+      setMustChangePassword(session.mustChangePassword);
     } catch {
       setIsAuthenticated(false);
+      setMustChangePassword(false);
     }
   }, []);
+
+  const handleLoginSuccess = useCallback(async (options?: { mustChangePassword?: boolean }) => {
+    if (options?.mustChangePassword) {
+      setIsAuthenticated(true);
+      setMustChangePassword(true);
+      return;
+    }
+    await checkAuth();
+  }, [checkAuth]);
 
   useEffect(() => {
     checkAuth();
@@ -66,19 +78,21 @@ const AppNavigator: React.FC = () => {
   const logout = useCallback(async () => {
     await apiService.logout();
     setIsAuthenticated(false);
+    setMustChangePassword(false);
   }, []);
 
   useEffect(() => {
     apiService.setUnauthorizedHandler(() => {
       setIsAuthenticated(false);
+      setMustChangePassword(false);
     });
     return () => apiService.setUnauthorizedHandler(null);
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || mustChangePassword) return;
     refreshCatalog().catch(() => {});
-  }, [isAuthenticated]);
+  }, [isAuthenticated, mustChangePassword]);
 
   if (isAuthenticated === null) {
     return (
@@ -94,7 +108,19 @@ const AppNavigator: React.FC = () => {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {!isAuthenticated ? (
             <Stack.Screen name="Login">
-              {() => <LoginScreen onLoginSuccess={checkAuth} />}
+              {() => <LoginScreen onLoginSuccess={handleLoginSuccess} />}
+            </Stack.Screen>
+          ) : mustChangePassword ? (
+            <Stack.Screen name="ForcePasswordChange">
+              {() => (
+                <ForcePasswordChangeScreen
+                  onPasswordChanged={() => {
+                    setMustChangePassword(false);
+                    refreshCatalog().catch(() => {});
+                  }}
+                  onLogout={logout}
+                />
+              )}
             </Stack.Screen>
           ) : (
             <>

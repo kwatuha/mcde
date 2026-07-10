@@ -48,6 +48,7 @@ import {
   canVillageSubmitMonitoringReports,
   canWardReviewMonitoringReports,
 } from '../utils/privilegeUtils';
+import { normalizeAnswersForDisplay } from '../utils/checklistAnswerUtils';
 
 const WARD_EDITABLE_STATUSES = ['pending_ward', 'returned_to_ward'];
 const SUBCOUNTY_REVIEWABLE_STATUSES = ['pending_subcounty'];
@@ -95,6 +96,7 @@ const ACTION_LABELS = {
   forwarded_to_chief: 'Forwarded to chief officer',
   chief_approved: 'Chief approved — published',
   formatted_report_uploaded: 'Formatted Word report uploaded',
+  formatted_report_generated: 'Formatted Word report generated',
 };
 
 function triggerBlobDownload(response, fallbackName) {
@@ -309,7 +311,7 @@ export default function VillageMonitoringWorkflowPage({
       const data = await villageMonitoringService.getReport(row.submissionId, { detail: true });
       setEditTitle(data.title || '');
       setEditProgress(data.progressStatus || '');
-      setEditAnswers(data.answers || {});
+      setEditAnswers(normalizeAnswersForDisplay(data.structure, data.answers || {}));
       setEditStructure(data.structure || { sections: [] });
       setEditProjectId(data.projectId ?? null);
       setEditWardChanges(data.wardChangesFromVillage || []);
@@ -391,7 +393,10 @@ export default function VillageMonitoringWorkflowPage({
     setDetailLoading(true);
     try {
       const data = await villageMonitoringService.getReport(row.submissionId, { detail: true });
-      setDetail(data);
+      setDetail({
+        ...data,
+        answers: normalizeAnswersForDisplay(data.structure, data.answers || {}),
+      });
     } catch {
       setDetail(null);
     } finally {

@@ -43,6 +43,12 @@
         "title": "2. What you observed on site",
         "items": [
           {
+            "id": "milestone_inspected",
+            "label": "Project milestone this visit relates to (loaded from project record)",
+            "type": "project_milestones",
+            "required": false
+          },
+          {
             "id": "work_in_progress",
             "label": "Construction or project work is visibly ongoing",
             "type": "yes_no",
@@ -160,11 +166,11 @@
         "items": [
           {
             "id": "site_photos",
-            "label": "Progress photos (up to 3, GPS required on each)",
+            "label": "Progress photos (up to 3)",
             "type": "photo",
             "required": true,
             "maxPhotos": 3,
-            "requireGps": true
+            "requireGps": false
           },
           {
             "id": "signage_photo",

@@ -23,14 +23,15 @@ import { useNavigationLayout } from '../context/NavigationLayoutContext.jsx';
 import { usePageTitleEffect } from '../hooks/usePageTitle.js';
 import { ROUTES } from '../configs/appConfig.js';
 import { useTheme, useMediaQuery } from "@mui/material";
-import { isAdmin, normalizeRoleName, isContractor, isEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
+import { isAdmin, normalizeRoleName, isContractor, isChiefEngineerPortalUser, isResidentEngineerPortalUser, isCoFinancePortalUser, isVillagePortalUser, isWardPortalUser, isSubCountyPortalUser, isChiefPortalUser, isSectorMePortalUser } from '../utils/privilegeUtils.js';
 import {
   getFirstVisibleMenuPath,
   hasRestrictiveMenuProfile,
   isAlwaysAllowedUiProfilePath,
   isContractorPortalPath,
   isCoFinanceWorkflowPath,
-  isEngineerWorkflowPath,
+  isChiefEngineerWorkflowPath,
+  isResidentEngineerWorkflowPath,
   isVillageWorkflowPath,
   isWardWorkflowPath,
   isSubCountyWorkflowPath,
@@ -46,6 +47,8 @@ import Sidebar from "./Sidebar.jsx";
 import FloatingChatButton from "../components/chat/FloatingChatButton.jsx";
 import AIAssistantPanel from "../components/ai/AIAssistantPanel.jsx";
 import RibbonMenu from "./RibbonMenu.jsx";
+import MobileAppDownloadBanner from '../components/MobileAppDownloadBanner.jsx';
+import { canAccessMobileCollectorDownload } from '../utils/mobileCollectorAccessUtils.js';
 import gprisLogo from '../assets/gpris.png';
 import { treeLayoutDataGridGlobalStyles } from '../utils/dataGridTheme.js';
 import {
@@ -106,6 +109,12 @@ function MainLayoutContent() {
     [isAdminLike, hasPrivilege, user]
   );
 
+  const showMobileAppBanner = useMemo(() => {
+    const path = String(location.pathname || '').split('?')[0];
+    if (path === ROUTES.DASHBOARD || path === ROUTES.MOBILE_APP_DOWNLOAD) return false;
+    return canAccessMobileCollectorDownload(user, hasPrivilege);
+  }, [location.pathname, user, hasPrivilege]);
+
   useEffect(() => {
     if (
       user &&
@@ -114,7 +123,8 @@ function MainLayoutContent() {
       !isAlwaysAllowedUiProfilePath(location.pathname, user) &&
       !(isContractor(user) && isContractorPortalPath(location.pathname)) &&
       !(isCoFinancePortalUser(user) && isCoFinanceWorkflowPath(location.pathname)) &&
-      !(isEngineerPortalUser(user) && isEngineerWorkflowPath(location.pathname)) &&
+      !(isChiefEngineerPortalUser(user) && isChiefEngineerWorkflowPath(location.pathname)) &&
+      !(isResidentEngineerPortalUser(user) && isResidentEngineerWorkflowPath(location.pathname)) &&
       !(isVillagePortalUser(user) && isVillageWorkflowPath(location.pathname)) &&
       !(isWardPortalUser(user) && isWardWorkflowPath(location.pathname)) &&
       !(isSubCountyPortalUser(user) && isSubCountyWorkflowPath(location.pathname)) &&
@@ -340,6 +350,9 @@ function MainLayoutContent() {
             p: { xs: 0.75, sm: 1, md: 1.25 },
             overflow: 'auto'
           }}>
+            {showMobileAppBanner ? (
+              <MobileAppDownloadBanner compact sx={{ mx: { xs: 0.5, sm: 0 } }} />
+            ) : null}
             <Outlet />
           </Box>
         </Box>

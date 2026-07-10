@@ -389,6 +389,68 @@ function countPendingProgressPhotos(photos) {
     }).length;
 }
 
+const CERTIFICATE_ENTITY_TYPES = new Set(['project_certificate', 'payment_certificate', 'certificate']);
+const PAYMENT_REQUEST_ENTITY_TYPES = new Set(['payment_request']);
+
+async function filterPendingWorkflowByProjectScope(pendingWorkflow, projectIds) {
+    if (!Array.isArray(pendingWorkflow) || pendingWorkflow.length === 0) {
+        return [];
+    }
+    if (!isPostgres || !projectIds.length) {
+        return [];
+    }
+
+    const certIds = [];
+    const paymentRequestIds = [];
+    for (const row of pendingWorkflow) {
+        const et = String(row.entity_type || row.entityType || '').toLowerCase();
+        const eid = Number(row.entity_id ?? row.entityId);
+        if (!Number.isFinite(eid)) continue;
+        if (CERTIFICATE_ENTITY_TYPES.has(et)) certIds.push(eid);
+        else if (PAYMENT_REQUEST_ENTITY_TYPES.has(et)) paymentRequestIds.push(eid);
+    }
+
+    const allowedCertIds = new Set();
+    const allowedPaymentIds = new Set();
+
+    if (certIds.length) {
+        const result = await pool.query(
+            `SELECT "certificateId"::text AS id
+             FROM projectcertificate
+             WHERE COALESCE(voided, false) = false
+               AND "projectId" = ANY($1::int[])
+               AND "certificateId" = ANY($2::int[])`,
+            [projectIds, certIds]
+        );
+        for (const row of result.rows || []) {
+            allowedCertIds.add(String(row.id));
+        }
+    }
+
+    if (paymentRequestIds.length) {
+        const result = await pool.query(
+            `SELECT "requestId"::text AS id
+             FROM project_payment_requests
+             WHERE COALESCE(voided, false) = false
+               AND "projectId" = ANY($1::int[])
+               AND "requestId" = ANY($2::int[])`,
+            [projectIds, paymentRequestIds]
+        );
+        for (const row of result.rows || []) {
+            allowedPaymentIds.add(String(row.id));
+        }
+    }
+
+    return pendingWorkflow.filter((row) => {
+        const et = String(row.entity_type || row.entityType || '').toLowerCase();
+        const eid = String(row.entity_id ?? row.entityId ?? '').trim();
+        if (!eid) return false;
+        if (CERTIFICATE_ENTITY_TYPES.has(et)) return allowedCertIds.has(eid);
+        if (PAYMENT_REQUEST_ENTITY_TYPES.has(et)) return allowedPaymentIds.has(eid);
+        return false;
+    });
+}
+
 async function getEngineerProgressPhotos(user, options = {}) {
     const projects = await fetchScopedProjects(user, { limit: options.limit || 120 });
     const projectIds = projects.map((p) => p.projectId);
@@ -458,13 +520,22 @@ async function getEngineerWorkspace(user, options = {}) {
         },
     }));
 
-    const pendingCertificates = (pendingWorkflow || []).filter((row) => {
+    const scopedPendingWorkflow = include.has('workflow')
+        ? await filterPendingWorkflowByProjectScope(pendingWorkflow, projectIds)
+        : [];
+
+    const allPendingCertificates = (pendingWorkflow || []).filter((row) => {
         const et = String(row.entity_type || row.entityType || '').toLowerCase();
-        return et === 'project_certificate' || et === 'payment_certificate' || et === 'certificate';
+        return CERTIFICATE_ENTITY_TYPES.has(et);
     });
-    const pendingPaymentRequests = (pendingWorkflow || []).filter((row) => {
+
+    const pendingCertificates = scopedPendingWorkflow.filter((row) => {
         const et = String(row.entity_type || row.entityType || '').toLowerCase();
-        return et === 'payment_request';
+        return CERTIFICATE_ENTITY_TYPES.has(et);
+    });
+    const pendingPaymentRequests = scopedPendingWorkflow.filter((row) => {
+        const et = String(row.entity_type || row.entityType || '').toLowerCase();
+        return PAYMENT_REQUEST_ENTITY_TYPES.has(et);
     });
 
     return {
@@ -474,7 +545,7 @@ async function getEngineerWorkspace(user, options = {}) {
         pendingWorkflow: {
             certificates: pendingCertificates,
             paymentRequests: pendingPaymentRequests,
-            all: pendingWorkflow || [],
+            all: scopedPendingWorkflow,
         },
         summary: {
             projectCount: projectsWithMeta.length,
@@ -489,6 +560,7 @@ async function getEngineerWorkspace(user, options = {}) {
                 return !st || st === 'pending';
             }).length,
             pendingCertificates: pendingCertificates.length,
+            outOfScopePendingCertificates: Math.max(0, allPendingCertificates.length - pendingCertificates.length),
             certificatesWithPriorApproval: countCertificatesWithPriorApproval(certificates),
             residentEngineerApprovedPending: include.has('certificates')
                 ? countResidentEngineerApprovedPending(certificates)

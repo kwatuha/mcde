@@ -32,8 +32,9 @@ import {
   isResidentEngineerPriorApproval,
   workflowDetailLine,
 } from '../../utils/certificateWorkflowDisplay.js';
-import { ENGINEER_WORKSPACE_ROUTES, workflowChip } from './engineerWorkspaceShared';
+import { WORKSPACE_ROUTES, workflowChip } from './residentEngineerWorkspaceShared';
 import { useEngineerWorkspaceData } from './useEngineerWorkspaceData';
+import { canApprovePaymentCertificates, canViewPaymentCertificates } from '../../utils/privilegeUtils.js';
 
 function certificateLabel(row) {
   return [row.certType, row.certSubType].filter(Boolean).join(' · ')
@@ -79,16 +80,15 @@ function PriorApprovalCell({ row }) {
   );
 }
 
-export default function EngineerWorkspaceCertificatesPage() {
+export default function ResidentEngineerCertificatesPage() {
   const { user, hasPrivilege } = useAuth();
   const navigate = useNavigate();
   const { loading, error, load, certificates, pendingCerts, summary } = useEngineerWorkspaceData({
     include: 'certificates,workflow',
   });
   const [expandedCertId, setExpandedCertId] = useState(null);
-  const canApproveCerts = hasPrivilege('document.read_all')
-    || hasPrivilege('approval_levels.update')
-    || hasPrivilege('payment_request.update');
+  const canViewCerts = canViewPaymentCertificates(hasPrivilege);
+  const canApproveCerts = canApprovePaymentCertificates(hasPrivilege);
 
   const sortedCertificates = useMemo(() => (
     [...certificates].sort((a, b) => {
@@ -117,7 +117,7 @@ export default function EngineerWorkspaceCertificatesPage() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(ENGINEER_WORKSPACE_ROUTES.overview)}
+          onClick={() => navigate(WORKSPACE_ROUTES.overview)}
           size="small"
         >
           Workspace
@@ -129,50 +129,46 @@ export default function EngineerWorkspaceCertificatesPage() {
         </Tooltip>
       </Stack>
 
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>Certificates</Typography>
+      <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>Payment certificates</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Payment certificates assigned to your approval step. Items approved by the Resident Engineer appear first.
+        First approval step (Resident Engineer). Approve here before the Chief Engineer and Co-Finance review.
       </Typography>
 
       {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
 
-      {!loading && residentApprovedCount > 0 ? (
-        <Alert
-          severity="warning"
-          icon={<FactCheckIcon fontSize="inherit" />}
-          sx={{ mb: 2 }}
-          action={(
-            <Button
-              color="inherit"
-              size="small"
-              onClick={() => {
-                const first = sortedCertificates.find(isResidentEngineerPriorApproval);
-                if (first) openApprovePanel(first.certificateId);
-              }}
-            >
-              Review first
-            </Button>
-          )}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>
-            {residentApprovedCount} certificate{residentApprovedCount !== 1 ? 's' : ''} approved by the Resident Engineer
-            {residentApprovedCount !== 1 ? ' are' : ' is'} waiting for your approval.
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-            Expand a row or use Review &amp; approve to complete the Chief Engineer step.
-          </Typography>
+      {!loading && !canViewCerts ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Your role is missing payment certificate privileges. Ask ICT to add{' '}
+          <code>payment_request.read_all</code>, <code>payment_request.update</code>, and{' '}
+          <code>document.read_all</code> to the Resident Engineer role, then log in again.
         </Alert>
       ) : null}
 
-      {!loading && residentApprovedCount === 0 && priorApprovedCount > 0 ? (
+      {!loading && canViewCerts && sortedCertificates.length === 0 ? (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {priorApprovedCount} certificate{priorApprovedCount !== 1 ? 's' : ''} passed an earlier approval step and
-          {' '}
-          {priorApprovedCount !== 1 ? 'are' : 'is'} waiting for your action.
+          No certificates are waiting at your Resident Engineer approval step. New certificates appear here when
+          submitted for workflow step 1.
         </Alert>
       ) : null}
 
-      {!loading && pendingCerts.length > 0 ? (
+      {!loading && summary.outOfScopePendingCertificates > 0 ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {summary.outOfScopePendingCertificates} certificate workflow step
+          {summary.outOfScopePendingCertificates !== 1 ? 's are' : ' is'} assigned to your role on projects outside
+          your access scope. Ask an administrator to assign those projects, or open the county finance certificates
+          register if you have county-wide access.
+          {' '}
+          <Button
+            size="small"
+            component={RouterLink}
+            to={`${ROUTES.FINANCE_PAYMENT_CERTIFICATES}?pendingMe=1`}
+          >
+            Open finance certificates
+          </Button>
+        </Alert>
+      ) : null}
+
+      {!loading && pendingCerts.length > 0 && sortedCertificates.length === 0 && !(summary.outOfScopePendingCertificates > 0) ? (
         <Alert severity="info" sx={{ mb: 2 }}>
           {pendingCerts.length} certificate workflow step{pendingCerts.length !== 1 ? 's' : ''} assigned to your role.
           {' '}

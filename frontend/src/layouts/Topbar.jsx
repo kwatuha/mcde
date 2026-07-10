@@ -30,12 +30,13 @@ import { useSidebar } from '../context/SidebarContext.jsx';
 import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import { canAccessMobileCollectorDownload } from '../utils/mobileCollectorAccessUtils';
 
 const Topbar = () => {
   const theme = useTheme();
   const isDesktopUp = useMediaQuery(theme.breakpoints.up('sm'));
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasPrivilege } = useAuth();
   const { layoutMode, toggleLayoutMode } = useNavigationLayout();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { pageTitle, pageSubtitle } = usePageTitle();
@@ -43,6 +44,7 @@ const Topbar = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const open = Boolean(anchorEl);
+  const showMobileAppMenu = canAccessMobileCollectorDownload(user, hasPrivilege);
 
   const handleClick = (event) => {
     setAnchorEl(event.currentTarget);
@@ -272,17 +274,19 @@ const Topbar = () => {
             <ListItemText>Help & Support</ListItemText>
           </MenuItem>
 
-          <MenuItem
-            onClick={() => {
-              handleClose();
-              navigate(ROUTES.MOBILE_APP_DOWNLOAD);
-            }}
-          >
-            <ListItemIcon>
-              <PhoneAndroidIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Mobile app (Android)</ListItemText>
-          </MenuItem>
+          {showMobileAppMenu ? (
+            <MenuItem
+              onClick={() => {
+                handleClose();
+                navigate(ROUTES.MOBILE_APP_DOWNLOAD);
+              }}
+            >
+              <ListItemIcon>
+                <PhoneAndroidIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Mobile app (Android)</ListItemText>
+            </MenuItem>
+          ) : null}
 
           <MenuItem
             onClick={() => {

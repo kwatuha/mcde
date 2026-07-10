@@ -5,6 +5,35 @@ import { isSuperAdminUser } from '../utils/roleUtils.js';
 import {
   applyUiProfileToMenuCategories,
 } from '../utils/uiProfileUtils.js';
+import { canAccessMobileCollectorDownload } from '../utils/mobileCollectorAccessUtils.js';
+
+const MOBILE_APP_SUBMENU = {
+  title: 'Mobile app (Android)',
+  icon: 'PhoneAndroidIcon',
+  route: 'MOBILE_APP_DOWNLOAD',
+};
+
+export function ensureMobileAppMenuForCollectorUsers(categories, user, hasPrivilege) {
+  if (!canAccessMobileCollectorDownload(user, hasPrivilege)) return categories;
+
+  const alreadyLinked = categories.some((cat) =>
+    (cat.submenus || []).some((sub) => sub.route === 'MOBILE_APP_DOWNLOAD')
+  );
+  if (alreadyLinked) return categories;
+
+  const monitoringIdx = categories.findIndex((cat) => cat.id === 'monitoring');
+  const reportsIdx = categories.findIndex((cat) => cat.id === 'reports');
+  const targetIdx = monitoringIdx >= 0 ? monitoringIdx : reportsIdx;
+  if (targetIdx < 0) return categories;
+
+  return categories.map((cat, index) => {
+    if (index !== targetIdx) return cat;
+    return {
+      ...cat,
+      submenus: [...(cat.submenus || []), MOBILE_APP_SUBMENU],
+    };
+  });
+}
 
 /** Paths that should highlight the Monitoring tree group when the same route key appears under Projects or elsewhere. */
 const MONITORING_PREFERRED_ROUTE_PATHS = [
@@ -196,7 +225,11 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const normalizedRole = normalizeRoleName(user?.roleName || user?.role);
   const isExecutiveViewer = EXECUTIVE_VIEWER_ROLE_NAMES.has(normalizedRole);
   if (!isExecutiveViewer) {
-    return applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user);
+    return ensureMobileAppMenuForCollectorUsers(
+      applyUiProfileMenuVisibility(categories.filter((c) => (c.submenus || []).length > 0), user),
+      user,
+      hasPrivilege
+    );
   }
 
   // Executive Viewer: allow dashboards plus Projects tab with Registry only.
@@ -211,7 +244,8 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
   const allowedSet = new Set(allowedDashboardRoutes);
   const allowedProjectsRoutes = new Set(['PROJECTS']);
 
-  return applyUiProfileMenuVisibility(categories
+  return ensureMobileAppMenuForCollectorUsers(
+    applyUiProfileMenuVisibility(categories
     .filter((category) => {
       if (category.id === 'dashboard' || category.id === 'reporting') return true;
       if (category.id === 'finance') {
@@ -250,7 +284,10 @@ export const getFilteredMenuCategories = (isAdmin = false, hasPrivilege = null, 
         .filter((submenu) => !submenu.hidden && allowedProjectsRoutes.has(submenu.route));
       return { ...category, submenus: filteredSubmenus };
     })
-    .filter((category) => (category.submenus || []).length > 0), user);
+    .filter((category) => (category.submenus || []).length > 0), user),
+    user,
+    hasPrivilege
+  );
 };
 
 // Get menu configuration

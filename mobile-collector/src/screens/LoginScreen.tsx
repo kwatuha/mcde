@@ -12,11 +12,11 @@ import {
   Image,
 } from 'react-native';
 import apiService from '../services/api';
-import { THEME } from '../config/api';
+import { API_BASE_URL, THEME } from '../config/api';
 import { LoginOtpChallenge } from '../types/dataCollection';
 
 interface Props {
-  onLoginSuccess?: () => void;
+  onLoginSuccess?: (options?: { mustChangePassword?: boolean }) => void;
 }
 
 const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
@@ -38,8 +38,14 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
     if (status === 401 || status === 400) {
       return 'Invalid username or password.';
     }
+    if (status === 403) {
+      if (data?.requiresApproval) {
+        return 'Your account is pending approval. Contact an administrator.';
+      }
+      return serverMsg || 'Your account cannot sign in yet. Contact an administrator.';
+    }
     if (error?.message?.includes('Network Error')) {
-      return 'Cannot reach the server. Check mobile data/Wi‑Fi and that the app uses http://84.247.128.58:8084';
+      return `Cannot reach the server. Check mobile data/Wi‑Fi and that the app uses ${API_BASE_URL}`;
     }
     return error?.message || 'Request failed';
   };
@@ -61,7 +67,7 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
         );
         return;
       }
-      onLoginSuccess?.();
+      onLoginSuccess?.({ mustChangePassword: result.forcePasswordChange === true });
     } catch (error: any) {
       Alert.alert('Login failed', errorMessage(error));
     } finally {
@@ -76,10 +82,10 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
     }
     setLoading(true);
     try {
-      await apiService.verifyOtp(otpChallenge.otpChallengeId, otpCode.trim());
+      const result = await apiService.verifyOtp(otpChallenge.otpChallengeId, otpCode.trim());
       setOtpChallenge(null);
       setOtpCode('');
-      onLoginSuccess?.();
+      onLoginSuccess?.({ mustChangePassword: result.forcePasswordChange === true });
     } catch (error: any) {
       Alert.alert('Verification failed', errorMessage(error));
     } finally {
