@@ -17,7 +17,7 @@
 #   TARGET_HOST TARGET_USER TARGET_PATH
 #   SSH_IDENTITY=~/.ssh/id_asusme
 #   DEPLOY_RESTORE_SUDO_POSTGRES=yes
-#   DEPLOY_STRIP_VECTOR_EXTENSION_DDL=yes
+#   DEPLOY_STRIP_VECTOR_EXTENSION_DDL=yes   # strip ALL extension DDL (pg_trgm, vector, …)
 #   DEPLOY_PSQL_DOCKER_IMAGE=postgres:16-alpine
 #   SKIP_DUMP=1 TARGET_REMOTE_DUMP=/tmp/source_to_mcmes_....sql.gz   # resume restore only
 #
@@ -199,13 +199,15 @@ run_psql() {
   fi
 }
 
-STRIP_VECTOR=(cat)
+# App-role restores cannot CREATE/COMMENT ON EXTENSION (superuser). Strip those lines;
+# extensions (pg_trgm, vector, …) must already exist on TARGET.
+STRIP_EXT=(cat)
 if [[ "\${DEPLOY_STRIP_VECTOR_EXTENSION_DDL:-}" == "1" || "\${DEPLOY_STRIP_VECTOR_EXTENSION_DDL:-}" == "yes" ]]; then
-  STRIP_VECTOR=(sed -E \
-    -e '/^DROP EXTENSION( IF EXISTS)?[[:space:]]+vector\b/d' \
-    -e '/^CREATE EXTENSION( IF NOT EXISTS)?[[:space:]]+vector\b/d' \
-    -e '/^COMMENT ON EXTENSION[[:space:]]+vector\b/d' \
-    -e '/^ALTER EXTENSION[[:space:]]+vector\b/d')
+  STRIP_EXT=(sed -E \
+    -e '/^DROP EXTENSION( IF EXISTS)?[[:space:]]+/d' \
+    -e '/^CREATE EXTENSION( IF NOT EXISTS)?[[:space:]]+/d' \
+    -e '/^COMMENT ON EXTENSION[[:space:]]+/d' \
+    -e '/^ALTER EXTENSION[[:space:]]+/d')
 fi
 
 echo "    Target DB: \${DB_USER_USE}@\${DB_HOST_USE}:\${DB_PORT_USE}/\${DB_NAME_USE}"
@@ -226,7 +228,7 @@ if [[ "\${DEPLOY_RESTORE_SUDO_POSTGRES:-}" == "1" || "\${DEPLOY_RESTORE_SUDO_POS
     echo "DEPLOY_RESTORE_SUDO_POSTGRES requires host psql (not docker-only mode)" >&2
     exit 1
   fi
-  gunzip -c "\$REMOTE_DUMP" | sed '/^\\restrict/d;/^\\unrestrict/d' | "\${STRIP_VECTOR[@]}" \
+  gunzip -c "\$REMOTE_DUMP" | sed '/^\\restrict/d;/^\\unrestrict/d' | "\${STRIP_EXT[@]}" \
     | sudo -n -u postgres "\$PSQL_BIN" -p "\$DB_PORT_USE" -d "\$DB_NAME_USE" -v ON_ERROR_STOP=1
   # REASSIGN OWNED fails on system-owned objects; transfer app objects in public only.
   sudo -n -u postgres "\$PSQL_BIN" -p "\$DB_PORT_USE" -d "\$DB_NAME_USE" -v ON_ERROR_STOP=1 <<EOSQL
@@ -252,7 +254,17 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "\${DB_USER_USE}";
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "\${DB_USER_USE}";
 EOSQL
 else
-  gunzip -c "\$REMOTE_DUMP" | sed '/^\\restrict/d;/^\\unrestrict/d' | "\${STRIP_VECTOR[@]}" \
+  # Dump has no --clean; wipe public schema so CREATE TABLE succeeds as app role.
+  # CASCADE also drops extensions installed in public (e.g. pg_trgm) — recreate after.
+  echo "    Resetting schema public (app-role restore; dump has no DROP TABLE)"
+  run_psql "\$DB_NAME_USE" -v ON_ERROR_STOP=1 <<EOSQL
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public AUTHORIZATION "\${DB_USER_USE}";
+GRANT ALL ON SCHEMA public TO "\${DB_USER_USE}";
+GRANT ALL ON SCHEMA public TO public;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+EOSQL
+  gunzip -c "\$REMOTE_DUMP" | sed '/^\\restrict/d;/^\\unrestrict/d' | "\${STRIP_EXT[@]}" \
     | run_psql "\$DB_NAME_USE" -v ON_ERROR_STOP=1
 fi
 
@@ -267,6 +279,6 @@ if [[ -f "$DUMP_LOCAL" ]]; then
   echo "    Local dump kept: ${DUMP_LOCAL}"
 fi
 echo "    Run county-role migrations on MCmes if position_rows is still 0."
-echo "    APP_LOGIN_URL on MCmes should be http://${TARGET_HOST}:8084/login"
+echo "    APP_LOGIN_URL on MCmes should be https://cimes.machakos.go.ke/login (or http://${TARGET_HOST}:8084/login)"
 echo "    Copy photos/documents from SOURCE (DB does not include files):"
 echo "      DEPLOY_SYNC_UPLOADS_CONFIRM=yes ./deploy/sync-source-uploads-to-mcmes.sh"

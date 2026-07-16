@@ -3,7 +3,7 @@
  * Usage: node scripts/sendSmtpTest.js [recipient@email.com]
  *
  * Optional: SMTP_DEBUG=true for nodemailer protocol logs.
- * Optional: SMTP_BCC=monitoring@icskenya.co.ke — BCC copies of OTP / test / account mail for debugging (see accountEmailService.js).
+ * Optional: SMTP_BCC=ictreports@machakos.go.ke — BCC copies of OTP / test / account mail for debugging (see accountEmailService.js).
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -57,8 +57,8 @@ function summarizeEnv() {
         if (info && info.response) console.log('server response:', info.response);
         console.log(
             '\nIf verify/send succeeded but the inbox never shows mail, the server accepted the message',
-            'but downstream delivery/filtering failed: enable SPF/DKIM for icskenya.co.ke, check cPanel Track Delivery,',
-            'and try sending to the same @icskenya.co.ke address to rule out relay limits.'
+            'but downstream delivery/filtering failed: enable SPF/DKIM for machakos.go.ke, check mail Track Delivery,',
+            'and try sending to the same @machakos.go.ke address to rule out relay limits.'
         );
     } catch (e) {
         console.error('Send failed:', e.message || e);

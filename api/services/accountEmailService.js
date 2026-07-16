@@ -112,7 +112,7 @@ function getEnvelopeFrom() {
 
 /**
  * Optional BCC (e.g. monitoring@…) so script/API mail appears in that inbox for testing.
- * Set SMTP_BCC=monitoring@icskenya.co.ke or comma-separated list. Skips addresses equal to primary To.
+ * Set SMTP_BCC=ictreports@machakos.go.ke or comma-separated list. Skips addresses equal to primary To.
  */
 function attachBccIfConfigured(mailOptions, primaryTo) {
     const raw = process.env.SMTP_BCC;

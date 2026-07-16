@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy Machakos / MCmes to administrator@84.247.128.58 over HTTP (no subdomain).
+# Deploy Machakos / MCmes to administrator@84.247.128.58 behind cimes.machakos.go.ke.
 #
 # Usage:
 #   chmod +x deploy/mcmes-deploy.sh
@@ -9,7 +9,9 @@
 # Overrides (optional):
 #   DEPLOY_HOST=84.247.128.58 DEPLOY_USER=administrator DEPLOY_PATH=/home/administrator/dev/machakos
 #   SSH_IDENTITY=~/.ssh/id_asusme ./deploy/mcmes-deploy.sh   # default key; override if needed
-#   MCMES_HTTP_PORT=8084                    # nginx_proxy listen port (see nginx/nginx.conf)
+#   MCMES_DOMAIN=cimes.machakos.go.ke       # public hostname (HTTPS via system nginx)
+#   MCMES_PUBLIC_URL=https://cimes.machakos.go.ke
+#   MCMES_HTTP_PORT=8084                    # docker nginx_proxy listen port (see nginx/nginx.conf)
 #   MCMES_FORCE_ENV_DEPLOY=1                # overwrite remote deploy/.env.deploy
 #   DEPLOY_SYNC_UPLOADS=0                   # skip media sync
 #   docs/ is not synced (local-only); override: DEPLOY_RSYNC_EXTRA_EXCLUDES=""
@@ -22,21 +24,18 @@
 #   - Docker + docker compose plugin
 #   - mkdir -p "$DEPLOY_PATH"
 #   - api/.env with DB_* (not rsync'd). Set at minimum:
-#       APP_LOGIN_URL=http://84.247.128.58:8084/login
-#       APP_FRONTEND_URL=http://84.247.128.58:8084
+#       APP_LOGIN_URL=https://cimes.machakos.go.ke/login
+#       APP_FRONTEND_URL=https://cimes.machakos.go.ke
 #       ADVANTA_PARTNER_ID, ADVANTA_API_KEY, ADVANTA_SHORT_CODE (SMS OTP; see api/.env.remote.example)
-#   - sudo ufw allow 8084/tcp   (or your MCMES_HTTP_PORT)
+#   - DNS A: cimes.machakos.go.ke -> 84.247.128.58
+#   - System nginx + TLS: sudo bash deploy/install-cimes-nginx-on-server.sh --certbot
+#   - sudo ufw allow 80,443/tcp (and 8084 if you still use the IP URL)
 #   - Run DB migrations manually (deploy does not migrate)
 #
 # Access after deploy:
-#   Staff:   http://84.247.128.58:8084/
-#   Citizen: http://84.247.128.58:8084/citizen/
-#
-# HTTP / no-subdomain caveats (see script tail or README in comments):
-#   - Google Maps key must allow http://84.247.128.58:8084/* referrers
-#   - Email login links use APP_LOGIN_URL in api/.env
-#   - Browsers show "Not secure" on login forms (expected without HTTPS)
-#   - No Let's Encrypt without a domain name
+#   Staff:   https://cimes.machakos.go.ke/
+#   Citizen: https://cimes.machakos.go.ke/citizen/
+#   Direct:  http://84.247.128.58:8084/ (still works; prefer the subdomain)
 #
 set -euo pipefail
 
@@ -49,8 +48,9 @@ DEPLOY_PATH="${DEPLOY_PATH:-/home/administrator/dev/machakos}"
 MCMES_HTTP_PORT="${MCMES_HTTP_PORT:-8084}"
 MCMES_FORCE_ENV_DEPLOY="${MCMES_FORCE_ENV_DEPLOY:-0}"
 SSH_IDENTITY="${SSH_IDENTITY:-$HOME/.ssh/id_asusme}"
+MCMES_DOMAIN="${MCMES_DOMAIN:-cimes.machakos.go.ke}"
 
-MCMES_PUBLIC_URL="${MCMES_PUBLIC_URL:-http://${DEPLOY_HOST}:${MCMES_HTTP_PORT}}"
+MCMES_PUBLIC_URL="${MCMES_PUBLIC_URL:-https://${MCMES_DOMAIN}}"
 MCMES_CITIZEN_PUBLIC_URL="${MCMES_CITIZEN_PUBLIC_URL:-${MCMES_PUBLIC_URL}/citizen}"
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
@@ -71,7 +71,7 @@ load_local_maps_key() {
 ensure_mcmes_compose_env() {
   load_local_maps_key
   local cert_name="${VITE_CERT_COUNTY_NAME:-County Government of Machakos}"
-  echo "==> Ensuring remote deploy/.env.deploy for HTTP (${MCMES_PUBLIC_URL})"
+  echo "==> Ensuring remote deploy/.env.deploy for ${MCMES_PUBLIC_URL}"
   ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s <<REMOTE_EOF
 set -euo pipefail
 DEPLOY_PATH="${DEPLOY_PATH}"
@@ -106,7 +106,7 @@ fi
 login_url="\$(grep -E '^APP_LOGIN_URL=' "\$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' || true)"
 if [[ -z "\$login_url" ]]; then
   echo "WARNING: Add APP_LOGIN_URL=${MCMES_PUBLIC_URL}/login to api/.env (password-reset emails)." >&2
-elif [[ "\$login_url" != *"${DEPLOY_HOST}"* ]]; then
+elif [[ "\$login_url" != *"${MCMES_DOMAIN}"* && "\$login_url" != *"${DEPLOY_HOST}"* ]]; then
   echo "WARNING: APP_LOGIN_URL is '\$login_url' but MCmes URL is ${MCMES_PUBLIC_URL}/login" >&2
 else
   echo "APP_LOGIN_URL looks aligned: \$login_url"
@@ -117,31 +117,20 @@ REMOTE_EOF
 print_http_caveats() {
   cat <<EOF
 
-==> MCmes HTTP deployment notes
+==> MCmes deployment notes
 Staff:   ${MCMES_PUBLIC_URL}/
 Citizen: ${MCMES_CITIZEN_PUBLIC_URL}/
+Direct:  http://${DEPLOY_HOST}:${MCMES_HTTP_PORT}/
 
-Likely OK on plain HTTP:
-  - Login (JWT in browser storage, not secure cookies)
-  - API, uploads, PDF reports, PMC workflows
-  - Citizen dashboard (/citizen/)
-  - Socket.IO chat (if VITE_ENABLE_CHAT=true)
-
-Configure or expect limitations:
-  1. Google Maps — add HTTP referrers in Google Cloud Console:
+Configure:
+  1. System nginx + TLS (once): sudo bash deploy/install-cimes-nginx-on-server.sh --certbot
+  2. Google Maps — add referrers in Google Cloud Console:
        ${MCMES_PUBLIC_URL}/*
-       http://${DEPLOY_HOST}/*
-     Without this, maps show errors or "development only" watermark.
-  2. api/.env — set APP_LOGIN_URL=${MCMES_PUBLIC_URL}/login
+       http://${DEPLOY_HOST}:${MCMES_HTTP_PORT}/*
+  3. api/.env — set APP_LOGIN_URL=${MCMES_PUBLIC_URL}/login
      (and APP_FRONTEND_URL=${MCMES_PUBLIC_URL} if used).
-  3. SMTP — account emails still work; links must use the HTTP URLs above.
-  4. Browser "Not secure" on login — cosmetic without TLS.
-  5. Firewall — ensure port ${MCMES_HTTP_PORT}/tcp is open on ${DEPLOY_HOST}.
-  6. Database migrations — not run by this script (apply county roles, PMC, etc. manually).
-  7. Standard port 80 — stack listens on ${MCMES_HTTP_PORT} (nginx/nginx.conf). For :80,
-     add system nginx reverse-proxy to 127.0.0.1:${MCMES_HTTP_PORT} or change listen port.
-
-Does NOT require a subdomain or HTTPS for core app function.
+  4. Firewall — 80/443 for the subdomain; ${MCMES_HTTP_PORT} optional for IP access.
+  5. Database migrations — not run by this script.
 
 EOF
 }
