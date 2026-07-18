@@ -33,7 +33,7 @@ function positionToAnswer(pos: GeoPosition): ChecklistLocationAnswer {
 function formatGeoError(err: GeoError | Error): string {
   const code = (err as GeoError)?.code;
   if (code === 1) {
-    return 'Location permission denied. Enable location for Machakos Collector in Settings → Apps → Permissions.';
+    return 'Location permission denied. Enable location for CIMES Mobile in Settings → Apps → Permissions.';
   }
   if (code === 2) {
     return 'Location unavailable. Turn on device location (GPS) and try again.';
@@ -108,7 +108,7 @@ export async function requestLocationPermission(): Promise<boolean> {
     {
       title: 'Location permission',
       message:
-        'Machakos Collector needs GPS to capture site coordinates and geotagged photos.',
+        'CIMES Mobile needs GPS to capture site coordinates and geotagged photos.',
       buttonPositive: 'Allow',
       buttonNegative: 'Deny',
     }
@@ -165,7 +165,7 @@ async function getCurrentLocationInternal(): Promise<ChecklistLocationAnswer> {
   const permitted = await requestLocationPermission();
   if (!permitted) {
     const err = new Error(
-      'Location permission denied. Allow location access for Machakos Collector.'
+      'Location permission denied. Allow location access for CIMES Mobile.'
     ) as Error & { code?: number };
     err.code = 1;
     throw err;
@@ -206,7 +206,7 @@ export async function requestCameraPermission(): Promise<boolean> {
     PermissionsAndroid.PERMISSIONS.CAMERA,
     {
       title: 'Camera permission',
-      message: 'Machakos Collector needs the camera to capture site photos.',
+      message: 'CIMES Mobile needs the camera to capture site photos.',
       buttonPositive: 'Allow',
       buttonNegative: 'Deny',
     }

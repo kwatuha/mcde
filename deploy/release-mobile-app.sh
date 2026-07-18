@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build Machakos Collector APK and publish to one or more deployment servers.
+# Build CIMES Mobile APK and publish to one or more deployment servers.
 # Each server gets the APK file + a database release record (users see dashboard notification).
 #
 # Usage:

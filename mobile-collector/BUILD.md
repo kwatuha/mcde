@@ -263,9 +263,9 @@ This will:
 ## API configuration
 
 - Edit **`src/config/api.ts`** to set `API_BASE_URL`:
-  - **Emulator**: `http://10.0.2.2:3003` (already set for dev).
-  - **Physical device**: your machine’s IP, e.g. `http://192.168.1.100:3003`.
-  - **Production**: your HMIS server URL.
+  - **Production (default)**: `https://cimes.machakos.go.ke`.
+  - **Emulator (local API)**: `http://10.0.2.2:3002`.
+  - **Physical device (local API)**: your machine’s IP, e.g. `http://192.168.1.100:3002`.
 
 ## Production build (APK)
 

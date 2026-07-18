@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build once and publish Machakos Collector to MCmes + monitoring in one step.
+# Build once and publish CIMES Mobile to MCmes + monitoring in one step.
 #
 # Usage:
 #   ./deploy/release-mobile-app-all.sh --version 1.0.2 --notes "Login and icon fixes"
@@ -20,11 +20,11 @@ export SSH_IDENTITY
 TARGETS_FILE="$ROOT/deploy/mobile-app-all-targets.env"
 
 echo "==> Mobile app release → MCmes + monitoring (single build)"
-echo "    MCmes:       http://84.247.128.58:8084/mobile-app"
+echo "    CIMES:       https://cimes.machakos.go.ke/mobile-app"
 echo "    Monitoring:  https://monitoring.icskenya.co.ke/mobile-app"
 echo ""
 echo "    Targets (in order):"
-echo "      1. administrator@84.247.128.58 (MCmes)"
+echo "      1. administrator@84.247.128.58 (CIMES / cimes.machakos.go.ke)"
 echo "      2. kunye@165.22.227.234 (monitoring)"
 echo "    If monitoring fails, retry: ./deploy/release-mobile-app-monitoring.sh --version X --skip-build"
 echo ""

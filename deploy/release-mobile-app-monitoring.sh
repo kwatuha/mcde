@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Publish Machakos Collector APK to the monitoring / production server only.
+# Publish CIMES Mobile APK to the monitoring / production server only.
 # Same SSH defaults as deploy/deploy-to-server.sh (165.22.227.234, kunye).
 #
 # Usage:

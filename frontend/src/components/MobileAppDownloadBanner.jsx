@@ -17,7 +17,7 @@ export default function MobileAppDownloadBanner({
   const versionLabel = release?.version ? `v${release.version}` : 'latest';
   const title = isNewForUser
     ? `Mobile app update available (${versionLabel})`
-    : `Machakos Collector Android app (${versionLabel})`;
+    : `CIMES Mobile Android app (${versionLabel})`;
 
   return (
     <Alert

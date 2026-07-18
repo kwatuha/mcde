@@ -811,7 +811,7 @@ const HomePage = () => {
       icon: <PhoneAndroidIcon />,
       color: '#1565C0',
       route: ROUTES.MOBILE_APP_DOWNLOAD,
-      description: `Machakos Collector v${ver} is ready. Download and install on your Android phone to update.`,
+      description: `CIMES Mobile v${ver} is ready. Download and install on your Android phone to update.`,
     });
   }
 

@@ -4421,7 +4421,7 @@ router.get('/organization-distribution', async (req, res) => {
  * @query ministry - optional exact ministry
  * @query stateDepartment - optional exact state department
  * @query agency - optional exact implementing agency
- * @query limit - optional max rows (default 300, max 1000)
+ * @query limit - optional max rows (default 300, max 5000)
  */
 router.get('/organization-projects', async (req, res) => {
     try {
@@ -4430,7 +4430,7 @@ router.get('/organization-projects', async (req, res) => {
         const stateDepartment = req.query.stateDepartment ? String(req.query.stateDepartment).trim() : '';
         const agency = req.query.agency ? String(req.query.agency).trim() : '';
         const limitRaw = parseInt(String(req.query.limit || 300), 10);
-        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 1000)) : 300;
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 5000)) : 300;
 
         const whereConditions = [DB_TYPE === 'postgresql' ? 'p.voided = false' : 'p.voided = 0'];
         const queryParams = [];

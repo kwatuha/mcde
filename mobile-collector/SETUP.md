@@ -23,9 +23,9 @@ npm install
 
 Edit `src/config/api.ts` and update the `API_BASE_URL`:
 
-- **Android Emulator**: Use `http://10.0.2.2:3003` (this maps to localhost)
-- **Physical Device**: Use your computer's IP address, e.g., `http://192.168.1.100:3003`
-- **Production**: Use your production server URL
+- **Production (default)**: `https://cimes.machakos.go.ke`
+- **Android Emulator (local API)**: `http://10.0.2.2:3002`
+- **Physical Device (local API)**: your computer's IP, e.g. `http://192.168.1.100:3002`
 
 To find your computer's IP address:
 - Linux/Mac: `ifconfig` or `ip addr`

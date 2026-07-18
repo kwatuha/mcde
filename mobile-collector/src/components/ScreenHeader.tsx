@@ -6,13 +6,19 @@ interface Props {
   title: string;
   subtitle?: string;
   onLogout?: () => void;
+  onBack?: () => void;
   rightAction?: { label: string; onPress: () => void };
 }
 
-export default function ScreenHeader({ title, subtitle, onLogout, rightAction }: Props) {
+export default function ScreenHeader({ title, subtitle, onLogout, onBack, rightAction }: Props) {
   return (
     <View style={styles.header}>
       <View style={styles.left}>
+        {onBack ? (
+          <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={8}>
+            <Text style={styles.backText}>‹ Back</Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
@@ -43,6 +49,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   left: { flex: 1, paddingRight: 8 },
+  backBtn: { marginBottom: 4 },
+  backText: { color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: '600' },
   title: {
     color: '#fff',
     fontSize: 20,

@@ -1,8 +1,8 @@
 {
-  "name": "machakos-collector",
+  "name": "cimes-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "Machakos County mobile app for offline checklist data collection",
+  "description": "CIMES Mobile — county executive briefing and field data collection",
   "main": "index.js",
   "scripts": {
     "android": "react-native run-android",

@@ -100,10 +100,10 @@ const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
     >
       <View style={styles.content}>
         <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.orgName}>County Government of Machakos</Text>
-        <Text style={styles.title}>Field Collector</Text>
+        <Text style={styles.orgName}>County Integrated Monitoring</Text>
+        <Text style={styles.title}>CIMES Mobile</Text>
         <Text style={styles.subtitle}>
-          Download checklists and collect monitoring visit data offline.
+          Executive briefing and field monitoring — sign in with your county account.
         </Text>
 
         {!otpChallenge ? (

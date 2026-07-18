@@ -275,10 +275,10 @@ async function fetchUserOtpEnabledFromDb(pool, userId, dbType = process.env.DB_T
 
 function shouldBypassLoginOtpForMobileCollector(clientApp, userAgent = '') {
     const app = String(clientApp || '').trim().toLowerCase();
-    if (app === 'machakos-collector') return true;
+    if (app === 'machakos-collector' || app === 'cimes-mobile') return true;
     const ua = String(userAgent || '').toLowerCase();
     // React Native Android (axios/okhttp) — already-installed collector APKs before clientApp was added
-    if (ua.includes('machakos-collector')) return true;
+    if (ua.includes('machakos-collector') || ua.includes('cimes-mobile')) return true;
     if (ua.includes('okhttp') && !ua.includes('mozilla')) return true;
     return false;
 }

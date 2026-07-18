@@ -4,15 +4,23 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator, View } from 'react-native';
 
-import apiService from '../services/api';
+import apiService, { AuthUser } from '../services/api';
 import LoginScreen from '../screens/LoginScreen';
 import ForcePasswordChangeScreen from '../screens/ForcePasswordChangeScreen';
 import TemplatesScreen from '../screens/TemplatesScreen';
 import SubmissionsScreen from '../screens/SubmissionsScreen';
 import NewVisitScreen from '../screens/NewVisitScreen';
+import ExecutiveHomeScreen from '../screens/ExecutiveHomeScreen';
+import AttentionScreen from '../screens/AttentionScreen';
+import PortfolioByStatusScreen from '../screens/PortfolioByStatusScreen';
+import FinanceSnapshotScreen from '../screens/FinanceSnapshotScreen';
+import ExecutiveProjectsScreen from '../screens/ExecutiveProjectsScreen';
+import PerformanceScreen from '../screens/PerformanceScreen';
+import ExecutiveMoreScreen from '../screens/ExecutiveMoreScreen';
 import MainTabBar from '../components/MainTabBar';
 import { THEME } from '../config/api';
 import { refreshCatalog } from '../services/syncService';
+import { getAppMode } from '../utils/roleUtils';
 
 export const AuthContext = React.createContext<{ logout: () => Promise<void> } | null>(
   null
@@ -21,28 +29,48 @@ export const AuthContext = React.createContext<{ logout: () => Promise<void> } |
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const MainTabs = () => (
+const FieldTabs = () => (
   <Tab.Navigator
     tabBar={(props) => <MainTabBar {...props} />}
-    screenOptions={{
-      headerShown: false,
-    }}
+    screenOptions={{ headerShown: false }}
   >
     <Tab.Screen
       name="Checklists"
       component={TemplatesScreen}
-      options={{
-        title: 'Checklists',
-        tabBarLabel: 'Checklists',
-      }}
+      options={{ title: 'Checklists', tabBarLabel: 'Checklists' }}
     />
     <Tab.Screen
       name="Submissions"
       component={SubmissionsScreen}
-      options={{
-        title: 'Visits',
-        tabBarLabel: 'My visits',
-      }}
+      options={{ title: 'Visits', tabBarLabel: 'My visits' }}
+    />
+  </Tab.Navigator>
+);
+
+const ExecutiveTabs = () => (
+  <Tab.Navigator
+    tabBar={(props) => <MainTabBar {...props} />}
+    screenOptions={{ headerShown: false }}
+  >
+    <Tab.Screen
+      name="Home"
+      component={ExecutiveHomeScreen}
+      options={{ title: 'Briefing', tabBarLabel: 'Briefing' }}
+    />
+    <Tab.Screen
+      name="Attention"
+      component={AttentionScreen}
+      options={{ title: 'Attention', tabBarLabel: 'Attention' }}
+    />
+    <Tab.Screen
+      name="Projects"
+      component={ExecutiveProjectsScreen}
+      options={{ title: 'Projects', tabBarLabel: 'Projects' }}
+    />
+    <Tab.Screen
+      name="More"
+      component={ExecutiveMoreScreen}
+      options={{ title: 'More', tabBarLabel: 'More' }}
     />
   </Tab.Navigator>
 );
@@ -50,15 +78,22 @@ const MainTabs = () => (
 const AppNavigator: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   const checkAuth = useCallback(async () => {
     try {
       const session = await apiService.resumeSession();
       setIsAuthenticated(session.authenticated);
       setMustChangePassword(session.mustChangePassword);
+      if (session.authenticated) {
+        setUser(await apiService.getUserData());
+      } else {
+        setUser(null);
+      }
     } catch {
       setIsAuthenticated(false);
       setMustChangePassword(false);
+      setUser(null);
     }
   }, []);
 
@@ -66,6 +101,7 @@ const AppNavigator: React.FC = () => {
     if (options?.mustChangePassword) {
       setIsAuthenticated(true);
       setMustChangePassword(true);
+      setUser(await apiService.getUserData());
       return;
     }
     await checkAuth();
@@ -79,20 +115,25 @@ const AppNavigator: React.FC = () => {
     await apiService.logout();
     setIsAuthenticated(false);
     setMustChangePassword(false);
+    setUser(null);
   }, []);
 
   useEffect(() => {
     apiService.setUnauthorizedHandler(() => {
       setIsAuthenticated(false);
       setMustChangePassword(false);
+      setUser(null);
     });
     return () => apiService.setUnauthorizedHandler(null);
   }, []);
 
   useEffect(() => {
     if (!isAuthenticated || mustChangePassword) return;
-    refreshCatalog().catch(() => {});
-  }, [isAuthenticated, mustChangePassword]);
+    const mode = getAppMode(user);
+    if (mode === 'field') {
+      refreshCatalog().catch(() => {});
+    }
+  }, [isAuthenticated, mustChangePassword, user]);
 
   if (isAuthenticated === null) {
     return (
@@ -101,6 +142,8 @@ const AppNavigator: React.FC = () => {
       </View>
     );
   }
+
+  const mode = getAppMode(user);
 
   return (
     <AuthContext.Provider value={{ logout }}>
@@ -116,7 +159,10 @@ const AppNavigator: React.FC = () => {
                 <ForcePasswordChangeScreen
                   onPasswordChanged={() => {
                     setMustChangePassword(false);
-                    refreshCatalog().catch(() => {});
+                    apiService.getUserData().then(setUser).catch(() => {});
+                    if (getAppMode(user) === 'field') {
+                      refreshCatalog().catch(() => {});
+                    }
                   }}
                   onLogout={logout}
                 />
@@ -124,15 +170,26 @@ const AppNavigator: React.FC = () => {
             </Stack.Screen>
           ) : (
             <>
-              <Stack.Screen name="MainTabs" component={MainTabs} />
               <Stack.Screen
-                name="NewVisit"
-                component={NewVisitScreen}
-                options={{
-                  headerShown: false,
-                  presentation: 'card',
-                }}
+                name="MainTabs"
+                component={mode === 'executive' ? ExecutiveTabs : FieldTabs}
               />
+              {mode === 'executive' ? (
+                <>
+                  <Stack.Screen name="Finance" component={FinanceSnapshotScreen} />
+                  <Stack.Screen name="Portfolio" component={PortfolioByStatusScreen} />
+                  <Stack.Screen name="Performance" component={PerformanceScreen} />
+                </>
+              ) : (
+                <Stack.Screen
+                  name="NewVisit"
+                  component={NewVisitScreen}
+                  options={{
+                    headerShown: false,
+                    presentation: 'card',
+                  }}
+                />
+              )}
             </>
           )}
         </Stack.Navigator>

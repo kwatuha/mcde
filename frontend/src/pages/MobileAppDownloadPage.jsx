@@ -153,7 +153,7 @@ export default function MobileAppDownloadPage() {
           <li>Sign in on this page from your Android phone (Chrome works best).</li>
           <li>Tap <strong>Download APK</strong> and open the downloaded file.</li>
           <li>Allow installs from your browser if Android asks (Settings → Install unknown apps).</li>
-          <li>Open <strong>Machakos Collector</strong>, sign in, sync checklists, and collect data offline.</li>
+          <li>Open <strong>CIMES Mobile</strong>, sign in — executives see the briefing; field staff sync checklists and collect offline.</li>
         </Typography>
       </Paper>
     </Box>

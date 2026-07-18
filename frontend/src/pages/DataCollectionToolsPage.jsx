@@ -931,7 +931,7 @@ export default function DataCollectionToolsPage() {
           </Button>
         }
       >
-        Field staff can download the Machakos Collector Android app to sync these checklists and collect data offline.
+        Field staff and executives can download <strong>CIMES Mobile</strong> to sync checklists offline or view the executive briefing.
       </Alert>
 
       <Paper elevation={2} sx={{ borderRadius: 2 }}>

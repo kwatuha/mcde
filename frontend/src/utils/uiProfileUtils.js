@@ -64,6 +64,19 @@ export function resolvePostLoginPath(user) {
   const fromProfile = getProfileLandingPath(user);
   if (fromProfile) return normalizePostLoginPath(fromProfile);
 
+  // Governor / Deputy / County Secretary style roles — briefing home even if UI profile landing is unset.
+  const role = String(user?.roleName || user?.role || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (
+    role === 'executive_supervisor'
+    || role === 'executive_viewer'
+    || role === 'project_lead'
+  ) {
+    return normalizePostLoginPath(ROUTES.SYSTEM_DASHBOARD);
+  }
+
   return DEFAULT_POST_LOGIN_LANDING;
 }
 

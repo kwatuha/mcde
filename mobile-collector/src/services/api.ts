@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL, STORAGE_KEYS, APP_VERSION } from '../config/api';
+import { API_BASE_URL, STORAGE_KEYS, APP_VERSION, CLIENT_APP_ID } from '../config/api';
 import { isNewerVersion } from '../utils/versionUtils';
 import { mapJwtUserToAuthUser, parseJwtUser } from '../utils/jwtUtils';
 import {
@@ -42,7 +42,7 @@ class ApiService {
       timeout: 45000,
       headers: {
         'Content-Type': 'application/json',
-        'X-Client-App': 'machakos-collector',
+        'X-Client-App': CLIENT_APP_ID,
       },
     });
 
@@ -149,6 +149,7 @@ class ApiService {
 
   /** Validate stored token on app launch (mirrors web session refresh). */
   async resumeSession(): Promise<{ authenticated: boolean; mustChangePassword: boolean }> {
+    await this.migrateLegacyStorageKeys();
     const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
     if (!token) {
       await this.logout();
@@ -171,7 +172,7 @@ class ApiService {
     const response = await this.client.post('/api/auth/login', {
       username: username.trim(),
       password: password.trim(),
-      clientApp: 'machakos-collector',
+      clientApp: CLIENT_APP_ID,
     });
     const data = response.data || {};
 
@@ -454,7 +455,7 @@ class ApiService {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
-          'X-Client-App': 'machakos-collector',
+          'X-Client-App': CLIENT_APP_ID,
         },
         body: form,
       });
@@ -513,19 +514,120 @@ class ApiService {
     Linking.openURL(`${API_BASE_URL}/mobile-app`).catch(() => {});
   }
 
+  private async migrateLegacyStorageKeys(): Promise<void> {
+    const current = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (current) return;
+    const legacyToken = await AsyncStorage.getItem(STORAGE_KEYS.LEGACY_AUTH_TOKEN);
+    if (!legacyToken) return;
+    const legacyUser = await AsyncStorage.getItem(STORAGE_KEYS.LEGACY_USER_DATA);
+    const pairs: [string, string][] = [[STORAGE_KEYS.AUTH_TOKEN, legacyToken]];
+    if (legacyUser) pairs.push([STORAGE_KEYS.USER_DATA, legacyUser]);
+    await AsyncStorage.multiSet(pairs);
+  }
+
+  async getSummaryKpis(filters: Record<string, string> = {}): Promise<{
+    totalProjects: number;
+    totalBudget: number;
+    totalPaid: number;
+  }> {
+    const response = await this.client.get('/api/reports/summary-kpis', { params: filters });
+    const row = response.data || {};
+    return {
+      totalProjects: Number(row.totalProjects ?? row.total_projects ?? 0) || 0,
+      totalBudget: Number(row.totalBudget ?? row.total_budget ?? 0) || 0,
+      totalPaid: Number(row.totalPaid ?? row.total_paid ?? row.totalDisbursed ?? 0) || 0,
+    };
+  }
+
+  async getOrganizationProjects(limit = 3000): Promise<any[]> {
+    const response = await this.client.get('/api/projects/organization-projects', {
+      params: { limit },
+      timeout: 90000,
+    });
+    return Array.isArray(response.data) ? response.data : response.data?.data ?? [];
+  }
+
+  async getProjectStatusCounts(filters: Record<string, string> = {}): Promise<any> {
+    const response = await this.client.get('/api/projects/status-counts', { params: filters });
+    return response.data;
+  }
+
+  async getProjectFundingOverview(): Promise<any> {
+    const response = await this.client.get('/api/projects/funding-overview');
+    return response.data;
+  }
+
+  async getMyTasks(opts: { limit?: number } = {}): Promise<{
+    tasks: any[];
+    counts?: Record<string, number>;
+  }> {
+    const response = await this.client.get('/api/my-tasks', {
+      params: { limit: opts.limit ?? 50 },
+    });
+    const data = response.data || {};
+    const tasks = Array.isArray(data.tasks)
+      ? data.tasks
+      : Array.isArray(data)
+        ? data
+        : [];
+    return { tasks, counts: data.counts };
+  }
+
+  async getEscalationSignals(opts: {
+    status?: string;
+    severity?: string;
+    limit?: number;
+  } = {}): Promise<any[]> {
+    const response = await this.client.get('/api/project-escalations/signals', {
+      params: {
+        status: opts.status || 'open',
+        severity: opts.severity,
+      },
+    });
+    const rows = Array.isArray(response.data) ? response.data : response.data?.signals ?? [];
+    return rows;
+  }
+
+  async getEscalationSummary(): Promise<any> {
+    const response = await this.client.get('/api/project-escalations/summary');
+    return response.data;
+  }
+
+  async getDepartmentSummary(filters: Record<string, string> = {}): Promise<any> {
+    const response = await this.client.get('/api/reports/department-summary', { params: filters });
+    return response.data;
+  }
+
+  async getSubcountySummary(filters: Record<string, string> = {}): Promise<any> {
+    const response = await this.client.get('/api/reports/subcounty-summary', { params: filters });
+    return response.data;
+  }
+
+  async getProjectById(projectId: number): Promise<any> {
+    const response = await this.client.get(`/api/projects/${projectId}`);
+    return response.data?.data ?? response.data;
+  }
+
+  async searchProjects(opts: { projectName?: string; limit?: number } = {}): Promise<ProjectLite[]> {
+    return this.listProjects({
+      limit: opts.limit ?? 100,
+      projectName: opts.projectName,
+    });
+  }
+
   /** Prompt once per published version when the installed app is older. */
   async promptForAppUpdateIfNeeded(): Promise<void> {
     const latest = await this.getPublishedAppVersion();
     if (!latest) return;
     if (!isNewerVersion(latest, APP_VERSION)) return;
 
-    const dismissKey = `@machakos_collector_update_dismissed_${latest}`;
+    const dismissKey = `@cimes_mobile_update_dismissed_${latest}`;
     const dismissed = await AsyncStorage.getItem(dismissKey);
     if (dismissed === '1') return;
 
     Alert.alert(
       'App update available',
-      `Version ${latest} is published. Open the staff portal to download and install the new APK (you stay signed in on the web).`,
+      `Version ${latest} is published. Open the staff portal to download and install the new APK.`,
       [
         { text: 'Later', style: 'cancel', onPress: () => AsyncStorage.setItem(dismissKey, '1') },
         { text: 'Open download page', onPress: () => this.openStaffDownloadPage() },

@@ -63,7 +63,8 @@ const FIELD_COLLECTOR_WORKSPACE_ROLES = new Set([
 ]);
 
 function isMachakosCollectorClient(clientApp) {
-    return String(clientApp || '').trim().toLowerCase() === 'machakos-collector';
+    const app = String(clientApp || '').trim().toLowerCase();
+    return app === 'machakos-collector' || app === 'cimes-mobile';
 }
 
 function canLoginWithoutAccessScopeForFieldCollector({
