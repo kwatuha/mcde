@@ -29,7 +29,7 @@ const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase() || '.apk';
-    cb(null, `machakos-collector-${crypto.randomBytes(12).toString('hex')}${ext}`);
+    cb(null, `cimes-mobile-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
@@ -138,7 +138,7 @@ router.get('/download', async (req, res) => {
     if (!fs.existsSync(fp)) {
       return res.status(404).json({ message: 'APK file is missing on the server. Contact an administrator.' });
     }
-    const downloadName = row.original_file_name || 'machakos-collector.apk';
+    const downloadName = row.original_file_name || 'cimes-mobile.apk';
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.download(fp, downloadName);
   } catch (err) {

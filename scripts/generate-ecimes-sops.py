@@ -258,7 +258,7 @@ SOPS = [
             "Capture structured, verifiable monitoring evidence through web and mobile tools for "
             "accountability and corrective action."
         ),
-        "scope": "Project monitoring visits, checklist templates, and Mobile Field Collector (Android) submissions.",
+        "scope": "Project monitoring visits, checklist templates, and CIMES Mobile (Android) submissions.",
         "roles": [
             ("M&E officer", "Plans visits, reviews submissions, escalates findings."),
             ("Field enumerator", "Completes checklists on mobile app or web."),
@@ -272,7 +272,7 @@ SOPS = [
         ],
         "steps": [
             ("M&E officer", "Open Monitoring → Checklists & visits. Confirm templates are current for the visit type."),
-            ("Field enumerator", "Install/update Mobile Field Collector; sign in; pull down on Checklists tab to sync."),
+            ("Field enumerator", "Install/update CIMES Mobile; sign in; pull down on Checklists tab to sync."),
             ("Field enumerator", "Select project, complete checklist (works offline); submit when connectivity allows."),
             ("M&E officer", "Open Monitoring → Project Monitoring. Record structured visit summary and link to project."),
             ("M&E officer", "Attach photos and flag delays, quality issues, or community complaints."),
@@ -290,7 +290,7 @@ SOPS = [
             "Template changes communicated before field deployment.",
         ],
         "escalation": "Safety or fraud concerns → immediate HOD + County Secretary channel per county protocol.",
-        "manual_ref": "User Manual §10 Monitoring; Mobile Field Collector workflow.",
+        "manual_ref": "User Manual §10 Monitoring; CIMES Mobile workflow.",
     },
     {
         "id": "SOP-007",

@@ -4,6 +4,8 @@ import {
   Button,
   Checkbox,
   CircularProgress,
+  Dialog,
+  DialogContent,
   FormControl,
   FormControlLabel,
   InputLabel,
@@ -178,6 +180,7 @@ function resolvePhotoUrl(url) {
 function PhotoField({ item, value, onChange, disabled }) {
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const photos = photoList(value);
   const maxPhotos = item.maxPhotos ?? 1;
 
@@ -243,41 +246,50 @@ function PhotoField({ item, value, onChange, disabled }) {
     <Stack spacing={1}>
       {photos.length > 0 && (
         <Stack direction="row" flexWrap="wrap" gap={1}>
-          {photos.map((p, idx) => (
-            <Box
-              key={`${p.fileId || p.url || idx}`}
-              sx={{
-                position: 'relative',
-                width: 96,
-                height: 96,
-                borderRadius: 1,
-                overflow: 'hidden',
-                border: '1px solid',
-                borderColor: 'divider',
-              }}
-            >
-              {p.url ? (
-                <Box
-                  component="img"
-                  src={resolvePhotoUrl(p.url)}
-                  alt={p.fileName || 'Photo'}
-                  sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : (
-                <Box sx={{ p: 1, fontSize: 11 }}>{p.fileName || 'Photo'}</Box>
-              )}
-              {!disabled && (
-                <Button
-                  size="small"
-                  color="error"
-                  sx={{ position: 'absolute', top: 0, right: 0, minWidth: 0, p: 0.25 }}
-                  onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
-                >
-                  <DeleteOutlineIcon fontSize="small" />
-                </Button>
-              )}
-            </Box>
-          ))}
+          {photos.map((p, idx) => {
+            const src = p.url ? resolvePhotoUrl(p.url) : '';
+            return (
+              <Box
+                key={`${p.fileId || p.url || idx}`}
+                sx={{
+                  position: 'relative',
+                  width: 96,
+                  height: 96,
+                  borderRadius: 1,
+                  overflow: 'hidden',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                {src ? (
+                  <Box
+                    component="img"
+                    src={src}
+                    alt={p.fileName || 'Photo'}
+                    onClick={() => setPreviewUrl(src)}
+                    sx={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      cursor: 'zoom-in',
+                    }}
+                  />
+                ) : (
+                  <Box sx={{ p: 1, fontSize: 11 }}>{p.fileName || 'Photo'}</Box>
+                )}
+                {!disabled && (
+                  <Button
+                    size="small"
+                    color="error"
+                    sx={{ position: 'absolute', top: 0, right: 0, minWidth: 0, p: 0.25 }}
+                    onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </Button>
+                )}
+              </Box>
+            );
+          })}
         </Stack>
       )}
       {!disabled && photos.length < maxPhotos && (
@@ -307,6 +319,18 @@ function PhotoField({ item, value, onChange, disabled }) {
           GPS coordinates captured with each photo when available.
         </Typography>
       )}
+      <Dialog open={!!previewUrl} onClose={() => setPreviewUrl(null)} maxWidth="lg" fullWidth>
+        <DialogContent sx={{ p: 1, bgcolor: '#111', display: 'flex', justifyContent: 'center' }}>
+          {previewUrl ? (
+            <Box
+              component="img"
+              src={previewUrl}
+              alt="Evidence photo"
+              sx={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain' }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Stack>
   );
 }

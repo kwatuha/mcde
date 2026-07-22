@@ -8,7 +8,7 @@ import {
 import { canAccessMobileCollectorDownload } from '../utils/mobileCollectorAccessUtils.js';
 
 const MOBILE_APP_SUBMENU = {
-  title: 'Mobile app (Android)',
+  title: 'CIMES Mobile (Android)',
   icon: 'PhoneAndroidIcon',
   route: 'MOBILE_APP_DOWNLOAD',
 };

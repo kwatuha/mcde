@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Publish Machakos Collector APK to this server's database + uploads folder.
+ * Publish CIMES Mobile APK to this server's database + uploads folder.
  *
  * Usage:
  *   node api/scripts/publishMobileAppRelease.js --version 1.0.0 --apk path/to/app-release.apk
@@ -44,7 +44,7 @@ function parseArgs(argv) {
       sourceApkPath: args.apk,
       version: args.version,
       releaseNotes: args.notes || null,
-      originalFileName: `machakos-collector-${args.version}.apk`,
+      originalFileName: `cimes-mobile-${args.version}.apk`,
     });
     console.log(JSON.stringify({ ok: true, release }, null, 2));
     process.exit(0);

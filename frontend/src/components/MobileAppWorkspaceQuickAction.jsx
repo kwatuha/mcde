@@ -58,7 +58,7 @@ export default function MobileAppWorkspaceQuickAction() {
           </Box>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Mobile collector app
+              CIMES Mobile
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Download the Android app for offline checklists and field visits.

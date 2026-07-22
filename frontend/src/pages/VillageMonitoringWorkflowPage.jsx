@@ -793,7 +793,8 @@ export default function VillageMonitoringWorkflowPage({
       {canVillage && !loading && rows.length === 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
           No monitoring reports yet. Click <strong>New monitoring report</strong> to select a project and fill the village monitoring checklist.
-          You can also use <RouterLink to="/data-collection-tools">Checklists &amp; visits</RouterLink> or the mobile collector app.
+          You can also use <RouterLink to="/data-collection-tools">Checklists &amp; visits</RouterLink> or{' '}
+          <RouterLink to="/mobile-app">CIMES Mobile</RouterLink>.
         </Alert>
       )}
 

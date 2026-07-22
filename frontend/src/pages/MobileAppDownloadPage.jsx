@@ -65,7 +65,7 @@ export default function MobileAppDownloadPage() {
     setMessage(null);
     setError(null);
     try {
-      await mobileAppService.downloadApk(release?.originalFileName || 'machakos-collector.apk');
+      await mobileAppService.downloadApk(release?.originalFileName || 'cimes-mobile.apk');
       setMessage('Download started. Open the APK on your Android phone to install.');
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Download failed.');
@@ -80,10 +80,10 @@ export default function MobileAppDownloadPage() {
         <PhoneAndroidIcon color="primary" sx={{ fontSize: 36 }} />
         <Box>
           <Typography variant="h5" fontWeight={700}>
-            Machakos Field Collector
+            CIMES Mobile
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Download the published Android app for mobile data collection.
+            Download the published Android app for offline checklists, field visits, and executive briefing.
           </Typography>
         </Box>
       </Stack>

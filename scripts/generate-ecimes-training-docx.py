@@ -270,12 +270,12 @@ def build_document() -> Document:
         doc,
         "Select Monitoring for implementation follow-up. Use Monitoring Visits, PMC Ward Reports, "
         "Ward Accountability, Checklists & visits, Evaluation Workbench, and Stakeholder feedback. "
-        "Field staff download the Mobile Field Collector from Dashboard → Mobile app (Android), sign in, "
+        "Field staff download CIMES Mobile from Dashboard → CIMES Mobile (Android), sign in, "
         "sync checklists, select a project, complete the form, and submit — offline if needed.",
     )
     add_on_screen(
         doc,
-        "Monitoring menu; Checklists & visits template; Mobile app download page; phone with collector app.",
+        "Monitoring menu; Checklists & visits template; Mobile app download page; phone with CIMES Mobile.",
     )
 
     # Chapter 10

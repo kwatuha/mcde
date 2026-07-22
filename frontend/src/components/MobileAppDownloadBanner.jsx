@@ -43,7 +43,7 @@ export default function MobileAppDownloadBanner({
           <Typography variant="body2">
             {release?.releaseNotes
               ? release.releaseNotes
-              : 'Install the field collector app to sync checklists and record monitoring visits offline.'}
+              : 'Install CIMES Mobile to sync checklists and record monitoring visits offline.'}
           </Typography>
         ) : null}
       </Stack>

@@ -24,7 +24,7 @@ export const STORAGE_KEYS = {
 };
 
 /** Bump when publishing an APK that must hit cimes.machakos.go.ke. */
-export const APP_VERSION = '1.1.2';
+export const APP_VERSION = '1.1.3';
 export const CLIENT_APP_ID = 'cimes-mobile';
 
 export const THEME = {

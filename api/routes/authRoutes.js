@@ -818,7 +818,7 @@ router.post('/login', async (req, res) => {
             && mobileCollectorBypassEnabled()
             && shouldBypassLoginOtpForMobileCollector(clientApp, req.headers['user-agent'])
         ) {
-            console.log('[auth/login] Skipping login OTP for Machakos Collector app', {
+            console.log('[auth/login] Skipping login OTP for CIMES Mobile app', {
                 username: user.username,
                 userId,
             });

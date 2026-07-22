@@ -284,7 +284,7 @@ const Topbar = () => {
               <ListItemIcon>
                 <PhoneAndroidIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>Mobile app (Android)</ListItemText>
+              <ListItemText>CIMES Mobile (Android)</ListItemText>
             </MenuItem>
           ) : null}
 

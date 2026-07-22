@@ -99,9 +99,9 @@ export function getAIStarterMessages(context = {}) {
 
   if (path.includes('/data-collection-tools') || path.includes('/mobile-app')) {
     return [
-      'How do I use checklists and the mobile field collector?',
+      'How do I use checklists and CIMES Mobile?',
       'How do field staff sync checklists offline?',
-      'Where do I download the Android collector app?',
+      'Where do I download CIMES Mobile?',
     ];
   }
 

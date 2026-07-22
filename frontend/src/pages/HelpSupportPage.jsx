@@ -174,7 +174,7 @@ const HelpSupportPage = () => {
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Expand a section for purpose, route, steps, and good practice. Updated for AI assistant,
-                mobile collector, PMC, certificates (including QR verification), and expanded dashboards.
+                CIMES Mobile, PMC, certificates (including QR verification), and expanded dashboards.
               </Typography>
               {moduleGuides.map((guide, index) => (
                 <Accordion key={guide.title} defaultExpanded={index < 2} disableGutters>

@@ -81,9 +81,14 @@ function PhotoItemField({
     try {
       const pickerOptions = {
         mediaType: 'photo' as const,
-        quality: 0.8 as const,
+        // Full JPEG quality — field evidence must stay sharp for review.
+        quality: 1 as const,
+        // Cap longest edge so uploads stay under the 15MB API limit without soft compression.
+        maxWidth: 2560,
+        maxHeight: 2560,
         saveToPhotos: false,
         includeExtra: false,
+        presentationStyle: 'fullScreen' as const,
       };
       const result: ImagePickerResponse =
         source === 'camera'

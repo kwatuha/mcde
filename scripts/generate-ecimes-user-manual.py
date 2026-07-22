@@ -21,6 +21,7 @@ from docx.shared import Inches, Pt, RGBColor
 ROOT = Path(__file__).resolve().parents[1]
 KB_PATH = ROOT / "frontend" / "src" / "data" / "help-knowledge-base.json"
 LOGO_PATH = ROOT / "frontend" / "src" / "assets" / "gpris.png"
+SCREENSHOTS_DIR = ROOT / "docs" / "manual-screenshots"
 OUT_DOCX = ROOT / "docs" / "E-CIMES-User-Manual.docx"
 OUT_PDF = ROOT / "docs" / "E-CIMES-User-Manual.pdf"
 
@@ -30,14 +31,133 @@ GREEN = RGBColor(0x2E, 0x7D, 0x32)
 SLATE = RGBColor(0x33, 0x33, 0x33)
 HEADER_FILL = "0D47A1"
 ALT_FILL = "E3F2FD"
-MANUAL_VERSION = "1.0"
+MANUAL_VERSION = "1.3"
+SCREENSHOT_WIDTH = 5.9
+
+# Module title prefix → screenshot basenames (without extension) under docs/manual-screenshots/
+MODULE_SCREENSHOTS = {
+    "1. Accessing the system": ["01-login"],
+    "2. Home page, navigation, and workflow inbox": [
+        "02-personal-dashboard",
+        "my-tasks",
+    ],
+    "3. Role workspaces and landings": [
+        "03-village-workspace",
+        "03-ward-review-queue",
+        "03-subcounty-workspace",
+        "03-chief-approval-queue",
+        "03-sector-me-workspace",
+        "03-resident-engineer-workspace",
+        "03-chief-engineer-workspace",
+        "03-co-finance-workspace",
+        "03-contractor-dashboard",
+        "03-summary-statistics",
+    ],
+    "4. AI Assistant and professional reports": ["ai-assistant-sparkle"],
+    "5. Dashboards and executive views": [
+        "03-summary-statistics",
+        "regional-reports",
+        "project-gis-map",
+        "my-tasks",
+    ],
+    "6. Projects Registry and implementation plans": ["projects-registry"],
+    "7. Project details, evaluation, and evidence": ["project-details"],
+    "8. Planning (CIDP, ADP, RRI, traceability)": ["rri-programmes"],
+    "10. Procurement and contractors": [
+        "procurement-budget-items",
+        "project-scope-setup",
+        "quotation-entry",
+    ],
+    "12. Finance, payment certificates, and verification": [
+        "certificate-step-resident",
+        "certificate-step-chief-engineer",
+        "certificate-step-co-finance",
+        "verify-certificate-qr",
+    ],
+    "13. Reports, report library, and scheduling": ["reports-hub"],
+    "15. User administration and mobile app releases": ["mobile-app-download"],
+}
+
+# navigationTopics.id → screenshot basenames
+TOPIC_SCREENSHOTS = {
+    "role-workspaces": [
+        "01-login",
+        "02-personal-dashboard",
+        "03-summary-statistics",
+    ],
+    "village-me-approval-chain": [
+        "03-village-workspace",
+        "03-ward-review-queue",
+        "03-subcounty-workspace",
+        "03-chief-approval-queue",
+    ],
+    "certificate-approval-chain": [
+        "certificate-step-resident",
+        "certificate-step-chief-engineer",
+        "certificate-step-co-finance",
+    ],
+    "contractor-portal": ["03-contractor-dashboard"],
+    "verify-certificate": ["verify-certificate-qr"],
+    "payment-certificates": [
+        "certificate-step-resident",
+        "certificate-step-chief-engineer",
+        "certificate-step-co-finance",
+    ],
+    "ai-professional-report": ["ai-assistant-sparkle"],
+    "mobile-collector": ["mobile-app-download"],
+    "reports-hub": ["reports-hub"],
+    "regional-reports": ["regional-reports"],
+    "project-gis-map": ["project-gis-map"],
+    "projects-registry": ["projects-registry"],
+    "project-details": ["project-details"],
+    "budget-to-project": [
+        "procurement-budget-items",
+        "project-scope-setup",
+        "quotation-entry",
+    ],
+    "rri-programmes": ["rri-programmes"],
+    "my-tasks": ["my-tasks"],
+}
+
+DEFAULT_CAPTIONS = {
+    "01-login": "Login page",
+    "02-personal-dashboard": "Personal Dashboard (full ribbon)",
+    "03-village-workspace": "Village M&E Workspace",
+    "03-ward-review-queue": "Ward M&E — Ward review queue",
+    "03-subcounty-workspace": "Sub-County M&E Workspace",
+    "03-chief-approval-queue": "Department Chief M&E — Chief approval queue",
+    "03-sector-me-workspace": "Sector M&E Champions Workspace",
+    "03-resident-engineer-workspace": "Resident Engineer Workspace",
+    "03-chief-engineer-workspace": "Chief Engineer Workspace",
+    "03-co-finance-workspace": "Co-Finance Workspace",
+    "03-contractor-dashboard": "Contractor Dashboard",
+    "03-summary-statistics": "Summary Statistics (leadership landing)",
+    "certificate-step-resident": "Payment certificate — Resident Engineer approval (step 1)",
+    "certificate-step-chief-engineer": "Payment certificate — Chief Engineer approval (step 2)",
+    "certificate-step-co-finance": "Payment certificate — Co-Finance approval (step 3)",
+    "verify-certificate-qr": "Finance → Verify Certificate (QR / certificate number)",
+    "ai-assistant-sparkle": "AI Assistant (sparkle button)",
+    "reports-hub": "Reports hub",
+    "mobile-app-download": "CIMES Mobile download page",
+    "regional-reports": "Regional Breakdown Dashboard — sub-county / ward distribution",
+    "project-gis-map": "Project GIS Map — locations and coordinate quality",
+    "projects-registry": "Projects Registry",
+    "project-details": "Project details (single project hub)",
+    "procurement-budget-items": "Budget Procurement Intake — budget item to project",
+    "project-scope-setup": "Setup project scope & costs (planned BQ)",
+    "quotation-entry": "Contracted quotation vs planned",
+    "rri-programmes": "RRI Programmes",
+    "my-tasks": "My Tasks — escalations and workflow approvals",
+}
+
+_embedded_screenshot_count = 0
 SYSTEM_FLOW = [
     "Planning setup",
     "Project registration",
     "Procurement",
     "Implementation tracking",
-    "Monitoring & field data",
-    "Finance & certificates",
+    "Monitoring & field data (incl. Village→Ward→Sub-county→Chief workspaces)",
+    "Finance & certificates (incl. Resident→Chief Engineer→Co-Finance approval)",
     "Reporting & AI outputs",
     "Public transparency",
     "Administration & audit",
@@ -45,10 +165,11 @@ SYSTEM_FLOW = [
 FIRST_CHECKS = [
     "Am I using the correct URL?",
     "Is my account active and approved?",
-    "Do I have the right role and organisation scope?",
+    "Did I land on the expected role workspace (sidebar title) or Summary Statistics / Personal Dashboard?",
+    "Do I have the right role, UI profile, and organisation scope?",
     "Are filters hiding the record I expect?",
-    "For AI reports — am I on the correct dashboard first?",
-    "For certificates — try QR scan or Finance → Verify Certificate.",
+    "For AI reports — am I on the correct workspace or dashboard first?",
+    "For certificates — confirm Resident→Chief→Co-Finance steps, or try QR scan / Finance → Verify Certificate.",
     "Did I save or confirm the action?",
 ]
 
@@ -56,6 +177,60 @@ FIRST_CHECKS = [
 def load_kb() -> dict:
     with open(KB_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def resolve_screenshot(stem: str) -> Path | None:
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        path = SCREENSHOTS_DIR / f"{stem}{ext}"
+        if path.is_file():
+            return path
+    return None
+
+
+def screenshot_caption(stem: str) -> str:
+    caption_file = SCREENSHOTS_DIR / f"{stem}.txt"
+    if caption_file.is_file():
+        text = caption_file.read_text(encoding="utf-8").strip().splitlines()
+        if text:
+            return text[0].strip()
+    return DEFAULT_CAPTIONS.get(stem, stem.replace("-", " ").title())
+
+
+def add_screenshot(doc: Document, stem: str, *, width: float = SCREENSHOT_WIDTH) -> bool:
+    global _embedded_screenshot_count
+    path = resolve_screenshot(stem)
+    if not path:
+        return False
+    caption = screenshot_caption(stem)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_after = Pt(2)
+    try:
+        p.add_run().add_picture(str(path), width=Inches(width))
+    except Exception as exc:  # noqa: BLE001 — keep generating even if one image fails
+        print(f"  Warning: could not embed {path.name}: {exc}")
+        return False
+    cap = doc.add_paragraph()
+    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    cap.paragraph_format.space_after = Pt(10)
+    r = cap.add_run(f"Figure: {caption}")
+    r.italic = True
+    r.font.size = Pt(9)
+    r.font.color.rgb = SLATE
+    r.font.name = "Calibri"
+    _embedded_screenshot_count += 1
+    return True
+
+
+def add_screenshots(doc: Document, stems: list[str] | None) -> int:
+    if not stems:
+        return 0
+    added = 0
+    for stem in stems:
+        if add_screenshot(doc, stem):
+            added += 1
+    return added
 
 
 def shade_cell(cell, fill: str) -> None:
@@ -229,8 +404,8 @@ def cover_page(doc: Document) -> None:
     )
     add_run_para(
         doc,
-        "Printable staff guide — workflows, dashboards, finance, monitoring,\n"
-        "AI assistant, mobile field collection, reports & troubleshooting",
+        "Printable staff guide — role workspaces, workflows, dashboards, finance,\n"
+        "monitoring, AI assistant, mobile field collection, reports & troubleshooting",
         size=11,
         align=WD_ALIGN_PARAGRAPH.CENTER,
         italic=True,
@@ -262,7 +437,7 @@ def toc_page(doc: Document) -> None:
         "5. Quick task guide",
         "6. Module-by-module user guide",
         "7. Dashboard reference",
-        "8. Key workflows (certificates, AI, mobile, reports)",
+        "8. Key workflows (role workspaces, M&E chain, certificates, AI, mobile, reports)",
         "9. AI Assistant & professional reports",
         "10. Good data practice",
         "11. Troubleshooting guide",
@@ -274,6 +449,8 @@ def toc_page(doc: Document) -> None:
 
 
 def build_manual(kb: dict) -> Document:
+    global _embedded_screenshot_count
+    _embedded_screenshot_count = 0
     doc = Document()
     setup_doc(doc)
     cover_page(doc)
@@ -286,14 +463,17 @@ def build_manual(kb: dict) -> Document:
         "This manual is the printable edition of the in-system Help & Support guide for E-CIMES "
         "(Electronic County Integrated Monitoring and Evaluation System). It supports county staff "
         "in planning, project management, procurement, monitoring, finance, reporting, and public "
-        "transparency workflows.",
+        "transparency workflows. After login, E-CIMES opens the workspace or dashboard that matches "
+        "your role — for example Village M&E, Ward M&E, Resident Engineer, Co-Finance, Contractor, "
+        "Summary Statistics, or Personal Dashboard.",
         space_after=8,
     )
     add_labeled_block(
         doc,
         "Important",
         "The system is role-based. If a screen, button, project, or report is missing, confirm your "
-        "role, permissions, organisation scope, and active filters before escalating to ICT.",
+        "role, UI profile, landing path, permissions, organisation scope, and active filters before "
+        "escalating to ICT. Portal roles normally see a short Workspace sidebar instead of the full ribbon.",
         NAVY,
     )
     add_labeled_block(
@@ -347,17 +527,20 @@ def build_manual(kb: dict) -> Document:
     section_heading(doc, "6. Module-by-module user guide")
     add_run_para(
         doc,
-        "Each module below lists purpose, menu route, step-by-step use, and good practice.",
+        "Each module below lists purpose, menu route, step-by-step use, good practice, and screenshots "
+        "where available (from docs/manual-screenshots/).",
         space_after=10,
     )
     for guide in kb.get("moduleGuides", []):
-        section_heading(doc, guide.get("title", "Module"), level=2)
+        title = guide.get("title", "Module")
+        section_heading(doc, title, level=2)
         add_labeled_block(doc, "Audience", guide.get("audience", "All users"), BLUE)
         add_labeled_block(doc, "Route", guide.get("route", "—"), GREEN)
         add_labeled_block(doc, "Purpose", guide.get("purpose", ""), SLATE)
         doc.add_paragraph()
         add_run_para(doc, "How to use this area", bold=True, size=11, color=NAVY, space_after=4)
         add_bullets(doc, guide.get("steps", []))
+        add_screenshots(doc, MODULE_SCREENSHOTS.get(title))
         add_run_para(doc, "Good practice", bold=True, size=11, color=NAVY, space_after=4)
         add_bullets(doc, guide.get("tips", []))
         doc.add_paragraph()
@@ -380,6 +563,7 @@ def build_manual(kb: dict) -> Document:
         dash_rows,
         col_widths=[1.3, 1.5, 2.2, 1.2],
     )
+    add_screenshots(doc, ["03-summary-statistics"])
 
     # 8 Navigation topics
     section_heading(doc, "8. Key workflows")
@@ -390,6 +574,7 @@ def build_manual(kb: dict) -> Document:
         if topic.get("steps"):
             add_run_para(doc, "Steps", bold=True, size=11, color=NAVY, space_after=4)
             add_bullets(doc, topic["steps"])
+        add_screenshots(doc, TOPIC_SCREENSHOTS.get(topic.get("id", "")))
         if topic.get("tips"):
             add_run_para(doc, "Tips", bold=True, size=11, color=NAVY, space_after=4)
             add_bullets(doc, topic["tips"])
@@ -403,6 +588,7 @@ def build_manual(kb: dict) -> Document:
     add_labeled_block(doc, "Summary", ai.get("summary", ""), SLATE)
     add_run_para(doc, "Steps", bold=True, size=11, color=NAVY, space_after=4)
     add_bullets(doc, ai.get("steps", []))
+    add_screenshots(doc, ["ai-assistant-sparkle"])
     add_run_para(doc, "Tips", bold=True, size=11, color=NAVY, space_after=4)
     add_bullets(doc, ai.get("tips", []))
 
@@ -480,6 +666,11 @@ def main():
     print(f"Wrote {OUT_DOCX}")
     print(f"  Modules: {len(kb.get('moduleGuides', []))}")
     print(f"  Quick tasks: {len(kb.get('quickTasks', []))}")
+    print(f"  Screenshots embedded: {_embedded_screenshot_count}")
+    available = sorted(
+        p.name for p in SCREENSHOTS_DIR.glob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+    )
+    print(f"  Screenshots on disk: {len(available)}")
     if export_pdf(OUT_DOCX, OUT_PDF):
         print(f"Wrote {OUT_PDF}")
     else:

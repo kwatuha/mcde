@@ -17,7 +17,7 @@ const mobileAppService = {
   },
 
   /** Stream download via browser (avoids axios 60s timeout on large APKs). */
-  downloadApk: async (fallbackFileName = 'machakos-collector.apk') => {
+  downloadApk: async (fallbackFileName = 'cimes-mobile.apk') => {
     const token = localStorage.getItem('jwtToken');
     if (!token) {
       throw new Error('Please sign in again to download the app.');

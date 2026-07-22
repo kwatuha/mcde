@@ -4,27 +4,31 @@
       "title": "1. Accessing the system",
       "audience": "All users",
       "route": "/login",
-      "purpose": "Log in, complete OTP if enabled, change a forced password, and confirm your role sees the correct menus.",
+      "purpose": "Log in, complete OTP if enabled, change a forced password, and land on the workspace or dashboard that matches your role.",
       "steps": [
         "Open the internal system URL in Chrome, Edge, or Firefox.",
         "Sign in with the username or email and password issued by ICT.",
         "Enter the OTP code if your account has OTP enabled.",
         "Complete forced password change when prompted before continuing.",
-        "Confirm your landing page and visible menus match your assigned role and organisation scope."
+        "After Sign In, E-CIMES redirects you to your role landing page automatically.",
+        "Confirm the landing page and sidebar or ribbon match your assigned role, UI profile, and organisation scope."
       ],
       "tips": [
         "If login fails, confirm the account is active and approved.",
-        "Missing menus usually mean role permissions or organisation scope — not a system fault.",
+        "Portal roles open a short Workspace sidebar; operators and ICT usually see the full ribbon.",
+        "Missing menus usually mean role permissions, UI profile, or organisation scope — not a system fault.",
         "Never share passwords, OTP codes, or administrator accounts."
       ]
     },
     {
       "title": "2. Home page, navigation, and workflow inbox",
-      "audience": "All users",
+      "audience": "Operators, reviewers, ICT, and other non-portal staff (portal roles use their Workspace instead)",
       "route": "/",
-      "purpose": "Use the ribbon menu, home dashboard, and pending workflow items.",
+      "purpose": "Use the ribbon menu, Personal Dashboard, and pending workflow items when your role lands on the home page.",
       "steps": [
-        "Use the ribbon to open Dashboard, Finance, Projects, Planning, Data, Procurement, Monitoring, Reports, Public, and Admin areas.",
+        "If you land on Personal Dashboard (/), use the ribbon for Dashboard, Finance, Projects, Planning, Data, Procurement, Monitoring, Reports, Public, and Admin.",
+        "Portal role users (Village, Ward, Sub-County, Chief M&E, Sector M&E, engineers, Co-Finance, Contractor) primarily use the short Workspace sidebar — that is expected.",
+        "Open Dashboard > My Tasks (/my-tasks) to review escalations and approval steps assigned to you.",
         "On the home page, review summary cards and any pending approvals or workflow tasks assigned to you.",
         "Open a pending item from the inbox to approve, review, or complete the required action.",
         "Use search and filters on list screens before concluding a record is missing.",
@@ -33,11 +37,36 @@
       "tips": [
         "Clear filters before reporting missing data.",
         "The three-dot menu (top right) includes Help & Support.",
-        "For wide tables, browser zoom around 90%–110% improves readability."
+        "For wide tables, browser zoom around 90%–110% improves readability.",
+        "My Tasks is your personal workflow inbox — check it regularly even if you primarily use a role workspace."
       ]
     },
     {
-      "title": "3. AI Assistant and professional reports",
+      "title": "3. Role workspaces and landings",
+      "audience": "All portal roles and county leadership",
+      "route": "/village-workspace (and related role landings)",
+      "purpose": "Understand which home screen opens after login and how dedicated workspaces support M&E approval, engineering certificates, contractor actions, and executive briefing.",
+      "steps": [
+        "Village Administrator → Village M&E Workspace (/village-workspace): My drafts, monitoring visits, projects, documents.",
+        "Ward Administrator → Ward M&E Workspace (/ward-workspace): Ward review queue, village drafts, ward projects.",
+        "Sub-County Administrator → Sub-County M&E Workspace (/subcounty-workspace): Sub-county review queue and projects.",
+        "Department Chief Officer → Department Chief M&E Workspace (/chief-workspace): Chief approval queue; final approve for public.",
+        "Sector M&E Champion → Sector M&E Champions Workspace (/sector-me-workspace): read-only sector reports and pending chief items.",
+        "Resident Engineer → Resident Engineer Workspace (/resident-engineer-workspace): projects, photos, payments, certificate step 1.",
+        "Chief Engineer → Chief Engineer Workspace (/chief-engineer-workspace): certificate step 2 after Resident Engineer.",
+        "Co-Finance Officer → Co-Finance Workspace (/co-finance-workspace): certificate step 3, payments, county finance.",
+        "Contractor → Contractor Dashboard (/contractor-dashboard): payments, progress photos, project files for assigned projects.",
+        "Executive Supervisor / Executive Viewer / Project Lead → Summary Statistics (/summary-statistics) for briefing dashboards.",
+        "Other staff → Personal Dashboard (/) with the full ribbon menu."
+      ],
+      "tips": [
+        "Look at the sidebar group title after login to confirm which workspace you are in.",
+        "Organisation scope (ward, sub-county, department, sector) still limits which projects and reports you see.",
+        "ICT sets role, UI profile, and landing path under User Management."
+      ]
+    },
+    {
+      "title": "4. AI Assistant and professional reports",
       "audience": "All authenticated users",
       "route": "/help-support",
       "purpose": "Ask questions about workflows, live project data, and generate downloadable Word/PDF reports from the current screen.",
@@ -56,12 +85,13 @@
       ]
     },
     {
-      "title": "4. Dashboards and executive views",
+      "title": "5. Dashboards and executive views",
       "audience": "Leadership, department heads, M&E, finance, and report users",
       "route": "/summary-statistics",
       "purpose": "Review county performance through dedicated dashboards — each dashboard has a different focus.",
       "steps": [
-        "Open Dashboard from the ribbon and choose the dashboard you need.",
+        "County leadership often lands directly on Summary Statistics after login.",
+        "Open Dashboard from the ribbon (when available) and choose the dashboard you need.",
         "Project By Status — counts and charts by implementation status.",
         "Project By Sector — sector/programme distribution.",
         "Finance Dashboard — budget, paid, absorption, and finance KPIs.",
@@ -72,55 +102,63 @@
         "Departmental Reports — department-level summaries.",
         "GIS Dashboard and Project GIS Map — location-based views.",
         "Personal Dashboard (home) — your scoped summary and workflow inbox.",
+        "Regional Breakdown Dashboard (/regional-reports) — balance and compare project distribution by sub-county and ward.",
+        "Project GIS Map (/project-gis-map) — locate projects on the map; investigate pins that look wrong or missing (incorrect GIS coordinates).",
+        "My Tasks (/my-tasks) — pending escalations and workflow approvals assigned to you.",
         "Set filters (department, status, sector, ward, financial year) before interpreting figures.",
         "Use drill-down links to open related project lists where available."
       ],
       "tips": [
+        "Executives on the mobile app use Briefing mode rather than field checklist forms.",
         "Dashboard totals depend on project visibility and data completeness.",
         "Compare dashboard filters with Projects Registry filters if totals look inconsistent.",
-        "Use the AI Assistant on a dashboard to summarize that dashboard's data or generate a professional report."
+        "Use the AI Assistant on a dashboard to summarize that dashboard's data or generate a professional report.",
+        "Use Regional Breakdown and Project GIS Map together to spot uneven distribution and bad coordinates before planning new projects."
       ]
     },
     {
-      "title": "5. Projects Registry and implementation plans",
+      "title": "6. Projects Registry and implementation plans",
       "audience": "Project officers, departments, M&E, finance, procurement, administrators",
       "route": "/projects",
       "purpose": "Find, create, edit, and export projects; manage implementation plans.",
       "steps": [
-        "Open Projects > Projects Registry.",
+        "Open Projects > Projects Registry (/projects).",
         "Search or filter by department, financial year, sector, status, subcounty, or ward.",
-        "Open project details before editing to understand the full record.",
+        "Open a project row to open Project Details (/projects/:id) before editing.",
         "Use Projects > Implementation Plans for cross-project implementation planning views.",
-        "Create a project only after confirming it does not already exist.",
+        "Create a project only after confirming it does not already exist — or create from Budget Procurement Intake when converting a budget line.",
         "Export after applying the required filters."
       ],
       "tips": [
         "Search before creating duplicates.",
-        "Project visibility affects dashboards, reports, certificates, and public publishing."
+        "Project visibility affects dashboards, reports, certificates, GIS, and public publishing.",
+        "Registry filters should match Regional Breakdown filters when comparing distribution numbers."
       ]
     },
     {
-      "title": "6. Project details, evaluation, and evidence",
+      "title": "7. Project details, evaluation, and evidence",
       "audience": "Project officers, M&E, finance, administrators",
-      "route": "/projects",
-      "purpose": "Maintain milestones, status, documents, photos, teams, partners, funding, certificates, and evaluations.",
+      "route": "/projects/:projectId",
+      "purpose": "Maintain the single-project record: overview, milestones, status, documents, photos, teams, partners, funding, sites/GIS, BQ, certificates, and evaluations.",
       "steps": [
-        "Open a project from the Projects Registry.",
+        "Open a project from Projects Registry (for example /projects/1) or from a workspace project list.",
         "Review the overview and tabs before adding related records.",
         "Update milestones and status using verified implementation evidence.",
+        "Check the map / sites tab — incorrect GIS coordinates show up on Project GIS Map county-wide.",
         "Upload documents with clear names and correct categories.",
         "Use the Certificates tab to create interim/final payment certificates (where authorised).",
         "Use Project Evaluation Workbench (Projects menu) for structured evaluation workflows.",
         "Link planning activities and risks so monitoring and reports stay consistent."
       ],
       "tips": [
-        "Certificate PDFs include a QR code for public verification.",
+        "Certificate PDFs include a QR code for public verification (top-right on page 1).",
         "Evidence should support reported progress percentages.",
-        "Keep documents organised — audits and reports depend on them."
+        "Keep documents organised — audits and reports depend on them.",
+        "Fix GIS coordinates on the project before relying on map-based planning."
       ]
     },
     {
-      "title": "7. Planning (CIDP, ADP, RRI, traceability)",
+      "title": "8. Planning (CIDP, ADP, RRI, traceability)",
       "audience": "Planning, M&E, department focal persons, administrators",
       "route": "/strategic-planning",
       "purpose": "Maintain planning structures, ADP implementation, RRI programmes, and budget traceability.",
@@ -128,7 +166,8 @@
         "Open Planning from the ribbon.",
         "Maintain CIDP periods, ADP periods, sectors, programmes, and budget allocations.",
         "Use ADP Implementation to track wishlist vs budgeted vs registered projects.",
-        "Use RRI Programmes for ward livelihood and RRI tracking.",
+        "Open Planning > RRI Programmes (/planning/rri-programmes) for ward livelihood and multi-site RRI tracking (also under Monitoring).",
+        "Open an RRI programme detail page to manage sites and beneficiaries.",
         "Use Budget Traceability to follow budget lines through implementation.",
         "Maintain indicators, activities, risks, and reporting frequency catalogues.",
         "Link catalogues to projects for consistent monitoring and reporting."
@@ -139,7 +178,7 @@
       ]
     },
     {
-      "title": "8. Data import, beneficiaries, and upload logs",
+      "title": "9. Data import, beneficiaries, and upload logs",
       "audience": "ICT admins, migration users, authorised data officers",
       "route": "/data-import",
       "purpose": "Import projects/budgets/beneficiaries safely and review upload logs.",
@@ -156,51 +195,63 @@
       ]
     },
     {
-      "title": "9. Procurement and contractors",
+      "title": "10. Procurement and contractors",
       "audience": "Procurement officers, project officers, administrators",
-      "route": "/procurement",
-      "purpose": "Track procurement stages, budget intake, awards, and contractor registry.",
+      "route": "/procurement/budget-items",
+      "purpose": "Convert budget lines into registry projects, set project scope and planned BQ, enter contracted quotations, track procurement stages, and maintain the contractor registry.",
       "steps": [
-        "Open Procurement > Project Procurement for active procurement cases.",
-        "Use Budget Procurement Intake for budget-linked procurement items.",
+        "Open Procurement > Budget Procurement Intake (/procurement/budget-items).",
+        "Select an approved budget line and create / link the registry project (budget item → project).",
+        "Use Setup scope to define milestones and planned BQ (template, Excel, or manual) before quoting.",
+        "Use Quote to enter contracted quotation vs planned costs, then award when ready.",
+        "Open Procurement > Project Procurement for active procurement cases and stage tracking.",
         "Review Procured Projects for completed history.",
         "Maintain Contractor Registry and contractor types.",
-        "Contractors can sign in to the Contractor Dashboard for assigned project views."
+        "Link contractor user accounts in Contractor Management so the Contractor Dashboard works.",
+        "Contractors sign in to Contractor Dashboard for payments, photos, and files on assigned projects only."
       ],
       "tips": [
+        "Always Setup scope before Quote — quotation entry needs a planned BQ baseline.",
         "Stage updates must match approved procurement documentation.",
-        "Attach evidence to support audit review."
+        "Attach evidence to support audit review.",
+        "Unlinked contractor accounts show “Account not linked yet” on the portal."
       ]
     },
     {
-      "title": "10. Monitoring, PMC, and field data collection",
-      "audience": "M&E officers, project officers, ward teams, supervisors",
+      "title": "11. Monitoring, PMC, and field data collection",
+      "audience": "M&E portal roles, M&E officers, project officers, ward teams, supervisors",
       "route": "/monitoring/project-monitoring",
-      "purpose": "Record monitoring visits, PMC ward reports, accountability, checklists, and mobile field collection.",
+      "purpose": "Record monitoring visits, run the Village→Ward→Sub-county→Chief approval chain, PMC ward reports, checklists, and mobile field collection.",
       "steps": [
-        "Open Monitoring > Project Monitoring for structured project monitoring records.",
-        "Use PMC Ward Reports for ward-level PMC reporting.",
-        "Use Ward Accountability for accountability tracking workflows.",
-        "Open Monitoring > Checklists & visits (or Data collection tools) to manage checklist templates and visit submissions.",
-        "Download the Mobile Field Collector from Dashboard or Monitoring > Mobile app (Android).",
+        "Portal M&E users should prefer their role workspace for day-to-day drafting, review, and approval.",
+        "Village: open Village M&E Workspace → My drafts → complete checklist and progress → submit to ward.",
+        "Ward: open Ward review queue → revise, return, or forward to sub-county.",
+        "Sub-County: review ward-forwarded reports → return with comments or forward to Department Chief.",
+        "Department Chief: open Chief approval queue → final approve (supports citizen dashboard publishing).",
+        "Sector M&E Champions use the read-only sector workspace for oversight across mapped departments.",
+        "Open Monitoring > Project Monitoring for structured project monitoring records (ribbon users).",
+        "Use PMC Ward Reports, Ward Accountability, and Monitoring > Checklists & visits as required.",
+        "Download CIMES Mobile from Dashboard or workspace mobile quick action.",
         "Field staff sign in on the app, sync checklists, select a project, and submit visits offline when needed."
       ],
       "tips": [
+        "Approval chain: Village draft → Ward → Sub-county → Chief → public.",
         "Monitoring records should be timely and linked to the correct project.",
         "Mobile app sync requires network — pull down to refresh checklists after login.",
         "Escalate persistent delays, low absorption, or unresolved complaints."
       ]
     },
     {
-      "title": "11. Finance, payment certificates, and verification",
-      "audience": "Finance users, accounts, project officers, leadership, public verifiers",
+      "title": "12. Finance, payment certificates, and verification",
+      "audience": "Finance users, Resident/Chief Engineers, Co-Finance, accounts, project officers, leadership, public verifiers",
       "route": "/finance-dashboard",
-      "purpose": "Review finance performance, manage payment certificates, and verify certificate authenticity.",
+      "purpose": "Review finance performance, create payment certificates, complete the engineer/Co-Finance approval chain, and verify certificate authenticity.",
       "steps": [
-        "Open Finance Dashboard for high-level financial KPIs.",
+        "Open Finance Dashboard for high-level financial KPIs (or Co-Finance Workspace for portal finance tools).",
         "Use Payment List for payment records and filters.",
-        "Use Payment Certificates (Finance menu) for county-wide certificate records and workflow.",
+        "Use Payment Certificates (Finance menu) for county-wide certificate records.",
         "On a project, open the Certificates tab to create interim/final certificates and generate PDFs.",
+        "Approval order for payment certificates: Resident Engineer Workspace (step 1) → Chief Engineer Workspace (step 2) → Co-Finance Workspace (step 3).",
         "Generated certificate PDFs include a QR code labelled Scan to verify this certificate.",
         "To verify any certificate: Finance > Verify Certificate (or open /verify-certificate).",
         "Enter the certificate number manually OR scan the QR code on the printed PDF with a phone camera.",
@@ -208,13 +259,14 @@
         "Use Funding Sources Report, Project Finance Overview, and Pending Bills for deeper analysis."
       ],
       "tips": [
+        "Do not skip approval steps — certificates move only after the previous role approves.",
         "Verify certificates before relying on printed or shared copies.",
         "Verification works without logging in — citizens and contractors can use the public page.",
         "Logged-in staff see a link to open the related project from verification results."
       ]
     },
     {
-      "title": "12. Reports, report library, and scheduling",
+      "title": "13. Reports, report library, and scheduling",
       "audience": "Leadership, M&E, planning, finance, ICT",
       "route": "/reports-hub",
       "purpose": "Find built-in reports, export official outputs, and schedule recurring reports.",
@@ -233,13 +285,14 @@
       ]
     },
     {
-      "title": "13. Public dashboard and citizen engagement",
+      "title": "14. Public dashboard and citizen engagement",
       "audience": "Public engagement teams, communication, administrators",
       "route": "/citizen",
       "purpose": "Manage what citizens see and how they engage.",
       "steps": [
         "Review the public dashboard URL and approved public projects.",
         "Use Public Approval to approve projects for citizen visibility.",
+        "Department Chief M&E final approval of monitoring reports also supports publishing toward the citizen dashboard.",
         "Moderate feedback and manage announcements.",
         "Only approved content should appear on public pages."
       ],
@@ -249,23 +302,26 @@
       ]
     },
     {
-      "title": "14. User administration and mobile app releases",
+      "title": "15. User administration and mobile app releases",
       "audience": "ICT administrators, super administrators",
       "route": "/user-management",
-      "purpose": "Manage users, roles, scope, OTP, mobile app releases, and AI usage.",
+      "purpose": "Manage users, roles, organisation scope, UI profiles, landing paths, OTP, mobile app releases, and AI usage.",
       "steps": [
-        "Open Admin > User Management for accounts, roles, and organisation scope.",
-        "Use Admin > Mobile App Usage to review field collector adoption.",
+        "Open Admin > User Management for accounts, roles, organisation scope, and UI profiles.",
+        "Assign the correct landing path for portal roles (for example /ward-workspace or /resident-engineer-workspace).",
+        "Link contractor users to contractor records when enabling Contractor Dashboard access.",
+        "Use Admin > Mobile App Usage to review CIMES Mobile adoption.",
         "Use Admin > AI Usage (Super Admin) for assistant cost and activity.",
-        "Staff download the Android collector from Dashboard > Mobile app or /mobile-app when signed in."
+        "Staff download CIMES Mobile from Dashboard > CIMES Mobile (Android) or /mobile-app when signed in."
       ],
       "tips": [
-        "Use least privilege for roles and scope.",
-        "Document administrator actions for audit."
+        "Use least privilege for roles, UI profiles, and scope.",
+        "Document administrator actions for audit.",
+        "Portal role names take precedence over a mismatched UI profile landing path."
       ]
     },
     {
-      "title": "15. Metadata, workflows, and audit trail",
+      "title": "16. Metadata, workflows, and audit trail",
       "audience": "ICT administrators, workflow administrators",
       "route": "/metadata-management",
       "purpose": "Maintain master data, approval levels, workflows, and investigate audit logs.",
@@ -282,57 +338,310 @@
     }
   ],
   "quickTasks": [
-    ["Find a project", "Projects > Projects Registry", "Search by name/code or filter by department, status, ward, or financial year."],
-    ["Update project progress", "Projects > Project Status or Project Details", "Open the project, add status/progress, attach evidence."],
-    ["Create a payment certificate", "Project Details > Certificates tab", "Complete BQ where required, create interim/final certificate, generate PDF with QR code."],
-    ["Verify a payment certificate", "Finance > Verify Certificate", "Enter certificate number OR scan QR on the PDF. Public URL: /verify-certificate?cert=NUMBER"],
-    ["Generate a built-in county report", "Reports > Reports hub", "Search for the report, set filters, review totals, export."],
-    ["Generate an AI professional report", "AI Assistant (sparkle button, bottom-right)", "Open the relevant dashboard first, then Generate Professional Report → choose type, Word/PDF."],
-    ["Record monitoring evidence", "Monitoring > Project Monitoring", "Find project, add visit/checklist notes, save observations."],
-    ["Submit PMC ward report", "Monitoring > PMC Ward Reports", "Filter ward/period, complete ward PMC entries."],
-    ["Manage checklist templates", "Monitoring > Checklists & visits", "Create/edit templates; record visit submissions on web or mobile."],
-    ["Install mobile field collector", "Dashboard > Mobile app (Android)", "Download APK while signed in; install on Android; sign in and sync checklists."],
-    ["Import beneficiaries or projects", "Data > Import Data", "Download template, preview, fix errors, confirm import."],
-    ["Approve public content", "Public > Public Approval", "Review content before citizen visibility."],
-    ["Reset a user password", "Admin > User Management", "Verify request, then reset/resend credentials."]
+    [
+      "Find my role workspace after login",
+      "Automatic redirect after Sign In",
+      "Confirm the sidebar title (Village M&E, Ward M&E, Resident Engineer, Co-Finance, Contractor, etc.) or Summary Statistics / Personal Dashboard."
+    ],
+    [
+      "Submit a village monitoring report",
+      "Village M&E → My drafts",
+      "Complete checklist and progress, attach evidence, submit to ward."
+    ],
+    [
+      "Review a report at ward / sub-county / chief",
+      "Ward / Sub-County / Chief M&E Workspace",
+      "Open the review or approval queue; revise, return with comments, forward, or finally approve."
+    ],
+    [
+      "Find a project",
+      "Projects > Projects Registry (or My projects in workspace)",
+      "Search by name/code or filter by department, status, ward, or financial year."
+    ],
+    [
+      "Update project progress",
+      "Projects > Project Status or Project Details",
+      "Open the project, add status/progress, attach evidence."
+    ],
+    [
+      "Create a payment certificate",
+      "Project Details > Certificates tab",
+      "Complete BQ where required, create interim/final certificate, generate PDF with QR code."
+    ],
+    [
+      "Approve a payment certificate (engineers / Co-Finance)",
+      "Resident → Chief → Co-Finance workspace Certificates",
+      "Approve in order: Resident Engineer (step 1), Chief Engineer (step 2), Co-Finance (step 3)."
+    ],
+    [
+      "Verify a payment certificate",
+      "Finance > Verify Certificate",
+      "Enter certificate number OR scan QR on the PDF. Public URL: /verify-certificate?cert=NUMBER"
+    ],
+    [
+      "Request payment or upload files (contractor)",
+      "Contractor Dashboard",
+      "Use Request payment, Upload progress photos, or Submit project files for assigned projects."
+    ],
+    [
+      "Generate a built-in county report",
+      "Reports > Reports hub",
+      "Search for the report, set filters, review totals, export."
+    ],
+    [
+      "Generate an AI professional report",
+      "AI Assistant (sparkle button, bottom-right)",
+      "Open the relevant workspace or dashboard first, then Generate Professional Report → choose type, Word/PDF."
+    ],
+    [
+      "Record monitoring evidence",
+      "Monitoring > Project Monitoring or role workspace",
+      "Find project, add visit/checklist notes, save observations."
+    ],
+    [
+      "Submit PMC ward report",
+      "Monitoring > PMC Ward Reports",
+      "Filter ward/period, complete ward PMC entries."
+    ],
+    [
+      "Manage checklist templates",
+      "Monitoring > Checklists & visits",
+      "Create/edit templates; record visit submissions on web or mobile."
+    ],
+    [
+      "Install CIMES Mobile",
+      "Dashboard > CIMES Mobile (Android)",
+      "Download APK while signed in; install on Android; sign in and sync checklists. Executives use Briefing mode."
+    ],
+    [
+      "Import beneficiaries or projects",
+      "Data > Import Data",
+      "Download template, preview, fix errors, confirm import."
+    ],
+    [
+      "Approve public content",
+      "Public > Public Approval (and Chief M&E final approval)",
+      "Review content before citizen visibility; Chief M&E approval feeds public publishing."
+    ],
+    [
+      "Reset a user password",
+      "Admin > User Management",
+      "Verify request, then reset/resend credentials."
+    ],
+    [
+      "Balance regional project distribution",
+      "Dashboard > Regional Breakdown Dashboard",
+      "Open /regional-reports, filter by financial year, compare sub-county and ward counts before proposing new sites."
+    ],
+    [
+      "Check project locations / bad GIS",
+      "Dashboard > Project GIS Map",
+      "Open /project-gis-map, filter regionally, inspect pins that are missing, clustered wrongly, or outside the expected ward."
+    ],
+    [
+      "Browse Projects Registry",
+      "Projects > Projects Registry",
+      "Open /projects, search/filter, then open a project for details."
+    ],
+    [
+      "Open project details",
+      "Projects Registry → project row",
+      "Open /projects/:id (for example /projects/1); review tabs, evidence, sites/GIS, and certificates."
+    ],
+    [
+      "Convert budget item to project",
+      "Procurement > Budget Procurement Intake",
+      "Open /procurement/budget-items, create/link the registry project from the budget line."
+    ],
+    [
+      "Setup project scope & planned BQ",
+      "Budget Procurement Intake → Setup scope",
+      "Open Setup project scope & costs; define milestones and planned BQ before quotation."
+    ],
+    [
+      "Enter contracted quotation",
+      "Budget Procurement Intake → Quote",
+      "Open Contracted quotation vs planned; enter quoted costs, optionally award."
+    ],
+    [
+      "Manage RRI programmes",
+      "Planning or Monitoring > RRI Programmes",
+      "Open /planning/rri-programmes; create or open a programme for multi-site / beneficiary tracking."
+    ],
+    [
+      "Review my assigned tasks",
+      "Dashboard > My Tasks",
+      "Open /my-tasks for escalations and workflow approvals assigned to you."
+    ]
   ],
   "troubleshootingRows": [
-    ["Cannot log in", "Wrong password, inactive account, pending approval, OTP issue.", "Confirm username, account status, password reset. Escalate OTP failures to ICT."],
-    ["Missing menu item", "Role or organisation scope does not include the module.", "Check role, privileges, and organisation scope."],
-    ["Cannot see expected project", "Active filters or scope excludes the project.", "Clear filters, verify department and user scope."],
-    ["Dashboard figures look wrong", "Filters differ or source data incomplete.", "Record filters, compare with Projects Registry."],
-    ["AI gives generic answers", "Question is about navigation, or screen has no live data context.", "Open the relevant page first; for how-to questions see Help & Support. Ask again on the correct dashboard."],
-    ["AI reports look the same on different dashboards", "Report generated without opening the target screen first.", "Navigate to the specific dashboard, then use Generate Professional Report."],
-    ["Certificate not verified", "Wrong number, voided certificate, or typo.", "Re-enter number exactly as on PDF; try scanning QR code instead."],
-    ["QR scan does not open verify page", "Camera app blocked or wrong QR.", "Manually open Finance > Verify Certificate and type the certificate number from the PDF header."],
-    ["Mobile app shows offline mode", "Network issue or sync failed after login.", "Check connectivity, pull down to sync on Checklists tab, or reinstall latest APK from /mobile-app."],
-    ["Import failed", "Template errors or invalid metadata.", "Review preview errors, correct spreadsheet, upload again."],
-    ["Authorization error", "Signed in but missing privilege.", "Capture module/action; ask administrator to review permissions."]
+    [
+      "Cannot log in",
+      "Wrong password, inactive account, pending approval, OTP issue.",
+      "Confirm username, account status, password reset. Escalate OTP failures to ICT."
+    ],
+    [
+      "Wrong home page after login",
+      "Role or UI profile landing path differs from expectation.",
+      "Note the sidebar/workspace title and your role name; ask ICT to check role, UI profile, and landing path."
+    ],
+    [
+      "Missing menu item / short sidebar only",
+      "Portal role uses a dedicated workspace instead of the full ribbon.",
+      "Use the Workspace sidebar for your role. Full ribbon is for operators/admins — not a fault."
+    ],
+    [
+      "Cannot see expected project",
+      "Active filters or scope excludes the project.",
+      "Clear filters, verify department, ward, sub-county, sector, and user scope."
+    ],
+    [
+      "Dashboard figures look wrong",
+      "Filters differ or source data incomplete.",
+      "Record filters, compare with Projects Registry."
+    ],
+    [
+      "M&E report stuck in queue",
+      "Waiting at next approval step or returned with comments.",
+      "Check Village drafts / Ward review / Sub-county review / Chief approval tabs and comments."
+    ],
+    [
+      "Certificate waiting forever",
+      "Previous approval step not completed.",
+      "Confirm Resident Engineer → Chief Engineer → Co-Finance order; check the correct workspace Certificates screen."
+    ],
+    [
+      "Contractor: Account not linked yet",
+      "User not linked in Contractor Management / registry.",
+      "Ask Procurement or ICT to link the contractor account and assign projects."
+    ],
+    [
+      "AI gives generic answers",
+      "Question is about navigation, or screen has no live data context.",
+      "Open the relevant page first; for how-to questions see Help & Support. Ask again on the correct dashboard."
+    ],
+    [
+      "AI reports look the same on different dashboards",
+      "Report generated without opening the target screen first.",
+      "Navigate to the specific dashboard or workspace, then use Generate Professional Report."
+    ],
+    [
+      "Certificate not verified",
+      "Wrong number, voided certificate, or typo.",
+      "Re-enter number exactly as on PDF; try scanning QR code instead."
+    ],
+    [
+      "QR scan does not open verify page",
+      "Camera app blocked or wrong QR.",
+      "Manually open Finance > Verify Certificate and type the certificate number from the PDF header."
+    ],
+    [
+      "Mobile app shows offline mode",
+      "Network issue or sync failed after login.",
+      "Check connectivity, pull down to sync on Checklists tab, or reinstall latest APK from /mobile-app."
+    ],
+    [
+      "Import failed",
+      "Template errors or invalid metadata.",
+      "Review preview errors, correct spreadsheet, upload again."
+    ],
+    [
+      "Authorization error",
+      "Signed in but missing privilege.",
+      "Capture module/action; ask administrator to review permissions and UI profile."
+    ]
   ],
   "roleGuidance": [
-    ["County leadership", "Use dashboards, Reports hub, and AI summaries for status, finance, regional distribution, and attention projects."],
-    ["Department focal persons", "Maintain projects, progress, evidence, department reports, and ADP implementation."],
-    ["Planning users", "Maintain CIDP/ADP, RRI, budget traceability, catalogues, and programme alignment."],
-    ["M&E users", "Monitoring visits, PMC ward reports, checklists, evaluation workbench, stakeholder feedback."],
-    ["Finance users", "Finance dashboard, payments, certificates, verification, pending bills, finance overview."],
-    ["Procurement users", "Procurement stages, budget intake, contractor registry, procured projects."],
-    ["Field collectors", "Mobile app: sync checklists, record visits offline, upload when connected."],
-    ["Public engagement users", "Public approval, feedback moderation, announcements."],
-    ["ICT administrators", "Users, roles, metadata, audit, mobile releases, AI usage monitoring."]
+    [
+      "County leadership (Executive Supervisor / Viewer)",
+      "Land on Summary Statistics. Use Dashboard ribbon, Reports hub, AI summaries, and mobile Briefing mode for status and finance oversight."
+    ],
+    [
+      "CECM / County Viewer / view-only Chief Officers",
+      "Scoped dashboards and department oversight via the ribbon; read-only according to privileges and organisation scope."
+    ],
+    [
+      "Village Administrator",
+      "Village M&E Workspace (/village-workspace): draft monitoring reports, attach evidence, submit to ward."
+    ],
+    [
+      "Ward Administrator",
+      "Ward M&E Workspace (/ward-workspace): review/revise village reports, forward to sub-county; PMC ward reports."
+    ],
+    [
+      "Sub-County Administrator",
+      "Sub-County M&E Workspace (/subcounty-workspace): return or forward ward-approved reports to Department Chief."
+    ],
+    [
+      "Department Chief Officer (M&E)",
+      "Department Chief M&E Workspace (/chief-workspace): final approve monitoring reports for citizen visibility."
+    ],
+    [
+      "Sector M&E Champion",
+      "Sector M&E Champions Workspace (/sector-me-workspace): read-only sector portfolio and pending chief items."
+    ],
+    [
+      "Resident Engineer",
+      "Resident Engineer Workspace: projects, progress photos, payment requests, first-step certificate approval."
+    ],
+    [
+      "Chief Engineer",
+      "Chief Engineer Workspace: second-step certificate approval after Resident Engineer."
+    ],
+    [
+      "Co-Finance Officer",
+      "Co-Finance Workspace: final certificate approval, payment requests, and county finance tools."
+    ],
+    [
+      "Contractor",
+      "Contractor Dashboard: request payments, upload progress photos and project files for assigned projects only."
+    ],
+    [
+      "Department / County operators & reviewers",
+      "Personal Dashboard with full ribbon — projects, progress, evidence, and review queues."
+    ],
+    [
+      "Planning users",
+      "Maintain CIDP/ADP, RRI, budget traceability, catalogues, and programme alignment."
+    ],
+    [
+      "M&E / Finance / Procurement staff (ribbon)",
+      "Use Monitoring, Finance, or Procurement ribbon modules matching their function."
+    ],
+    [
+      "Field collectors",
+      "CIMES Mobile: sync checklists, record visits offline, upload when connected."
+    ],
+    [
+      "Public engagement users",
+      "Public Approval, feedback moderation, announcements."
+    ],
+    [
+      "ICT administrators",
+      "Users, roles, UI profiles, landing paths, metadata, audit, mobile releases, AI usage monitoring."
+    ]
   ],
   "goodPracticeItems": [
+    "After login, confirm you are on the expected role workspace (sidebar title) or Summary Statistics / Personal Dashboard.",
     "Search before creating duplicate projects, users, or metadata values.",
-    "Check active filters before reporting missing data.",
+    "Check active filters and organisation scope before reporting missing data.",
+    "Follow the M&E chain: Village draft → Ward → Sub-county → Chief approve → public.",
+    "Follow certificate approvals in order: Resident Engineer → Chief Engineer → Co-Finance.",
     "Verify payment certificates using Finance > Verify Certificate or the QR code on the PDF.",
-    "Open the correct dashboard before generating AI professional reports.",
+    "Open the correct workspace or dashboard before generating AI professional reports.",
     "Review AI output before official submission.",
-    "Use clear comments on progress, monitoring, procurement, and finance records.",
+    "Use clear comments when returning or forwarding monitoring reports and certificates.",
     "Attach evidence where the process requires proof.",
-    "Use least privilege for roles and organisation scope.",
-    "Do not share passwords, OTPs, or confidential citizen data in screenshots."
+    "Link contractor accounts in Contractor Management before expecting Contractor Dashboard access.",
+    "Use least privilege for roles, UI profiles, and organisation scope.",
+    "Do not share passwords, OTPs, or confidential citizen data in screenshots.",
+    "Use Regional Breakdown and Project GIS Map when balancing new projects across wards and sub-counties.",
+    "Correct GIS coordinates on project details when map pins look wrong.",
+    "On Budget Procurement Intake, Setup scope before entering a quotation."
   ],
   "supportChecklist": [
     "Your name, department, role, and contact.",
+    "Workspace or landing page you see after login (and sidebar title if shown).",
     "Exact module or page (route URL if possible).",
     "Project name/code, certificate number, report name, or user account involved.",
     "Action attempted and exact error message.",
@@ -343,14 +652,15 @@
     "title": "AI Assistant and professional reports",
     "summary": "The sparkle AI button (bottom-right) answers questions using live data for your account and this Help manual for navigation. Professional reports are generated from the screen you are currently viewing.",
     "steps": [
-      "Navigate to the dashboard, project, or report screen that matches your question.",
+      "Navigate to the workspace, dashboard, project, or report screen that matches your question.",
       "Open AI Assistant and ask a question or click Generate Professional Report.",
       "Choose report type and Word/PDF — finance dashboards favour Finance Summary; monitoring screens favour Monitoring Summary.",
       "Review the download before official use."
     ],
     "tips": [
       "For how-to questions (verify certificate, find a menu), the assistant should cite exact menu paths from Help & Support.",
-      "Super Admins monitor usage at Admin > AI Usage."
+      "Super Admins monitor usage at Admin > AI Usage.",
+      "Portal users can open the AI Assistant from their workspace so summaries use the correct scoped context."
     ]
   },
   "dashboardGuides": [
@@ -384,13 +694,13 @@
       "title": "Regional Breakdown Dashboard",
       "menuPath": "Dashboard > Regional Breakdown Dashboard",
       "route": "/regional-reports",
-      "purpose": "Subcounty and ward distribution of projects and budgets."
+      "purpose": "Sub-county and ward distribution of projects and budgets — use to balance regional allocation."
     },
     {
       "title": "Summary Statistics",
       "menuPath": "Dashboard > Summary Statistics",
       "route": "/summary-statistics",
-      "purpose": "County-wide summary cards and high-level trends."
+      "purpose": "County-wide summary cards and high-level trends. Landing page for Executive Supervisor / Viewer and related leadership roles."
     },
     {
       "title": "Status Report",
@@ -405,15 +715,157 @@
       "route": "/pending-bills-report",
       "purpose": "Outstanding bill balances by project.",
       "aiReportHint": "AI Finance Summary reports from this screen focus on pending bills."
+    },
+    {
+      "title": "Project GIS Map",
+      "menuPath": "Dashboard > Project GIS Map",
+      "route": "/project-gis-map",
+      "purpose": "Map of project locations; identify missing or incorrect GIS coordinates.",
+      "aiReportHint": "Ask for projects with missing or suspicious coordinates while on this map."
+    },
+    {
+      "title": "My Tasks",
+      "menuPath": "Dashboard > My Tasks",
+      "route": "/my-tasks",
+      "purpose": "Pending escalations and workflow approval steps assigned to you."
     }
   ],
   "navigationTopics": [
+    {
+      "id": "role-workspaces",
+      "title": "Find your role workspace after login",
+      "menuPath": "Automatic landing after Sign In",
+      "route": "/",
+      "keywords": [
+        "workspace",
+        "landing",
+        "village me",
+        "ward me",
+        "subcounty",
+        "chief workspace",
+        "resident engineer",
+        "chief engineer",
+        "co-finance",
+        "contractor dashboard",
+        "summary statistics",
+        "role home",
+        "sidebar"
+      ],
+      "summary": "E-CIMES opens the home screen that matches your role: a dedicated Workspace, Summary Statistics, or Personal Dashboard.",
+      "steps": [
+        "Sign in with your county credentials (and OTP if enabled).",
+        "Wait for the automatic redirect — do not hunt for a different home unless ICT instructed you to.",
+        "Read the sidebar title: Village M&E, Ward M&E, Sub-County M&E, Department Chief M&E, Sector M&E Champions, Resident Engineer, Chief Engineer, Co-Finance, or Contractor.",
+        "Leadership roles open Summary Statistics; operators and ICT open Personal Dashboard with the full ribbon.",
+        "Use Help & Support (three-dot menu) if the landing does not match your job function."
+      ],
+      "tips": [
+        "A short sidebar is normal for portal roles.",
+        "Ask ICT to review role, UI profile, and landing path if the wrong workspace opens."
+      ]
+    },
+    {
+      "id": "village-me-approval-chain",
+      "title": "Village → Ward → Sub-County → Chief M&E approval",
+      "menuPath": "Village / Ward / Sub-County / Chief M&E Workspace",
+      "route": "/village-workspace",
+      "keywords": [
+        "village workspace",
+        "ward workspace",
+        "subcounty workspace",
+        "chief workspace",
+        "monitoring report",
+        "approve report",
+        "forward",
+        "return",
+        "m&e chain",
+        "village draft"
+      ],
+      "summary": "Monitoring reports move through Village draft, Ward review, Sub-County review, and Department Chief final approval before public visibility.",
+      "steps": [
+        "Village Administrator: open Village M&E Workspace → My drafts → complete checklist and progress status → submit to ward.",
+        "Ward Administrator: open Ward review queue → revise or return with comments → forward to sub-county.",
+        "Sub-County Administrator: open Sub-county review queue → return or forward to Department Chief.",
+        "Department Chief Officer: open Chief approval queue → final approve.",
+        "Sector M&E Champions may oversee All sector reports and Pending chief approval (read-only).",
+        "Approved outcomes support publishing toward the citizen dashboard according to county procedure."
+      ],
+      "tips": [
+        "Always read return comments before resubmitting.",
+        "Attach photos and documents that support reported progress.",
+        "Use Monitoring → Village monitoring workflow when available on the ribbon for the same chain."
+      ]
+    },
+    {
+      "id": "certificate-approval-chain",
+      "title": "Payment certificate approval (Resident → Chief → Co-Finance)",
+      "menuPath": "Resident Engineer / Chief Engineer / Co-Finance Workspace → Certificates",
+      "route": "/resident-engineer-workspace/certificates",
+      "keywords": [
+        "certificate approval",
+        "resident engineer",
+        "chief engineer",
+        "co-finance",
+        "payment certificate workflow",
+        "approve certificate",
+        "engineer workspace"
+      ],
+      "summary": "Payment certificates are approved in three workspace steps: Resident Engineer, then Chief Engineer, then Co-Finance Officer.",
+      "steps": [
+        "Create or receive the certificate on the project Certificates tab (authorised staff).",
+        "Resident Engineer: open Resident Engineer Workspace → Certificates and complete first approval.",
+        "Chief Engineer: open Chief Engineer Workspace → Payment Certificates for second approval.",
+        "Co-Finance Officer: open Co-Finance Workspace → Payment Certificates for final approval.",
+        "Generate or download the PDF and verify with Finance → Verify Certificate (QR or certificate number)."
+      ],
+      "tips": [
+        "Certificates appear at each step only after the previous role approves.",
+        "Contractors track related payment requests from Contractor Dashboard."
+      ]
+    },
+    {
+      "id": "contractor-portal",
+      "title": "Contractor Dashboard",
+      "menuPath": "Contractor sidebar → Contractor Dashboard",
+      "route": "/contractor-dashboard",
+      "keywords": [
+        "contractor",
+        "contractor dashboard",
+        "request payment",
+        "progress photos",
+        "project files",
+        "contractor portal"
+      ],
+      "summary": "Contractors use a dedicated portal for assigned projects: payment requests, progress photos, and project files.",
+      "steps": [
+        "Sign in with a Contractor role account that is linked in Contractor Management.",
+        "Land on Contractor Dashboard (/contractor-dashboard).",
+        "Use Request payment for payment requests on assigned projects.",
+        "Upload progress photos and submit project files from the Contractor sidebar.",
+        "Track payment status from the payments area of the portal."
+      ],
+      "tips": [
+        "If you see “Account not linked yet”, contact Procurement or ICT.",
+        "Only assigned projects are visible."
+      ]
+    },
     {
       "id": "verify-certificate",
       "title": "Verify a payment certificate",
       "menuPath": "Finance → Verify Certificate",
       "route": "/verify-certificate",
-      "keywords": ["verify", "certificate", "payment certificate", "qr", "scan", "authentic", "valid", "fake", "counterfeit", "check certificate"],
+      "keywords": [
+        "verify",
+        "certificate",
+        "payment certificate",
+        "qr",
+        "scan",
+        "authentic",
+        "valid",
+        "fake",
+        "counterfeit",
+        "check certificate"
+      ],
       "summary": "Confirm whether a Machakos County payment certificate is genuine. Works for staff and the public without login.",
       "steps": [
         "Open Finance → Verify Certificate in the ribbon (or go to /verify-certificate).",
@@ -432,17 +884,25 @@
       "title": "Create and manage payment certificates",
       "menuPath": "Finance → Payment Certificates; or Project Details → Certificates tab",
       "route": "/finance/payment-certificates",
-      "keywords": ["create certificate", "payment certificate", "interim certificate", "final certificate", "certificate pdf", "generate certificate"],
-      "summary": "Staff create interim/final certificates per project; PDFs include signatures and a verification QR code.",
+      "keywords": [
+        "create certificate",
+        "payment certificate",
+        "interim certificate",
+        "final certificate",
+        "certificate pdf",
+        "generate certificate"
+      ],
+      "summary": "Staff create interim/final certificates per project; engineers and Co-Finance approve in sequence; PDFs include signatures and a verification QR code.",
       "steps": [
         "Open the project in Projects Registry → Certificates tab (or Finance → Payment Certificates for the county list).",
         "Complete bill of quantities requirements where configured.",
         "Create interim or final certificate with correct amounts and references.",
-        "Run approval workflow if required.",
+        "Approve in order: Resident Engineer Workspace → Chief Engineer Workspace → Co-Finance Workspace.",
         "Generate PDF — the QR code on the PDF links to the public verify page."
       ],
       "tips": [
-        "Always verify issued PDFs using Finance → Verify Certificate before external sharing."
+        "Always verify issued PDFs using Finance → Verify Certificate before external sharing.",
+        "If a certificate does not appear for approval, confirm the previous step was completed."
       ]
     },
     {
@@ -450,7 +910,15 @@
       "title": "Generate a professional AI report",
       "menuPath": "AI Assistant button (bottom-right on any page)",
       "route": "/help-support",
-      "keywords": ["professional report", "ai report", "word report", "pdf report", "formatted report", "download report", "generate report"],
+      "keywords": [
+        "professional report",
+        "ai report",
+        "word report",
+        "pdf report",
+        "formatted report",
+        "download report",
+        "generate report"
+      ],
       "summary": "Downloadable Word/PDF reports built from live data on the screen you are viewing.",
       "steps": [
         "Navigate to the dashboard or report screen that matches your topic (finance dashboard for finance, monitoring for monitoring, etc.).",
@@ -467,21 +935,32 @@
     },
     {
       "id": "mobile-collector",
-      "title": "Mobile Field Collector (Android)",
-      "menuPath": "Dashboard → Mobile app (Android)",
+      "title": "CIMES Mobile (Android)",
+      "menuPath": "Dashboard → CIMES Mobile (Android)",
       "route": "/mobile-app",
-      "keywords": ["mobile app", "android", "apk", "field collector", "offline", "sync", "download app"],
-      "summary": "Android app for offline checklist data collection in the field.",
+      "keywords": [
+        "mobile app",
+        "android",
+        "apk",
+        "cimes mobile",
+        "field collector",
+        "offline",
+        "sync",
+        "download app"
+      ],
+      "summary": "Android app for offline checklist data collection and executive briefing.",
       "steps": [
-        "Sign in to the web system and open Dashboard → Mobile app (Android) or /mobile-app.",
+        "Sign in to the web system and open Dashboard → CIMES Mobile (Android) or /mobile-app.",
         "Download and install the published APK.",
-        "Open Machakos Collector, sign in with county credentials.",
+        "Open CIMES Mobile, sign in with county credentials.",
         "On Checklists tab, pull down to sync templates and projects.",
         "Tap a checklist, select project, complete form, submit (queues offline if needed)."
       ],
       "tips": [
         "Install the latest published version when prompted.",
-        "Pull down on Checklists to retry sync if offline mode appears."
+        "Pull down on Checklists to retry sync if offline mode appears.",
+        "Executive Supervisor / Viewer style roles use Briefing mode on mobile, not field checklist forms.",
+        "Village workspace also offers a mobile app quick action."
       ]
     },
     {
@@ -489,7 +968,14 @@
       "title": "Checklists and monitoring visits",
       "menuPath": "Monitoring → Checklists & visits",
       "route": "/data-collection-tools",
-      "keywords": ["checklist", "data collection", "visit", "template", "monitoring visit", "submission"],
+      "keywords": [
+        "checklist",
+        "data collection",
+        "visit",
+        "template",
+        "monitoring visit",
+        "submission"
+      ],
       "summary": "Web tool to build checklist templates and record visit submissions; syncs with the mobile collector.",
       "steps": [
         "Open Monitoring → Checklists & visits.",
@@ -507,7 +993,15 @@
       "title": "Find the right built-in report",
       "menuPath": "Reports → Reports hub",
       "route": "/reports-hub",
-      "keywords": ["report", "reports hub", "apr", "absorption", "county operations", "export", "scheduled report"],
+      "keywords": [
+        "report",
+        "reports hub",
+        "apr",
+        "absorption",
+        "county operations",
+        "export",
+        "scheduled report"
+      ],
       "summary": "Searchable index of all standard county reports (separate from AI professional reports).",
       "steps": [
         "Open Reports → Reports hub.",
@@ -525,7 +1019,12 @@
       "title": "PMC ward reports",
       "menuPath": "Monitoring → PMC Ward Reports",
       "route": "/monitoring/pmc-ward-reports",
-      "keywords": ["pmc", "ward report", "ward monitoring", "pmc ward"],
+      "keywords": [
+        "pmc",
+        "ward report",
+        "ward monitoring",
+        "pmc ward"
+      ],
       "summary": "Ward-level Project Monitoring Committee reporting.",
       "steps": [
         "Open Monitoring → PMC Ward Reports.",
@@ -540,7 +1039,13 @@
       "title": "Finance Dashboard",
       "menuPath": "Dashboard → Finance Dashboard",
       "route": "/finance-dashboard",
-      "keywords": ["finance dashboard", "absorption", "disbursement", "paid", "budget dashboard"],
+      "keywords": [
+        "finance dashboard",
+        "absorption",
+        "disbursement",
+        "paid",
+        "budget dashboard"
+      ],
       "summary": "High-level finance KPIs for projects in your scope.",
       "steps": [
         "Open Dashboard → Finance Dashboard.",
@@ -549,6 +1054,173 @@
         "Use AI Assistant here for finance summaries or Finance Summary professional reports."
       ],
       "tips": []
+    },
+    {
+      "id": "regional-reports",
+      "title": "Balance projects with Regional Breakdown",
+      "menuPath": "Dashboard → Regional Breakdown Dashboard",
+      "route": "/regional-reports",
+      "keywords": [
+        "regional",
+        "regional reports",
+        "subcounty",
+        "ward distribution",
+        "balance projects",
+        "regional breakdown"
+      ],
+      "summary": "Compare project and budget distribution across sub-counties and wards to support balanced allocation.",
+      "steps": [
+        "Open Dashboard → Regional Breakdown Dashboard (/regional-reports).",
+        "Set financial year and other filters.",
+        "Compare counts and budgets by sub-county and ward.",
+        "Cross-check uneven areas on Project GIS Map and in Projects Registry before proposing new projects."
+      ],
+      "tips": [
+        "Use the same filters on Projects Registry when totals look inconsistent."
+      ]
+    },
+    {
+      "id": "project-gis-map",
+      "title": "Project GIS Map and coordinate quality",
+      "menuPath": "Dashboard → Project GIS Map",
+      "route": "/project-gis-map",
+      "keywords": [
+        "gis",
+        "map",
+        "coordinates",
+        "location",
+        "project gis map",
+        "wrong location",
+        "pin"
+      ],
+      "summary": "View project locations on the county map and spot missing or incorrect GIS coordinates.",
+      "steps": [
+        "Open Dashboard → Project GIS Map (/project-gis-map).",
+        "Filter by sub-county, ward, department, or status as needed.",
+        "Inspect pins that are missing, outside the expected ward, or clustered incorrectly.",
+        "Open the project details record and correct sites / coordinates, then refresh the map."
+      ],
+      "tips": [
+        "Incorrect coordinates affect public maps and regional planning decisions."
+      ]
+    },
+    {
+      "id": "projects-registry",
+      "title": "Use the Projects Registry",
+      "menuPath": "Projects → Projects Registry",
+      "route": "/projects",
+      "keywords": [
+        "projects registry",
+        "project list",
+        "find project",
+        "create project",
+        "registry"
+      ],
+      "summary": "Search, filter, create, and open county projects from the central registry.",
+      "steps": [
+        "Open Projects → Projects Registry (/projects).",
+        "Search by name/code or filter by department, status, ward, sector, or financial year.",
+        "Open a row to view Project Details.",
+        "Create a project only after confirming it does not already exist."
+      ],
+      "tips": [
+        "Budget-linked projects may originate from Budget Procurement Intake instead of a blank create form."
+      ]
+    },
+    {
+      "id": "project-details",
+      "title": "Open project details",
+      "menuPath": "Projects Registry → project row",
+      "route": "/projects/:projectId",
+      "keywords": [
+        "project details",
+        "project page",
+        "project tabs",
+        "sites",
+        "evidence",
+        "/projects/1"
+      ],
+      "summary": "Single-project hub for overview, evidence, sites/GIS, BQ, certificates, teams, and status.",
+      "steps": [
+        "From Projects Registry, open a project (URL form /projects/:id, for example /projects/1).",
+        "Review overview tabs before editing.",
+        "Update progress, documents, photos, and sites/GIS as required.",
+        "Use Certificates when authorised; verify PDFs after generation."
+      ],
+      "tips": [
+        "Some tabs may be hidden by your UI profile."
+      ]
+    },
+    {
+      "id": "budget-to-project",
+      "title": "Budget item → project, scope, and quotation",
+      "menuPath": "Procurement → Budget Procurement Intake",
+      "route": "/procurement/budget-items",
+      "keywords": [
+        "budget items",
+        "budget procurement",
+        "setup scope",
+        "quotation",
+        "quote",
+        "planned bq",
+        "convert budget"
+      ],
+      "summary": "Convert an approved budget line into a registry project, set scope/planned BQ, then enter the contracted quotation.",
+      "steps": [
+        "Open Procurement → Budget Procurement Intake (/procurement/budget-items).",
+        "Create or link the registry project from the budget line.",
+        "Click Setup scope — define milestones and planned BQ (template, Excel, or manual).",
+        "Click Quote — enter contracted quotation vs planned costs; award when ready.",
+        "Continue procurement stages and contractor assignment as required."
+      ],
+      "tips": [
+        "Setup scope before Quote — quotation needs a planned BQ baseline.",
+        "Scope setup is also available from engineer / Co-Finance workspace project lists."
+      ]
+    },
+    {
+      "id": "rri-programmes",
+      "title": "RRI Programmes",
+      "menuPath": "Planning → RRI Programmes (also Monitoring → RRI Programmes)",
+      "route": "/planning/rri-programmes",
+      "keywords": [
+        "rri",
+        "rri programmes",
+        "livelihood",
+        "multi-site",
+        "beneficiaries"
+      ],
+      "summary": "Manage Rapid Results / ward livelihood programmes with multi-site and beneficiary tracking.",
+      "steps": [
+        "Open Planning → RRI Programmes or Monitoring → RRI Programmes (/planning/rri-programmes).",
+        "Create or open a programme.",
+        "Maintain sites and beneficiaries on the programme detail page.",
+        "Link related projects so monitoring and reports stay aligned."
+      ],
+      "tips": []
+    },
+    {
+      "id": "my-tasks",
+      "title": "My Tasks workflow inbox",
+      "menuPath": "Dashboard → My Tasks",
+      "route": "/my-tasks",
+      "keywords": [
+        "my tasks",
+        "workflow",
+        "approvals",
+        "escalations",
+        "inbox"
+      ],
+      "summary": "Personal list of escalations and workflow approval steps assigned to you.",
+      "steps": [
+        "Open Dashboard → My Tasks (/my-tasks).",
+        "Review pending escalations and approval steps.",
+        "Open an item to complete, approve, or return according to county procedure.",
+        "Return to My Tasks after acting to confirm the queue updated."
+      ],
+      "tips": [
+        "Portal workspace queues (Ward review, Chief approval, certificate steps) complement My Tasks — check both when relevant."
+      ]
     }
   ]
 }

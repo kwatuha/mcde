@@ -523,6 +523,31 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       logoDataUrl: await getCountyLogoDataUrl(),
     });
 
+    // Verification QR at top-right of page 1 (beside the county header).
+    try {
+      const portalOrigin =
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUBLIC_PORTAL_ORIGIN?.replace(/\/$/, '')) || '';
+      const base = portalOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
+      const cn = String(certNo || '').trim();
+      if (base && cn && cn !== 'N/A') {
+        const verifyUrl = `${base}/verify-certificate?cert=${encodeURIComponent(cn)}`;
+        const QRCode = (await import('qrcode')).default;
+        const dataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180, errorCorrectionLevel: 'M' });
+        const qrSize = 72;
+        const qrX = pageWidth - margin - qrSize;
+        const qrY = 28;
+        doc.setPage(1);
+        doc.addImage(dataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(60, 60, 60);
+        doc.text('Scan to verify this certificate', qrX + qrSize / 2, qrY + qrSize + 10, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+      }
+    } catch (e) {
+      console.warn('Certificate PDF QR skipped:', e?.message || e);
+    }
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     if (contractor) {
@@ -814,33 +839,6 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       y
     );
     doc.setTextColor(0, 0, 0);
-
-    try {
-      const portalOrigin =
-        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUBLIC_PORTAL_ORIGIN?.replace(/\/$/, '')) || '';
-      const base = portalOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
-      const cn = String(certNo || '').trim();
-      if (base && cn && cn !== 'N/A') {
-        const verifyUrl = `${base}/verify-certificate?cert=${encodeURIComponent(cn)}`;
-        const QRCode = (await import('qrcode')).default;
-        const dataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180, errorCorrectionLevel: 'M' });
-        const pageCount = doc.internal.getNumberOfPages();
-        doc.setPage(pageCount);
-        const pw = doc.internal.pageSize.getWidth();
-        const ph = doc.internal.pageSize.getHeight();
-        const qrSize = 72;
-        const qrX = pw - margin - qrSize;
-        const qrY = ph - margin - qrSize - 16;
-        doc.addImage(dataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(60, 60, 60);
-        doc.text('Scan to verify this certificate', qrX + qrSize / 2, ph - margin - 4, { align: 'center' });
-        doc.setTextColor(0, 0, 0);
-      }
-    } catch (e) {
-      console.warn('Certificate PDF QR skipped:', e?.message || e);
-    }
 
     const blob = doc.output('blob');
     const safeCertNo = String(certNo).replace(/[^a-zA-Z0-9-_]/g, '_');

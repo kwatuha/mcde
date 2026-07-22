@@ -157,7 +157,7 @@ async function registerReleaseRecord({
     [
       versionLabel,
       notes,
-      originalFileName || `machakos-collector-${versionLabel}.apk`,
+      originalFileName || `cimes-mobile-${versionLabel}.apk`,
       storedFileName,
       mimeType,
       fileSize,
@@ -183,7 +183,7 @@ async function publishReleaseFromFile({
 
   const stat = fs.statSync(src);
   const ext = path.extname(src).toLowerCase() || '.apk';
-  const storedFileName = `machakos-collector-${crypto.randomBytes(12).toString('hex')}${ext}`;
+  const storedFileName = `cimes-mobile-${crypto.randomBytes(12).toString('hex')}${ext}`;
   const destPath = path.join(UPLOAD_DIR, storedFileName);
 
   await voidPreviousReleases();
@@ -192,7 +192,7 @@ async function publishReleaseFromFile({
   return registerReleaseRecord({
     version,
     releaseNotes,
-    originalFileName: originalFileName || path.basename(src) || `machakos-collector-${version}.apk`,
+    originalFileName: originalFileName || path.basename(src) || `cimes-mobile-${version}.apk`,
     storedFileName,
     fileSize: stat.size,
     uploadedByUserId,
