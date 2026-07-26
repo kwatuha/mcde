@@ -344,12 +344,7 @@ router.get('/items-as-of', async (req, res) => {
                             ORDER BY l.progress_date DESC, l.id DESC
                             LIMIT 1
                         ),
-                        CASE
-                            WHEN NOT EXISTS (
-                                SELECT 1 FROM project_bq_progress_logs l2 WHERE l2.bq_item_id = i.id
-                            ) THEN i.progress_percent
-                            ELSE 0
-                        END
+                        i.progress_percent
                     ) AS "progressPercent",
                     i.remarks,
                     CASE
@@ -389,12 +384,7 @@ router.get('/items-as-of', async (req, res) => {
                         ORDER BY l.progress_date DESC, l.id DESC
                         LIMIT 1
                     ),
-                    CASE
-                        WHEN NOT EXISTS (
-                            SELECT 1 FROM project_bq_progress_logs l2 WHERE l2.bq_item_id = i.id
-                        ) THEN i.progress_percent
-                        ELSE 0
-                    END
+                    i.progress_percent
                 ) AS progressPercent,
                 i.remarks,
                 CASE

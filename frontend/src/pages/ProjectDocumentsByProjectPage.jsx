@@ -52,6 +52,7 @@ import apiService from '../api';
 import { ROUTES } from '../configs/appConfig';
 import { useAuth } from '../context/AuthContext';
 import ProjectDocumentsAttachments from '../components/ProjectDocumentsAttachments';
+import { useActiveProject } from '../utils/activeProjectContext';
 import { getProjectStatusBackgroundColor, getProjectStatusTextColor, formatStatus } from '../utils/tableHelpers';
 
 function getProjectId(p) {
@@ -225,6 +226,7 @@ export default function ProjectDocumentsByProjectPage() {
   const isLight = theme.palette.mode === 'light';
   const [searchParams, setSearchParams] = useSearchParams();
   const { hasPrivilege } = useAuth();
+  const activeProject = useActiveProject();
   const canUse =
     hasPrivilege &&
     (hasPrivilege('document.read_all') || hasPrivilege('document.create'));
@@ -534,6 +536,18 @@ export default function ProjectDocumentsByProjectPage() {
       />
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 2, mb: 1 }} flexWrap="wrap">
+        {activeProject && projects.some((p) => String(p._pid) === String(activeProject.projectId)) && (
+          <Tooltip title="Open the documents of the project you were working on">
+            <Chip
+              size="small"
+              color="primary"
+              icon={<FolderOpenIcon sx={{ '&&': { fontSize: 18 } }} />}
+              label={`Working on: ${activeProject.projectName || `Project #${activeProject.projectId}`} — open documents`}
+              onClick={() => openDocumentsModal(activeProject.projectId)}
+              sx={{ maxWidth: 360 }}
+            />
+          </Tooltip>
+        )}
         <Chip
           size="small"
           variant="outlined"

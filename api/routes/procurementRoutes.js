@@ -2636,6 +2636,12 @@ function parseScopeExcelBuffer(buffer) {
       bqErrors.push(`BQ row ${i + 2}: activity_name is required.`);
       continue;
     }
+    if (milestoneName && seenMilestones.size > 0 && !seenMilestones.has(milestoneName.toLowerCase())) {
+      bqErrors.push(
+        `BQ row ${i + 2}: milestone_name "${milestoneName}" is not on the Milestones sheet. Add it there first or pick an existing name.`
+      );
+      continue;
+    }
     const quantity = parseScopeNumber(pickRowValue(row, ['quantity', 'qty', 'qnty']));
     const unitCost = parseScopeNumber(pickRowValue(row, ['unit_cost', 'rate', 'unit_rate', 'unit price']));
     let budgetAmount = parseScopeNumber(pickRowValue(row, ['budget_amount', 'amount', 'cost', 'total', 'line_total']));
@@ -2689,20 +2695,242 @@ function parseScopeExcelBuffer(buffer) {
   };
 }
 
-function scaleScopeBqAmounts(bqItems, targetTotal) {
-  const items = Array.isArray(bqItems) ? bqItems : [];
-  const current = items.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
-  const target = Number(targetTotal);
-  if (!Number.isFinite(target) || target <= 0 || current <= 0) return items;
-  const factor = target / current;
-  return items.map((row) => {
-    const budgetAmount = Number((Number(row.budgetAmount || 0) * factor).toFixed(2));
-    const quantity = Number(row.quantity);
-    if (Number.isFinite(quantity) && quantity > 0) {
-      return { ...row, budgetAmount, unitCost: Number((budgetAmount / quantity).toFixed(2)) };
+/** Sample rows used when a project has no milestones/BQ yet. */
+const SCOPE_IMPORT_SAMPLE_MILESTONES = [
+  {
+    milestoneName: 'Site mobilization',
+    sequenceOrder: 1,
+    description: 'Establish site and materials',
+    unitOfMeasure: 'lump sum',
+    achievementValue: 10,
+  },
+  {
+    milestoneName: 'Foundation works',
+    sequenceOrder: 2,
+    description: 'Excavation and foundation',
+    unitOfMeasure: 'lump sum',
+    achievementValue: 30,
+  },
+];
+
+const SCOPE_IMPORT_SAMPLE_BQ = [
+  {
+    milestoneName: 'Site mobilization',
+    activityName: 'Site establishment',
+    description: 'Mobilization and site clearance',
+    unitOfMeasure: 'lump sum',
+    quantity: 1,
+    unitCost: 500000,
+    budgetAmount: 500000,
+    sortOrder: 1,
+  },
+  {
+    milestoneName: 'Foundation works',
+    activityName: 'Excavation',
+    description: 'Foundation excavation',
+    unitOfMeasure: 'm3',
+    quantity: 120,
+    unitCost: 2500,
+    budgetAmount: 300000,
+    sortOrder: 2,
+  },
+];
+
+async function fetchProjectScopeExportData(projectId) {
+  await ensureProcurementScopeTables();
+  let milestones = [];
+  const milestoneQueries = [
+    `SELECT
+        milestone_name AS "milestoneName",
+        sequence_order AS "sequenceOrder",
+        COALESCE(description, remarks) AS description,
+        unit_of_measure AS "unitOfMeasure",
+        COALESCE(achievement_value, milestone_value) AS "achievementValue"
+     FROM project_milestones
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sequence_order ASC NULLS LAST, milestone_id ASC`,
+    `SELECT
+        milestone_name AS "milestoneName",
+        sequence_order AS "sequenceOrder",
+        COALESCE(description, remarks) AS description,
+        ''::text AS "unitOfMeasure",
+        milestone_value AS "achievementValue"
+     FROM project_milestones
+     WHERE project_id = $1 AND COALESCE(voided, false) = false
+     ORDER BY sequence_order ASC NULLS LAST, milestone_id ASC`,
+  ];
+  for (const sql of milestoneQueries) {
+    try {
+      milestones = rowsOf(await pool.query(sql, [projectId]));
+      break;
+    } catch (error) {
+      if (!isSchemaError(error)) throw error;
     }
-    return { ...row, budgetAmount };
+  }
+
+  const bqItems = await fetchPlannedBqLines(projectId);
+  return {
+    milestones: (milestones || []).map((m) => ({
+      milestoneName: m.milestoneName || '',
+      sequenceOrder: m.sequenceOrder,
+      description: m.description || '',
+      unitOfMeasure: m.unitOfMeasure || '',
+      achievementValue: m.achievementValue,
+    })),
+    bqItems: (bqItems || []).map((b, index) => ({
+      milestoneName: b.milestoneName || '',
+      activityName: b.activityName || '',
+      description: b.description || '',
+      unitOfMeasure: b.unitOfMeasure || '',
+      quantity: b.quantity,
+      unitCost: b.unitCost,
+      budgetAmount: b.budgetAmount,
+      sortOrder: b.sortOrder ?? index + 1,
+    })),
+  };
+}
+
+function createScopeImportWorkbook({ milestones = [], bqItems = [], fromProject = false } = {}) {
+  const workbook = new ExcelJS.Workbook();
+  const instructions = workbook.addWorksheet('Instructions');
+  instructions.addRow([
+    fromProject
+      ? 'Project scope export — edit quantities/costs, then re-import via Setup project scope & costs → Import Excel.'
+      : 'Blank/sample scope import template. Replace sample rows with your project milestones and BQ lines.',
+  ]);
+  instructions.addRow(['']);
+  instructions.addRow(['1. Keep sheet names "Milestones" and "BQ Lines".']);
+  instructions.addRow(['2. Define milestone names on the Milestones sheet first. On BQ Lines, milestone_name is a dropdown of those names — do not type values that are not listed.']);
+  instructions.addRow(['3. Enter quantity and unit_cost on BQ Lines; budget_amount is calculated as quantity × unit_cost (do not overwrite the formula).']);
+  instructions.addRow(['4. budget_amount is the planned line total used by quotations.']);
+  instructions.addRow(['5. Re-importing updates existing lines matched by milestone_name + activity_name; new lines are added.']);
+
+  const milestonesSheet = workbook.addWorksheet('Milestones');
+  milestonesSheet.columns = [
+    { header: 'milestone_name', key: 'milestone_name', width: 28 },
+    { header: 'sequence_order', key: 'sequence_order', width: 14 },
+    { header: 'description', key: 'description', width: 36 },
+    { header: 'unit_of_measure', key: 'unit_of_measure', width: 16 },
+    { header: 'achievement_value', key: 'achievement_value', width: 16 },
+  ];
+  const milestoneRows = milestones.length ? milestones : SCOPE_IMPORT_SAMPLE_MILESTONES;
+  milestoneRows.forEach((m) => {
+    milestonesSheet.addRow({
+      milestone_name: m.milestoneName,
+      sequence_order: m.sequenceOrder ?? '',
+      description: m.description || '',
+      unit_of_measure: m.unitOfMeasure || '',
+      achievement_value: m.achievementValue ?? '',
+    });
   });
+  // Extra blank milestone rows so users can add names that still appear in the BQ dropdown range.
+  const milestoneListEnd = Math.max(milestoneRows.length + 30, 50);
+  for (let i = milestonesSheet.rowCount; i < milestoneListEnd; i += 1) {
+    milestonesSheet.addRow({
+      milestone_name: '',
+      sequence_order: '',
+      description: '',
+      unit_of_measure: '',
+      achievement_value: '',
+    });
+  }
+
+  const bqSheet = workbook.addWorksheet('BQ Lines');
+  bqSheet.columns = [
+    { header: 'milestone_name', key: 'milestone_name', width: 24 },
+    { header: 'activity_name', key: 'activity_name', width: 30 },
+    { header: 'description', key: 'description', width: 30 },
+    { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
+    { header: 'quantity', key: 'quantity', width: 12 },
+    { header: 'unit_cost', key: 'unit_cost', width: 14 },
+    { header: 'budget_amount', key: 'budget_amount', width: 16 },
+    { header: 'sort_order', key: 'sort_order', width: 10 },
+  ];
+  const amountNumFmt = '#,##0.00';
+  const writeMoneyCell = (cell, value, { forceCents = false } = {}) => {
+    if (value === '' || value == null || !Number.isFinite(Number(value))) {
+      cell.value = value ?? '';
+      return;
+    }
+    const num = Number(value);
+    // Keep whole numbers as integers so re-download does not invent ".00" visually.
+    cell.value = forceCents || !Number.isInteger(num) ? num : num;
+    cell.numFmt = forceCents || !Number.isInteger(num) ? amountNumFmt : '#,##0';
+  };
+  const bqRows = bqItems.length ? bqItems : SCOPE_IMPORT_SAMPLE_BQ;
+  bqRows.forEach((b) => {
+    const qtyRaw = b.quantity;
+    const qty = qtyRaw == null || qtyRaw === '' ? '' : Number(qtyRaw);
+    const unitCostRaw = b.unitCost;
+    const unitCost = unitCostRaw == null || unitCostRaw === '' ? '' : Number(unitCostRaw);
+    const product = Number(qty) * Number(unitCost);
+    const cachedAmount = Number.isFinite(product) && qty !== '' && unitCost !== ''
+      ? product
+      : (b.budgetAmount != null && Number.isFinite(Number(b.budgetAmount)) ? Number(b.budgetAmount) : undefined);
+    const added = bqSheet.addRow({
+      milestone_name: b.milestoneName || '',
+      activity_name: b.activityName || '',
+      description: b.description || '',
+      unit_of_measure: b.unitOfMeasure || '',
+      quantity: '',
+      unit_cost: '',
+      budget_amount: '',
+      sort_order: b.sortOrder ?? '',
+    });
+    if (qty !== '') {
+      writeMoneyCell(bqSheet.getCell(`E${added.number}`), qty);
+      // Quantity is usually a count — avoid money format when whole.
+      if (Number.isInteger(Number(qty))) {
+        bqSheet.getCell(`E${added.number}`).numFmt = '0';
+      }
+    }
+    if (unitCost !== '') {
+      writeMoneyCell(bqSheet.getCell(`F${added.number}`), unitCost);
+    }
+    // Column G = quantity (E) × unit_cost (F)
+    bqSheet.getCell(`G${added.number}`).value = {
+      formula: `IF(AND(E${added.number}<>"",F${added.number}<>""),E${added.number}*F${added.number},"")`,
+      result: cachedAmount,
+    };
+    bqSheet.getCell(`G${added.number}`).numFmt = amountNumFmt;
+  });
+
+  // Pre-seed extra blank formula rows so users can extend the sheet without copying formulas.
+  const blankStart = bqSheet.rowCount + 1;
+  const blankEnd = blankStart + 19;
+  for (let rowNum = blankStart; rowNum <= blankEnd; rowNum += 1) {
+    bqSheet.addRow({
+      milestone_name: '',
+      activity_name: '',
+      description: '',
+      unit_of_measure: '',
+      quantity: '',
+      unit_cost: '',
+      budget_amount: '',
+      sort_order: '',
+    });
+    bqSheet.getCell(`G${rowNum}`).value = {
+      formula: `IF(AND(E${rowNum}<>"",F${rowNum}<>""),E${rowNum}*F${rowNum},"")`,
+    };
+    bqSheet.getCell(`G${rowNum}`).numFmt = amountNumFmt;
+  }
+
+  // Dropdown for BQ milestone_name: only names listed on the Milestones sheet.
+  const bqMilestoneDropdownEnd = Math.max(bqSheet.rowCount, 200);
+  bqSheet.dataValidations.add(`A2:A${bqMilestoneDropdownEnd}`, {
+    type: 'list',
+    allowBlank: true,
+    formulae: [`Milestones!$A$2:$A$${milestoneListEnd}`],
+    showErrorMessage: true,
+    errorStyle: 'error',
+    errorTitle: 'Invalid milestone',
+    error: 'Select a milestone_name from the Milestones sheet. Add new milestones there first.',
+    showInputMessage: true,
+    promptTitle: 'Milestone',
+    prompt: 'Choose a milestone defined on the Milestones sheet.',
+  });
+
+  return workbook;
 }
 
 async function getProjectBudgetContext(projectId) {
@@ -2834,7 +3062,6 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
   const actorId = options.actorId || null;
   const source = options.source || 'excel';
   const lockBaseline = Boolean(options.lockBaseline);
-  const scaleToBudget = Boolean(options.scaleToBudget);
   const confirmOverBudget = Boolean(options.confirmOverBudget);
 
   await ensureProcurementScopeTables();
@@ -2849,10 +3076,6 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
     return { ok: false, status: 400, message: 'No milestones or BQ lines to import.' };
   }
 
-  if (scaleToBudget && Number(ctx.allocatedAmount) > 0) {
-    bqItems = scaleScopeBqAmounts(bqItems, ctx.allocatedAmount);
-  }
-
   const importTotal = bqItems.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
   const allocatedAmount = Number(ctx.allocatedAmount || 0);
   if (allocatedAmount > 0 && importTotal > allocatedAmount + 0.005 && !confirmOverBudget) {
@@ -2860,7 +3083,7 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
       ok: false,
       status: 400,
       code: 'OVER_BUDGET',
-      message: 'Imported BQ total exceeds the project allocated amount. Scale to budget or confirm to proceed.',
+      message: 'Imported BQ total exceeds the project allocated amount. Confirm over-budget to proceed, or adjust amounts in Excel.',
       importTotal,
       allocatedAmount,
     };
@@ -2868,6 +3091,7 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
 
   let milestonesCreated = 0;
   let bqItemsCreated = 0;
+  let bqItemsUpdated = 0;
   const preparedMilestones = [];
   const preparedBqItems = [];
 
@@ -2885,7 +3109,25 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
         [projectId, name]
       ))[0];
       if (exists) {
-        preparedMilestones.push({ name, status: 'existing' });
+        if (!dryRun) {
+          await pool.query(
+            `UPDATE project_milestones
+             SET description = COALESCE($1, description),
+                 sequence_order = COALESCE($2, sequence_order),
+                 milestone_value = COALESCE($3, milestone_value),
+                 remarks = COALESCE($1, remarks),
+                 updated_at = NOW()
+             WHERE milestone_id = $4 AND project_id = $5 AND COALESCE(voided, false) = false`,
+            [
+              m.description || null,
+              Number.isFinite(Number(m.sequenceOrder)) ? Number(m.sequenceOrder) : null,
+              m.achievementValue == null ? null : Number(m.achievementValue),
+              exists.milestone_id,
+              projectId,
+            ]
+          );
+        }
+        preparedMilestones.push({ name, status: dryRun ? 'will_update' : 'updated' });
         continue;
       }
       if (!dryRun) {
@@ -2927,7 +3169,36 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
         [projectId, activityName, milestoneName]
       ))[0];
       if (exists) {
-        preparedBqItems.push({ activityName, milestoneName, status: 'existing' });
+        if (!dryRun) {
+          await pool.query(
+            `UPDATE project_bq_items
+             SET budget_amount = $1,
+                 remarks = COALESCE($2, remarks),
+                 sort_order = COALESCE($3, sort_order),
+                 quantity = $4,
+                 unit_of_measure = COALESCE($5, unit_of_measure),
+                 unit_cost = $6,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $7 AND project_id = $8 AND COALESCE(voided, false) = false`,
+            [
+              bq.budgetAmount == null ? null : Number(bq.budgetAmount),
+              bq.description || null,
+              Number.isFinite(Number(bq.sortOrder)) ? Number(bq.sortOrder) : null,
+              bq.quantity == null ? null : Number(bq.quantity),
+              bq.unitOfMeasure || null,
+              bq.unitCost == null ? null : Number(bq.unitCost),
+              exists.id,
+              projectId,
+            ]
+          );
+        }
+        bqItemsUpdated += 1;
+        preparedBqItems.push({
+          activityName,
+          milestoneName,
+          budgetAmount: bq.budgetAmount,
+          status: dryRun ? 'will_update' : 'updated',
+        });
         continue;
       }
       if (!dryRun) {
@@ -2960,7 +3231,7 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
     }
   }
 
-  if (!dryRun && (milestonesCreated > 0 || bqItemsCreated > 0)) {
+  if (!dryRun && (milestonesCreated > 0 || bqItemsCreated > 0 || bqItemsUpdated > 0)) {
     await mergeProjectProcurementScopeMeta(projectId, {
       status: lockBaseline ? 'planned' : 'draft',
       source,
@@ -2975,9 +3246,9 @@ async function applyScopeImportToProject(projectId, payload, options = {}) {
     projectName: ctx.projectName,
     milestonesCreated,
     bqItemsCreated,
+    bqItemsUpdated,
     importTotal,
     allocatedAmount,
-    scaled: scaleToBudget,
     dryRun,
     preparedScope: {
       milestones: preparedMilestones,
@@ -3083,6 +3354,17 @@ async function buildQuotationEntrySheet(projectId) {
   const plannedEntryLines = plannedLines.map((row, index) => {
     const quoted = quotedByPlannedId.get(String(row.plannedBqItemId));
     const plannedQty = row.quantity != null && row.quantity !== '' ? row.quantity : '';
+    const plannedAmount = row.budgetAmount != null && row.budgetAmount !== ''
+      ? Number(row.budgetAmount)
+      : null;
+    let plannedUnitCost = row.unitCost;
+    if (
+      (plannedUnitCost == null || plannedUnitCost === '')
+      && plannedAmount != null
+      && Number(plannedQty) > 0
+    ) {
+      plannedUnitCost = Number((plannedAmount / Number(plannedQty)).toFixed(2));
+    }
     return {
       plannedBqItemId: row.plannedBqItemId,
       lineType: 'planned',
@@ -3091,8 +3373,8 @@ async function buildQuotationEntrySheet(projectId) {
       description: row.description || '',
       unitOfMeasure: row.unitOfMeasure || '',
       plannedQuantity: plannedQty,
-      plannedUnitCost: row.unitCost,
-      plannedAmount: row.budgetAmount,
+      plannedUnitCost,
+      plannedAmount,
       quotedQuantity: plannedQty,
       quotedUnitCost: quoted?.unitCost != null && quoted.unitCost !== '' ? quoted.unitCost : '',
       quotedAmount: quoted?.amount != null && quoted.amount !== '' ? quoted.amount : '',
@@ -3142,8 +3424,8 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
   const instructions = workbook.addWorksheet('Instructions');
   instructions.addRow(['Contracted quotation template — tied to project planned BQ']);
   instructions.addRow(['']);
-  instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, activity_name, planned_quantity, or planned_unit_cost on planned rows.']);
-  instructions.addRow(['2. Planned quantity and unit cost are from the project BQ baseline (read-only reference).']);
+  instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, activity_name, planned_quantity, planned_unit_cost, or planned_amount on planned rows.']);
+  instructions.addRow(['2. Planned quantity, unit cost, and amount come from this project\'s BQ scope (budget_amount), not category average rates.']);
   instructions.addRow(['3. For planned BQ rows, quoted quantity always matches planned quantity (do not change). Enter quoted_unit_cost; quoted_amount calculates as planned quantity × unit cost.']);
   instructions.addRow(['4. For a lump sum, set quoted_quantity to 1 and quoted_unit_cost to the total amount.']);
   instructions.addRow(['5. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
@@ -3165,28 +3447,40 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
   ];
 
   const amountNumFmt = '#,##0.00';
-  const applyQtyUnitAmountFormulas = (rowNum, plannedQty, plannedUnit, quotedQty) => {
-    const plannedProduct = Number(plannedQty) * Number(plannedUnit);
-    const plannedResult = Number.isFinite(plannedProduct) && plannedProduct !== 0
-      ? plannedProduct
-      : undefined;
-    sheet.getCell(`H${rowNum}`).value = {
-      formula: `IF(AND(F${rowNum}<>"",G${rowNum}<>""),F${rowNum}*G${rowNum},"")`,
-      result: plannedResult,
-    };
-    sheet.getCell(`H${rowNum}`).numFmt = amountNumFmt;
+  const resolvePlannedAmount = (row, plannedQty, plannedUnit) => {
+    if (row.budgetAmount != null && row.budgetAmount !== '' && Number.isFinite(Number(row.budgetAmount))) {
+      return Number(row.budgetAmount);
+    }
+    const product = Number(plannedQty) * Number(plannedUnit);
+    return Number.isFinite(product) && product !== 0 ? product : null;
+  };
+  const resolvePlannedUnitCost = (row, plannedQty, plannedAmount) => {
+    if (row.unitCost != null && row.unitCost !== '' && Number.isFinite(Number(row.unitCost))) {
+      return Number(row.unitCost);
+    }
+    const qty = Number(plannedQty);
+    const amount = Number(plannedAmount);
+    if (Number.isFinite(qty) && qty > 0 && Number.isFinite(amount)) {
+      return Number((amount / qty).toFixed(2));
+    }
+    return null;
+  };
+
+  const applyQuotedAmountFormula = (rowNum, quotedQty) => {
     sheet.getCell(`K${rowNum}`).value = {
       formula: `IF(AND(I${rowNum}<>"",J${rowNum}<>""),I${rowNum}*J${rowNum},"")`,
       result: Number(quotedQty) && Number.isFinite(Number(quotedQty)) ? 0 : undefined,
     };
     sheet.getCell(`K${rowNum}`).numFmt = amountNumFmt;
     sheet.getCell(`G${rowNum}`).numFmt = amountNumFmt;
+    sheet.getCell(`H${rowNum}`).numFmt = amountNumFmt;
     sheet.getCell(`J${rowNum}`).numFmt = amountNumFmt;
   };
 
   plannedLines.forEach((row, index) => {
     const plannedQty = row.quantity ?? '';
-    const plannedUnit = row.unitCost ?? '';
+    const plannedAmount = resolvePlannedAmount(row, plannedQty, row.unitCost);
+    const plannedUnit = resolvePlannedUnitCost(row, plannedQty, plannedAmount);
     const quotedQty = row.quantity ?? '';
     const added = sheet.addRow({
       planned_bq_item_id: row.plannedBqItemId,
@@ -3195,14 +3489,14 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
       activity_name: row.activityName,
       unit_of_measure: row.unitOfMeasure || '',
       planned_quantity: plannedQty,
-      planned_unit_cost: plannedUnit,
-      planned_amount: '',
+      planned_unit_cost: plannedUnit == null ? '' : plannedUnit,
+      planned_amount: plannedAmount == null ? '' : plannedAmount,
       quoted_quantity: quotedQty,
       quoted_unit_cost: '',
       quoted_amount: '',
       sort_order: row.sortOrder ?? index + 1,
     });
-    applyQtyUnitAmountFormulas(added.number, plannedQty, plannedUnit, quotedQty);
+    applyQuotedAmountFormula(added.number, quotedQty);
   });
 
   const provisional = sheet.addRow({
@@ -3219,7 +3513,7 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
     quoted_amount: '',
     sort_order: plannedLines.length + 1,
   });
-  applyQtyUnitAmountFormulas(provisional.number, '', '', 1);
+  applyQuotedAmountFormula(provisional.number, 1);
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="quote_template_project_${projectId}.xlsx"`);
@@ -4842,62 +5136,7 @@ router.get('/projects/:projectId/scope-status', async (req, res) => {
 
 router.get('/scope/import-template', async (req, res) => {
   try {
-    const workbook = new ExcelJS.Workbook();
-    const milestones = workbook.addWorksheet('Milestones');
-    milestones.columns = [
-      { header: 'milestone_name', key: 'milestone_name', width: 28 },
-      { header: 'sequence_order', key: 'sequence_order', width: 14 },
-      { header: 'description', key: 'description', width: 36 },
-      { header: 'unit_of_measure', key: 'unit_of_measure', width: 16 },
-      { header: 'achievement_value', key: 'achievement_value', width: 16 },
-    ];
-    milestones.addRow({
-      milestone_name: 'Site mobilization',
-      sequence_order: 1,
-      description: 'Establish site and materials',
-      unit_of_measure: 'lump sum',
-      achievement_value: 10,
-    });
-    milestones.addRow({
-      milestone_name: 'Foundation works',
-      sequence_order: 2,
-      description: 'Excavation and foundation',
-      unit_of_measure: 'lump sum',
-      achievement_value: 30,
-    });
-
-    const bq = workbook.addWorksheet('BQ Lines');
-    bq.columns = [
-      { header: 'milestone_name', key: 'milestone_name', width: 24 },
-      { header: 'activity_name', key: 'activity_name', width: 30 },
-      { header: 'description', key: 'description', width: 30 },
-      { header: 'unit_of_measure', key: 'unit_of_measure', width: 14 },
-      { header: 'quantity', key: 'quantity', width: 12 },
-      { header: 'unit_cost', key: 'unit_cost', width: 14 },
-      { header: 'budget_amount', key: 'budget_amount', width: 16 },
-      { header: 'sort_order', key: 'sort_order', width: 10 },
-    ];
-    bq.addRow({
-      milestone_name: 'Site mobilization',
-      activity_name: 'Site establishment',
-      description: 'Mobilization and site clearance',
-      unit_of_measure: 'lump sum',
-      quantity: 1,
-      unit_cost: 500000,
-      budget_amount: 500000,
-      sort_order: 1,
-    });
-    bq.addRow({
-      milestone_name: 'Foundation works',
-      activity_name: 'Excavation',
-      description: 'Foundation excavation',
-      unit_of_measure: 'm3',
-      quantity: 120,
-      unit_cost: 2500,
-      budget_amount: 300000,
-      sort_order: 2,
-    });
-
+    const workbook = createScopeImportWorkbook({ fromProject: false });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="project_scope_import_template.xlsx"');
     await workbook.xlsx.write(res);
@@ -4905,6 +5144,31 @@ router.get('/scope/import-template', async (req, res) => {
   } catch (error) {
     console.error('Error generating scope import template:', error);
     return res.status(500).json({ message: 'Error generating scope import template', error: error.message });
+  }
+});
+
+router.get('/projects/:projectId/scope/import-template', async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'Invalid project id.' });
+  try {
+    await ensureProcurementSchema();
+    const exported = await fetchProjectScopeExportData(projectId);
+    const hasProjectScope = (exported.milestones?.length || 0) > 0 || (exported.bqItems?.length || 0) > 0;
+    const workbook = createScopeImportWorkbook({
+      milestones: hasProjectScope ? exported.milestones : [],
+      bqItems: hasProjectScope ? exported.bqItems : [],
+      fromProject: hasProjectScope,
+    });
+    const fileName = hasProjectScope
+      ? `project_${projectId}_scope.xlsx`
+      : `project_${projectId}_scope_import_template.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    console.error('Error generating project scope template:', error);
+    return res.status(500).json({ message: 'Error generating project scope template', error: error.message });
   }
 });
 
@@ -4918,11 +5182,7 @@ router.post('/projects/:projectId/scope/import/preview', scopeUpload.single('fil
     if (!status) return res.status(404).json({ message: 'Project not found.' });
 
     const parsed = parseScopeExcelBuffer(req.file.buffer);
-    const scaleToBudget = String(req.body?.scaleToBudget || '').toLowerCase() === 'true';
-    let bqItems = parsed.bqItems;
-    if (scaleToBudget && status.allocatedAmount > 0) {
-      bqItems = scaleScopeBqAmounts(bqItems, status.allocatedAmount);
-    }
+    const bqItems = parsed.bqItems;
     const importTotal = bqItems.reduce((sum, row) => sum + Number(row.budgetAmount || 0), 0);
     const overBudget = status.allocatedAmount > 0 && importTotal > status.allocatedAmount + 0.005;
 
@@ -4934,7 +5194,6 @@ router.post('/projects/:projectId/scope/import/preview', scopeUpload.single('fil
       errors: parsed.errors,
       sheets: parsed.sheets,
       importTotal,
-      scaled: scaleToBudget,
       overBudget,
       wouldCreate: {
         milestones: parsed.milestones.length,
@@ -4954,7 +5213,6 @@ router.post('/projects/:projectId/scope/import/confirm', async (req, res) => {
   const {
     milestones,
     bqItems,
-    scaleToBudget,
     confirmOverBudget,
     lockBaseline,
   } = req.body || {};
@@ -4967,7 +5225,6 @@ router.post('/projects/:projectId/scope/import/confirm', async (req, res) => {
         actorId,
         source: 'excel',
         dryRun: false,
-        scaleToBudget: Boolean(scaleToBudget),
         confirmOverBudget: Boolean(confirmOverBudget),
         lockBaseline: Boolean(lockBaseline),
       }
@@ -4982,10 +5239,15 @@ router.post('/projects/:projectId/scope/import/confirm', async (req, res) => {
     }
     const scopeStatus = await fetchProjectScopeStatus(projectId);
     const createdAny = (result.milestonesCreated || 0) + (result.bqItemsCreated || 0) > 0;
+    const updatedAny = (result.bqItemsUpdated || 0) > 0;
     const hasBq = Number(scopeStatus?.bqItemCount || 0) > 0;
-    let message = `Imported ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ line(s).`;
-    if (!createdAny && hasBq) {
-      message = 'No new lines were imported — matching milestones/BQ already exist on this project.';
+    let message = `Imported ${result.milestonesCreated} milestone(s) and ${result.bqItemsCreated} BQ line(s)`;
+    if (updatedAny) message += `, updated ${result.bqItemsUpdated} existing BQ line(s)`;
+    message += '.';
+    if (!createdAny && updatedAny) {
+      message = `Updated ${result.bqItemsUpdated} existing BQ line(s).`;
+    } else if (!createdAny && !updatedAny && hasBq) {
+      message = 'No changes applied — matching milestones/BQ already exist with the same values, or Excel had no matching rows.';
     } else if (!hasBq) {
       return res.status(400).json({
         message: 'Import did not create any BQ lines. Check the Excel uses a "BQ Lines" sheet with activity_name column, then confirm import again.',

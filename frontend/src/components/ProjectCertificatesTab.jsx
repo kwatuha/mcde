@@ -111,11 +111,19 @@ function parseStoredCertificateData(cert) {
 }
 
 /**
- * BQ lines included on a payment certificate: only completed rows are payable.
- * Prefer an explicit id list saved on the certificate, then the contractor's assigned BQ scope,
- * otherwise all completed project BQ rows.
+ * BQ lines included on a payment certificate: any line with recorded progress is payable.
+ * Amounts use Budget × progressPercent, so partial (interim) progress is valid — not only 100% / completed.
+ * Certificates are per contractor: only BQ lines assigned to the selected contractor are included.
  */
-function isCompletedBqItem(item) {
+function bqItemProgressPercent(item) {
+  const raw = item?.progressPercent ?? item?.progress_percent ?? 0;
+  const progress = Number(raw);
+  return Number.isFinite(progress) ? progress : 0;
+}
+
+function isPayableBqItem(item) {
+  if (bqItemProgressPercent(item) > 0) return true;
+  // Legacy fallback for rows marked complete without a progress value.
   return (
     item?.completed === true ||
     item?.completed === 1 ||
@@ -124,26 +132,82 @@ function isCompletedBqItem(item) {
   );
 }
 
+/**
+ * Prefer progress as-of the certificate date; if that is 0 but the live BQ row has progress
+ * (common when progress logs are missing or dated after requestDate), use the live %.
+ */
+function mergeCertificateBqProgress(asOfItems, currentItems) {
+  const asOf = Array.isArray(asOfItems) ? asOfItems : [];
+  const current = Array.isArray(currentItems) ? currentItems : [];
+  if (!asOf.length) return current;
+  if (!current.length) return asOf;
+
+  const currentById = new Map(current.map((row) => [Number(row.itemId), row]));
+  const merged = asOf.map((row) => {
+    const cur = currentById.get(Number(row.itemId));
+    if (!cur) return row;
+    const asOfPct = bqItemProgressPercent(row);
+    const curPct = bqItemProgressPercent(cur);
+    const progressPercent = asOfPct > 0 ? asOfPct : curPct;
+    return {
+      ...row,
+      budgetAmount: cur.budgetAmount ?? row.budgetAmount,
+      quantity: cur.quantity ?? row.quantity,
+      unitCost: cur.unitCost ?? row.unitCost,
+      unitOfMeasure: cur.unitOfMeasure || row.unitOfMeasure,
+      activityName: cur.activityName || row.activityName,
+      milestoneName: cur.milestoneName || row.milestoneName,
+      sortOrder: cur.sortOrder ?? row.sortOrder,
+      progressPercent,
+      completed: row.completed || cur.completed,
+    };
+  });
+
+  const asOfIds = new Set(asOf.map((row) => Number(row.itemId)));
+  current.forEach((cur) => {
+    if (!asOfIds.has(Number(cur.itemId)) && isPayableBqItem(cur)) {
+      merged.push(cur);
+    }
+  });
+  return merged;
+}
+
+function resolveSelectedContractor(draftSnapshot, assignedContractors = []) {
+  const cid = draftSnapshot?.contractorId;
+  if (cid == null || cid === '') return null;
+  return assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(cid)) || null;
+}
+
+/**
+ * Payable BQ for a certificate: progress > 0 (or completed), scoped to the selected contractor's assigned BQ.
+ * Returns [] when contractor is missing or has no assigned BQ lines.
+ */
 function resolveBqItemsForCertificate(allBqItems, draftSnapshot, assignedContractors = []) {
   if (!Array.isArray(allBqItems) || allBqItems.length === 0) return [];
-  const completedBqItems = allBqItems.filter(isCompletedBqItem);
+  const payableBqItems = allBqItems.filter(isPayableBqItem);
+  const contractor = resolveSelectedContractor(draftSnapshot, assignedContractors);
+  if (!contractor) return [];
+  const assignedIds = Array.isArray(contractor.bqItemIds)
+    ? contractor.bqItemIds.map((x) => Number(x)).filter((n) => Number.isFinite(n))
+    : [];
+  if (assignedIds.length === 0) return [];
+  const set = new Set(assignedIds);
+  return payableBqItems.filter((it) => set.has(Number(it.itemId)));
+}
 
-  const storedIds = draftSnapshot?.certificateBqItemIds;
-  if (Array.isArray(storedIds) && storedIds.length > 0) {
-    const set = new Set(storedIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
-    return completedBqItems.filter((it) => set.has(Number(it.itemId)));
+function contractorSelectionError(draftSnapshot, assignedContractors = []) {
+  if (!Array.isArray(assignedContractors) || assignedContractors.length === 0) {
+    return 'Assign at least one contractor with BQ lines on the project before generating a payment certificate.';
   }
-
-  const cid = draftSnapshot?.contractorId;
-  if (cid != null && cid !== '') {
-    const contractor = assignedContractors.find((x) => Number(contractorIdOf(x)) === Number(cid));
-    if (contractor && Array.isArray(contractor.bqItemIds) && contractor.bqItemIds.length > 0) {
-      const set = new Set(contractor.bqItemIds.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
-      return completedBqItems.filter((it) => set.has(Number(it.itemId)));
-    }
+  const contractor = resolveSelectedContractor(draftSnapshot, assignedContractors);
+  if (!contractor) {
+    return 'Select a contractor. Payment certificates are issued per contractor and only include that contractor\'s assigned BQ lines.';
   }
-
-  return completedBqItems;
+  const assignedIds = Array.isArray(contractor.bqItemIds) ? contractor.bqItemIds : [];
+  if (assignedIds.length === 0) {
+    return `Contractor "${contractorNameOf(contractor) || 'selected'}" has no assigned BQ lines. Assign BQ scope on the project, then try again.`;
+  }
+  return '';
 }
 
 function formFieldsFromCertificateRow(cert) {
@@ -354,20 +418,25 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     }));
   }, [projectDetails]);
 
-  const certificateBqItems = useMemo(
-    () =>
-      resolveBqItemsForCertificate(
-        bqItemsAsOf.length ? bqItemsAsOf : bqItems,
-        draft,
-        assignedContractors
-      ),
-    [bqItems, bqItemsAsOf, draft, assignedContractors]
+  const certificateBqSource = useMemo(
+    () => mergeCertificateBqProgress(bqItemsAsOf, bqItems),
+    [bqItems, bqItemsAsOf]
   );
 
-  const completedBqSourceCount = useMemo(() => {
-    const source = bqItemsAsOf.length ? bqItemsAsOf : bqItems;
-    return source.filter(isCompletedBqItem).length;
-  }, [bqItems, bqItemsAsOf]);
+  const certificateBqItems = useMemo(
+    () => resolveBqItemsForCertificate(certificateBqSource, draft, assignedContractors),
+    [certificateBqSource, draft, assignedContractors]
+  );
+
+  const payableBqSourceCount = useMemo(
+    () => resolveBqItemsForCertificate(certificateBqSource, draft, assignedContractors).length,
+    [certificateBqSource, draft, assignedContractors]
+  );
+
+  const selectedContractorBqCount = useMemo(() => {
+    const c = resolveSelectedContractor(draft, assignedContractors);
+    return Array.isArray(c?.bqItemIds) ? c.bqItemIds.length : 0;
+  }, [draft, assignedContractors]);
 
   /** Default new certificates to the first assigned contractor so contractor details are not omitted. */
   useEffect(() => {
@@ -409,9 +478,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     const bqSource =
       Array.isArray(bqItemsOverride) && bqItemsOverride.length
         ? bqItemsOverride
-        : bqItemsAsOf.length
-          ? bqItemsAsOf
-          : bqItems;
+        : certificateBqSource;
     const bqForCert = resolveBqItemsForCertificate(bqSource, d, assignedContractors);
     const parseMoney = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
     const rateLookup = taxRates.reduce((acc, row) => {
@@ -428,7 +495,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
 
     const normalizedBq = bqForCert.map((item) => {
       const budget = Number(item.budgetAmount || 0);
-      const progress = Number(item.progressPercent || 0);
+      const progress = bqItemProgressPercent(item);
       const payable = (budget * progress) / 100;
       return {
         code: item.sortOrder ? String(item.sortOrder) : '',
@@ -466,7 +533,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       vatWithholdingRate,
       retentionRate,
     };
-  }, [bqItems, bqItemsAsOf, draft, taxRates, assignedContractors]);
+  }, [certificateBqSource, draft, taxRates, assignedContractors]);
 
   const createCertificatePdfFile = async (params = {}) => {
     const d = { ...draft, ...(params.draft || {}) };
@@ -673,7 +740,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     } else {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text('No completed BQ activities available for this payment certificate.', margin, y + 10);
+      doc.text('No BQ activities with progress are available for this payment certificate.', margin, y + 10);
       y += 24;
     }
 
@@ -846,23 +913,37 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
   };
   const handleGenerateDraftPdf = async () => {
     setError('');
+    const contractorError = contractorSelectionError(draft, assignedContractors);
+    if (contractorError) {
+      setError(contractorError);
+      return;
+    }
     try {
       const asOf = form.requestDate || new Date().toISOString().slice(0, 10);
       let bqProgressAttribution = null;
-      let bqItemsOverride = null;
+      let linesAsOf = null;
       try {
         const [attr, lines] = await Promise.all([
           projectService.bq.getProgressAttributionAsOf(projectId, asOf).catch(() => null),
           projectService.bq.getItemsAsOf(projectId, asOf).catch(() => null),
         ]);
         bqProgressAttribution = attr;
-        bqItemsOverride = Array.isArray(lines) && lines.length ? lines : null;
+        linesAsOf = Array.isArray(lines) && lines.length ? lines : null;
       } catch {
         /* non-blocking */
       }
-      const bqSource = bqItemsOverride || (bqItemsAsOf.length ? bqItemsAsOf : bqItems);
-      if (resolveBqItemsForCertificate(bqSource, draft, assignedContractors).length === 0) {
-        setError('No completed BQ items are available for this payment certificate. Mark eligible BQ items complete first.');
+      let currentLines = bqItems;
+      if (!currentLines.length) {
+        try {
+          const fetched = await projectService.bq.getItems(projectId);
+          currentLines = Array.isArray(fetched) ? fetched : [];
+        } catch {
+          currentLines = [];
+        }
+      }
+      const bqItemsOverride = mergeCertificateBqProgress(linesAsOf || bqItemsAsOf, currentLines);
+      if (resolveBqItemsForCertificate(bqItemsOverride, draft, assignedContractors).length === 0) {
+        setError('No payable BQ items with progress for this contractor. Record percentage progress on the contractor\'s assigned BQ lines first.');
         return;
       }
       const generated = await createCertificatePdfFile({
@@ -885,7 +966,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
     try {
       const fRow = formFieldsFromCertificateRow(cert);
       const asOfCert = fRow.requestDate || new Date().toISOString().slice(0, 10);
-      const [workflowDetail, bqProgressAttribution, linesAsOf] = await Promise.all([
+      const [workflowDetail, bqProgressAttribution, linesAsOf, currentLines] = await Promise.all([
         apiService.approvalWorkflow
           .getByEntity(CERTIFICATE_APPROVAL_ENTITY, String(cid))
           .catch((e) => {
@@ -894,6 +975,7 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           }),
         projectService.bq.getProgressAttributionAsOf(projectId, asOfCert).catch(() => null),
         projectService.bq.getItemsAsOf(projectId, asOfCert).catch(() => null),
+        projectService.bq.getItems(projectId).catch(() => bqItems),
       ]);
       let stored = { ...draft, ...parseStoredCertificateData(cert) };
       if (!String(stored.contractorName || '').trim() && stored.contractorId != null && stored.contractorId !== '') {
@@ -907,8 +989,13 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           };
         }
       }
+      // Never reuse a legacy completed-only BQ id freeze when rebuilding the PDF.
+      stored = { ...stored, certificateBqItemIds: null };
       const f = fRow;
-      const bqItemsOverride = Array.isArray(linesAsOf) && linesAsOf.length ? linesAsOf : null;
+      const bqItemsOverride = mergeCertificateBqProgress(
+        Array.isArray(linesAsOf) ? linesAsOf : [],
+        Array.isArray(currentLines) ? currentLines : bqItems
+      );
       const file = await createCertificatePdfFile({
         draft: stored,
         form: f,
@@ -960,6 +1047,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
       setError('Attach a certificate file or generate a draft PDF before submitting.');
       return;
     }
+    const contractorError = contractorSelectionError(draft, assignedContractors);
+    if (contractorError) {
+      setError(contractorError);
+      return;
+    }
     setSubmitting(true);
     setError('');
     setMessage('');
@@ -976,13 +1068,23 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
           linesForSubmit = [];
         }
       }
-      const bqSourceSubmit = linesForSubmit.length ? linesForSubmit : bqItems;
-      const completedItemsForCert = resolveBqItemsForCertificate(bqSourceSubmit, draft, assignedContractors);
-      if (completedItemsForCert.length === 0) {
-        setError('No completed BQ items are available for this payment certificate. Mark eligible BQ items complete first.');
+      let currentForSubmit = bqItems;
+      if (!currentForSubmit.length) {
+        try {
+          const fetched = await projectService.bq.getItems(projectId);
+          currentForSubmit = Array.isArray(fetched) ? fetched : [];
+        } catch {
+          currentForSubmit = [];
+        }
+      }
+      const bqSourceSubmit = mergeCertificateBqProgress(linesForSubmit, currentForSubmit);
+      const payableItemsForCert = resolveBqItemsForCertificate(bqSourceSubmit, draft, assignedContractors);
+      if (payableItemsForCert.length === 0) {
+        setError('No payable BQ items with progress for this contractor. Record percentage progress on the contractor\'s assigned BQ lines first.');
+        setSubmitting(false);
         return;
       }
-      const idsForCert = completedItemsForCert.map((it) => Number(it.itemId));
+      const idsForCert = payableItemsForCert.map((it) => Number(it.itemId));
       const patchDraftBase = {
         ...draft,
         tenderNo: draft.tenderNo || resolveProjectTenderNo(projectDetails),
@@ -1326,50 +1428,50 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             <Grid item xs={12} md={6}>
               <TextField
                 select
+                required
                 fullWidth
-                label="Assigned contractor (milestones / BQ scope)"
+                error={assignedContractors.length > 0 && Boolean(contractorSelectionError(draft, assignedContractors))}
+                label="Contractor (required)"
                 value={draft.contractorId != null && draft.contractorId !== '' ? String(draft.contractorId) : ''}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  if (raw === '') {
-                    setDraft((p) => ({
-                      ...p,
-                      contractorId: null,
-                      contractorEmail: '',
-                      contractorPhone: '',
-                      certificateBqItemIds: null,
-                    }));
-                    return;
-                  }
                   const idNum = Number(raw);
                   const c = assignedContractors.find((x) => Number(contractorIdOf(x)) === idNum);
                   setDraft((p) => ({
                     ...p,
                     contractorId: Number.isFinite(idNum) ? idNum : null,
-                    contractorName: contractorNameOf(c) || p.contractorName,
-                    contractorEmail: contractorEmailOf(c) || p.contractorEmail,
-                    contractorPhone: contractorPhoneOf(c) || p.contractorPhone,
+                    contractorName: contractorNameOf(c) || '',
+                    contractorEmail: contractorEmailOf(c) || '',
+                    contractorPhone: contractorPhoneOf(c) || '',
                     certificateBqItemIds: null,
                   }));
+                  setGeneratedPdfFile(null);
+                  setError('');
                 }}
                 helperText={
                   assignedContractors.length === 0
-                    ? 'Assign contractors on the project details tab to scope BQ lines by milestone.'
-                    : 'Payment totals and the BQ summary use only completed BQ lines linked to this contractor.'
+                    ? 'Assign contractors with BQ lines on the project details tab first. Certificates are issued per contractor.'
+                    : selectedContractorBqCount > 0
+                      ? `This certificate will include only this contractor's ${selectedContractorBqCount} assigned BQ line(s) that have progress.`
+                      : 'Select a contractor that has assigned BQ lines. Only that contractor\'s payable BQ will appear on the certificate.'
                 }
               >
-                <MenuItem value="">
-                  <em>None — all BQ lines (enter contractor name manually)</em>
-                </MenuItem>
-                {assignedContractors.map((c) => {
-                  const id = contractorIdOf(c);
-                  const n = Array.isArray(c.bqItemIds) ? c.bqItemIds.length : 0;
-                  return (
-                    <MenuItem key={String(id)} value={String(id)}>
-                      {(contractorNameOf(c) || `Contractor #${id}`) + (n > 0 ? ` (${n} BQ line${n === 1 ? '' : 's'})` : '')}
-                    </MenuItem>
-                  );
-                })}
+                {assignedContractors.length === 0 ? (
+                  <MenuItem value="" disabled>
+                    <em>No contractors assigned on this project</em>
+                  </MenuItem>
+                ) : (
+                  assignedContractors.map((c) => {
+                    const id = contractorIdOf(c);
+                    const n = Array.isArray(c.bqItemIds) ? c.bqItemIds.length : 0;
+                    return (
+                      <MenuItem key={String(id)} value={String(id)} disabled={n === 0}>
+                        {(contractorNameOf(c) || `Contractor #${id}`)
+                          + (n > 0 ? ` (${n} BQ line${n === 1 ? '' : 's'})` : ' (no BQ assigned)')}
+                      </MenuItem>
+                    );
+                  })
+                )}
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -1416,14 +1518,22 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
-                BQ-based payable summary uses {certificateBqItems.length} completed bill line{certificateBqItems.length === 1 ? '' : 's'}
-                {' '}from {completedBqSourceCount} completed of {bqItems.length} total bill lines
-                {draft.contractorId != null && draft.contractorId !== '' ? ' for the selected contractor' : ''}. Amount
-                per row = Budget × % complete.
+                BQ-based payable summary uses {certificateBqItems.length} bill line{certificateBqItems.length === 1 ? '' : 's'} with progress
+                {' '}for the selected contractor
+                {' '}({selectedContractorBqCount} assigned of {bqItems.length} total bill lines). Amount
+                per row = Budget × % progress (interim progress is allowed).
               </Typography>
-              {completedBqSourceCount === 0 ? (
+              {assignedContractors.length === 0 ? (
                 <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
-                  No BQ item is currently marked complete for the selected certificate date. Mark completed work in the BQ tab before generating a payment certificate.
+                  No contractors are assigned on this project. Assign a contractor and their BQ scope on the project details tab before generating a certificate.
+                </Alert>
+              ) : contractorSelectionError(draft, assignedContractors) ? (
+                <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                  {contractorSelectionError(draft, assignedContractors)}
+                </Alert>
+              ) : payableBqSourceCount === 0 ? (
+                <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                  This contractor has no assigned BQ lines with percentage progress for the selected certificate date. Record progress on their BQ lines first.
                 </Alert>
               ) : null}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
@@ -1437,7 +1547,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
             </Grid>
             <Grid item xs={12}>
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Button variant="outlined" onClick={handleGenerateDraftPdf}>
+                <Button
+                  variant="outlined"
+                  onClick={handleGenerateDraftPdf}
+                  disabled={Boolean(contractorSelectionError(draft, assignedContractors))}
+                >
                   Generate Draft PDF
                 </Button>
                 <Button variant="outlined" component="label" startIcon={<UploadFileIcon />}>
@@ -1457,7 +1571,11 @@ const ProjectCertificatesTab = ({ projectId, canModify = true }) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDialog(false)} disabled={submitting}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained" disabled={submitting}>
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            disabled={submitting || Boolean(contractorSelectionError(draft, assignedContractors))}
+          >
             {submitting ? 'Uploading...' : 'Save Certificate'}
           </Button>
         </DialogActions>

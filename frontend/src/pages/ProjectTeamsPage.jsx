@@ -32,9 +32,11 @@ import {
   Download as DownloadIcon,
   Print as PrintIcon,
 } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import Header from './dashboard/Header';
 import apiService from '../api';
 import projectService from '../api/projectService';
+import { getActiveProject } from '../utils/activeProjectContext';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -88,9 +90,17 @@ export default function ProjectTeamsPage() {
   const canRead = hasPrivilege('project.read_all');
   const canWrite = hasPrivilege('project.update') || hasPrivilege('project.create');
 
+  const [searchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
+  // Preselect the project from the URL (?projectId=) or the project the user
+  // last worked on (details page), so navigating here keeps the context.
+  const [selectedProjectId, setSelectedProjectId] = useState(() => {
+    const fromQuery = searchParams.get('projectId');
+    if (fromQuery) return String(fromQuery);
+    const active = getActiveProject();
+    return active ? String(active.projectId) : '';
+  });
   const [teams, setTeams] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [error, setError] = useState('');
@@ -186,16 +196,18 @@ export default function ProjectTeamsPage() {
       const rows = await projectService.projects.getProjects({ limit: 5000 });
       const list = Array.isArray(rows?.projects) ? rows.projects : Array.isArray(rows) ? rows : [];
       setProjects(list);
-      if (!selectedProjectId && list.length > 0) {
-        setSelectedProjectId(String(list[0].projectId || list[0].id));
-      }
+      setSelectedProjectId((current) => {
+        const exists = (id) => list.some((p) => String(p.projectId || p.id) === String(id));
+        if (current && exists(current)) return current;
+        return list.length > 0 ? String(list[0].projectId || list[0].id) : '';
+      });
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to load projects.');
       setProjects([]);
     } finally {
       setLoadingProjects(false);
     }
-  }, [canRead, selectedProjectId]);
+  }, [canRead]);
 
   const loadStaffDirectory = useCallback(async () => {
     setLoadingStaffDirectory(true);

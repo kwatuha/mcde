@@ -11,9 +11,11 @@ import {
   ListItemText,
   Divider,
   Tooltip,
+  Chip,
 } from "@mui/material";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
 import MenuIcon from "@mui/icons-material/Menu";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
@@ -31,11 +33,18 @@ import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { canAccessMobileCollectorDownload } from '../utils/mobileCollectorAccessUtils';
+import { useActiveProject, clearActiveProject } from '../utils/activeProjectContext';
 
 const Topbar = () => {
   const theme = useTheme();
   const isDesktopUp = useMediaQuery(theme.breakpoints.up('sm'));
   const navigate = useNavigate();
+  const location = useLocation();
+  const activeProject = useActiveProject();
+  // Hide the chip while the user is already on that project's details page.
+  const onActiveProjectPage = activeProject
+    ? location.pathname.startsWith(`/projects/${activeProject.projectId}`)
+    : false;
   const { user, hasPrivilege } = useAuth();
   const { layoutMode, toggleLayoutMode } = useNavigationLayout();
   const { isCollapsed, toggleSidebar } = useSidebar();
@@ -149,6 +158,31 @@ const Topbar = () => {
           >
             {pageSubtitle}
           </Typography>
+        )}
+        {activeProject && !onActiveProjectPage && (
+          <Tooltip title="Return to the project you were working on. Use the x to stop tracking it.">
+            <Chip
+              size="small"
+              icon={<FolderSpecialIcon />}
+              label={activeProject.projectName || `Project #${activeProject.projectId}`}
+              onClick={() => navigate(`/projects/${activeProject.projectId}`)}
+              onDelete={clearActiveProject}
+              sx={{
+                ml: 1.5,
+                maxWidth: 260,
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.16)',
+                border: '1px solid rgba(255,255,255,0.35)',
+                display: { xs: 'none', sm: 'inline-flex' },
+                '& .MuiChip-icon': { color: 'white' },
+                '& .MuiChip-deleteIcon': {
+                  color: 'rgba(255,255,255,0.75)',
+                  '&:hover': { color: 'white' },
+                },
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.28)' },
+              }}
+            />
+          </Tooltip>
         )}
       </Box>
 

@@ -42,18 +42,23 @@ const procurementService = {
     const { data } = await axiosInstance.get(`/procurement/projects/${projectId}/scope-status`);
     return data;
   },
-  downloadScopeImportTemplate: async () => {
-    const { data, headers } = await axiosInstance.get('/procurement/scope/import-template', {
+  downloadScopeImportTemplate: async (projectId = null) => {
+    const url = projectId
+      ? `/procurement/projects/${projectId}/scope/import-template`
+      : '/procurement/scope/import-template';
+    const { data, headers } = await axiosInstance.get(url, {
       responseType: 'blob',
     });
     const cd = headers?.['content-disposition'] || '';
     const match = cd.match(/filename="?([^"]+)"?/i);
-    return { blob: data, fileName: match?.[1] || 'project_scope_import_template.xlsx' };
+    return {
+      blob: data,
+      fileName: match?.[1] || (projectId ? `project_${projectId}_scope.xlsx` : 'project_scope_import_template.xlsx'),
+    };
   },
-  previewScopeImport: async (projectId, file, options = {}) => {
+  previewScopeImport: async (projectId, file) => {
     const formData = new FormData();
     formData.append('file', file);
-    if (options.scaleToBudget) formData.append('scaleToBudget', 'true');
     const { data } = await axiosInstance.post(
       `/procurement/projects/${projectId}/scope/import/preview`,
       formData,

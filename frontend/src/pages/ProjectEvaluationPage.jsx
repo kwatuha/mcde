@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -24,6 +25,7 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import apiService from '../api';
+import { getActiveProject } from '../utils/activeProjectContext';
 import { useAuth } from '../context/AuthContext.jsx';
 import Header from './dashboard/Header';
 import { tokens } from './dashboard/theme';
@@ -157,6 +159,22 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
     if (selectedProject && String(getProjectId(selectedProject)) === String(fixedProjectId)) return;
     setSelectedProject(match);
   }, [fixedProjectId, projects, selectedProject]);
+
+  // One-time soft preselect from the URL (?projectId=) or the project the user
+  // last worked on, so navigating here keeps the project context. The user can
+  // still switch to any other project afterwards.
+  const [searchParams] = useSearchParams();
+  const softPreselectDone = useRef(false);
+  useEffect(() => {
+    if (fixedProjectId != null || projects.length === 0 || selectedProject || softPreselectDone.current) {
+      return;
+    }
+    softPreselectDone.current = true;
+    const preferredId = searchParams.get('projectId') ?? getActiveProject()?.projectId;
+    if (preferredId == null) return;
+    const match = projects.find((project) => String(getProjectId(project)) === String(preferredId));
+    if (match) setSelectedProject(match);
+  }, [fixedProjectId, projects, selectedProject, searchParams]);
 
   useEffect(() => {
     if (!canAccess || selectedPid == null) {

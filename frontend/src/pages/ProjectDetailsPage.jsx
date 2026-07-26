@@ -57,6 +57,7 @@ import apiService, { API_BASE_URL } from '../api';
 import pmcReportService from '../api/pmcReportService';
 import villageMonitoringService from '../api/villageMonitoringService';
 import { ROUTES } from '../configs/appConfig';
+import { setActiveProject } from '../utils/activeProjectContext';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAIPageContext } from '../context/AIPageContext.jsx';
 import { canViewProjectsWithBackendScope } from '../utils/privilegeUtils.js';
@@ -1471,6 +1472,17 @@ function ProjectDetailsPage() {
 
         return () => clearAIPageContext();
     }, [project, projectId, planningSnapshot, pmcReports, setAIPageContext, clearAIPageContext]);
+
+    // Remember this project as the one the user is working on, so other pages
+    // (Teams, Documents, Evaluation, ...) can preselect it instead of asking again.
+    useEffect(() => {
+        const parsedProjectId = Number(projectId);
+        if (!Number.isFinite(parsedProjectId) || !project) return;
+        setActiveProject({
+            projectId: parsedProjectId,
+            projectName: project.projectName || project.name || '',
+        });
+    }, [project, projectId]);
 
     const fetchProjectDetails = useCallback(async () => {
         setLoading(true);

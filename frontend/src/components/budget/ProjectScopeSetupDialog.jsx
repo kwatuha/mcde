@@ -67,7 +67,6 @@ export default function ProjectScopeSetupDialog({
   const [excelFile, setExcelFile] = useState(null);
   const [excelPreview, setExcelPreview] = useState(null);
   const [loadingExcelPreview, setLoadingExcelPreview] = useState(false);
-  const [scaleToBudget, setScaleToBudget] = useState(true);
   const [confirmOverBudget, setConfirmOverBudget] = useState(false);
   const [lockBaseline, setLockBaseline] = useState(true);
 
@@ -91,7 +90,6 @@ export default function ProjectScopeSetupDialog({
     setTemplatePreview(null);
     setExcelFile(null);
     setExcelPreview(null);
-    setScaleToBudget(true);
     setConfirmOverBudget(false);
     setLockBaseline(true);
     loadStatus();
@@ -131,7 +129,7 @@ export default function ProjectScopeSetupDialog({
     setLoadingExcelPreview(true);
     setError('');
     try {
-      const preview = await procurementService.previewScopeImport(projectId, file, { scaleToBudget });
+      const preview = await procurementService.previewScopeImport(projectId, file);
       setExcelPreview(preview);
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to preview Excel import.');
@@ -146,7 +144,7 @@ export default function ProjectScopeSetupDialog({
     (async () => {
       setLoadingExcelPreview(true);
       try {
-        const preview = await procurementService.previewScopeImport(projectId, excelFile, { scaleToBudget });
+        const preview = await procurementService.previewScopeImport(projectId, excelFile);
         if (!cancelled) {
           setExcelPreview(preview);
           setConfirmOverBudget(false);
@@ -160,11 +158,11 @@ export default function ProjectScopeSetupDialog({
       }
     })();
     return () => { cancelled = true; };
-  }, [scaleToBudget, excelFile, projectId]);
+  }, [excelFile, projectId]);
 
   const handleDownloadTemplate = async () => {
     try {
-      const { blob, fileName } = await procurementService.downloadScopeImportTemplate();
+      const { blob, fileName } = await procurementService.downloadScopeImportTemplate(projectId);
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -207,7 +205,6 @@ export default function ProjectScopeSetupDialog({
       const result = await procurementService.confirmScopeImport(projectId, {
         milestones: excelPreview.milestones,
         bqItems: excelPreview.bqItems,
-        scaleToBudget,
         confirmOverBudget: confirmOverBudget || undefined,
         lockBaseline,
       });
@@ -376,16 +373,11 @@ export default function ProjectScopeSetupDialog({
                   <input type="file" hidden accept=".xlsx,.xls" onChange={handleExcelSelect} />
                 </Button>
               </Stack>
-              <FormControlLabel
-                control={(
-                  <Checkbox
-                    size="small"
-                    checked={scaleToBudget}
-                    onChange={(e) => setScaleToBudget(e.target.checked)}
-                  />
-                )}
-                label="Scale imported BQ amounts to project allocated amount"
-              />
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                {(scopeStatus?.bqItemCount > 0 || scopeStatus?.milestoneCount > 0)
+                  ? 'Download includes this project\'s current milestones and BQ lines so you can edit and re-import. Matching lines are updated; new lines are added.'
+                  : 'Download a blank/sample workbook, fill milestones and BQ costs for this project, then import.'}
+              </Typography>
               {loadingExcelPreview && <LinearProgress sx={{ my: 1 }} />}
               {excelFile && (
                 <Typography variant="caption" color="text.secondary" display="block">
@@ -400,7 +392,6 @@ export default function ProjectScopeSetupDialog({
               {excelPreview && !excelPreview.errors?.length && (
                 <Alert severity={excelPreview.overBudget ? 'warning' : 'success'} sx={{ mt: 1 }}>
                   Import total: <strong>{formatCurrency(Number(excelPreview.importTotal || 0))}</strong>
-                  {excelPreview.scaled ? ' (scaled to allocation)' : ''}
                   {' · '}
                   {excelPreview.milestones?.length || 0} milestone(s), {excelPreview.bqItems?.length || 0} BQ line(s)
                 </Alert>
