@@ -3320,27 +3320,7 @@ function namesMatchPlanned(planned, line) {
 
 async function buildQuotationEntrySheet(projectId) {
   const plannedLines = await fetchPlannedBqLines(projectId);
-  let quotation = null;
-  try {
-    const latest = rowsOf(await pool.query(
-      `SELECT id FROM procurement_quotations
-       WHERE project_id = $1 AND COALESCE(voided, false) = false
-       ORDER BY
-         CASE status
-           WHEN 'awarded' THEN 0
-           WHEN 'submitted' THEN 1
-           WHEN 'draft' THEN 2
-           ELSE 3
-         END,
-         updated_at DESC NULLS LAST,
-         id DESC
-       LIMIT 1`,
-      [projectId]
-    ))[0];
-    if (latest?.id) quotation = await fetchQuotationById(projectId, latest.id);
-  } catch (error) {
-    if (!isSchemaError(error)) throw error;
-  }
+  const quotation = await fetchLatestProjectQuotation(projectId);
 
   const quotedByPlannedId = new Map();
   if (quotation?.lines) {
@@ -3419,16 +3399,61 @@ async function buildQuotationEntrySheet(projectId) {
   };
 }
 
+async function fetchLatestProjectQuotation(projectId) {
+  try {
+    const latest = rowsOf(await pool.query(
+      `SELECT id FROM procurement_quotations
+       WHERE project_id = $1 AND COALESCE(voided, false) = false
+       ORDER BY
+         CASE status
+           WHEN 'awarded' THEN 0
+           WHEN 'submitted' THEN 1
+           WHEN 'draft' THEN 2
+           ELSE 3
+         END,
+         updated_at DESC NULLS LAST,
+         id DESC
+       LIMIT 1`,
+      [projectId]
+    ))[0];
+    if (!latest?.id) return null;
+    return fetchQuotationById(projectId, latest.id);
+  } catch (error) {
+    if (isSchemaError(error)) return null;
+    throw error;
+  }
+}
+
 async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
   const workbook = new ExcelJS.Workbook();
+  const existingQuotation = await fetchLatestProjectQuotation(projectId);
+  const quotedByPlannedId = new Map();
+  if (existingQuotation?.lines) {
+    for (const line of existingQuotation.lines) {
+      if (line.plannedBqItemId != null) {
+        quotedByPlannedId.set(String(line.plannedBqItemId), line);
+      }
+    }
+  }
+  const supplementaryLines = quotationSupplementaryLines(existingQuotation?.lines || []);
+
   const instructions = workbook.addWorksheet('Instructions');
   instructions.addRow(['Contracted quotation template — tied to project planned BQ']);
   instructions.addRow(['']);
   instructions.addRow(['1. Do NOT change planned_bq_item_id, milestone_name, activity_name, planned_quantity, planned_unit_cost, or planned_amount on planned rows.']);
   instructions.addRow(['2. Planned quantity, unit cost, and amount come from this project\'s BQ scope (budget_amount), not category average rates.']);
-  instructions.addRow(['3. For planned BQ rows, quoted quantity always matches planned quantity (do not change). Enter quoted_unit_cost; quoted_amount calculates as planned quantity × unit cost.']);
-  instructions.addRow(['4. For a lump sum, set quoted_quantity to 1 and quoted_unit_cost to the total amount.']);
-  instructions.addRow(['5. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
+  instructions.addRow(['3. For planned BQ rows, quoted quantity always matches planned quantity (do not change). Enter or revise quoted_unit_cost; quoted_amount calculates as planned quantity × unit cost.']);
+  instructions.addRow(['4. Items already quoted are pre-filled with the latest saved quoted_unit_cost (preferring an awarded quotation when one exists).']);
+  instructions.addRow(['5. For a lump sum, set quoted_quantity to 1 and quoted_unit_cost to the total amount.']);
+  instructions.addRow(['6. To add provisional sums, append rows at the bottom with line_type = provisional or pc_sum.']);
+  if (existingQuotation) {
+    instructions.addRow(['']);
+    instructions.addRow([
+      `Pre-filled from quotation #${existingQuotation.quotationId}`
+        + (existingQuotation.supplierName ? ` (${existingQuotation.supplierName})` : '')
+        + ` — status: ${existingQuotation.status || 'n/a'}.`,
+    ]);
+  }
 
   const sheet = workbook.addWorksheet('Quote Lines');
   sheet.columns = [
@@ -3466,10 +3491,13 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
     return null;
   };
 
-  const applyQuotedAmountFormula = (rowNum, quotedQty) => {
+  const applyQuotedAmountFormula = (rowNum, quotedQty, quotedUnit) => {
+    const qty = Number(quotedQty);
+    const unit = Number(quotedUnit);
+    const cached = Number.isFinite(qty) && Number.isFinite(unit) ? Number((qty * unit).toFixed(2)) : undefined;
     sheet.getCell(`K${rowNum}`).value = {
       formula: `IF(AND(I${rowNum}<>"",J${rowNum}<>""),I${rowNum}*J${rowNum},"")`,
-      result: Number(quotedQty) && Number.isFinite(Number(quotedQty)) ? 0 : undefined,
+      result: cached,
     };
     sheet.getCell(`K${rowNum}`).numFmt = amountNumFmt;
     sheet.getCell(`G${rowNum}`).numFmt = amountNumFmt;
@@ -3482,6 +3510,10 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
     const plannedAmount = resolvePlannedAmount(row, plannedQty, row.unitCost);
     const plannedUnit = resolvePlannedUnitCost(row, plannedQty, plannedAmount);
     const quotedQty = row.quantity ?? '';
+    const quoted = quotedByPlannedId.get(String(row.plannedBqItemId));
+    const quotedUnit = quoted?.unitCost != null && quoted.unitCost !== '' && Number.isFinite(Number(quoted.unitCost))
+      ? Number(quoted.unitCost)
+      : '';
     const added = sheet.addRow({
       planned_bq_item_id: row.plannedBqItemId,
       line_type: 'planned',
@@ -3492,28 +3524,52 @@ async function writeProjectQuoteWorkbook(res, projectId, plannedLines) {
       planned_unit_cost: plannedUnit == null ? '' : plannedUnit,
       planned_amount: plannedAmount == null ? '' : plannedAmount,
       quoted_quantity: quotedQty,
-      quoted_unit_cost: '',
+      quoted_unit_cost: quotedUnit,
       quoted_amount: '',
       sort_order: row.sortOrder ?? index + 1,
     });
-    applyQuotedAmountFormula(added.number, quotedQty);
+    applyQuotedAmountFormula(added.number, quotedQty, quotedUnit);
   });
 
-  const provisional = sheet.addRow({
-    planned_bq_item_id: '',
-    line_type: 'provisional',
-    milestone_name: 'Provisional sums',
-    activity_name: 'Provisional sum (example — rename description only)',
-    unit_of_measure: 'lump sum',
-    planned_quantity: '',
-    planned_unit_cost: '',
-    planned_amount: '',
-    quoted_quantity: 1,
-    quoted_unit_cost: '',
-    quoted_amount: '',
-    sort_order: plannedLines.length + 1,
-  });
-  applyQuotedAmountFormula(provisional.number, 1);
+  if (supplementaryLines.length) {
+    supplementaryLines.forEach((line, idx) => {
+      const quotedQty = line.quantity != null && line.quantity !== '' ? Number(line.quantity) : 1;
+      const quotedUnit = line.unitCost != null && line.unitCost !== '' && Number.isFinite(Number(line.unitCost))
+        ? Number(line.unitCost)
+        : '';
+      const added = sheet.addRow({
+        planned_bq_item_id: '',
+        line_type: normalizeQuotationLineType(line.lineType),
+        milestone_name: line.milestoneName || (line.lineType === 'pc_sum' ? 'PC sums' : 'Provisional sums'),
+        activity_name: line.activityName || '',
+        unit_of_measure: line.unitOfMeasure || 'lump sum',
+        planned_quantity: '',
+        planned_unit_cost: '',
+        planned_amount: '',
+        quoted_quantity: Number.isFinite(quotedQty) ? quotedQty : 1,
+        quoted_unit_cost: quotedUnit,
+        quoted_amount: '',
+        sort_order: line.sortOrder ?? plannedLines.length + idx + 1,
+      });
+      applyQuotedAmountFormula(added.number, quotedQty, quotedUnit);
+    });
+  } else {
+    const provisional = sheet.addRow({
+      planned_bq_item_id: '',
+      line_type: 'provisional',
+      milestone_name: 'Provisional sums',
+      activity_name: 'Provisional sum (example — rename description only)',
+      unit_of_measure: 'lump sum',
+      planned_quantity: '',
+      planned_unit_cost: '',
+      planned_amount: '',
+      quoted_quantity: 1,
+      quoted_unit_cost: '',
+      quoted_amount: '',
+      sort_order: plannedLines.length + 1,
+    });
+    applyQuotedAmountFormula(provisional.number, 1, '');
+  }
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="quote_template_project_${projectId}.xlsx"`);
