@@ -27,6 +27,7 @@ import villageMonitoringService from '../api/villageMonitoringService';
 import { useAuth } from '../context/AuthContext';
 import { canSubCountyReviewMonitoringReports } from '../utils/privilegeUtils';
 import VillageMonitoringWorkflowPage from './VillageMonitoringWorkflowPage';
+import ProjectsByDepartmentSummary from '../components/ProjectsByDepartmentSummary';
 
 function SummaryCard({ label, value, sublabel, color }) {
   return (
@@ -246,6 +247,8 @@ export default function SubCountyWorkspacePage() {
         />
         <MobileAppWorkspaceQuickAction />
       </Box>
+
+      <ProjectsByDepartmentSummary sx={{ mb: 3 }} />
 
       {subcountyQueue > 0 && reportTab !== 'subcounty' ? (
         <Alert severity="info" sx={{ mb: 2 }} action={(

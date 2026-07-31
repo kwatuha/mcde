@@ -29,6 +29,7 @@ import {
   SummaryCard,
 } from './coFinanceWorkspace/coFinanceWorkspaceShared';
 import { useCoFinanceWorkspaceData } from './coFinanceWorkspace/useCoFinanceWorkspaceData';
+import ProjectsByDepartmentSummary from '../components/ProjectsByDepartmentSummary';
 
 function QuickActionCard({ title, description, icon: Icon, color, onClick }) {
   return (
@@ -178,6 +179,8 @@ export default function CoFinanceWorkspacePage() {
           <QuickActionCard key={action.title} {...action} />
         ))}
       </Box>
+
+      <ProjectsByDepartmentSummary sx={{ mb: 3 }} />
 
       {!loading ? (
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>

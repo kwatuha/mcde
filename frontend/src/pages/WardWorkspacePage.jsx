@@ -28,6 +28,7 @@ import villageMonitoringService from '../api/villageMonitoringService';
 import { useAuth } from '../context/AuthContext';
 import { canWardReviewMonitoringReports } from '../utils/privilegeUtils';
 import VillageMonitoringWorkflowPage from './VillageMonitoringWorkflowPage';
+import ProjectsByDepartmentSummary from '../components/ProjectsByDepartmentSummary';
 
 function SummaryCard({ label, value, sublabel, color }) {
   return (
@@ -257,6 +258,8 @@ export default function WardWorkspacePage() {
         />
         <MobileAppWorkspaceQuickAction />
       </Box>
+
+      <ProjectsByDepartmentSummary sx={{ mb: 3 }} />
 
       {wardQueue > 0 && reportTab !== 'ward' ? (
         <Alert severity="info" sx={{ mb: 2 }} action={(

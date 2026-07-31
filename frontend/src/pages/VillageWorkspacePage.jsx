@@ -27,6 +27,7 @@ import { ROUTES } from '../configs/appConfig';
 import MobileAppWorkspaceQuickAction from '../components/MobileAppWorkspaceQuickAction';
 import villageMonitoringService from '../api/villageMonitoringService';
 import VillageMonitoringWorkflowPage from './VillageMonitoringWorkflowPage';
+import ProjectsByDepartmentSummary from '../components/ProjectsByDepartmentSummary';
 
 function SummaryCard({ label, value, sublabel, color }) {
   return (
@@ -243,6 +244,8 @@ export default function VillageWorkspacePage() {
         />
         <MobileAppWorkspaceQuickAction />
       </Box>
+
+      <ProjectsByDepartmentSummary sx={{ mb: 3 }} />
 
       {draftCount > 0 && reportTab !== 'drafts' ? (
         <Alert

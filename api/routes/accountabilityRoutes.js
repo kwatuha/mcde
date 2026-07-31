@@ -8,6 +8,10 @@ const router = express.Router();
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
 const canRead = privilege(['project.read_all', 'strategic_plan.read_all'], { anyOf: true });
+const canWorkspaceProjectRead = privilege(
+  ['project.read_all', 'project.read', 'monitoring_report.read', 'strategic_plan.read_all'],
+  { anyOf: true }
+);
 
 const getScopeUserId = (user) => user?.id ?? user?.userId ?? user?.actualUserId ?? null;
 
@@ -66,8 +70,8 @@ router.get('/ward-accountability', canRead, async (req, res) => {
       `
       WITH ward_rows AS (
         SELECT
-          COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unassigned') AS ward,
-          COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), 'Unassigned') AS subcounty,
+          lower(COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), 'Unassigned')) AS ward_key,
+          lower(COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), 'Unassigned')) AS subcounty_key,
           p.project_id,
           COALESCE(NULLIF(BTRIM(p.budget->>'allocated_amount_kes'), ''), '0')::numeric AS budget_amount,
           COALESCE(NULLIF(BTRIM(p.budget->>'disbursed_amount_kes'), ''), '0')::numeric AS paid_amount,
@@ -77,15 +81,17 @@ router.get('/ward-accountability', canRead, async (req, res) => {
           ${scopeSql}
       )
       SELECT
-        ward,
-        subcounty,
+        initcap(ward_key) AS ward,
+        initcap(subcounty_key) AS subcounty,
+        ward_key,
+        subcounty_key,
         COUNT(DISTINCT project_id)::int AS projects,
         COALESCE(SUM(budget_amount), 0)::numeric AS total_budget,
         COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
         ROUND(COALESCE(AVG(progress_pct), 0), 1)::numeric AS avg_progress
       FROM ward_rows
-      GROUP BY ward, subcounty
-      ORDER BY subcounty ASC, projects DESC, ward ASC
+      GROUP BY ward_key, subcounty_key
+      ORDER BY subcounty_key ASC, projects DESC, ward_key ASC
       `,
       params
     );
@@ -94,26 +100,36 @@ router.get('/ward-accountability', canRead, async (req, res) => {
     try {
       pmcRows = await pool.query(
         `
+        WITH pmc_rows AS (
+          SELECT
+            lower(COALESCE(NULLIF(TRIM(ward), ''), 'Unassigned')) AS ward_key,
+            lower(COALESCE(NULLIF(TRIM(subcounty), ''), 'Unassigned')) AS subcounty_key,
+            status
+          FROM pmc_ward_reports
+          WHERE COALESCE(voided, false) = false
+        )
         SELECT
-          COALESCE(NULLIF(TRIM(ward), ''), 'Unassigned') AS ward,
-          COALESCE(NULLIF(TRIM(subcounty), ''), 'Unassigned') AS subcounty,
+          ward_key,
+          subcounty_key,
+          initcap(ward_key) AS ward,
+          initcap(subcounty_key) AS subcounty,
           COUNT(*)::int AS reports,
           COUNT(*) FILTER (WHERE lower(COALESCE(status, '')) IN ('approved', 'submitted'))::int AS active_reports
-        FROM pmc_ward_reports
-        WHERE COALESCE(voided, false) = false
-        GROUP BY ward, subcounty
+        FROM pmc_rows
+        GROUP BY ward_key, subcounty_key
         `
       );
     } catch {
       pmcRows = { rows: [] };
     }
 
+    const locationKey = (subcountyKey, wardKey) => `${subcountyKey}::${wardKey}`;
     const pmcByWard = new Map(
-      (pmcRows.rows || []).map((row) => [`${row.subcounty}::${row.ward}`, row])
+      (pmcRows.rows || []).map((row) => [locationKey(row.subcounty_key, row.ward_key), row])
     );
 
     const rows = (wardProjects.rows || []).map((row) => {
-      const pmc = pmcByWard.get(`${row.subcounty}::${row.ward}`) || {};
+      const pmc = pmcByWard.get(locationKey(row.subcounty_key, row.ward_key)) || {};
       return {
         ward: row.ward,
         subcounty: row.subcounty,
@@ -139,6 +155,119 @@ router.get('/ward-accountability', canRead, async (req, res) => {
   } catch (error) {
     console.error('Ward accountability failed:', error);
     res.status(500).json({ message: 'Failed to load ward accountability.', error: error.message });
+  }
+});
+
+/**
+ * Scoped project counts by department for village / ward / sub-county / co-finance workspaces.
+ * Uses organization project scope so each role only sees projects in their area.
+ */
+router.get('/projects-by-department', canWorkspaceProjectRead, async (req, res) => {
+  try {
+    const params = [];
+    const filters = [];
+    await appendProjectScopeFilter(req, filters, params, 'p');
+    const scopeSql = filters.length ? `AND ${filters.map((f) => `(${f})`).join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `
+      WITH dept_rows AS (
+        SELECT
+          lower(COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')) AS department_key,
+          p.project_id,
+          COALESCE(NULLIF(BTRIM(p.budget->>'allocated_amount_kes'), ''), '0')::numeric AS budget_amount,
+          COALESCE(NULLIF(BTRIM(p.budget->>'disbursed_amount_kes'), ''), '0')::numeric AS paid_amount,
+          COALESCE(NULLIF(BTRIM(p.progress->>'percentage_complete'), ''), '0')::numeric AS progress_pct
+        FROM projects p
+        WHERE COALESCE(p.voided, false) = false
+          ${scopeSql}
+      )
+      SELECT
+        initcap(department_key) AS department,
+        department_key,
+        COUNT(DISTINCT project_id)::int AS projects,
+        COALESCE(SUM(budget_amount), 0)::numeric AS total_budget,
+        COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+        ROUND(COALESCE(AVG(progress_pct), 0), 1)::numeric AS avg_progress
+      FROM dept_rows
+      GROUP BY department_key
+      ORDER BY projects DESC, department_key ASC
+      `,
+      params
+    );
+
+    const rows = (result.rows || []).map((row) => ({
+      department: row.department,
+      departmentKey: row.department_key,
+      projects: row.projects,
+      totalBudget: row.total_budget,
+      totalPaid: row.total_paid,
+      avgProgress: row.avg_progress,
+    }));
+
+    res.json({
+      rows,
+      summary: {
+        departments: rows.length,
+        projects: rows.reduce((sum, row) => sum + Number(row.projects || 0), 0),
+        totalBudget: rows.reduce((sum, row) => sum + Number(row.totalBudget || 0), 0),
+        totalPaid: rows.reduce((sum, row) => sum + Number(row.totalPaid || 0), 0),
+      },
+    });
+  } catch (error) {
+    console.error('Projects by department summary failed:', error);
+    res.status(500).json({ message: 'Failed to load projects by department.', error: error.message });
+  }
+});
+
+/**
+ * Scoped project list for one department (drill-down from workspace summary).
+ * ?department= matches case-insensitively against state_department / Unassigned.
+ */
+router.get('/projects-by-department/projects', canWorkspaceProjectRead, async (req, res) => {
+  try {
+    const department = String(req.query.department || '').trim();
+    if (!department) {
+      return res.status(400).json({ message: 'department query parameter is required.' });
+    }
+
+    const params = [];
+    const filters = [];
+    await appendProjectScopeFilter(req, filters, params, 'p');
+
+    params.push(department.toLowerCase());
+    filters.push(
+      `lower(COALESCE(NULLIF(TRIM(p.state_department), ''), 'Unassigned')) = $${params.length}`
+    );
+    const scopeSql = filters.length ? `AND ${filters.map((f) => `(${f})`).join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `
+      SELECT
+        p.project_id AS "projectId",
+        p.name AS "projectName",
+        COALESCE(NULLIF(TRIM(p.progress->>'status'), ''), 'Unknown') AS status,
+        COALESCE(NULLIF(BTRIM(p.progress->>'percentage_complete'), ''), '0')::numeric AS "progressPct",
+        COALESCE(NULLIF(BTRIM(p.budget->>'allocated_amount_kes'), ''), '0')::numeric AS budget,
+        COALESCE(NULLIF(BTRIM(p.budget->>'disbursed_amount_kes'), ''), '0')::numeric AS paid,
+        COALESCE(NULLIF(TRIM(p.location->>'ward'), ''), '') AS ward,
+        COALESCE(NULLIF(TRIM(p.location->>'subcounty'), ''), '') AS subcounty,
+        COALESCE(NULLIF(TRIM(p.implementing_agency), ''), '') AS directorate
+      FROM projects p
+      WHERE COALESCE(p.voided, false) = false
+        ${scopeSql}
+      ORDER BY p.name ASC
+      `,
+      params
+    );
+
+    res.json({
+      department: department.toLowerCase() === 'unassigned' ? 'Unassigned' : department,
+      projects: result.rows || [],
+    });
+  } catch (error) {
+    console.error('Projects by department list failed:', error);
+    res.status(500).json({ message: 'Failed to load department projects.', error: error.message });
   }
 });
 
