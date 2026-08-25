@@ -5038,6 +5038,151 @@ router.get('/:projectId/contractor-photos', async (req, res) => {
 
 
 /**
+ * @route GET /api/projects/gis-summary
+ * @description Lightweight project rows for GIS map / ward heat dashboard.
+ * Returns only map-relevant columns (avoids ~3–4MB full project list payloads).
+ * @access Private
+ */
+router.get('/gis-summary', async (req, res) => {
+    const requestStart = Date.now();
+    try {
+        const DB_TYPE = process.env.DB_TYPE || 'mysql';
+        const queryParams = [];
+        const whereConditions = [];
+
+        if (DB_TYPE === 'postgresql') {
+            whereConditions.push('COALESCE(p.voided, false) = false');
+            await addProjectScopeWhereForRequest(req, whereConditions, queryParams, 'p');
+
+            let query = `
+                SELECT
+                    p.project_id AS id,
+                    p.name AS "projectName",
+                    p.progress->>'status' AS status,
+                    p.sector AS "sector",
+                    p.timeline->>'financial_year' AS "financialYearName",
+                    p.data_sources->>'tender_contract_no' AS "tenderContractNo",
+                    COALESCE(
+                        NULLIF(TRIM(p.state_department), ''),
+                        NULLIF(TRIM(p.ministry), '')
+                    ) AS "departmentName",
+                    COALESCE(
+                        NULLIF(TRIM(p.location->>'subcounty'), ''),
+                        NULLIF(TRIM(kw_geo.sub_from_kw), '')
+                    ) AS "subCounty",
+                    NULLIF(TRIM(COALESCE(p.location->>'ward', '')), '') AS "ward",
+                    CASE
+                        WHEN (p.budget->>'allocated_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                        THEN (p.budget->>'allocated_amount_kes')::numeric
+                        ELSE NULL
+                    END AS "costOfProject",
+                    CASE
+                        WHEN (p.budget->>'disbursed_amount_kes') ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                        THEN (p.budget->>'disbursed_amount_kes')::numeric
+                        ELSE NULL
+                    END AS "paidOut",
+                    CASE
+                        WHEN (p.location->'geocoordinates'->>'lat') ~ '^[0-9.-]+(\\.[0-9]+){0,1}$'
+                        THEN (p.location->'geocoordinates'->>'lat')::numeric
+                        ELSE NULL
+                    END AS latitude,
+                    CASE
+                        WHEN (p.location->'geocoordinates'->>'lng') ~ '^[0-9.-]+(\\.[0-9]+){0,1}$'
+                        THEN (p.location->'geocoordinates'->>'lng')::numeric
+                        ELSE NULL
+                    END AS longitude
+                FROM projects p
+                ${PG_PROJECT_KWARDS_SUBCOUNTY_LATERAL}
+                WHERE ${whereConditions.join(' AND ')}
+                ORDER BY p.project_id
+            `;
+
+            let paramIndex = 1;
+            query = query.replace(/\?/g, () => `$${paramIndex++}`);
+
+            const result = await pool.execute(query, queryParams);
+            const rows = result.rows || result || [];
+
+            const byWardMap = new Map();
+            let withCoords = 0;
+            for (const row of rows) {
+                if (Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude))) {
+                    withCoords += 1;
+                }
+                const wardKey = String(row.ward || '')
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[/_-]+/g, ' ')
+                    .replace(/\s+/g, ' ');
+                if (!wardKey) continue;
+                if (!byWardMap.has(wardKey)) {
+                    byWardMap.set(wardKey, {
+                        wardKey,
+                        wardDisplay: String(row.ward || '').trim(),
+                        count: 0,
+                        budget: 0,
+                        disbursed: 0,
+                    });
+                }
+                const entry = byWardMap.get(wardKey);
+                entry.count += 1;
+                entry.budget += Number(row.costOfProject) || 0;
+                entry.disbursed += Number(row.paidOut) || 0;
+            }
+
+            res.status(200).json({
+                projects: rows,
+                byWard: Array.from(byWardMap.values()),
+                totals: {
+                    projects: rows.length,
+                    withCoords,
+                },
+                generatedAt: new Date().toISOString(),
+                durationMs: Date.now() - requestStart,
+            });
+            console.log(
+                `[projects:gis-summary] rows=${rows.length} withCoords=${withCoords} durationMs=${Date.now() - requestStart}`
+            );
+            return;
+        }
+
+        // MySQL fallback — keep shape compatible for other deployments.
+        whereConditions.push('(p.voided = 0 OR p.voided IS NULL)');
+        let query = `
+            SELECT
+                p.id,
+                p.projectName,
+                p.status,
+                p.projectType AS sector,
+                NULL AS "financialYearName",
+                NULL AS "tenderContractNo",
+                NULL AS "departmentName",
+                NULL AS "subCounty",
+                NULL AS "ward",
+                p.costOfProject,
+                p.paidOut,
+                p.latitude,
+                p.longitude
+            FROM projects p
+            WHERE ${whereConditions.join(' AND ')}
+            ORDER BY p.id
+        `;
+        const result = await pool.execute(query, queryParams);
+        const rows = Array.isArray(result) ? result[0] : result;
+        res.status(200).json({
+            projects: rows || [],
+            byWard: [],
+            totals: { projects: (rows || []).length, withCoords: 0 },
+            generatedAt: new Date().toISOString(),
+            durationMs: Date.now() - requestStart,
+        });
+    } catch (error) {
+        console.error('Error fetching GIS summary:', error);
+        res.status(500).json({ message: 'Error fetching GIS summary', error: error.message });
+    }
+});
+
+/**
  * @route GET /api/projects/maps-data
  * @description Get all project and GeoJSON data for the map, with optional filters.
  * @access Private

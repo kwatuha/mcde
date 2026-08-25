@@ -93,6 +93,27 @@ const VISIT_DRAFT_STORAGE_KEY = 'dataCollection.monitoringVisitDraft.v1';
 const TEMPLATE_CREATE_DRAFT_STORAGE_KEY = 'dataCollection.templateDraft.create.v1';
 const templateEditDraftKey = (id) => `dataCollection.templateDraft.edit.${id}.v1`;
 
+/** Ignore browser drafts that still have the old fixed work-stages field after a DB reseed. */
+function isStaleTemplateDraft(draftForm, serverSections) {
+  const flatten = (sections) =>
+    (Array.isArray(sections) ? sections : []).flatMap((sec) =>
+      (Array.isArray(sec?.items) ? sec.items : []).map((it) => ({
+        id: it?.id,
+        type: it?.type,
+      }))
+    );
+  const draftItems = flatten(draftForm?.sections);
+  const serverItems = flatten(serverSections);
+  if (!draftItems.length) return false;
+  const draftHasWorkStages = draftItems.some((it) => it.id === 'work_stages_seen');
+  const serverHasWorkStages = serverItems.some((it) => it.id === 'work_stages_seen');
+  const draftHasMilestones = draftItems.some((it) => it.type === 'project_milestones');
+  const serverHasMilestones = serverItems.some((it) => it.type === 'project_milestones');
+  if (serverHasMilestones && !draftHasMilestones) return true;
+  if (!serverHasWorkStages && draftHasWorkStages) return true;
+  return false;
+}
+
 function TabPanel({ children, value, index }) {
   if (value !== index) return null;
   return (
@@ -676,10 +697,21 @@ export default function DataCollectionToolsPage() {
         const raw = localStorage.getItem(templateEditDraftKey(t.templateId));
         if (raw) {
           const draft = JSON.parse(raw);
-          if (draft?.form && typeof draft.form === 'object') {
+          if (
+            draft?.form &&
+            typeof draft.form === 'object' &&
+            !isStaleTemplateDraft(draft.form, nextForm.sections)
+          ) {
             setForm(draft.form);
             setTemplateDraftRestoredAt(draft.savedAt || new Date().toISOString());
           } else {
+            if (raw) {
+              try {
+                localStorage.removeItem(templateEditDraftKey(t.templateId));
+              } catch {
+                // ignore
+              }
+            }
             setForm(nextForm);
             setTemplateDraftRestoredAt(null);
           }
@@ -1658,12 +1690,51 @@ export default function DataCollectionToolsPage() {
             <Button onClick={() => closeTemplateEditor()} disabled={saving}>
               Close
             </Button>
-            {!editingId && (
+            {(!editingId || templateDraftRestoredAt) && (
               <Button
                 color="warning"
-                onClick={() => {
-                  if (!window.confirm('Discard this template draft? This cannot be undone.')) return;
-                  closeTemplateEditor({ discardDraft: true });
+                onClick={async () => {
+                  if (!window.confirm('Discard this template draft and reload the saved template?')) return;
+                  if (!editingId) {
+                    closeTemplateEditor({ discardDraft: true });
+                    return;
+                  }
+                  const key = templateEditDraftKey(editingId);
+                  try {
+                    localStorage.removeItem(key);
+                  } catch {
+                    // ignore
+                  }
+                  setTemplateDraftRestoredAt(null);
+                  try {
+                    const t = await apiService.dataCollection.getTemplate(editingId, { manage: true });
+                    const nextForm = {
+                      name: t.name || '',
+                      description: t.description || '',
+                      templateCategory: t.templateCategory || 'general',
+                      restrictAccess: !!t.restrictAccess,
+                      roleIds: t.access?.roleIds || [],
+                      userIds: t.access?.userIds || [],
+                      allowedSubjectTypes: Array.isArray(t.allowedSubjectTypes) && t.allowedSubjectTypes.length
+                        ? t.allowedSubjectTypes
+                        : ['project'],
+                      sections: withOptionsTextForEditing(
+                        Array.isArray(t.structure?.sections) && t.structure.sections.length
+                          ? JSON.parse(JSON.stringify(t.structure.sections))
+                          : emptyTemplateForm().sections
+                      ),
+                    };
+                    setForm(nextForm);
+                    setEditorTab('design');
+                    setPreviewAnswers({});
+                    try {
+                      localStorage.removeItem(key);
+                    } catch {
+                      // ignore
+                    }
+                  } catch (e) {
+                    window.alert(e?.response?.data?.message || e?.message || 'Failed to reload template.');
+                  }
                 }}
                 disabled={saving}
               >

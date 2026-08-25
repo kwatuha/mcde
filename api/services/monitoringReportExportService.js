@@ -1,8 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const {
   AlignmentType,
   BorderStyle,
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   Table,
@@ -14,6 +17,8 @@ const {
 } = require('docx');
 const { buildDocxOfficialHeaderParagraphs, getCountyOfficialName } = require('../utils/countyLogo');
 const { multiSelectValues } = require('./checklistAnswerUtils');
+
+const UPLOADS_ROOT = path.join(__dirname, '..', '..', 'uploads');
 
 function text(value, fallback = '—') {
   if (value === undefined || value === null || value === '') return fallback;
@@ -39,6 +44,57 @@ function photoList(raw) {
   if (Array.isArray(raw.photos)) return raw.photos;
   if (Array.isArray(raw)) return raw;
   return [];
+}
+
+function imageTypeFromPath(filePath = '') {
+  const ext = path.extname(String(filePath)).toLowerCase();
+  if (ext === '.png') return 'png';
+  if (ext === '.gif') return 'gif';
+  if (ext === '.bmp') return 'bmp';
+  if (ext === '.webp') return 'jpg';
+  return 'jpg';
+}
+
+function resolveUploadFsPath(urlOrPath) {
+  if (!urlOrPath) return null;
+  const raw = String(urlOrPath).trim();
+  if (!raw) return null;
+
+  if (path.isAbsolute(raw) && fs.existsSync(raw)) return raw;
+
+  const uploadsIdx = raw.indexOf('/uploads/');
+  if (uploadsIdx >= 0) {
+    const rel = raw.slice(uploadsIdx + '/uploads/'.length).split('?')[0];
+    const full = path.join(UPLOADS_ROOT, rel);
+    if (fs.existsSync(full)) return full;
+  }
+
+  const bare = raw.replace(/^\/+/, '').split('?')[0];
+  if (bare.startsWith('uploads/')) {
+    const full = path.join(UPLOADS_ROOT, '..', bare);
+    if (fs.existsSync(full)) return full;
+  }
+
+  const underDc = path.join(UPLOADS_ROOT, 'data-collection', path.basename(bare));
+  if (fs.existsSync(underDc)) return underDc;
+
+  return null;
+}
+
+function loadImageForDocx(urlOrPath) {
+  const fsPath = resolveUploadFsPath(urlOrPath);
+  if (!fsPath) return null;
+  try {
+    const data = fs.readFileSync(fsPath);
+    if (!data?.length) return null;
+    return {
+      data,
+      type: imageTypeFromPath(fsPath),
+      fileName: path.basename(fsPath),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function formatAnswerDisplay(item, raw) {
@@ -144,7 +200,7 @@ function answerCell(content, options = {}) {
 }
 
 function buildSectionTable(section, answers = {}) {
-  const items = (section.items || []).filter((item) => item?.id);
+  const items = (section.items || []).filter((item) => item?.id && item.type !== 'photo');
   if (!items.length) return null;
 
   const rows = [
@@ -170,7 +226,105 @@ function buildSectionTable(section, answers = {}) {
   });
 }
 
-function buildMonitoringReportDocx(report = {}) {
+function photoCaption(photo = {}) {
+  const name = photo.fileName || 'Photo';
+  const geo = photo.lat != null && photo.lng != null
+    ? ` · GPS ${Number(photo.lat).toFixed(5)}, ${Number(photo.lng).toFixed(5)}`
+    : '';
+  return `${name}${geo}`;
+}
+
+function buildPhotoBlocks(item, answer) {
+  const photos = photoList(answer);
+  const blocks = [
+    bodyParagraph(item.label || item.id || 'Photo evidence', {
+      bold: true,
+      size: 20,
+      before: 120,
+      after: 60,
+    }),
+  ];
+
+  if (!photos.length) {
+    blocks.push(bodyParagraph('—', { italics: true, color: '666666', after: 80 }));
+    return blocks;
+  }
+
+  photos.forEach((photo, index) => {
+    const loaded = loadImageForDocx(photo.url || photo.filePath || photo.path);
+    blocks.push(bodyParagraph(photoCaption(photo), { size: 18, color: '666666', after: 60 }));
+    if (loaded) {
+      blocks.push(new Paragraph({
+        alignment: AlignmentType.LEFT,
+        spacing: { after: 140 },
+        children: [
+          new ImageRun({
+            data: loaded.data,
+            transformation: { width: 480, height: 360 },
+            type: loaded.type,
+          }),
+        ],
+      }));
+    } else {
+      blocks.push(bodyParagraph(
+        `Photo ${index + 1} could not be embedded (file missing on server).`,
+        { italics: true, color: 'B00020', after: 80 }
+      ));
+    }
+  });
+
+  return blocks;
+}
+
+function buildAttachmentBlocks(attachments = []) {
+  const imageAttachments = (attachments || []).filter((a) => {
+    const mime = String(a.mimeType || '').toLowerCase();
+    const name = String(a.fileName || a.url || '').toLowerCase();
+    return mime.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp)$/i.test(name);
+  });
+  if (!imageAttachments.length) return [];
+
+  const blocks = [
+    bodyParagraph('Supporting evidence (photos)', {
+      heading: HeadingLevel.HEADING_2,
+      bold: true,
+      size: 24,
+      before: 200,
+      after: 120,
+    }),
+  ];
+
+  imageAttachments.forEach((attachment, index) => {
+    const loaded = loadImageForDocx(attachment.url || attachment.filePath || attachment.path);
+    const label = [
+      attachment.fileName || `Attachment ${index + 1}`,
+      attachment.itemId ? `(${attachment.itemId})` : null,
+    ].filter(Boolean).join(' ');
+    blocks.push(bodyParagraph(label, { size: 18, color: '666666', after: 60 }));
+    if (loaded) {
+      blocks.push(new Paragraph({
+        alignment: AlignmentType.LEFT,
+        spacing: { after: 140 },
+        children: [
+          new ImageRun({
+            data: loaded.data,
+            transformation: { width: 480, height: 360 },
+            type: loaded.type,
+          }),
+        ],
+      }));
+    } else {
+      blocks.push(bodyParagraph(
+        'Image file could not be embedded (missing on server).',
+        { italics: true, color: 'B00020', after: 80 }
+      ));
+    }
+  });
+
+  return blocks;
+}
+
+async function buildMonitoringReportDocx(report = {}) {
   const generatedAt = new Date().toLocaleString('en-KE', {
     year: 'numeric',
     month: 'long',
@@ -216,10 +370,39 @@ function buildMonitoringReportDocx(report = {}) {
     );
     const table = buildSectionTable(section, report.answers || {});
     if (table) children.push(table);
-    else children.push(bodyParagraph('No responses recorded in this section.', { italics: true }));
+    else {
+      const hasNonPhoto = (section.items || []).some((item) => item?.id && item.type !== 'photo');
+      if (hasNonPhoto) {
+        children.push(bodyParagraph('No responses recorded in this section.', { italics: true }));
+      }
+    }
+
+    const photoItems = (section.items || []).filter((item) => item?.type === 'photo' && item.id);
+    photoItems.forEach((item) => {
+      children.push(...buildPhotoBlocks(item, report.answers?.[item.id]));
+    });
   }
 
-  if (Array.isArray(report.attachments) && report.attachments.length) {
+  const answeredPhotoUrls = new Set();
+  for (const section of report.structure?.sections || []) {
+    for (const item of section.items || []) {
+      if (item?.type !== 'photo') continue;
+      photoList(report.answers?.[item.id]).forEach((p) => {
+        const key = p.url || p.filePath || p.path || p.fileName;
+        if (key) answeredPhotoUrls.add(String(key));
+      });
+    }
+  }
+
+  const attachmentBlocks = buildAttachmentBlocks(
+    (report.attachments || []).filter((a) => {
+      const key = a.url || a.filePath || a.path || a.fileName;
+      return key ? !answeredPhotoUrls.has(String(key)) : true;
+    })
+  );
+  if (attachmentBlocks.length) {
+    children.push(...attachmentBlocks);
+  } else if (Array.isArray(report.attachments) && report.attachments.length) {
     children.push(
       bodyParagraph('Attachments', { heading: HeadingLevel.HEADING_2, bold: true, size: 24, before: 200, after: 120 }),
       bodyParagraph(
@@ -256,4 +439,5 @@ module.exports = {
   buildMonitoringReportDocx,
   buildExportFilename,
   formatAnswerDisplay,
+  resolveUploadFsPath,
 };

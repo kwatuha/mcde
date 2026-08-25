@@ -24,6 +24,13 @@ import {
   formatNumber,
   formatPercent,
 } from '../utils/planningProgressExport';
+import {
+  IMPACT_EXPORT_COLUMNS,
+  formatImpactPercent,
+  formatImpactRatio,
+  impactDataGridColumns,
+  summarizeImpactRows,
+} from '../utils/programmeImpactColumns';
 
 const EXPORT_COLUMNS = [
   { field: 'sectorName', header: 'Sector', width: 28 },
@@ -37,6 +44,7 @@ const EXPORT_COLUMNS = [
   { field: 'stalledProjects', header: 'Stalled', width: 10, format: (v) => formatNumber(v) },
   { field: 'plannedBudget', header: 'ADP planned', width: 16, format: (v) => formatCurrency(v) },
   { field: 'projectBudget', header: 'Project budget', width: 16, format: (v) => formatCurrency(v) },
+  ...IMPACT_EXPORT_COLUMNS,
 ];
 
 export default function AdpProgrammeProgressPage() {
@@ -87,6 +95,7 @@ export default function AdpProgrammeProgressPage() {
 
   const summary = useMemo(() => {
     const withActivity = rows.filter((row) => Number(row.adpProjects || 0) > 0);
+    const impact = summarizeImpactRows(rows);
     return {
       programmes: rows.length,
       programmesWithActivity: withActivity.length,
@@ -95,6 +104,7 @@ export default function AdpProgrammeProgressPage() {
       plannedBudget: rows.reduce((sum, row) => sum + Number(row.plannedBudget || 0), 0),
       projectBudget: rows.reduce((sum, row) => sum + Number(row.projectBudget || 0), 0),
       stalledProjects: rows.reduce((sum, row) => sum + Number(row.stalledProjects || 0), 0),
+      impact,
     };
   }, [rows]);
 
@@ -112,6 +122,16 @@ export default function AdpProgrammeProgressPage() {
     { label: 'ADP planned budget', value: formatCurrency(summary.plannedBudget) },
     { label: 'Registry project budget', value: formatCurrency(summary.projectBudget) },
     { label: 'Stalled / slow links', value: formatNumber(summary.stalledProjects) },
+    { label: 'Outcome achievement %', value: formatImpactPercent(summary.impact.achievementPercent) },
+    { label: 'Outcome / impact lines', value: formatNumber(summary.impact.outcomeLines) },
+    {
+      label: 'Beneficiaries benefit realized',
+      value: formatImpactRatio(summary.impact.beneficiariesBenefitRealized, summary.impact.beneficiaries),
+    },
+    {
+      label: 'Community benefit (visits)',
+      value: formatImpactRatio(summary.impact.communityBenefitYes, summary.impact.communityVisits),
+    },
   ], [selectedPlan, summary]);
 
   const handleExportExcel = () => {
@@ -185,13 +205,14 @@ export default function AdpProgrammeProgressPage() {
       width: 130,
       valueFormatter: (value) => formatCurrency(value),
     },
+    ...impactDataGridColumns(),
   ], []);
 
   return (
     <Box>
       <Header
         title="ADP Programme Progress"
-        subtitle="Annual plan programme roll-up of ADP rows, registry linkages, budgets, and delivery progress"
+        subtitle="Annual plan delivery progress plus outcome/impact scorecards from evaluations, beneficiaries, and village visits"
       />
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ md: 'center' }}>
@@ -214,6 +235,15 @@ export default function AdpProgrammeProgressPage() {
           <Chip label={`With ADP rows: ${summary.programmesWithActivity}`} variant="outlined" />
           <Chip label={`Linked projects: ${summary.linkedRegistryProjects}`} color="primary" variant="outlined" />
           <Chip label={`Project budget: ${formatCurrency(summary.projectBudget)}`} color="success" variant="outlined" />
+          <Chip
+            label={`Outcome ach.: ${formatImpactPercent(summary.impact.achievementPercent)}`}
+            color="secondary"
+            variant="outlined"
+          />
+          <Chip
+            label={`Benefit realized: ${formatImpactRatio(summary.impact.beneficiariesBenefitRealized, summary.impact.beneficiaries)}`}
+            variant="outlined"
+          />
         </Stack>
         <Stack direction="row" spacing={1}>
           <Button

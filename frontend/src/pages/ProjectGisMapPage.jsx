@@ -31,7 +31,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   FilterList as FilterListIcon,
 } from '@mui/icons-material';
-import { InfoWindowF, MarkerF, PolygonF } from '@react-google-maps/api';
+import { InfoWindowF, MarkerF, MarkerClustererF, PolygonF } from '@react-google-maps/api';
 import { useNavigate } from 'react-router-dom';
 import GoogleMapComponent from '../components/gis/GoogleMapComponent';
 import projectService from '../api/projectService';
@@ -60,9 +60,17 @@ import {
   toMoney,
 } from '../utils/projectMapPoint';
 import { buildErrorDotMarkerIcon, buildStatusDotMarkerIcon } from '../utils/mapMarkerIcons';
+import { fetchMachakosGeojson } from '../utils/fetchMachakosGeojson';
 
 const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
 const DEFAULT_ZOOM = 9;
+const CLUSTER_MARKER_THRESHOLD = 80;
+
+const CLUSTER_OPTIONS = {
+  gridSize: 48,
+  maxZoom: 12,
+  averageCenter: true,
+};
 
 function ProjectGisMapPage() {
   const navigate = useNavigate();
@@ -92,29 +100,36 @@ function ProjectGisMapPage() {
   });
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError('');
       try {
-        const [countyRes, wardRes, projectRows] = await Promise.all([
-          fetch('/gis/machakos/machakos-county.geojson'),
-          fetch('/gis/machakos/machakos-wards.geojson'),
-          projectService.projects.getProjects({ limit: 5000 }),
+        // Fast path: slim GIS payload unlocks markers/filters immediately.
+        const summary = await projectService.projects.getGisSummary();
+        if (cancelled) return;
+        setProjects(Array.isArray(summary?.projects) ? summary.projects : []);
+        setLoading(false);
+
+        // Background: simplified county/ward boundaries (~300 KB vs ~4.5 MB full).
+        const [countyJson, wardJson] = await Promise.all([
+          fetchMachakosGeojson('machakos-county'),
+          fetchMachakosGeojson('machakos-wards'),
         ]);
-        if (!countyRes.ok || !wardRes.ok) {
-          throw new Error('Failed to load Machakos boundary files.');
-        }
-        const [countyJson, wardJson] = await Promise.all([countyRes.json(), wardRes.json()]);
+        if (cancelled) return;
         setCountyGeo(countyJson);
         setWardGeo(wardJson);
-        setProjects(Array.isArray(projectRows) ? projectRows : []);
       } catch (err) {
-        setError(err?.message || 'Failed to load project GIS data.');
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setError(err?.message || 'Failed to load project GIS data.');
+          setLoading(false);
+        }
       }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const countyChecker = useMemo(
@@ -663,7 +678,29 @@ function ProjectGisMapPage() {
               />
             ))}
 
-            {mapsReady && mapMarkers.map(({ project, point }) => {
+            {mapsReady && mapMarkers.length >= CLUSTER_MARKER_THRESHOLD && (
+              <MarkerClustererF options={CLUSTER_OPTIONS}>
+                {(clusterer) => (
+                  <>
+                    {mapMarkers.map(({ project, point }) => {
+                      const status = project?.status || project?.Status || 'Unknown';
+                      const fillColor = getProjectStatusBackgroundColor(status);
+                      return (
+                        <MarkerF
+                          key={project.id || project.projectId || `${project.projectName}-${point.lat}-${point.lng}`}
+                          position={point}
+                          clusterer={clusterer}
+                          onClick={() => setSelectedProject({ project, point })}
+                          icon={buildStatusDotMarkerIcon(fillColor)}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+              </MarkerClustererF>
+            )}
+
+            {mapsReady && mapMarkers.length < CLUSTER_MARKER_THRESHOLD && mapMarkers.map(({ project, point }) => {
               const status = project?.status || project?.Status || 'Unknown';
               const fillColor = getProjectStatusBackgroundColor(status);
               return (

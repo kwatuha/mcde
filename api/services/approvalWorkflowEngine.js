@@ -976,11 +976,13 @@ async function processSlaEscalations() {
         : null;
     const note = `[SLA] Escalated at ${now.toISOString()} — reassigned to role ${si.escalation_role_id}`;
     const previousEscalationRoleId = si.escalation_role_id;
+    // PostgreSQL cannot infer types for CONCAT(…, $n, $n); append as one text param.
     await pool.query(
       `UPDATE approval_step_instances
-       SET role_id = ?, escalation_role_id = NULL, due_at = ?, escalated_at = ?, comment = CONCAT(COALESCE(comment, ''), ?, ?)
+       SET role_id = ?, escalation_role_id = NULL, due_at = ?, escalated_at = ?,
+           comment = COALESCE(comment, '') || ?
        WHERE instance_id = ?`,
-      [si.escalation_role_id, newDue, now, '\n', note, si.instance_id]
+      [si.escalation_role_id, newDue, now, `\n${note}`, si.instance_id]
     );
     await logAction(si.request_id, si.instance_id, null, 'escalate_sla', 'Escalated after SLA breach', {
       new_role_id: previousEscalationRoleId,

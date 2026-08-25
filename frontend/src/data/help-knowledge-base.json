@@ -18,6 +18,9 @@
         "Portal roles open a short Workspace sidebar; operators and ICT usually see the full ribbon.",
         "Missing menus usually mean role permissions, UI profile, or organisation scope — not a system fault.",
         "Never share passwords, OTP codes, or administrator accounts."
+      ],
+      "screenshots": [
+        "01-login"
       ]
     },
     {
@@ -39,13 +42,17 @@
         "The three-dot menu (top right) includes Help & Support.",
         "For wide tables, browser zoom around 90%–110% improves readability.",
         "My Tasks is your personal workflow inbox — check it regularly even if you primarily use a role workspace."
+      ],
+      "screenshots": [
+        "02-personal-dashboard",
+        "my-tasks"
       ]
     },
     {
       "title": "3. Role workspaces and landings",
       "audience": "All portal roles and county leadership",
       "route": "/village-workspace (and related role landings)",
-      "purpose": "Understand which home screen opens after login and how dedicated workspaces support M&E approval, engineering certificates, contractor actions, and executive briefing.",
+      "purpose": "Dedicated landings for portal roles (Village, Ward, Sub-County, Chief M&E, Sector M&E, Resident/Chief Engineer, Co-Finance, Contractor) plus Summary Statistics for leadership. Village / Ward / Sub-County / Co-Finance workspaces also show Projects by department for scoped oversight.",
       "steps": [
         "Village Administrator → Village M&E Workspace (/village-workspace): My drafts, monitoring visits, projects, documents.",
         "Ward Administrator → Ward M&E Workspace (/ward-workspace): Ward review queue, village drafts, ward projects.",
@@ -57,12 +64,26 @@
         "Co-Finance Officer → Co-Finance Workspace (/co-finance-workspace): certificate step 3, payments, county finance.",
         "Contractor → Contractor Dashboard (/contractor-dashboard): payments, progress photos, project files for assigned projects.",
         "Executive Supervisor / Executive Viewer / Project Lead → Summary Statistics (/summary-statistics) for briefing dashboards.",
-        "Other staff → Personal Dashboard (/) with the full ribbon menu."
+        "Other staff → Personal Dashboard (/) with the full ribbon menu.",
+        "On Village, Ward, Sub-County, and Co-Finance workspaces, use Projects by department to see which departments own which projects in your scope."
       ],
       "tips": [
         "Look at the sidebar group title after login to confirm which workspace you are in.",
         "Organisation scope (ward, sub-county, department, sector) still limits which projects and reports you see.",
-        "ICT sets role, UI profile, and landing path under User Management."
+        "ICT sets role, UI profile, and landing path under User Management.",
+        "Projects by department groups are case-insensitive (Kangundo and KANGUNDO roll up together)."
+      ],
+      "screenshots": [
+        "03-village-workspace",
+        "03-ward-review-queue",
+        "03-subcounty-workspace",
+        "03-chief-approval-queue",
+        "03-sector-me-workspace",
+        "03-resident-engineer-workspace",
+        "03-chief-engineer-workspace",
+        "03-co-finance-workspace",
+        "03-contractor-dashboard",
+        "03-summary-statistics"
       ]
     },
     {
@@ -82,6 +103,9 @@
         "Open the relevant dashboard or project screen first so the AI has the right context.",
         "Finance dashboards produce finance-focused reports; monitoring screens produce monitoring-focused reports.",
         "Super Admins can review AI usage under Admin > AI Usage."
+      ],
+      "screenshots": [
+        "ai-assistant-sparkle"
       ]
     },
     {
@@ -114,6 +138,11 @@
         "Compare dashboard filters with Projects Registry filters if totals look inconsistent.",
         "Use the AI Assistant on a dashboard to summarize that dashboard's data or generate a professional report.",
         "Use Regional Breakdown and Project GIS Map together to spot uneven distribution and bad coordinates before planning new projects."
+      ],
+      "screenshots": [
+        "03-summary-statistics",
+        "regional-reports",
+        "project-gis-map"
       ]
     },
     {
@@ -133,13 +162,16 @@
         "Search before creating duplicates.",
         "Project visibility affects dashboards, reports, certificates, GIS, and public publishing.",
         "Registry filters should match Regional Breakdown filters when comparing distribution numbers."
+      ],
+      "screenshots": [
+        "projects-registry"
       ]
     },
     {
       "title": "7. Project details, evaluation, and evidence",
       "audience": "Project officers, M&E, finance, administrators",
       "route": "/projects/:projectId",
-      "purpose": "Maintain the single-project record: overview, milestones, status, documents, photos, teams, partners, funding, sites/GIS, BQ, certificates, and evaluations.",
+      "purpose": "Maintain the single-project record: overview, milestones, status, documents, photos, teams, partners, funding, sites/GIS, BQ, certificates, and evaluations (baseline → achieved, result level).",
       "steps": [
         "Open a project from Projects Registry (for example /projects/1) or from a workspace project list.",
         "Review the overview and tabs before adding related records.",
@@ -148,20 +180,28 @@
         "Upload documents with clear names and correct categories.",
         "Use the Certificates tab to create interim/final payment certificates (where authorised).",
         "Use Project Evaluation Workbench (Projects menu) for structured evaluation workflows.",
-        "Link planning activities and risks so monitoring and reports stay consistent."
+        "Link planning activities and risks so monitoring and reports stay consistent.",
+        "Open Projects → Project Evaluation to record evaluation lines: date, activity/indicator, baseline, target, achieved, performance %, reporting period (Baseline/Midline/Endline), and result level (output/outcome/impact).",
+        "Prefer indicators tagged as outcome or impact when measuring change for people — not only delivery outputs."
       ],
       "tips": [
         "Certificate PDFs include a QR code for public verification (top-right on page 1).",
         "Evidence should support reported progress percentages.",
         "Keep documents organised — audits and reports depend on them.",
-        "Fix GIS coordinates on the project before relying on map-based planning."
+        "Fix GIS coordinates on the project before relying on map-based planning.",
+        "Use reporting period Baseline then Midline/Endline so programme scorecards can compare change over time.",
+        "Result level on the evaluation line is used in CIDP/ADP Programme Progress outcome columns."
+      ],
+      "screenshots": [
+        "project-details",
+        "project-evaluation"
       ]
     },
     {
       "title": "8. Planning (CIDP, ADP, RRI, traceability)",
       "audience": "Planning, M&E, department focal persons, administrators",
       "route": "/strategic-planning",
-      "purpose": "Maintain planning structures, ADP implementation, RRI programmes, and budget traceability.",
+      "purpose": "Maintain planning structures, ADP implementation, RRI programmes, budget traceability, KPI catalogues (with result levels), and CIDP/ADP programme progress scorecards (delivery + impact).",
       "steps": [
         "Open Planning from the ribbon.",
         "Maintain CIDP periods, ADP periods, sectors, programmes, and budget allocations.",
@@ -170,11 +210,22 @@
         "Open an RRI programme detail page to manage sites and beneficiaries.",
         "Use Budget Traceability to follow budget lines through implementation.",
         "Maintain indicators, activities, risks, and reporting frequency catalogues.",
-        "Link catalogues to projects for consistent monitoring and reporting."
+        "Link catalogues to projects for consistent monitoring and reporting.",
+        "Open Planning → Indicators & KPIs (/planning/indicators) and set Result level: Output, Outcome, or Impact.",
+        "Open Planning → CIDP Programme Progress (/planning/cidp-programme-progress) for programme roll-ups of linkage, budget, avg progress, stalled projects, plus outcome achievement %, outcome lines, benefit realized, and community benefit.",
+        "Open Planning → ADP Programme Progress (/planning/adp-programme-progress) for the same impact scorecard on the annual plan."
       ],
       "tips": [
         "Catalogue changes affect reports — coordinate with M&E and ICT.",
-        "Search before creating new sectors, programmes, or risks."
+        "Search before creating new sectors, programmes, or risks.",
+        "Tag outcome/impact KPIs deliberately — programme scorecards weight those evaluation lines for outcome achievement %.",
+        "Export Excel/PDF from CIDP/ADP Programme Progress includes the impact columns."
+      ],
+      "screenshots": [
+        "rri-programmes",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators"
       ]
     },
     {
@@ -187,11 +238,16 @@
         "Download and fill the official template without changing required column names.",
         "Upload for preview and correct all validation errors before confirming.",
         "Open Data Import Logs to verify completion.",
-        "Use Data > Beneficiary Registry to search and maintain beneficiary records."
+        "Use Data > Beneficiary Registry to search and maintain beneficiary records.",
+        "On Beneficiary Registry, set Outcome status (enrolled → receiving benefit → benefit realized) and optional outcome notes so programme impact roll-ups can count realized benefits."
       ],
       "tips": [
         "Never import production data from an unverified spreadsheet.",
-        "Keep original and corrected files for audit reference."
+        "Keep original and corrected files for audit reference.",
+        "Use benefit realized only when the intended benefit has actually reached the beneficiary — not merely upon enrollment."
+      ],
+      "screenshots": [
+        "beneficiary-outcome"
       ]
     },
     {
@@ -215,6 +271,11 @@
         "Stage updates must match approved procurement documentation.",
         "Attach evidence to support audit review.",
         "Unlinked contractor accounts show “Account not linked yet” on the portal."
+      ],
+      "screenshots": [
+        "procurement-budget-items",
+        "project-scope-setup",
+        "quotation-entry"
       ]
     },
     {
@@ -232,13 +293,21 @@
         "Open Monitoring > Project Monitoring for structured project monitoring records (ribbon users).",
         "Use PMC Ward Reports, Ward Accountability, and Monitoring > Checklists & visits as required.",
         "Download CIMES Mobile from Dashboard or workspace mobile quick action.",
-        "Field staff sign in on the app, sync checklists, select a project, and submit visits offline when needed."
+        "Field staff sign in on the app, sync checklists, select a project, and submit visits offline when needed.",
+        "Village Field Monitoring checklist loads work stages / milestones from the project record (not a fixed pick-list). Sync the mobile app after template updates.",
+        "In the Community & beneficiary feedback section, answer Community benefit realized and Access improved (Yes/No) plus optional impact notes — these feed programme community-benefit scorecards."
       ],
       "tips": [
         "Approval chain: Village draft → Ward → Sub-county → Chief → public.",
         "Monitoring records should be timely and linked to the correct project.",
         "Mobile app sync requires network — pull down to refresh checklists after login.",
-        "Escalate persistent delays, low absorption, or unresolved complaints."
+        "Escalate persistent delays, low absorption, or unresolved complaints.",
+        "If the web checklist still shows old fixed work stages, discard the template draft on Data Collection Tools and reload from the server.",
+        "On CIMES Mobile, pull to Sync on Checklists after ICT updates the village template."
+      ],
+      "screenshots": [
+        "03-village-workspace",
+        "village-community-impact"
       ]
     },
     {
@@ -263,6 +332,12 @@
         "Verify certificates before relying on printed or shared copies.",
         "Verification works without logging in — citizens and contractors can use the public page.",
         "Logged-in staff see a link to open the related project from verification results."
+      ],
+      "screenshots": [
+        "certificate-step-resident",
+        "certificate-step-chief-engineer",
+        "certificate-step-co-finance",
+        "verify-certificate-qr"
       ]
     },
     {
@@ -282,6 +357,9 @@
       "tips": [
         "Record filter criteria when sharing exported reports.",
         "Reports are only as accurate as underlying project, finance, and monitoring data."
+      ],
+      "screenshots": [
+        "reports-hub"
       ]
     },
     {
@@ -318,6 +396,9 @@
         "Use least privilege for roles, UI profiles, and scope.",
         "Document administrator actions for audit.",
         "Portal role names take precedence over a mismatched UI profile landing path."
+      ],
+      "screenshots": [
+        "mobile-app-download"
       ]
     },
     {
@@ -334,6 +415,39 @@
       "tips": [
         "Duplicate metadata causes reporting errors.",
         "Use audit trail facts when investigating incidents."
+      ]
+    },
+    {
+      "title": "17. Measuring project and programme impact",
+      "audience": "M&E, planning, department focal persons, leadership, administrators",
+      "route": "/planning/cidp-programme-progress",
+      "purpose": "Go beyond delivery progress (% complete) to evaluate whether programmes and projects change outcomes for people. Combine indicator result levels, project evaluation lines (baseline→endline), beneficiary outcome status, and structured community visit answers into CIDP/ADP programme scorecards.",
+      "steps": [
+        "Distinguish layers: Progress = how far implementation has gone; Impact = whether intended benefits and outcomes are realized.",
+        "Planning → Indicators & KPIs: create/edit KPIs and set Result level to Output (delivery), Outcome (change for people), or Impact (longer-term effect).",
+        "Link activities/indicators to projects (Projects → Activity links) with baseline and target values.",
+        "Projects → Project Evaluation: for each line, set Evaluation date, pick activity/indicator, record Baseline, Target, Achieved, optional Performance %, Reporting period (Baseline / Midline / Endline / quarterly), Result level, and Remarks.",
+        "Capture Midline and Endline evaluations against the same indicators used at Baseline so change is comparable.",
+        "Data → Beneficiary Registry: update Outcome status as people move from enrolled to receiving benefit to benefit realized (add outcome notes when useful).",
+        "Village Field Monitoring (web or CIMES Mobile): complete Community benefit realized and Access improved, plus impact notes from community comments.",
+        "Planning → CIDP Programme Progress: review delivery columns (projects, linkage, avg progress, stalled, budgets) and impact columns (Outcome ach. %, Outcome lines, Benefit realized, Community benefit).",
+        "Planning → ADP Programme Progress: select the ADP plan and review the same delivery + impact scorecard for the financial year.",
+        "Export Excel or PDF from the programme progress pages for M&E and leadership packs.",
+        "Jobs & Impact Dashboard remains useful for jobs/beneficiary volume; use Programme Progress for outcome achievement against CIDP/ADP structures."
+      ],
+      "tips": [
+        "Do not treat % complete alone as impact — a finished project can still have weak community benefit.",
+        "Prefer outcome/impact result levels on evaluation lines that measure change for people.",
+        "Village checklist answers only count when the coded Yes/No fields are used (not free text alone).",
+        "If impact columns show dashes, check that projects are linked to the CIDP/ADP programme and that evaluations/beneficiary outcomes/visits exist.",
+        "Hard-refresh the browser after releases; mobile users should Sync checklists after template updates."
+      ],
+      "screenshots": [
+        "project-evaluation",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators",
+        "beneficiary-outcome"
       ]
     }
   ],
@@ -472,6 +586,41 @@
       "Review my assigned tasks",
       "Dashboard > My Tasks",
       "Open /my-tasks for escalations and workflow approvals assigned to you."
+    ],
+    [
+      "Measure project / programme impact",
+      "Planning → CIDP or ADP Programme Progress (+ Project Evaluation)",
+      "Tag KPIs as outcome/impact; record Baseline→Endline evaluations; update beneficiary outcome status; complete village community benefit fields; read Outcome ach. % and Benefit realized on programme progress."
+    ],
+    [
+      "Record a project evaluation line",
+      "Projects → Project Evaluation",
+      "Select project; add line with date, activity/indicator, baseline, target, achieved, reporting period, and result level (output/outcome/impact)."
+    ],
+    [
+      "Set indicator result level",
+      "Planning → Indicators & KPIs",
+      "Open /planning/indicators; create or edit a KPI; choose Result level Output, Outcome, or Impact."
+    ],
+    [
+      "Review CIDP programme progress & impact",
+      "Planning → CIDP Programme Progress",
+      "Open /planning/cidp-programme-progress; check linkage, progress, stalled, and impact columns; export Excel/PDF if needed."
+    ],
+    [
+      "Review ADP programme progress & impact",
+      "Planning → ADP Programme Progress",
+      "Open /planning/adp-programme-progress; select ADP plan; review delivery and outcome scorecards."
+    ],
+    [
+      "Update beneficiary outcome status",
+      "Data → Beneficiary Registry",
+      "Edit a beneficiary; set Outcome status (e.g. benefit realized) and optional outcome notes."
+    ],
+    [
+      "See projects by department in a workspace",
+      "Village / Ward / Sub-County / Co-Finance Workspace",
+      "Open the workspace landing; use Projects by department to see ownership within your scope."
     ]
   ],
   "troubleshootingRows": [
@@ -549,6 +698,21 @@
       "Authorization error",
       "Signed in but missing privilege.",
       "Capture module/action; ask administrator to review permissions and UI profile."
+    ],
+    [
+      "Impact / Outcome columns are empty on Programme Progress",
+      "No linked projects, or no evaluation/beneficiary/visit impact data yet.",
+      "Link projects to CIDP/ADP programmes; add evaluation lines with outcome/impact levels; set beneficiary outcome status; complete village community Yes/No fields."
+    ],
+    [
+      "Village checklist still shows old fixed work stages",
+      "Stale browser template draft or mobile checklist cache.",
+      "On Data Collection Tools, discard draft and reload; on mobile, Sync Checklists. Milestones come from the project record."
+    ],
+    [
+      "Cannot find CIDP / ADP Programme Progress",
+      "Missing planning privilege or outdated bookmark.",
+      "Confirm strategic_plan / project read privileges; open Planning → CIDP Programme Progress or ADP Programme Progress."
     ]
   ],
   "roleGuidance": [
@@ -637,7 +801,10 @@
     "Do not share passwords, OTPs, or confidential citizen data in screenshots.",
     "Use Regional Breakdown and Project GIS Map when balancing new projects across wards and sub-counties.",
     "Correct GIS coordinates on project details when map pins look wrong.",
-    "On Budget Procurement Intake, Setup scope before entering a quotation."
+    "On Budget Procurement Intake, Setup scope before entering a quotation.",
+    "Measure impact with Baseline → Midline/Endline evaluations on outcome/impact indicators — not only % complete.",
+    "Update beneficiary Outcome status when benefits are realized so programme scorecards stay accurate.",
+    "Use Village Field Monitoring community Yes/No impact fields so community feedback rolls up to CIDP/ADP progress."
   ],
   "supportChecklist": [
     "Your name, department, role, and contact.",
@@ -688,7 +855,7 @@
       "title": "Jobs & Impact Dashboard",
       "menuPath": "Dashboard > Jobs & Impact",
       "route": "/jobs-dashboard",
-      "purpose": "Employment and beneficiary impact indicators."
+      "purpose": "Jobs created and beneficiary volumes linked to projects. For CIDP/ADP outcome achievement and community-benefit scorecards, also use Planning → CIDP / ADP Programme Progress (see Help module 17)."
     },
     {
       "title": "Regional Breakdown Dashboard",
@@ -1220,6 +1387,136 @@
       ],
       "tips": [
         "Portal workspace queues (Ward review, Chief approval, certificate steps) complement My Tasks — check both when relevant."
+      ]
+    },
+    {
+      "id": "measure-impact",
+      "title": "Measure project and programme impact",
+      "menuPath": "Planning → CIDP / ADP Programme Progress; Projects → Project Evaluation",
+      "route": "/planning/cidp-programme-progress",
+      "keywords": [
+        "impact",
+        "outcome",
+        "baseline",
+        "endline",
+        "programme progress",
+        "result level",
+        "benefit realized",
+        "community benefit",
+        "evaluation"
+      ],
+      "summary": "Track delivery progress and evaluate outcomes/impact using indicators, project evaluations, beneficiary outcome status, village community fields, and CIDP/ADP programme scorecards.",
+      "steps": [
+        "Set Result level on Planning → Indicators & KPIs (output / outcome / impact).",
+        "Record Project Evaluation lines with reporting period Baseline, Midline, or Endline.",
+        "Update Beneficiary Registry Outcome status when benefits are realized.",
+        "Complete Village Field Monitoring community benefit and access-improved questions.",
+        "Open Planning → CIDP Programme Progress or ADP Programme Progress to review Outcome ach. %, Benefit realized, and Community benefit alongside delivery metrics."
+      ],
+      "tips": [
+        "% complete is progress; Outcome ach. % and Benefit realized measure impact.",
+        "Link projects to programmes or scorecards will stay empty."
+      ],
+      "screenshots": [
+        "project-evaluation",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators"
+      ]
+    },
+    {
+      "id": "cidp-programme-progress",
+      "title": "CIDP Programme Progress",
+      "menuPath": "Planning → CIDP Programme Progress",
+      "route": "/planning/cidp-programme-progress",
+      "keywords": [
+        "cidp",
+        "programme progress",
+        "linkage",
+        "outcome",
+        "impact scorecard"
+      ],
+      "summary": "Programme roll-up of linked project budgets, progress, stalled projects, and impact scorecards.",
+      "steps": [
+        "Open Planning → CIDP Programme Progress (/planning/cidp-programme-progress).",
+        "Review projects, linkage %, avg progress, stalled, and budgets.",
+        "Read impact columns: Outcome ach. %, Outcome lines, Benefit realized, Community benefit.",
+        "Export Excel or PDF for leadership packs."
+      ],
+      "tips": [],
+      "screenshots": [
+        "cidp-programme-progress"
+      ]
+    },
+    {
+      "id": "adp-programme-progress",
+      "title": "ADP Programme Progress",
+      "menuPath": "Planning → ADP Programme Progress",
+      "route": "/planning/adp-programme-progress",
+      "keywords": [
+        "adp",
+        "programme progress",
+        "annual plan",
+        "outcome"
+      ],
+      "summary": "Annual Development Plan programme roll-up with delivery and impact scorecards.",
+      "steps": [
+        "Open Planning → ADP Programme Progress (/planning/adp-programme-progress).",
+        "Select the ADP plan / financial year.",
+        "Review ADP rows, registry links, budgets, progress, and impact columns."
+      ],
+      "tips": [],
+      "screenshots": [
+        "adp-programme-progress"
+      ]
+    },
+    {
+      "id": "project-evaluation",
+      "title": "Project Evaluation Workbench",
+      "menuPath": "Projects → Project Evaluation",
+      "route": "/project-evaluation",
+      "keywords": [
+        "evaluation",
+        "baseline",
+        "achieved",
+        "result level",
+        "midline",
+        "endline"
+      ],
+      "summary": "Structured evaluation lines per project for baseline/target/achieved performance by result level and reporting period.",
+      "steps": [
+        "Open Projects → Project Evaluation.",
+        "Select a project and add or edit an evaluation line.",
+        "Set reporting period and result level; save baseline, target, and achieved values."
+      ],
+      "tips": [
+        "Selecting a linked activity prefills baseline and target from Activity links."
+      ],
+      "screenshots": [
+        "project-evaluation"
+      ]
+    },
+    {
+      "id": "planning-indicators",
+      "title": "Indicators & KPIs (result levels)",
+      "menuPath": "Planning → Indicators & KPIs",
+      "route": "/planning/indicators",
+      "keywords": [
+        "indicator",
+        "kpi",
+        "result level",
+        "output",
+        "outcome",
+        "impact"
+      ],
+      "summary": "Catalogue of KPIs with measurement types and result levels used in evaluations and programme scorecards.",
+      "steps": [
+        "Open Planning → Indicators & KPIs (/planning/indicators).",
+        "Create or edit a KPI; set measurement type and Result level."
+      ],
+      "tips": [],
+      "screenshots": [
+        "planning-indicators"
       ]
     }
   ]

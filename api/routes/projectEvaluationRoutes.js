@@ -1,6 +1,10 @@
 const express = require('express');
 const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
+const {
+  ensureImpactSchema,
+  normalizeResultLevel,
+} = require('../services/impactOutcomesService');
 
 const router = express.Router();
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
@@ -35,6 +39,7 @@ async function ensureTable() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_evaluations_project ON project_evaluations(project_id)`);
     await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS evaluation_date DATE NULL`);
     await pool.query(`ALTER TABLE project_evaluations ADD COLUMN IF NOT EXISTS baseline_value NUMERIC NULL`);
+    await ensureImpactSchema();
   } else {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS project_evaluations (
@@ -80,6 +85,52 @@ function toNumOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function evalSelectCols() {
+  return `id, project_id AS "projectId",
+                evaluation_date AS "evaluationDate",
+                project_code AS "projectCode", project_name AS "projectName",
+                activity_code AS "activityCode", activity_name AS "activityName",
+                indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
+                baseline_value AS "baselineValue",
+                achieved_value AS "achievedValue", performance_score AS "performanceScore",
+                reporting_period AS "reportingPeriod",
+                result_level AS "resultLevel",
+                remarks,
+                created_at AS "createdAt", updated_at AS "updatedAt"`;
+}
+
+function evalSelectColsMysql() {
+  return `id, project_id AS projectId,
+              evaluation_date AS evaluationDate,
+              project_code AS projectCode, project_name AS projectName,
+              activity_code AS activityCode, activity_name AS activityName,
+              indicator_name AS indicatorName, milestone_value AS milestoneValue,
+              baseline_value AS baselineValue,
+              achieved_value AS achievedValue, performance_score AS performanceScore,
+              reporting_period AS reportingPeriod,
+              result_level AS resultLevel,
+              remarks,
+              created_at AS createdAt, updated_at AS updatedAt`;
+}
+
+function buildPayload(body) {
+  return {
+    projectCode: body.projectCode ?? body.project_code ?? null,
+    projectName: body.projectName ?? body.project_name ?? null,
+    activityCode: body.activityCode ?? body.activity_code ?? null,
+    activityName: body.activityName ?? body.activity_name ?? null,
+    indicatorName: body.indicatorName ?? body.indicator_name ?? null,
+    evaluationDate: body.evaluationDate ?? body.evaluation_date ?? null,
+    milestoneValue: toNumOrNull(body.milestoneValue ?? body.milestone_value),
+    baselineValue: toNumOrNull(body.baselineValue ?? body.baseline_value),
+    achievedValue: toNumOrNull(body.achievedValue ?? body.achieved_value),
+    performanceScore: toNumOrNull(body.performanceScore ?? body.performance_score),
+    reportingPeriod: body.reportingPeriod ?? body.reporting_period ?? null,
+    resultLevel: normalizeResultLevel(body.resultLevel ?? body.result_level, 'output'),
+    remarks: body.remarks != null ? String(body.remarks) : null,
+  };
+}
+
 router.use(async (_req, res, next) => {
   try {
     await ensureTable();
@@ -95,14 +146,7 @@ router.get('/evaluation', canAccess, async (req, res) => {
   try {
     if (isPostgres) {
       const r = await pool.query(
-        `SELECT id, project_id AS "projectId",
-                evaluation_date AS "evaluationDate",
-                project_code AS "projectCode", project_name AS "projectName",
-                activity_code AS "activityCode", activity_name AS "activityName",
-                indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
-                baseline_value AS "baselineValue",
-                achieved_value AS "achievedValue", performance_score AS "performanceScore",
-                created_at AS "createdAt", updated_at AS "updatedAt"
+        `SELECT ${evalSelectCols()}
          FROM project_evaluations
          WHERE project_id = $1 AND voided = false
          ORDER BY created_at ASC`,
@@ -111,14 +155,7 @@ router.get('/evaluation', canAccess, async (req, res) => {
       return res.json(r.rows || []);
     }
     const [rows] = await pool.query(
-      `SELECT id, project_id AS projectId,
-              evaluation_date AS evaluationDate,
-              project_code AS projectCode, project_name AS projectName,
-              activity_code AS activityCode, activity_name AS activityName,
-              indicator_name AS indicatorName, milestone_value AS milestoneValue,
-              baseline_value AS baselineValue,
-              achieved_value AS achievedValue, performance_score AS performanceScore,
-              created_at AS createdAt, updated_at AS updatedAt
+      `SELECT ${evalSelectColsMysql()}
        FROM project_evaluations
        WHERE project_id = ? AND voided = 0
        ORDER BY created_at ASC`,
@@ -133,32 +170,15 @@ router.get('/evaluation', canAccess, async (req, res) => {
 router.post('/evaluation', canWrite, async (req, res) => {
   const projectId = Number(req.body.projectId ?? req.body.project_id);
   if (!Number.isFinite(projectId)) return res.status(400).json({ message: 'projectId is required.' });
-  const payload = {
-    projectCode: req.body.projectCode ?? req.body.project_code ?? null,
-    projectName: req.body.projectName ?? req.body.project_name ?? null,
-    activityCode: req.body.activityCode ?? req.body.activity_code ?? null,
-    activityName: req.body.activityName ?? req.body.activity_name ?? null,
-    indicatorName: req.body.indicatorName ?? req.body.indicator_name ?? null,
-    evaluationDate: req.body.evaluationDate ?? req.body.evaluation_date ?? null,
-    milestoneValue: toNumOrNull(req.body.milestoneValue ?? req.body.milestone_value),
-    baselineValue: toNumOrNull(req.body.baselineValue ?? req.body.baseline_value),
-    achievedValue: toNumOrNull(req.body.achievedValue ?? req.body.achieved_value),
-    performanceScore: toNumOrNull(req.body.performanceScore ?? req.body.performance_score),
-  };
+  const payload = buildPayload(req.body);
   try {
     if (isPostgres) {
       const r = await pool.query(
         `INSERT INTO project_evaluations
-         (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, baseline_value, achieved_value, performance_score)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         RETURNING id, project_id AS "projectId",
-                   evaluation_date AS "evaluationDate",
-                   project_code AS "projectCode", project_name AS "projectName",
-                   activity_code AS "activityCode", activity_name AS "activityName",
-                   indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
-                   baseline_value AS "baselineValue",
-                   achieved_value AS "achievedValue", performance_score AS "performanceScore",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+         (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name,
+          milestone_value, baseline_value, achieved_value, performance_score, reporting_period, result_level, remarks)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         RETURNING ${evalSelectCols()}`,
         [
           projectId,
           payload.evaluationDate,
@@ -171,14 +191,18 @@ router.post('/evaluation', canWrite, async (req, res) => {
           payload.baselineValue,
           payload.achievedValue,
           payload.performanceScore,
+          payload.reportingPeriod,
+          payload.resultLevel,
+          payload.remarks,
         ]
       );
       return res.status(201).json(r.rows?.[0]);
     }
     const [ins] = await pool.query(
       `INSERT INTO project_evaluations
-       (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name, milestone_value, baseline_value, achieved_value, performance_score)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+       (project_id, evaluation_date, project_code, project_name, activity_code, activity_name, indicator_name,
+        milestone_value, baseline_value, achieved_value, performance_score, reporting_period, result_level, remarks)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         projectId,
         payload.evaluationDate,
@@ -191,17 +215,13 @@ router.post('/evaluation', canWrite, async (req, res) => {
         payload.baselineValue,
         payload.achievedValue,
         payload.performanceScore,
+        payload.reportingPeriod,
+        payload.resultLevel,
+        payload.remarks,
       ]
     );
     const [rows] = await pool.query(
-      `SELECT id, project_id AS projectId,
-              evaluation_date AS evaluationDate,
-              project_code AS projectCode, project_name AS projectName,
-              activity_code AS activityCode, activity_name AS activityName,
-              indicator_name AS indicatorName, milestone_value AS milestoneValue,
-              baseline_value AS baselineValue,
-              achieved_value AS achievedValue, performance_score AS performanceScore,
-              created_at AS createdAt, updated_at AS updatedAt
+      `SELECT ${evalSelectColsMysql()}
        FROM project_evaluations WHERE id = ?`,
       [ins.insertId]
     );
@@ -214,34 +234,17 @@ router.post('/evaluation', canWrite, async (req, res) => {
 router.put('/evaluation/:id', canWrite, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id.' });
-  const payload = {
-    projectCode: req.body.projectCode ?? req.body.project_code ?? null,
-    projectName: req.body.projectName ?? req.body.project_name ?? null,
-    activityCode: req.body.activityCode ?? req.body.activity_code ?? null,
-    activityName: req.body.activityName ?? req.body.activity_name ?? null,
-    indicatorName: req.body.indicatorName ?? req.body.indicator_name ?? null,
-    evaluationDate: req.body.evaluationDate ?? req.body.evaluation_date ?? null,
-    milestoneValue: toNumOrNull(req.body.milestoneValue ?? req.body.milestone_value),
-    baselineValue: toNumOrNull(req.body.baselineValue ?? req.body.baseline_value),
-    achievedValue: toNumOrNull(req.body.achievedValue ?? req.body.achieved_value),
-    performanceScore: toNumOrNull(req.body.performanceScore ?? req.body.performance_score),
-  };
+  const payload = buildPayload(req.body);
   try {
     if (isPostgres) {
       const r = await pool.query(
         `UPDATE project_evaluations
          SET project_code = $1, project_name = $2, activity_code = $3, activity_name = $4,
-             indicator_name = $5, evaluation_date = $6, milestone_value = $7, baseline_value = $8, achieved_value = $9, performance_score = $10,
-             updated_at = NOW()
-         WHERE id = $11 AND voided = false
-         RETURNING id, project_id AS "projectId",
-                   evaluation_date AS "evaluationDate",
-                   project_code AS "projectCode", project_name AS "projectName",
-                   activity_code AS "activityCode", activity_name AS "activityName",
-                   indicator_name AS "indicatorName", milestone_value AS "milestoneValue",
-                   baseline_value AS "baselineValue",
-                   achieved_value AS "achievedValue", performance_score AS "performanceScore",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+             indicator_name = $5, evaluation_date = $6, milestone_value = $7, baseline_value = $8,
+             achieved_value = $9, performance_score = $10, reporting_period = $11, result_level = $12,
+             remarks = $13, updated_at = NOW()
+         WHERE id = $14 AND voided = false
+         RETURNING ${evalSelectCols()}`,
         [
           payload.projectCode,
           payload.projectName,
@@ -253,6 +256,9 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
           payload.baselineValue,
           payload.achievedValue,
           payload.performanceScore,
+          payload.reportingPeriod,
+          payload.resultLevel,
+          payload.remarks,
           id,
         ]
       );
@@ -262,7 +268,9 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
     const [u] = await pool.query(
       `UPDATE project_evaluations
        SET project_code = ?, project_name = ?, activity_code = ?, activity_name = ?,
-           indicator_name = ?, evaluation_date = ?, milestone_value = ?, baseline_value = ?, achieved_value = ?, performance_score = ?, updated_at = NOW()
+           indicator_name = ?, evaluation_date = ?, milestone_value = ?, baseline_value = ?,
+           achieved_value = ?, performance_score = ?, reporting_period = ?, result_level = ?,
+           remarks = ?, updated_at = NOW()
        WHERE id = ? AND voided = 0`,
       [
         payload.projectCode,
@@ -275,20 +283,15 @@ router.put('/evaluation/:id', canWrite, async (req, res) => {
         payload.baselineValue,
         payload.achievedValue,
         payload.performanceScore,
+        payload.reportingPeriod,
+        payload.resultLevel,
+        payload.remarks,
         id,
       ]
     );
     if (!u.affectedRows) return res.status(404).json({ message: 'Evaluation row not found.' });
     const [rows] = await pool.query(
-      `SELECT id, project_id AS projectId,
-              evaluation_date AS evaluationDate,
-              project_code AS projectCode, project_name AS projectName,
-              activity_code AS activityCode, activity_name AS activityName,
-              indicator_name AS indicatorName, milestone_value AS milestoneValue,
-              baseline_value AS baselineValue,
-              achieved_value AS achievedValue, performance_score AS performanceScore,
-              created_at AS createdAt, updated_at AS updatedAt
-       FROM project_evaluations WHERE id = ?`,
+      `SELECT ${evalSelectColsMysql()} FROM project_evaluations WHERE id = ?`,
       [id]
     );
     res.json(rows?.[0]);
@@ -303,7 +306,7 @@ router.delete('/evaluation/:id', canWrite, async (req, res) => {
   try {
     if (isPostgres) {
       const r = await pool.query(
-        `UPDATE project_evaluations SET voided = true, updated_at = NOW() WHERE id = $1 AND voided = false`,
+        `UPDATE project_evaluations SET voided = true, updated_at = NOW() WHERE id = $1 AND voided = false RETURNING id`,
         [id]
       );
       if (!r.rowCount) return res.status(404).json({ message: 'Evaluation row not found.' });
@@ -316,7 +319,7 @@ router.delete('/evaluation/:id', canWrite, async (req, res) => {
     if (!u.affectedRows) return res.status(404).json({ message: 'Evaluation row not found.' });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ message: e.message || 'Failed to remove project evaluation row.' });
+    res.status(500).json({ message: e.message || 'Failed to delete project evaluation row.' });
   }
 });
 

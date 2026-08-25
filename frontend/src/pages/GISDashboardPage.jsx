@@ -13,14 +13,22 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { InfoWindowF, MarkerF, PolygonF } from '@react-google-maps/api';
+import { InfoWindowF, MarkerF, MarkerClustererF, PolygonF } from '@react-google-maps/api';
 import { useNavigate } from 'react-router-dom';
 import GoogleMapComponent from '../components/gis/GoogleMapComponent';
 import projectService from '../api/projectService';
 import { ROUTES } from '../configs/appConfig';
 import { getProjectWardKey, normalizeWardKey } from '../utils/projectWardKey';
+import { getProjectMapPoint } from '../utils/projectMapPoint';
+import { fetchMachakosGeojson } from '../utils/fetchMachakosGeojson';
 
 const MACHAKOS_CENTER = { lat: -1.277062, lng: 37.412018 };
+const CLUSTER_MARKER_THRESHOLD = 80;
+const CLUSTER_OPTIONS = {
+  gridSize: 48,
+  maxZoom: 12,
+  averageCenter: true,
+};
 
 const METRIC_LABELS = {
   count: 'Project count',
@@ -50,8 +58,6 @@ const formatMetricValue = (metricKey, values) => {
   return '—';
 };
 
-import { getProjectMapPoint } from '../utils/projectMapPoint';
-
 const geometryToGooglePaths = (geometry) => {
   if (!geometry?.type || !geometry?.coordinates) return [];
   if (geometry.type === 'Polygon') {
@@ -71,6 +77,7 @@ function GISDashboardPage() {
   const [constituencyGeo, setConstituencyGeo] = useState(null);
   const [wardGeo, setWardGeo] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [byWardRows, setByWardRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [metric, setMetric] = useState('count');
@@ -80,43 +87,56 @@ function GISDashboardPage() {
   const [mapBaseStyle, setMapBaseStyle] = useState('roadmap');
 
   useEffect(() => {
+    let cancelled = false;
     const loadData = async () => {
       setLoading(true);
       setError('');
       try {
-        const [countyRes, constituencyRes, wardRes, projectRows] = await Promise.all([
-          fetch('/gis/machakos/machakos-county.geojson'),
-          fetch('/gis/machakos/machakos-constituencies.geojson'),
-          fetch('/gis/machakos/machakos-wards.geojson'),
-          projectService.projects.getProjects(),
-        ]);
+        // Fast path: slim summary (projects + ward aggregates).
+        const summary = await projectService.projects.getGisSummary();
+        if (cancelled) return;
+        setProjects(Array.isArray(summary?.projects) ? summary.projects : []);
+        setByWardRows(Array.isArray(summary?.byWard) ? summary.byWard : []);
+        setLoading(false);
 
-        if (!countyRes.ok || !constituencyRes.ok || !wardRes.ok) {
-          throw new Error('Failed to load Machakos GIS boundary files.');
-        }
-
+        // Background: simplified boundaries (~380 KB vs ~4.8 MB full set).
         const [countyJson, constituencyJson, wardJson] = await Promise.all([
-          countyRes.json(),
-          constituencyRes.json(),
-          wardRes.json(),
+          fetchMachakosGeojson('machakos-county'),
+          fetchMachakosGeojson('machakos-constituencies'),
+          fetchMachakosGeojson('machakos-wards'),
         ]);
-
+        if (cancelled) return;
         setCountyGeo(countyJson);
         setConstituencyGeo(constituencyJson);
         setWardGeo(wardJson);
-        setProjects(Array.isArray(projectRows) ? projectRows : []);
       } catch (err) {
-        setError(err?.message || 'Failed to load GIS dashboard data.');
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setError(err?.message || 'Failed to load GIS dashboard data.');
+          setLoading(false);
+        }
       }
     };
 
     loadData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const wardMetrics = useMemo(() => {
     const aggregate = new Map();
+    if (byWardRows.length > 0) {
+      byWardRows.forEach((row) => {
+        const wardKey = normalizeWardKey(row.wardKey || row.wardDisplay);
+        if (!wardKey) return;
+        aggregate.set(wardKey, {
+          count: toNumber(row.count),
+          budget: toNumber(row.budget),
+          disbursed: toNumber(row.disbursed),
+        });
+      });
+      return aggregate;
+    }
     for (const project of projects) {
       const wardKey = getProjectWardKey(project);
       if (!wardKey) continue;
@@ -129,7 +149,7 @@ function GISDashboardPage() {
       entry.disbursed += toNumber(project?.paidOut || project?.disbursed || project?.amountPaid);
     }
     return aggregate;
-  }, [projects]);
+  }, [projects, byWardRows]);
 
   const maxMetric = useMemo(() => {
     let max = 0;
@@ -380,7 +400,24 @@ function GISDashboardPage() {
             </InfoWindowF>
           )}
 
-          {showMarkers === 'yes' && markers.map(({ project, point }) => (
+          {showMarkers === 'yes' && markers.length >= CLUSTER_MARKER_THRESHOLD && (
+            <MarkerClustererF options={CLUSTER_OPTIONS}>
+              {(clusterer) => (
+                <>
+                  {markers.map(({ project, point }) => (
+                    <MarkerF
+                      key={project.id || project.projectId || `${project.projectName}-${point.lat}-${point.lng}`}
+                      position={{ lat: point.lat, lng: point.lng }}
+                      clusterer={clusterer}
+                      onClick={() => setSelectedProject({ project, point })}
+                    />
+                  ))}
+                </>
+              )}
+            </MarkerClustererF>
+          )}
+
+          {showMarkers === 'yes' && markers.length < CLUSTER_MARKER_THRESHOLD && markers.map(({ project, point }) => (
             <MarkerF
               key={project.id || project.projectId || `${project.projectName}-${point.lat}-${point.lng}`}
               position={{ lat: point.lat, lng: point.lng }}

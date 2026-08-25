@@ -31,7 +31,7 @@ GREEN = RGBColor(0x2E, 0x7D, 0x32)
 SLATE = RGBColor(0x33, 0x33, 0x33)
 HEADER_FILL = "0D47A1"
 ALT_FILL = "E3F2FD"
-MANUAL_VERSION = "1.3"
+MANUAL_VERSION = "1.4"
 SCREENSHOT_WIDTH = 5.9
 
 # Module title prefix → screenshot basenames (without extension) under docs/manual-screenshots/
@@ -61,8 +61,28 @@ MODULE_SCREENSHOTS = {
         "my-tasks",
     ],
     "6. Projects Registry and implementation plans": ["projects-registry"],
-    "7. Project details, evaluation, and evidence": ["project-details"],
-    "8. Planning (CIDP, ADP, RRI, traceability)": ["rri-programmes"],
+    "7. Project details, evaluation, and evidence": [
+        "project-details",
+        "project-evaluation",
+    ],
+    "8. Planning (CIDP, ADP, RRI, traceability)": [
+        "rri-programmes",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators",
+    ],
+    "9. Data import, beneficiaries, and upload logs": ["beneficiary-outcome"],
+    "11. Monitoring, PMC, and field data collection": [
+        "03-village-workspace",
+        "village-community-impact",
+    ],
+    "17. Measuring project and programme impact": [
+        "project-evaluation",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators",
+        "beneficiary-outcome",
+    ],
     "10. Procurement and contractors": [
         "procurement-budget-items",
         "project-scope-setup",
@@ -117,6 +137,16 @@ TOPIC_SCREENSHOTS = {
     ],
     "rri-programmes": ["rri-programmes"],
     "my-tasks": ["my-tasks"],
+    "measure-impact": [
+        "project-evaluation",
+        "cidp-programme-progress",
+        "adp-programme-progress",
+        "planning-indicators",
+    ],
+    "cidp-programme-progress": ["cidp-programme-progress"],
+    "adp-programme-progress": ["adp-programme-progress"],
+    "project-evaluation": ["project-evaluation"],
+    "planning-indicators": ["planning-indicators"],
 }
 
 DEFAULT_CAPTIONS = {
@@ -148,6 +178,12 @@ DEFAULT_CAPTIONS = {
     "quotation-entry": "Contracted quotation vs planned",
     "rri-programmes": "RRI Programmes",
     "my-tasks": "My Tasks — escalations and workflow approvals",
+    "project-evaluation": "Project Evaluation — baseline, achieved, result level, reporting period",
+    "cidp-programme-progress": "CIDP Programme Progress — delivery and impact scorecard",
+    "adp-programme-progress": "ADP Programme Progress — delivery and impact scorecard",
+    "planning-indicators": "Planning Indicators & KPIs — result level (output / outcome / impact)",
+    "beneficiary-outcome": "Beneficiary Registry — outcome status",
+    "village-community-impact": "Village Field Monitoring — community benefit & access questions",
 }
 
 _embedded_screenshot_count = 0
@@ -157,6 +193,7 @@ SYSTEM_FLOW = [
     "Procurement",
     "Implementation tracking",
     "Monitoring & field data (incl. Village→Ward→Sub-county→Chief workspaces)",
+    "Impact & programme evaluation (indicators, evaluations, CIDP/ADP scorecards)",
     "Finance & certificates (incl. Resident→Chief Engineer→Co-Finance approval)",
     "Reporting & AI outputs",
     "Public transparency",
@@ -405,7 +442,7 @@ def cover_page(doc: Document) -> None:
     add_run_para(
         doc,
         "Printable staff guide — role workspaces, workflows, dashboards, finance,\n"
-        "monitoring, AI assistant, mobile field collection, reports & troubleshooting",
+        "impact & programme evaluation, monitoring, AI assistant, mobile, reports & troubleshooting",
         size=11,
         align=WD_ALIGN_PARAGRAPH.CENTER,
         italic=True,
@@ -462,8 +499,9 @@ def build_manual(kb: dict) -> Document:
         doc,
         "This manual is the printable edition of the in-system Help & Support guide for E-CIMES "
         "(Electronic County Integrated Monitoring and Evaluation System). It supports county staff "
-        "in planning, project management, procurement, monitoring, finance, reporting, and public "
-        "transparency workflows. After login, E-CIMES opens the workspace or dashboard that matches "
+        "in planning, project management, procurement, monitoring, impact and programme evaluation, "
+        "finance, reporting, and public transparency workflows. After login, E-CIMES opens the "
+        "workspace or dashboard that matches "
         "your role — for example Village M&E, Ward M&E, Resident Engineer, Co-Finance, Contractor, "
         "Summary Statistics, or Personal Dashboard.",
         space_after=8,
@@ -540,7 +578,8 @@ def build_manual(kb: dict) -> Document:
         doc.add_paragraph()
         add_run_para(doc, "How to use this area", bold=True, size=11, color=NAVY, space_after=4)
         add_bullets(doc, guide.get("steps", []))
-        add_screenshots(doc, MODULE_SCREENSHOTS.get(title))
+        stems = guide.get("screenshots") or MODULE_SCREENSHOTS.get(title)
+        add_screenshots(doc, stems)
         add_run_para(doc, "Good practice", bold=True, size=11, color=NAVY, space_after=4)
         add_bullets(doc, guide.get("tips", []))
         doc.add_paragraph()
@@ -574,7 +613,8 @@ def build_manual(kb: dict) -> Document:
         if topic.get("steps"):
             add_run_para(doc, "Steps", bold=True, size=11, color=NAVY, space_after=4)
             add_bullets(doc, topic["steps"])
-        add_screenshots(doc, TOPIC_SCREENSHOTS.get(topic.get("id", "")))
+        stems = topic.get("screenshots") or TOPIC_SCREENSHOTS.get(topic.get("id", ""))
+        add_screenshots(doc, stems)
         if topic.get("tips"):
             add_run_para(doc, "Tips", bold=True, size=11, color=NAVY, space_after=4)
             add_bullets(doc, topic["tips"])

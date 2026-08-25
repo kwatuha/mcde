@@ -192,7 +192,18 @@ router.post('/reports/:id/formatted-report', canWard, upload.single('file'), asy
 
 router.get('/reports/:id/formatted-report', canRead, async (req, res) => {
   try {
-    const meta = await workflow.getFormattedReportDownloadMeta(req.params.id, req.user);
+    const forceRegen = String(req.query.regenerate || '') === '1' || String(req.query.refresh || '') === '1';
+    const meta = await workflow.getFormattedReportDownloadMeta(req.params.id, req.user, {
+      preferLiveGenerated: true,
+      forceRegenerate: forceRegen,
+    });
+
+    if (meta?.buffer) {
+      res.setHeader('Content-Type', meta.mimeType || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${meta.fileName || 'monitoring-report.docx'}"`);
+      return res.send(meta.buffer);
+    }
+
     if (!meta?.filePath || !fs.existsSync(meta.filePath)) {
       return res.status(404).json({ message: 'Uploaded formatted report file not found on disk.' });
     }

@@ -23,6 +23,7 @@ import {
   getVisitDraft,
   savePendingSubmission,
   setCachedProjects,
+  setCachedTemplates,
   setVisitDraft,
 } from '../services/offlineStore';
 import { makeLocalId } from '../services/syncService';
@@ -91,6 +92,20 @@ const NewVisitScreen: React.FC = () => {
       }
       let tpl =
         cachedTemplates.find((t) => t.templateId === templateId) || null;
+      // Prefer live template when online so checklist changes apply without a full APK redeploy.
+      try {
+        const fresh = await apiService.getTemplate(templateId);
+        if (fresh?.templateId) {
+          tpl = fresh;
+          const nextCache = [
+            fresh,
+            ...cachedTemplates.filter((t) => t.templateId !== fresh.templateId),
+          ];
+          await setCachedTemplates(nextCache);
+        }
+      } catch {
+        // Offline / API failure — keep cached copy.
+      }
       if (!tpl) {
         tpl = await apiService.getTemplate(templateId);
       }

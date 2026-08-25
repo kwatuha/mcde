@@ -18,6 +18,7 @@ import {
   IconButton,
   Tooltip,
   Chip,
+  MenuItem,
 } from '@mui/material';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import SaveAltIcon from '@mui/icons-material/SaveAlt';
@@ -45,7 +46,28 @@ const emptyForm = () => ({
   milestoneValue: '',
   achievedValue: '',
   performanceScore: '',
+  reportingPeriod: '',
+  resultLevel: 'output',
+  remarks: '',
 });
+
+const RESULT_LEVEL_OPTIONS = [
+  { value: 'output', label: 'Output (delivery)' },
+  { value: 'outcome', label: 'Outcome (change for people)' },
+  { value: 'impact', label: 'Impact (longer-term effect)' },
+];
+
+const REPORTING_PERIOD_OPTIONS = [
+  'Baseline',
+  'Midline',
+  'Endline',
+  'Q1',
+  'Q2',
+  'Q3',
+  'Q4',
+  'Annual',
+  'Ad hoc',
+];
 
 function baselineFromLinkRow(activity) {
   if (!activity) return '';
@@ -302,6 +324,9 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
       achievedValue: row.achievedValue === '' || row.achievedValue == null ? '' : String(row.achievedValue),
       performanceScore:
         row.performanceScore === '' || row.performanceScore == null ? '' : String(row.performanceScore),
+      reportingPeriod: row.reportingPeriod ?? '',
+      resultLevel: row.resultLevel || 'output',
+      remarks: row.remarks ?? '',
     });
     setRowDialog({ open: true, editingId: row.id });
   }, []);
@@ -332,6 +357,9 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
         milestoneValue: form.milestoneValue === '' ? null : Number(form.milestoneValue),
         achievedValue: form.achievedValue === '' ? null : Number(form.achievedValue),
         performanceScore: form.performanceScore === '' ? null : Number(form.performanceScore),
+        reportingPeriod: form.reportingPeriod || null,
+        resultLevel: form.resultLevel || 'output',
+        remarks: form.remarks || null,
       };
       if (rowDialog.editingId != null) {
         await apiService.projects.updateProjectEvaluation(rowDialog.editingId, payload);
@@ -420,6 +448,24 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
       },
       { field: 'activityName', headerName: 'Activity name', minWidth: 130, flex: 0.9 },
       { field: 'indicatorName', headerName: 'Indicator (KPI)', minWidth: 150, flex: 1 },
+      {
+        field: 'resultLevel',
+        headerName: 'Level',
+        minWidth: 100,
+        flex: 0.45,
+        renderCell: (p) => {
+          const level = String(p.value || 'output');
+          const color = level === 'impact' ? 'secondary' : level === 'outcome' ? 'success' : 'default';
+          return <Chip size="small" label={level} color={color} variant={level === 'output' ? 'outlined' : 'filled'} />;
+        },
+      },
+      {
+        field: 'reportingPeriod',
+        headerName: 'Period',
+        minWidth: 100,
+        flex: 0.45,
+        renderCell: (p) => p.value || '—',
+      },
       {
         field: 'baselineValue',
         headerName: 'Baseline',
@@ -550,10 +596,13 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
           'PROJECT ACTIVITY CODE',
           'PROJECT ACTIVITY NAME',
           'PROJECT INDICATOR NAME',
+          'RESULT LEVEL',
+          'REPORTING PERIOD',
           'BASELINE VALUE',
           'MILESTONE VALUE',
           'ACHIEVED VALUE',
           'PERFORMANCE SCORE [%]',
+          'REMARKS',
         ],
       ];
       rows.forEach((r, i) => {
@@ -566,10 +615,13 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
           r.activityCode || '',
           r.activityName || '',
           r.indicatorName || '',
+          r.resultLevel || 'output',
+          r.reportingPeriod || '',
           r.baselineValue ?? '',
           r.milestoneValue ?? '',
           r.achievedValue ?? '',
           r.performanceScore ?? (computed == null ? '' : Number(computed.toFixed(1))),
+          r.remarks || '',
         ]);
       });
       const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -857,6 +909,7 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
                       indicatorName: activity.indicatorName != null && String(activity.indicatorName).trim()
                         ? activity.indicatorName
                         : f.indicatorName,
+                      resultLevel: activity.resultLevel || f.resultLevel || 'output',
                       baselineValue: baselineFromLinkRow(activity),
                       milestoneValue:
                         activity.targetValue != null && String(activity.targetValue).trim() !== ''
@@ -889,6 +942,7 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
                     setForm((f) => ({
                       ...f,
                       indicatorName: ind ? (ind.name ?? '') : '',
+                      resultLevel: ind?.resultLevel || f.resultLevel || 'output',
                     }));
                   }}
                   isOptionEqualToValue={(a, b) => a?.id === b?.id}
@@ -935,6 +989,35 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
               </>
             )}
             <TextField
+              select
+              label="Result level"
+              fullWidth
+              value={form.resultLevel || 'output'}
+              onChange={(e) => setForm((f) => ({ ...f, resultLevel: e.target.value }))}
+              helperText="Output = delivery; outcome/impact = change for people used in programme scorecards."
+            >
+              {RESULT_LEVEL_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Reporting period"
+              fullWidth
+              value={form.reportingPeriod || ''}
+              onChange={(e) => setForm((f) => ({ ...f, reportingPeriod: e.target.value }))}
+              helperText="Use Baseline / Midline / Endline for impact evaluation comparisons."
+            >
+              <MenuItem value="">—</MenuItem>
+              {REPORTING_PERIOD_OPTIONS.map((opt) => (
+                <MenuItem key={opt} value={opt}>
+                  {opt}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
               label="Baseline (snapshot from activity link)"
               fullWidth
               value={form.baselineValue}
@@ -962,6 +1045,14 @@ export default function ProjectEvaluationPage({ projectId: fixedProjectId = null
               value={form.performanceScore}
               onChange={(e) => setForm((f) => ({ ...f, performanceScore: e.target.value }))}
               helperText="Leave blank to compute from milestone and achieved values on export."
+            />
+            <TextField
+              label="Remarks (optional)"
+              fullWidth
+              multiline
+              minRows={2}
+              value={form.remarks}
+              onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))}
             />
           </Stack>
         </DialogContent>

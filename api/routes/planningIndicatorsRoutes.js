@@ -7,6 +7,10 @@ const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
 const orgScope = require('../services/organizationScopeService');
 const { isSuperAdminRequester } = require('../utils/roleUtils');
+const {
+  ensureImpactSchema,
+  normalizeResultLevel,
+} = require('../services/impactOutcomesService');
 
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -268,6 +272,7 @@ async function ensureTables() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await runSafe(`ALTER TABLE planning_indicators ADD COLUMN IF NOT EXISTS result_level TEXT NULL`);
     await runSafe(`
       CREATE TABLE IF NOT EXISTS planning_project_activities (
         id BIGSERIAL PRIMARY KEY,
@@ -1875,8 +1880,10 @@ router.delete('/measurement-types/:id', canWrite, async (req, res) => {
 router.get('/indicators', canRead, async (req, res) => {
   try {
     if (isPostgres) {
+      await ensureImpactSchema();
       const r = await pool.query(
         `SELECT i.id, i.name, i.description, i.measurement_type_id AS "measurementTypeId",
+                COALESCE(i.result_level, 'output') AS "resultLevel",
                 mt.code AS "measurementTypeCode", mt.label AS "measurementTypeLabel",
                 i.voided, i.created_at AS "createdAt", i.updated_at AS "updatedAt"
          FROM planning_indicators i
@@ -1888,6 +1895,7 @@ router.get('/indicators', canRead, async (req, res) => {
     }
     const [rows] = await pool.query(
       `SELECT i.id, i.name, i.description, i.measurement_type_id AS measurementTypeId,
+              COALESCE(i.result_level, 'output') AS resultLevel,
               mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel,
               i.voided, i.created_at AS createdAt, i.updated_at AS updatedAt
        FROM planning_indicators i
@@ -1905,15 +1913,19 @@ router.post('/indicators', canWrite, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const description = req.body.description != null ? String(req.body.description).trim() : null;
   const measurementTypeId = Number(req.body.measurementTypeId ?? req.body.measurement_type_id);
+  const resultLevel = normalizeResultLevel(req.body.resultLevel ?? req.body.result_level, 'output');
   if (!name) return res.status(400).json({ message: 'name is required.' });
   if (!Number.isFinite(measurementTypeId)) return res.status(400).json({ message: 'measurementTypeId is required.' });
   try {
     if (isPostgres) {
+      await ensureImpactSchema();
       const r = await pool.query(
-        `INSERT INTO planning_indicators (name, description, measurement_type_id)
-         VALUES ($1, $2, $3)
-         RETURNING id, name, description, measurement_type_id AS "measurementTypeId", voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [name, description, measurementTypeId]
+        `INSERT INTO planning_indicators (name, description, measurement_type_id, result_level)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, name, description, measurement_type_id AS "measurementTypeId",
+                   COALESCE(result_level, 'output') AS "resultLevel",
+                   voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [name, description, measurementTypeId, resultLevel]
       );
       const row = r.rows?.[0];
       const mt = firstRow(
@@ -1924,11 +1936,12 @@ router.post('/indicators', canWrite, async (req, res) => {
       return res.status(201).json({ ...row, ...mt });
     }
     const [ins] = await pool.query(
-      `INSERT INTO planning_indicators (name, description, measurement_type_id) VALUES (?,?,?)`,
-      [name, description, measurementTypeId]
+      `INSERT INTO planning_indicators (name, description, measurement_type_id, result_level) VALUES (?,?,?,?)`,
+      [name, description, measurementTypeId, resultLevel]
     );
     const [rows] = await pool.query(
       `SELECT i.id, i.name, i.description, i.measurement_type_id AS measurementTypeId,
+              COALESCE(i.result_level, 'output') AS resultLevel,
               mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel,
               i.voided, i.created_at AS createdAt, i.updated_at AS updatedAt
        FROM planning_indicators i
@@ -1948,15 +1961,20 @@ router.put('/indicators/:id', canWrite, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const description = req.body.description != null ? String(req.body.description).trim() : null;
   const measurementTypeId = Number(req.body.measurementTypeId ?? req.body.measurement_type_id);
+  const resultLevel = normalizeResultLevel(req.body.resultLevel ?? req.body.result_level, 'output');
   if (!name) return res.status(400).json({ message: 'name is required.' });
   if (!Number.isFinite(measurementTypeId)) return res.status(400).json({ message: 'measurementTypeId is required.' });
   try {
     if (isPostgres) {
+      await ensureImpactSchema();
       const r = await pool.query(
-        `UPDATE planning_indicators SET name = $1, description = $2, measurement_type_id = $3, updated_at = NOW()
-         WHERE id = $4 AND voided = false
-         RETURNING id, name, description, measurement_type_id AS "measurementTypeId", voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [name, description, measurementTypeId, id]
+        `UPDATE planning_indicators
+         SET name = $1, description = $2, measurement_type_id = $3, result_level = $4, updated_at = NOW()
+         WHERE id = $5 AND voided = false
+         RETURNING id, name, description, measurement_type_id AS "measurementTypeId",
+                   COALESCE(result_level, 'output') AS "resultLevel",
+                   voided, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [name, description, measurementTypeId, resultLevel, id]
       );
       if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
       const mt = firstRow(
@@ -1967,12 +1985,15 @@ router.put('/indicators/:id', canWrite, async (req, res) => {
       return res.json({ ...r.rows[0], ...mt });
     }
     const [u] = await pool.query(
-      `UPDATE planning_indicators SET name = ?, description = ?, measurement_type_id = ?, updated_at = NOW() WHERE id = ? AND voided = 0`,
-      [name, description, measurementTypeId, id]
+      `UPDATE planning_indicators
+       SET name = ?, description = ?, measurement_type_id = ?, result_level = ?, updated_at = NOW()
+       WHERE id = ? AND voided = 0`,
+      [name, description, measurementTypeId, resultLevel, id]
     );
     if (!u.affectedRows) return res.status(404).json({ message: 'Not found.' });
     const [rows] = await pool.query(
       `SELECT i.id, i.name, i.description, i.measurement_type_id AS measurementTypeId,
+              COALESCE(i.result_level, 'output') AS resultLevel,
               mt.code AS measurementTypeCode, mt.label AS measurementTypeLabel,
               i.voided, i.created_at AS createdAt, i.updated_at AS updatedAt
        FROM planning_indicators i

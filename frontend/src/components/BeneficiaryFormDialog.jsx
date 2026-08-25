@@ -125,7 +125,18 @@ const emptyForm = {
   sector: '',
   enrollmentDate: '',
   notes: '',
+  outcomeStatus: '',
+  outcomeNotes: '',
 };
+
+const OUTCOME_STATUS_OPTIONS = [
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'receiving_benefit', label: 'Receiving benefit' },
+  { value: 'benefit_realized', label: 'Benefit realized' },
+  { value: 'no_benefit', label: 'No benefit yet' },
+  { value: 'exited', label: 'Exited' },
+  { value: 'unknown', label: 'Unknown / not assessed' },
+];
 
 function optionLabel(option) {
   if (typeof option === 'string') return option;
@@ -180,6 +191,8 @@ export default function BeneficiaryFormDialog({ open, onClose, beneficiary, onSa
         sector: beneficiary.sector || '',
         enrollmentDate: beneficiary.enrollmentDate || '',
         notes: beneficiary.notes || '',
+        outcomeStatus: beneficiary.outcomeStatus || '',
+        outcomeNotes: beneficiary.outcomeNotes || '',
       });
     } else {
       setForm(emptyForm);
@@ -726,6 +739,31 @@ export default function BeneficiaryFormDialog({ open, onClose, beneficiary, onSa
                   }}
                 />
               )}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              select
+              fullWidth
+              sx={{ minWidth: 260 }}
+              label="Outcome status"
+              value={form.outcomeStatus}
+              onChange={handleChange('outcomeStatus')}
+              helperText="Track whether the intended benefit has been realized (for impact roll-ups)."
+            >
+              <MenuItem value="">—</MenuItem>
+              {OUTCOME_STATUS_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Outcome notes"
+              value={form.outcomeNotes}
+              onChange={handleChange('outcomeNotes')}
+              placeholder="Short note on benefit or reason not realized"
             />
           </Grid>
           <Grid item xs={12}>

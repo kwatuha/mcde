@@ -7,6 +7,13 @@ const COL = {
   rule: [222, 226, 230],
 };
 
+function photoList(value) {
+  if (!value || typeof value !== 'object') return [];
+  if (Array.isArray(value.photos)) return value.photos;
+  if (Array.isArray(value)) return value;
+  return [];
+}
+
 function normalizeAnswer(item, value) {
   if (value === null || value === undefined || value === '') return '—';
   if (item?.type === 'yes_no') {
@@ -14,15 +21,9 @@ function normalizeAnswer(item, value) {
     if (value === 'no') return 'No';
   }
   if (item?.type === 'photo') {
-    const photos = Array.isArray(value?.photos) ? value.photos : [];
+    const photos = photoList(value);
     if (!photos.length) return '—';
-    return photos
-      .map((p) => {
-        const name = p.fileName || 'Photo';
-        const geo = p.lat != null && p.lng != null ? ` (${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)})` : '';
-        return `${name}${geo}`;
-      })
-      .join('; ');
+    return `${photos.length} photo(s) attached`;
   }
   if (item?.type === 'location') {
     if (typeof value !== 'object') return '—';
@@ -32,9 +33,41 @@ function normalizeAnswer(item, value) {
     const acc = value.accuracy != null ? ` ±${Math.round(Number(value.accuracy))}m` : '';
     return `${lat.toFixed(6)}, ${lng.toFixed(6)}${acc}`;
   }
+  if (item?.type === 'project_milestones' || item?.type === 'project_bq_items' || item?.type === 'indicator') {
+    if (Array.isArray(value)) {
+      if (!value.length) return '—';
+      return value.map((e) => (typeof e === 'object' ? e.label || `#${e.id}` : String(e))).join('; ');
+    }
+    if (value && typeof value === 'object') return value.label || (value.id != null ? `#${value.id}` : '—');
+  }
   if (Array.isArray(value)) return value.join(', ') || '—';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function resolvePhotoUrl(url) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}${url.startsWith('/') ? url : `/${url}`}`;
+}
+
+async function fetchImageDataUrl(url) {
+  const resolved = resolvePhotoUrl(url);
+  if (!resolved) return null;
+  try {
+    const res = await fetch(resolved, { credentials: 'include' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function downloadMonitoringVisitPdf({ submission, template, projectName }) {
@@ -80,6 +113,31 @@ export async function downloadMonitoringVisitPdf({ submission, template, project
     y += 3;
   };
 
+  const writePhoto = async (photo) => {
+    const caption = [
+      photo?.fileName || 'Photo',
+      photo?.lat != null && photo?.lng != null
+        ? `GPS ${Number(photo.lat).toFixed(5)}, ${Number(photo.lng).toFixed(5)}`
+        : null,
+    ].filter(Boolean).join(' · ');
+    writeLabelValue('Photo', caption);
+    const dataUrl = await fetchImageDataUrl(photo?.url || photo?.filePath || photo?.path);
+    if (!dataUrl) {
+      writeLabelValue('Note', 'Image could not be loaded for embedding.');
+      return;
+    }
+    const imgW = Math.min(120, maxWidth);
+    const imgH = 90;
+    ensureSpace(imgH + 6);
+    try {
+      const format = dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(dataUrl, format, margin, y, imgW, imgH);
+      y += imgH + 6;
+    } catch {
+      writeLabelValue('Note', 'Image could not be embedded in PDF.');
+    }
+  };
+
   const hr = () => {
     ensureSpace(4);
     doc.setDrawColor(...COL.rule);
@@ -106,7 +164,8 @@ export async function downloadMonitoringVisitPdf({ submission, template, project
   if (!sections.length) {
     writeLabelValue('Notes', 'Template sections are not available for rendering.');
   } else {
-    sections.forEach((section, sIdx) => {
+    for (let sIdx = 0; sIdx < sections.length; sIdx += 1) {
+      const section = sections[sIdx];
       const items = Array.isArray(section?.items) ? section.items : [];
       ensureSpace(8);
       doc.setFont('helvetica', 'bold');
@@ -118,14 +177,24 @@ export async function downloadMonitoringVisitPdf({ submission, template, project
       if (!items.length) {
         writeLabelValue('Section note', 'No checklist items in this section.');
       } else {
-        items.forEach((item, iIdx) => {
+        for (let iIdx = 0; iIdx < items.length; iIdx += 1) {
+          const item = items[iIdx];
           const key = item?.id;
           const value = key ? submission?.answers?.[key] : undefined;
-          writeLabelValue(`${sIdx + 1}.${iIdx + 1} ${item?.label || key || 'Question'}`, normalizeAnswer(item, value));
-        });
+          if (item?.type === 'photo') {
+            writeLabelValue(`${sIdx + 1}.${iIdx + 1} ${item?.label || key || 'Question'}`, normalizeAnswer(item, value));
+            const photos = photoList(value);
+            for (const photo of photos) {
+              // eslint-disable-next-line no-await-in-loop
+              await writePhoto(photo);
+            }
+          } else {
+            writeLabelValue(`${sIdx + 1}.${iIdx + 1} ${item?.label || key || 'Question'}`, normalizeAnswer(item, value));
+          }
+        }
       }
       hr();
-    });
+    }
   }
 
   const fileName = `monitoring-visit-${submission?.submissionId || 'record'}.pdf`;

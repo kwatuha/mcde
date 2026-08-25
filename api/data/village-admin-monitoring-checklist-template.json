@@ -44,9 +44,10 @@
         "items": [
           {
             "id": "milestone_inspected",
-            "label": "Project milestone this visit relates to (loaded from project record)",
+            "label": "Work stages / milestones visible today (select all that apply — loaded from the project record)",
             "type": "project_milestones",
-            "required": false
+            "required": true,
+            "allowMultiple": true
           },
           {
             "id": "work_in_progress",
@@ -65,21 +66,6 @@
             "label": "Estimated physical progress (% complete)",
             "type": "number",
             "required": true
-          },
-          {
-            "id": "work_stages_seen",
-            "label": "Work stages visible today (select all that apply)",
-            "type": "multi_select",
-            "required": true,
-            "options": [
-              "Site clearance / earthworks",
-              "Foundations / substructure",
-              "Walls / roofing / main structure",
-              "Finishes (plaster, paint, fittings)",
-              "Utilities (water, power, drainage)",
-              "Equipment or furniture installed",
-              "No visible works yet"
-            ]
           },
           {
             "id": "implementation_status",
@@ -151,6 +137,24 @@
               "Concerns raised",
               "Not assessed"
             ]
+          },
+          {
+            "id": "community_benefit_realized",
+            "label": "Community reports a benefit from this project so far",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "community_access_improved",
+            "label": "Access to the intended service or facility has improved",
+            "type": "yes_no",
+            "required": true
+          },
+          {
+            "id": "community_impact_notes",
+            "label": "What change did community members describe (outcome / impact)",
+            "type": "textarea",
+            "required": false
           },
           {
             "id": "community_notes",

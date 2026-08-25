@@ -84,6 +84,7 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
                 l.cimes_project_code AS "sampleProjectCode", l.cimes_project_name AS "sampleProjectName",
                 a.activity_code AS "activityCode", a.activity_name AS "activityName",
                 i.name AS "indicatorName",
+                COALESCE(i.result_level, 'output') AS "resultLevel",
                 mt.label AS "measurementTypeLabel"
          FROM project_planning_activity_links l
          INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id AND a.voided = false
@@ -103,6 +104,7 @@ router.get('/:projectId/planning-catalog/activities', canRead, async (req, res) 
               l.cimes_project_code AS sampleProjectCode, l.cimes_project_name AS sampleProjectName,
               a.activity_code AS activityCode, a.activity_name AS activityName,
               i.name AS indicatorName,
+              COALESCE(i.result_level, 'output') AS resultLevel,
               mt.label AS measurementTypeLabel
        FROM project_planning_activity_links l
        INNER JOIN planning_project_activities a ON a.id = l.planning_activity_id AND a.voided = 0

@@ -11,6 +11,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
+const {
+  emptyImpactSummary,
+  summarizeImpactByGroup,
+} = require('../services/impactOutcomesService');
 
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -252,7 +256,27 @@ router.get('/cidp/programme-progress', requirePostgres, canRead, async (req, res
       `,
       [CIDP_CODE]
     );
-    res.json({ cidpCode: CIDP_CODE, rows: result.rows || [] });
+
+    const linkResult = await pool.query(
+      `
+      SELECT
+        CASE
+          WHEN COALESCE(p.notes->>'program_id', '') ~ '^[0-9]+$' THEN (p.notes->>'program_id')::bigint
+          ELSE NULL
+        END AS key,
+        p.project_id AS "projectId"
+      FROM projects p
+      WHERE COALESCE(p.voided, false) = false
+        AND COALESCE(p.notes->>'program_id', '') ~ '^[0-9]+$'
+      `
+    );
+    const impactByProgram = await summarizeImpactByGroup(linkResult.rows || []);
+    const rows = (result.rows || []).map((row) => ({
+      ...row,
+      impact: impactByProgram[String(row.programId)] || emptyImpactSummary(),
+    }));
+
+    res.json({ cidpCode: CIDP_CODE, rows });
   } catch (e) {
     console.error('CIDP programme progress failed:', e);
     res.status(500).json({ message: 'Failed to load CIDP programme progress.', error: e.message });

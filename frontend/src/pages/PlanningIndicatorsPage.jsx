@@ -131,7 +131,7 @@ function PlanningIndicatorsPage() {
   const [mtForm, setMtForm] = useState({ code: '', label: '', description: '' });
 
   const [indDialog, setIndDialog] = useState({ open: false, editing: null });
-  const [indForm, setIndForm] = useState({ name: '', description: '', measurementTypeId: '' });
+  const [indForm, setIndForm] = useState({ name: '', description: '', measurementTypeId: '', resultLevel: 'output' });
 
   const openCreateMt = () => {
     setMtForm({ code: '', label: '', description: '' });
@@ -191,7 +191,12 @@ function PlanningIndicatorsPage() {
 
   const openCreateInd = () => {
     const firstId = measurementTypes[0]?.id;
-    setIndForm({ name: '', description: '', measurementTypeId: firstId != null ? String(firstId) : '' });
+    setIndForm({
+      name: '',
+      description: '',
+      measurementTypeId: firstId != null ? String(firstId) : '',
+      resultLevel: 'output',
+    });
     setIndDialog({ open: true, editing: null });
   };
   const openEditInd = (row) => {
@@ -199,6 +204,7 @@ function PlanningIndicatorsPage() {
       name: row.name,
       description: row.description || '',
       measurementTypeId: String(row.measurementTypeId ?? row.measurement_type_id ?? ''),
+      resultLevel: row.resultLevel || 'output',
     });
     setIndDialog({ open: true, editing: row });
   };
@@ -221,6 +227,7 @@ function PlanningIndicatorsPage() {
           name: indForm.name.trim(),
           description: indForm.description.trim() || null,
           measurementTypeId,
+          resultLevel: indForm.resultLevel || 'output',
         });
         setMessage('KPI / indicator updated.');
       } else {
@@ -228,6 +235,7 @@ function PlanningIndicatorsPage() {
           name: indForm.name.trim(),
           description: indForm.description.trim() || null,
           measurementTypeId,
+          resultLevel: indForm.resultLevel || 'output',
         });
         setMessage('KPI / indicator created.');
       }
@@ -283,6 +291,12 @@ function PlanningIndicatorsPage() {
 
   const indColumns = [
     { field: 'name', headerName: 'KPI / indicator', flex: 1, minWidth: 200 },
+    {
+      field: 'resultLevel',
+      headerName: 'Result level',
+      width: 120,
+      valueGetter: (_v, row) => row.resultLevel || 'output',
+    },
     { field: 'measurementTypeLabel', headerName: 'Measurement type', width: 180 },
     { field: 'description', headerName: 'Description', flex: 1.2, minWidth: 200 },
     {
@@ -524,6 +538,19 @@ function PlanningIndicatorsPage() {
                   {t.label} ({t.code})
                 </MenuItem>
               ))}
+            </TextField>
+            <TextField
+              select
+              label="Result level"
+              required
+              fullWidth
+              value={indForm.resultLevel || 'output'}
+              onChange={(e) => setIndForm((p) => ({ ...p, resultLevel: e.target.value }))}
+              helperText="Output = what was delivered; outcome/impact = change for people used in programme evaluation."
+            >
+              <MenuItem value="output">Output</MenuItem>
+              <MenuItem value="outcome">Outcome</MenuItem>
+              <MenuItem value="impact">Impact</MenuItem>
             </TextField>
             <TextField
               label="Description"

@@ -1,4 +1,8 @@
 const pool = require('../config/db');
+const {
+  ensureImpactSchema,
+  normalizeOutcomeStatus,
+} = require('./impactOutcomesService');
 
 const BENEFICIARY_TYPES = ['individual', 'group', 'household', 'institution'];
 
@@ -272,6 +276,7 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await ensureImpactSchema();
 }
 
 async function tableExists() {
@@ -309,6 +314,9 @@ function mapRow(row) {
     sector: row.sector,
     enrollmentDate: row.enrollment_date,
     notes: row.notes,
+    outcomeStatus: row.outcome_status || null,
+    outcomeNotes: row.outcome_notes || null,
+    outcomeUpdatedAt: row.outcome_updated_at || null,
     attributes: row.attributes || {},
     legacyIndividualId: row.legacy_individual_id,
     createdAt: row.created_at,
@@ -475,6 +483,8 @@ async function upsertBeneficiaryRecord(input, userId = null) {
     sector: textOrNull(mapped.sector),
     enrollment_date: mapped.enrollmentDate || null,
     notes: textOrNull(mapped.notes),
+    outcome_status: normalizeOutcomeStatus(mapped.outcomeStatus ?? mapped.outcome_status),
+    outcome_notes: textOrNull(mapped.outcomeNotes ?? mapped.outcome_notes),
     legacy_individual_id: mapped.legacyIndividualId != null ? parseIntOrNull(mapped.legacyIndividualId) : null,
     created_by: userId,
   };
@@ -512,6 +522,11 @@ async function upsertBeneficiaryRecord(input, userId = null) {
         group_type = $12, member_count = $13, lead_contact_name = $14, lead_contact_phone = $15,
         county = $16, subcounty = $17, ward = $18, village = $19, project_id = $20,
         rri_programme_id = $21, rri_site_id = $22, sector = $23, enrollment_date = $24, notes = $25,
+        outcome_status = $26, outcome_notes = $27,
+        outcome_updated_at = CASE
+          WHEN $26 IS DISTINCT FROM outcome_status OR $27 IS DISTINCT FROM outcome_notes THEN NOW()
+          ELSE outcome_updated_at
+        END,
         updated_at = NOW(), voided = false
       WHERE beneficiary_id = $1
       `,
@@ -524,6 +539,7 @@ async function upsertBeneficiaryRecord(input, userId = null) {
         payload.county, payload.subcounty, payload.ward, payload.village,
         payload.project_id, payload.rri_programme_id, payload.rri_site_id,
         payload.sector, payload.enrollment_date, payload.notes,
+        payload.outcome_status, payload.outcome_notes,
       ]
     );
     return { beneficiaryId: existing.beneficiary_id, updated: true };
@@ -544,9 +560,12 @@ async function upsertBeneficiaryRecord(input, userId = null) {
       beneficiary_type, registry_code, display_name, first_name, last_name, gender, age,
       id_number, phone, email, group_type, member_count, lead_contact_name, lead_contact_phone,
       county, subcounty, ward, village, project_id, rri_programme_id, rri_site_id,
-      sector, enrollment_date, notes, legacy_individual_id, created_by
+      sector, enrollment_date, notes, outcome_status, outcome_notes, outcome_updated_at,
+      legacy_individual_id, created_by
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,
+      CASE WHEN $25 IS NOT NULL OR $26 IS NOT NULL THEN NOW() ELSE NULL END,
+      $27,$28
     )
     RETURNING beneficiary_id
     `,
@@ -558,6 +577,7 @@ async function upsertBeneficiaryRecord(input, userId = null) {
       payload.county, payload.subcounty, payload.ward, payload.village,
       payload.project_id, payload.rri_programme_id, payload.rri_site_id,
       payload.sector, payload.enrollment_date, payload.notes,
+      payload.outcome_status, payload.outcome_notes,
       payload.legacy_individual_id, payload.created_by,
     ]
   );

@@ -4,6 +4,10 @@ const pool = require('../config/db');
 const privilege = require('../middleware/privilegeMiddleware');
 const orgScope = require('../services/organizationScopeService');
 const { isSuperAdminRequester } = require('../utils/roleUtils');
+const {
+  emptyImpactSummary,
+  summarizeImpactByGroup,
+} = require('../services/impactOutcomesService');
 
 const DB_TYPE = process.env.DB_TYPE || 'mysql';
 const isPostgres = DB_TYPE === 'postgresql';
@@ -299,9 +303,38 @@ router.get('/programme-progress', canRead, async (req, res) => {
       params
     );
 
+    const linkParams = [];
+    let linkPlanFilter = '';
+    if (adpCode) {
+      linkParams.push(adpCode);
+      linkPlanFilter = `AND ap.adp_code = $${linkParams.length}`;
+    }
+    const linkResult = await pool.query(
+      `
+      SELECT
+        adpp.adp_programme_id AS key,
+        l.project_id AS "projectId"
+      FROM adp_projects adpp
+      INNER JOIN adp_plans ap ON ap.id = adpp.adp_plan_id
+      INNER JOIN adp_project_links l
+        ON l.adp_project_id = adpp.id
+       AND COALESCE(l.voided, false) = false
+      WHERE COALESCE(adpp.voided, false) = false
+        AND COALESCE(ap.voided, false) = false
+        AND l.project_id IS NOT NULL
+        ${linkPlanFilter}
+      `,
+      linkParams
+    );
+    const impactByProgramme = await summarizeImpactByGroup(linkResult.rows || []);
+    const rows = (result.rows || []).map((row) => ({
+      ...row,
+      impact: impactByProgramme[String(row.programmeId)] || emptyImpactSummary(),
+    }));
+
     res.json({
       adpCode: adpCode || null,
-      rows: result.rows || [],
+      rows,
     });
   } catch (error) {
     console.error('ADP programme progress failed:', error);

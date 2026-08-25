@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import helpKb from '../data/help-knowledge-base.json';
+import { helpScreenshotCaption, helpScreenshotSrc } from '../utils/helpScreenshotCaptions';
 
 const {
   moduleGuides = [],
@@ -46,6 +47,65 @@ const renderList = (items) => (
   </List>
 );
 
+function HelpScreenshots({ stems = [], maxVisible = 6 }) {
+  const list = (Array.isArray(stems) ? stems : []).slice(0, maxVisible);
+  if (!list.length) return null;
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+        Screenshots
+      </Typography>
+      <Grid container spacing={1.5}>
+        {list.map((stem) => (
+          <Grid item xs={12} sm={6} md={4} key={stem}>
+            <Paper
+              variant="outlined"
+              component="figure"
+              sx={{ m: 0, p: 1, height: '100%', bgcolor: 'background.default' }}
+            >
+              <Box
+                component="img"
+                src={helpScreenshotSrc(stem)}
+                alt={helpScreenshotCaption(stem)}
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  const note = e.currentTarget.nextElementSibling;
+                  if (note) note.style.display = 'block';
+                }}
+                sx={{
+                  width: '100%',
+                  height: 'auto',
+                  maxHeight: 220,
+                  objectFit: 'contain',
+                  display: 'block',
+                  borderRadius: 1,
+                  bgcolor: 'common.white',
+                }}
+              />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'none', py: 2, textAlign: 'center' }}
+              >
+                Screenshot pending capture: {stem}
+              </Typography>
+              <Typography
+                component="figcaption"
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.75, textAlign: 'center' }}
+              >
+                {helpScreenshotCaption(stem)}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+}
+
 const HelpSupportPage = () => {
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -64,15 +124,15 @@ const HelpSupportPage = () => {
         </Typography>
         <Typography variant="body1" sx={{ maxWidth: 980, opacity: 0.95 }}>
           Self-service guide for the Machakos County Integrated Project, Performance and Reporting
-          Management System — workflows, dashboards, finance certificates, AI assistant, mobile field
-          collection, reports, troubleshooting, and ICT escalation.
+          Management System — workflows, dashboards, finance certificates, impact &amp; programme
+          evaluation, AI assistant, mobile field collection, reports, troubleshooting, and ICT escalation.
         </Typography>
       </Paper>
 
       <Alert severity="info" sx={{ mb: 3 }}>
         The system is role-based. If a screen, button, project, or report is missing, confirm your role,
         permissions, organisation scope, and active filters. The AI Assistant (sparkle button) also uses
-        this manual for navigation questions.
+        this manual for navigation questions. Expand module guides to see screenshots where available.
       </Alert>
 
       <Grid container spacing={2.5}>
@@ -92,6 +152,7 @@ const HelpSupportPage = () => {
                   'Procurement',
                   'Implementation tracking',
                   'Monitoring & field data',
+                  'Impact & programme evaluation',
                   'Finance & certificates',
                   'Reporting & AI outputs',
                   'Public transparency',
@@ -173,11 +234,16 @@ const HelpSupportPage = () => {
                 Module-by-Module Self Guide
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Expand a section for purpose, route, steps, and good practice. Updated for AI assistant,
-                CIMES Mobile, PMC, certificates (including QR verification), and expanded dashboards.
+                Expand a section for purpose, route, steps, screenshots, and good practice. Updated for
+                impact measurement, CIDP/ADP programme progress, AI assistant, CIMES Mobile, PMC,
+                certificates (including QR verification), and expanded dashboards.
               </Typography>
               {moduleGuides.map((guide, index) => (
-                <Accordion key={guide.title} defaultExpanded={index < 2} disableGutters>
+                <Accordion
+                  key={guide.title}
+                  defaultExpanded={index < 2 || String(guide.title).startsWith('17.')}
+                  disableGutters
+                >
                   <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                     <Box sx={{ width: '100%' }}>
                       <Stack
@@ -211,6 +277,7 @@ const HelpSupportPage = () => {
                         {renderList(guide.tips)}
                       </Grid>
                     </Grid>
+                    <HelpScreenshots stems={guide.screenshots} />
                   </AccordionDetails>
                 </Accordion>
               ))}

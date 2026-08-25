@@ -714,6 +714,7 @@ export default function ChecklistFormFields({
 
   useEffect(() => {
     if (disabled || !user || typeof onChange !== 'function') return;
+    if (!structure?.sections?.length) return;
     const auto = buildUserFieldAnswer(user);
     if (!auto) return;
     let changed = false;
@@ -734,6 +735,7 @@ export default function ChecklistFormFields({
 
   const setField = (id, v) => {
     if (disabled || typeof onChange !== 'function') return;
+    if (!structure?.sections?.length) return;
     const next = stripHiddenAnswers(structure, { ...answers, [id]: v });
     onChange(next);
   };

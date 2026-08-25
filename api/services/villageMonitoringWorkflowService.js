@@ -1353,7 +1353,7 @@ async function attachFormattedReport(submissionId, user, fileMeta = {}) {
   return getSubmissionById(submissionId, user);
 }
 
-async function getFormattedReportDownloadMeta(submissionId, user) {
+async function getFormattedReportDownloadMeta(submissionId, user, opts = {}) {
   const submission = await getSubmissionById(submissionId, user);
   if (!submission) {
     const err = new Error('Monitoring report not found.');
@@ -1372,6 +1372,42 @@ async function getFormattedReportDownloadMeta(submissionId, user) {
     `,
     [Number(submissionId)]
   ));
+
+  let latestActionType = null;
+  try {
+    const actionRows = await pool.query(
+      `
+      SELECT action_type AS "actionType"
+      FROM data_collection_submission_actions
+      WHERE submission_id = $1
+        AND action_type IN ('formatted_report_generated', 'formatted_report_uploaded')
+      ORDER BY action_id DESC
+      LIMIT 1
+      `,
+      [Number(submissionId)]
+    );
+    latestActionType = actionRows.rows?.[0]?.actionType || null;
+  } catch {
+    latestActionType = null;
+  }
+
+  const wardUploaded = latestActionType === 'formatted_report_uploaded';
+  const shouldRegenerate = !wardUploaded && (opts.preferLiveGenerated || opts.forceRegenerate || !row?.filePath);
+
+  if (shouldRegenerate) {
+    const exported = await exportReportWord(submissionId, user);
+    try {
+      await storeGeneratedFormattedReport(submissionId, user, exported.buffer, exported.filename);
+    } catch (e) {
+      console.warn('[monitoring_workflow] regenerate store on download:', e.message);
+    }
+    return {
+      fileName: exported.filename,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: exported.buffer,
+      filePath: null,
+    };
+  }
 
   if (!row?.filePath) {
     const err = new Error('No formatted Word report has been uploaded for this monitoring visit yet.');

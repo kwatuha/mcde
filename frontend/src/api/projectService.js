@@ -156,6 +156,14 @@ const projectService = {
       const response = await axiosInstance.get(url);
       return response.data;
     },
+    /**
+     * Lightweight GIS payload (slim columns + ward aggregates). Prefer this over
+     * getProjects({ limit: 5000 }) for map/heat pages.
+     */
+    getGisSummary: async () => {
+      const response = await axiosInstance.get('/projects/gis-summary');
+      return response.data;
+    },
     /** Planning activity catalog rows linked to a project */
     getPlanningCatalogActivityLinks: async (projectId) => {
       const { data } = await axiosInstance.get(`/projects/${projectId}/planning-catalog/activities`);

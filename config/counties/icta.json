@@ -1,0 +1,70 @@
+{
+  "tenantType": "ministry",
+  "county": {
+    "code": "ICTA",
+    "name": "ICTA",
+    "displayName": "ICT Authority"
+  },
+  "database": {
+    "name": "ictadb",
+    "seedFile": "api/init.sql"
+  },
+  "docker": {
+    "ports": {
+      "nginx": 8285,
+      "frontend": 5380,
+      "publicDashboard": 5381,
+      "api": 3121,
+      "postgres": 5434
+    },
+    "containers": {
+      "nginx": "icta_nginx_proxy",
+      "frontend": "icta_react_frontend",
+      "publicDashboard": "icta_public_dashboard",
+      "api": "icta_node_api"
+    }
+  },
+  "organization": {
+    "name": "ICT Authority",
+    "contact": {
+      "email": "info@icta.go.ke",
+      "phone": "+254-20-221-1960",
+      "address": "Telposta Towers, Kenyatta Avenue, Nairobi",
+      "website": "https://www.icta.go.ke"
+    }
+  },
+  "branding": {
+    "systemName": "Kenya Digital Skills Monitoring System",
+    "systemAcronym": "KDSMS",
+    "productName": "KDSMS",
+    "productSubtitle": "Nationwide Digital Skills Training & Employment Monitoring",
+    "publicPortalName": "Kenya Digital Skills Public Portal",
+    "loginTitle": "ICT Authority",
+    "loginSubtitle": "Kenya Digital Skills Monitoring System",
+    "republicLine": "REPUBLIC OF KENYA",
+    "logo": {
+      "admin": "assets/tenants/icta/logo.png",
+      "public": "assets/tenants/icta/logo.png"
+    }
+  },
+  "labels": {
+    "department": "Directorate",
+    "section": "Unit",
+    "directorate": "Directorate",
+    "project": "Training Programme",
+    "subcounty": "County",
+    "ward": "Sub-County",
+    "program": "Skills Programme",
+    "subprogram": "Course / Skill Track"
+  },
+  "features": {
+    "departments": true,
+    "sections": true,
+    "directorates": true,
+    "projects": true,
+    "subcounties": true,
+    "wards": true,
+    "programs": true,
+    "subprograms": true
+  }
+}
